@@ -21,9 +21,12 @@ interface Props {
   onClearTag?: () => void;
   onNavigate: (id: string) => void;
   onCreate: () => void;
+  // Inside the phone's drawer: no column of its own and no scroller of its
+  // own, the drawer already scrolls.
+  inline?: boolean;
 }
 
-export default function NotesList({ pages, currentWs, activeId, tagColors, tagFilter, onClearTag, onNavigate, onCreate }: Props) {
+export default function NotesList({ pages, currentWs, activeId, tagColors, tagFilter, onClearTag, onNavigate, onCreate, inline = false }: Props) {
   const [list, setList] = useState<'all' | 'untagged'>('all');
 
   const notes = useMemo(() => {
@@ -45,7 +48,7 @@ export default function NotesList({ pages, currentWs, activeId, tagColors, tagFi
   }, [pages, currentWs, list, tagFilter]);
 
   return (
-    <div className="notes-list">
+    <div className={'notes-list' + (inline ? ' notes-list--inline' : '')}>
       <div className="notes-head">
         <span className="notes-title">{t('Notes')}</span>
         <span className="notes-count">{notes.length}</span>

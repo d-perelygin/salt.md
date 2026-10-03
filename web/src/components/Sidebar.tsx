@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { api } from '../api';
 import type { FontPref } from '../App';
 import type { PageMeta, User, Workspace } from '../types';
@@ -67,6 +67,9 @@ interface Props {
   // documents appear, so the sidebar drops its document tree and its tag chips
   // filter THAT list instead of the tree.
   notesMode?: boolean;
+  // On a phone there is no middle column, so the notes list comes into the
+  // drawer itself, where the document tree would otherwise be.
+  notesList?: React.ReactNode;
   activeTag?: string | null;
   onSelectTag?: (tag: string | null) => void;
   // Raw user setting (independent of viewport) + toggle, shown in the UserMenu.
@@ -127,6 +130,12 @@ interface TreeCtx {
   drop: (p: PageMeta, e: React.DragEvent) => void;
   dragEnd: () => void;
 }
+
+// The children of an open row hang on a hairline through the middle of its
+// chevron, so a group reads as one at a glance (theme.css draws it from
+// --guide). A row's left padding is 6 + 14 per level and its chevron 22 wide,
+// so that middle sits at 17 + 14 per level.
+const guideAt = (depth: number) => ({ '--guide': `${17 + depth * 14}px` }) as CSSProperties;
 
 // DbRows lazily loads and lists a database's rows when it is expanded in the
 // tree — Notion-style "open a database to see its entries". A row that carries
@@ -202,7 +211,7 @@ function DbRows({
         return (
           <div key={r.id}>
             <div
-              className="tree-db-row"
+              className={'tree-db-row' + (r.id === ctx.currentId ? ' active' : '')}
               style={pad}
               {...navItem(r.id)}
               data-expanded={kids.length > 0 ? (isOpen ? 'true' : 'false') : undefined}
@@ -216,12 +225,14 @@ function DbRows({
               {kids.length > 0 ? (
                 <button
                   className="chevron"
+                  aria-expanded={isOpen}
+                  aria-label={isOpen ? t('Collapse') : t('Expand')}
                   onClick={(e) => {
                     e.stopPropagation();
                     ctx.toggleExpand(r.id);
                   }}
                 >
-                  {isOpen ? '▾' : '▸'}
+                  <ChevronRight size={14} />
                 </button>
               ) : (
                 <span className="chevron spacer" />
@@ -238,7 +249,11 @@ function DbRows({
                   to open it first and hope its own menu had what you wanted. */}
               <RowActions id={r.id} title={r.title} parentId={collectionId} workspaceId={workspaceId} ctx={ctx} />
             </div>
-            {isOpen && kids.map((k) => <TreeItem key={k.id} p={k} depth={depth + 1} ctx={ctx} section="dbs" />)}
+            {isOpen && (
+              <div className="tree-children" style={guideAt(depth)}>
+                {kids.map((k) => <TreeItem key={k.id} p={k} depth={depth + 1} ctx={ctx} section="dbs" />)}
+              </div>
+            )}
           </div>
         );
       })}
@@ -316,7 +331,7 @@ function SidebarSection({
           <span className="sb-section-label">{label}</span>
           <span className="sb-section-count">{count}</span>
           <span className="sb-section-caret">
-            {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            <ChevronRight size={15} />
           </span>
         </button>
         {onCreate && (
@@ -661,12 +676,14 @@ function TreeItem({
         {hasExpand ? (
           <button
             className="chevron"
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? t('Collapse') : t('Expand')}
             onClick={(e) => {
               e.stopPropagation();
               ctx.toggleExpand(p.id);
             }}
           >
-            {isExpanded ? '▾' : '▸'}
+            <ChevronRight size={14} />
           </button>
         ) : (
           <span className="chevron spacer" />
@@ -698,10 +715,15 @@ function TreeItem({
           )}
         </span>
       </div>
-      {isExpanded && isDb && <DbRows collectionId={p.id} workspaceId={p.workspaceId} depth={depth + 1} ctx={ctx} />}
-      {isExpanded &&
-        !isDb &&
-        kids.map((k) => <TreeItem key={k.id} p={k} depth={depth + 1} ctx={ctx} section={section} />)}
+      {isExpanded && (
+        <div className="tree-children" style={guideAt(depth)}>
+          {isDb ? (
+            <DbRows collectionId={p.id} workspaceId={p.workspaceId} depth={depth + 1} ctx={ctx} />
+          ) : (
+            kids.map((k) => <TreeItem key={k.id} p={k} depth={depth + 1} ctx={ctx} section={section} />)
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -736,6 +758,7 @@ export default function Sidebar({
   onSetTheme,
   onLogout,
   notesMode = false,
+  notesList,
   activeTag = null,
   onSelectTag,
   notesModeSetting = false,
@@ -1415,6 +1438,7 @@ export default function Sidebar({
         </div>
       ) : (
         <div className="tree">
+          {notesList}
           {/* In notes mode the middle column IS the document list — repeating
               the tree here would be pure duplication (user feedback W58). */}
           {!notesMode && (

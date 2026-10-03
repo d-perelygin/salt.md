@@ -80,6 +80,7 @@ export default function Editor(props: EditorProps) {
     setStructureOpen(on);
     setStructurePanelOpen(on);
     if (on) {
+      arrive();
       setCommentsOpen(false);
       setCommentsPanelOpen(false);
     }
@@ -88,6 +89,7 @@ export default function Editor(props: EditorProps) {
     setCommentsOpen(on);
     setCommentsPanelOpen(on);
     if (on) {
+      arrive();
       setStructureOpen(false);
       setStructurePanelOpen(false);
     }
@@ -107,6 +109,35 @@ export default function Editor(props: EditorProps) {
       showComments(!commentsOpen);
     },
   });
+
+  // A panel the reader just opened slides in. One that is simply still open
+  // when the next page loads does not, or every click in the tree would set
+  // it moving again, so the flag lives here, above the page that remounts.
+  const [arriving, setArriving] = useState(false);
+  const arriveTimer = useRef(0);
+  const arrive = () => {
+    setArriving(true);
+    window.clearTimeout(arriveTimer.current);
+    arriveTimer.current = window.setTimeout(() => setArriving(false), 400);
+  };
+  useEffect(() => () => window.clearTimeout(arriveTimer.current), []);
+
+  // Where the window leaves the document too little room beside a panel (a
+  // sidebar, the notes column and a panel side by side), the panel floats over
+  // the text instead: squeezed, the title had come out one letter per line.
+  // 340 to 460 mirrors --panel-w in styles.css; 440 is the narrowest column
+  // that still reads as text.
+  const [pageEl, setPageEl] = useState<HTMLDivElement | null>(null);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (!pageEl) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const panel = Math.min(460, Math.max(340, window.innerWidth * 0.26));
+      setNarrow(entry.contentRect.width - panel < 440);
+    });
+    ro.observe(pageEl);
+    return () => ro.disconnect();
+  }, [pageEl]);
 
   useEffect(() => {
     let alive = true;
@@ -147,8 +178,12 @@ export default function Editor(props: EditorProps) {
   // title and content scroll away together (only the topbar stays fixed).
   return (
     <div
+      ref={setPageEl}
       className={
-        'editor-page' + (structureOpen || (commentsOpen && canComment) ? ' with-structure' : '')
+        'editor-page' +
+        (structureOpen || (commentsOpen && canComment) ? ' with-structure' : '') +
+        (narrow ? ' is-narrow' : '') +
+        (arriving ? ' panel-arriving' : '')
       }
     >
       <PageHeader
@@ -787,7 +822,7 @@ function PageHeader({
               different and alarming thing to say about a page. */}
           {canComment && (
           <button
-            className={'icon-btn topbar-wide-only' + (commentsOpen ? ' active-star' : '')}
+            className={'icon-btn topbar-wide-only' + (commentsOpen ? ' is-on' : '')}
             title={commentsOpen ? t('Hide comments') : t('Show comments')}
             onClick={() => onToggleComments(!commentsOpen)}
           >
@@ -796,7 +831,7 @@ function PageHeader({
           </button>
           )}
           <button
-            className={'icon-btn' + (structureOpen ? ' active-star' : '')}
+            className={'icon-btn' + (structureOpen ? ' is-on' : '')}
             title={structureOpen ? t('Hide structure') : t('Show structure')}
             onClick={onToggleStructure}
           >

@@ -99,11 +99,13 @@ export default function App() {
   const [notesMode, setNotesMode] = useState(() => localStorage.getItem('salt-notes-mode') === '1');
   // Tag selected in the sidebar while in notes mode — filters the notes list.
   const [notesTag, setNotesTag] = useState<string | null>(null);
-  // The notes list only exists ≥900px; below that the sidebar must keep its
-  // document tree or mobile loses all navigation.
-  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 900px)').matches);
+  // The notes list is a column of its own from 901px, the width at which the
+  // stylesheet stops treating the screen as a phone. Below that it moves into
+  // the drawer, where the document tree would be; it used to simply vanish
+  // there, so on a phone the setting did nothing at all.
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 901px)').matches);
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 900px)');
+    const mq = window.matchMedia('(min-width: 901px)');
     const onChange = () => setIsDesktop(mq.matches);
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
@@ -1129,7 +1131,22 @@ export default function App() {
           if (__SALT_DEMO__) window.location.reload();
           else window.location.href = '/';
         }}
-        notesMode={notesActive}
+        notesMode={notesMode}
+        notesList={
+          notesMode && !isDesktop ? (
+            <NotesList
+              inline
+              pages={pagesById}
+              currentWs={currentWs}
+              activeId={currentId}
+              tagColors={tagColors}
+              tagFilter={notesTag}
+              onClearTag={() => setNotesTag(null)}
+              onNavigate={navigate}
+              onCreate={() => void createPage(null)}
+            />
+          ) : undefined
+        }
         activeTag={notesTag}
         onSelectTag={setNotesTag}
         notesModeSetting={notesMode}
