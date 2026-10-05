@@ -45,7 +45,8 @@ await withFixture(async ({ page, open, read, assertRows }) => {
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('heading', { name: 'Collection properties' }).waitFor({ state: 'hidden' });
   assert.deepEqual((await read()).schema.map(p => p.name), ['Status', 'Labels', 'Deadline', 'Owner']);
-  await page.getByRole('button', { name: 'Collapse the sidebar', exact: true }).click();
+  // The name carries the shortcut since #8 ("Collapse the sidebar ([)").
+  await page.getByRole('button', { name: /^Collapse the sidebar/ }).click();
   await open();
   await page.setViewportSize({ width: 375, height: 800 });
   assert(await items.first().locator('.schema-drag-handle').isVisible());

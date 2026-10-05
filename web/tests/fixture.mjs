@@ -49,7 +49,10 @@ export async function withFixture(test) {
       headless: true,
       ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
     });
-    const context = await browser.newContext({ viewport: { width: 1200, height: 900 } });
+    // The language is pinned: the interface follows the browser's, and these
+    // tests find buttons by their English names. On a German machine they
+    // looked for "Properties" in an interface that said "Eigenschaften".
+    const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, locale: 'en-US' });
     async function api(method, path, data) {
       const response = await context.request.fetch(base + path, { method, data });
       assert(response.ok(), `${method} ${path}: HTTP ${response.status()}`);
