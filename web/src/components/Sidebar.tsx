@@ -9,6 +9,7 @@ import FileList from './FileList';
 import { promptText } from '../dialog';
 import { toast } from '../toast';
 import Portal from './Portal';
+import AnchoredMenu from './AnchoredMenu';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import TrashSection from './TrashSection';
@@ -434,7 +435,7 @@ function RowActions({
 // sensible reply. Only where the type is genuinely open does it get asked.
 function AddMenu({ id, ctx }: { id: string; ctx: TreeCtx }) {
   return (
-    <div className="menu add-menu">
+    <AnchoredMenu className="menu add-menu">
       <button
         onClick={() => {
           ctx.setAddFor(null);
@@ -451,7 +452,7 @@ function AddMenu({ id, ctx }: { id: string; ctx: TreeCtx }) {
       >
         <Table2 size={16} /> {t('Collection')}
       </button>
-    </div>
+    </AnchoredMenu>
   );
 }
 
@@ -469,7 +470,7 @@ function PageMenu({
   ctx: TreeCtx;
 }) {
   return (
-    <div className="menu">
+    <AnchoredMenu>
               {/* The visible way to get a second tab — ⌘-click and middle-click
                   exist too, but nothing in the interface said so. */}
               <button
@@ -579,7 +580,7 @@ function PageMenu({
                 <Trash2 size={16} /> {t('Move to trash')}
                 <kbd className="menu-chord">{chordFor('page.trash')}</kbd>
               </button>
-    </div>
+    </AnchoredMenu>
   );
 }
 
@@ -844,6 +845,10 @@ export default function Sidebar({
   };
   // ⋯ menu on a template row (remove the flag / trash the snapshot).
   const [tplMenuFor, setTplMenuFor] = useState<string | null>(null);
+  // The template menu closed only through its own button: a click anywhere
+  // else left it hanging open, unlike every other menu in the sidebar.
+  const tplActionsRef = useRef<HTMLSpanElement>(null);
+  useMenuDismiss(tplMenuFor !== null, tplActionsRef, () => setTplMenuFor(null));
   const [galleryOpen, setGalleryOpen] = useState(false);
   const unflagTemplate = (id: string) =>
     void api.updatePage(id, { isTemplate: false }).catch(() => toast(t('Could not be changed')));
@@ -1472,13 +1477,22 @@ export default function Sidebar({
                    work all the same. Editing the template is the deliberate act now. */
                 title={t('New page from this template')}
                 onClick={() => void instantiateTemplate(p.id)}
+                // The same right-click as a page or a collection row (#20).
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setTplMenuFor(p.id);
+                }}
               >
                 <span className="chevron spacer" />
                 <span className="tree-icon">
                   <PageIcon icon={p.icon} size={15} fallback={<LayoutTemplate size={15} />} />
                 </span>
                 <span className="tree-title">{p.title || 'Untitled'}</span>
-                <span className="tree-actions" onClick={(e) => e.stopPropagation()}>
+                <span
+                  className="tree-actions"
+                  ref={tplMenuFor === p.id ? tplActionsRef : undefined}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button title={t('New page from this template')} onClick={() => void instantiateTemplate(p.id)}>
                     ＋
                   </button>
@@ -1489,7 +1503,7 @@ export default function Sidebar({
                     ⋯
                   </button>
                   {tplMenuFor === p.id && (
-                    <div className="menu">
+                    <AnchoredMenu>
                       <button
                         onClick={() => {
                           setTplMenuFor(null);
@@ -1517,7 +1531,7 @@ export default function Sidebar({
                       >
                         <Trash2 size={16} /> {t('Move to trash')}
                       </button>
-                    </div>
+                    </AnchoredMenu>
                   )}
                 </span>
               </div>

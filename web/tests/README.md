@@ -29,3 +29,9 @@ Property ordering covers dragging in both directions and across multiple rows,
 Save/Cancel, persistence after reload, unchanged row values and view settings,
 ignoring unrelated drags, and narrow layouts.
 
+Menus and arrows covers four reported bugs: a right-click on a view's tab acts
+on that view (#24), a template opens its menu on a right-click and closes it on
+a click elsewhere (#20), a row menu at the foot of the sidebar's tree stays
+whole and on top (#21), ↑ from the second block stops in an empty first block
+instead of jumping to the title (#25), and the library's shelves scroll inside
+a narrow pane (#19).

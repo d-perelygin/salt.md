@@ -254,6 +254,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const addViewBtnRef = useRef<HTMLButtonElement>(null);
   const [viewMenuFor, setViewMenuFor] = useState<string | null>(null);
   const [addViewPos, setAddViewPos] = useState<React.CSSProperties | null>(null);
+  // A right-click on a view's tab opens the same actions the ⋯ holds, for THAT
+  // view, at the pointer (#24). The ⋯ only ever acted on the view you are on.
+  const [tabMenu, setTabMenu] = useState<{ view: ViewDef; style: React.CSSProperties } | null>(null);
   useLayoutEffect(() => {
     if (!addViewOpen || !addViewBtnRef.current) {
       setAddViewPos(null);
@@ -535,6 +538,19 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
               className={'view-tab view-tab--' + v.type + (v.id === view.id ? ' active' : '')}
               onClick={() => setViewId(v.id)}
               onDoubleClick={() => void renameView(v)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setTabMenu({
+                  view: v,
+                  style: {
+                    position: 'fixed',
+                    left: Math.max(8, Math.min(e.clientX, window.innerWidth - 208)),
+                    top: Math.max(8, Math.min(e.clientY, window.innerHeight - 180)),
+                    right: 'auto',
+                    zIndex: 320,
+                  },
+                });
+              }}
             >
               <span className="view-tab-ic">{tabIcon(v.type)}</span>
               {v.name}
@@ -550,6 +566,35 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           <Plus size={15} />
         </button>
       </div>
+      {tabMenu && (
+        <Portal>
+          <div className="fs-backdrop" onClick={() => setTabMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTabMenu(null); }} />
+          <div className="menu view-tab-menu" style={tabMenu.style}>
+            <button onClick={() => { setTabMenu(null); void renameView(tabMenu.view); }}>
+              <Pencil size={15} /> {t('Rename view')}
+            </button>
+            {config.views.length > 1 && (
+              <>
+                <button
+                  disabled={config.views[0]?.id === tabMenu.view.id}
+                  onClick={() => { setTabMenu(null); moveView(tabMenu.view, -1); }}
+                >
+                  <ArrowLeft size={15} /> {t('Move left')}
+                </button>
+                <button
+                  disabled={config.views[config.views.length - 1]?.id === tabMenu.view.id}
+                  onClick={() => { setTabMenu(null); moveView(tabMenu.view, 1); }}
+                >
+                  <ArrowRight size={15} /> {t('Move right')}
+                </button>
+                <button className="danger" onClick={() => { setTabMenu(null); removeView(tabMenu.view); }}>
+                  <Trash2 size={15} /> {t('Remove view')}
+                </button>
+              </>
+            )}
+          </div>
+        </Portal>
+      )}
       {addViewOpen && addViewPos && (
         <Portal>
           <div className="fs-backdrop" onClick={() => setAddViewOpen(false)} />
@@ -671,7 +716,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         </div>
         {view.type !== 'form' && (
           <button className="btn-sm primary" onClick={() => void addRow()}>
-            <Plus size={14} /> New
+            <Plus size={14} /> {t('New')}
           </button>
         )}
       </div>

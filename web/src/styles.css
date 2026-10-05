@@ -6116,13 +6116,16 @@ a.btn {
   flex: none;
 }
 
-/* Six shelves do not fit a narrow window; the row scrolls instead of wrapping
-   into two, which would push the table down on every visit. */
-@media (max-width: 900px) {
-  .index-modes {
-    max-width: 100%;
-    overflow-x: auto;
-  }
+/* Seven shelves do not fit a narrow pane; the row scrolls instead of wrapping
+   into two, which would push the table down on every visit. It used to do so
+   only below 900px of WINDOW, but what runs out is the pane: a sidebar beside a
+   1100px window leaves the library less room than that, and the last tabs ran
+   off the right edge (#19). */
+.index-modes {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .index-mode-count {

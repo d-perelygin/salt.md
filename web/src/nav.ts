@@ -177,17 +177,29 @@ export const exitsDown = (s: { start: number; end: number; length: number }): bo
 export const exitsStart = (s: { start: number; end: number }): boolean =>
   s.start === s.end && s.start === 0;
 
-/** True when the collapsed caret has no text before it anywhere in `surface`.
+/** True when the collapsed caret has nothing before it anywhere in `surface`.
  *  A Range comparison rather than BlockNote's "first block, offset 0": it stays
  *  true inside tables, columns and nested lists, where a block-level check is
- *  answering a different question. */
+ *  answering a different question.
+ *
+ *  No text is not the same as nothing, though: an EMPTY first block has no text
+ *  either, so the start of the second block read as the start of the page and
+ *  ↑ jumped past the empty block straight into the title (#25). A block that
+ *  ends before the caret is in the way, text or not. A columns block is the one
+ *  exception: it holds no content of its own, only the caret's own column. */
 export function nothingBefore(surface: Element): boolean {
   const sel = window.getSelection();
   if (!sel || !sel.isCollapsed || !sel.anchorNode || !surface.contains(sel.anchorNode)) return false;
   const r = document.createRange();
   r.selectNodeContents(surface);
   r.setEnd(sel.anchorNode, sel.anchorOffset);
-  return r.toString().length === 0;
+  if (r.toString().length > 0) return false;
+  const anchor = sel.anchorNode;
+  for (const block of surface.querySelectorAll('[data-content-type]')) {
+    if (block.contains(anchor) || block.getAttribute('data-content-type') === 'columns') continue;
+    if (block.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_FOLLOWING) return false;
+  }
+  return true;
 }
 
 // ---- moving ----
