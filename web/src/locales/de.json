@@ -1072,5 +1072,8 @@
   "New": "Neu",
   "Add or remove favorite": "Favorit setzen oder entfernen",
   "No rows match the current filter.": "Keine Zeile passt zum aktuellen Filter.",
-  "No rows yet — click ＋ New above.": "Noch keine Zeilen. Oben auf ＋ Neu klicken."
+  "No rows yet — click ＋ New above.": "Noch keine Zeilen. Oben auf ＋ Neu klicken.",
+  "Several people": "Mehrere Personen",
+  "Only these can be picked:": "Nur diese stehen zur Auswahl:",
+  "Everybody can be picked. Tick people to narrow it down:": "Alle stehen zur Auswahl. Ankreuzen, um einzugrenzen:"
 }

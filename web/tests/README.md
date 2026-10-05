@@ -43,3 +43,8 @@ Embeds covers a collection inside a document (#22, #26): the embed keeps its
 filters to itself and across a reload, a second embed and the collection's own
 page still show the saved view, and the embed's toolbar leaves out what belongs
 to the collection page.
+
+People covers a person property with several people and a list of who can be
+picked (#11): only those are offered, nobody else can be typed in, the list
+stays open for several picks, the setting is in the Properties dialog, and a
+row holding several keeps them until somebody picks one after a switch back.

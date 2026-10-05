@@ -442,10 +442,10 @@ function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
 // person value written as a name (by hand or by an agent) still finds its face.
 // One request per workspace, shared by every cell — a table with 200 person
 // cells must not make 200 calls.
-type Member = { userId: string; name: string; color: string; avatar: string };
+export type Member = { userId: string; name: string; color: string; avatar: string };
 let memberCache: Promise<Member[]> | null = null;
 
-function loadMembers(): Promise<Member[]> {
+export function loadMembers(): Promise<Member[]> {
   if (!memberCache) {
     memberCache = api
       .listWorkspaces()
@@ -546,9 +546,17 @@ export function PersonStack({ values, max = 3 }: { values: string[]; max?: numbe
  *  looked broken), and even once open it asked you to type a colleague's name
  *  exactly — with the roster sitting right there. Picking stores the USER ID, so
  *  the cell follows a rename; free text is kept as a fallback and stored as
- *  typed. */
-function PersonValue({ value, onChange, readOnly, compact }: Props) {
-  const raw = String(value ?? '').trim();
+ *  typed.
+ *
+ *  A property may allow several people and may name who can be picked (#11).
+ *  The value is then a list; either shape is READ either way, because a
+ *  property switched between one and several keeps what its rows already hold.
+ *  With a list of who can be picked, nobody else can be typed in either. */
+function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
+  const values = (Array.isArray(value) ? value : [value])
+    .map((v) => String(v ?? '').trim())
+    .filter(Boolean);
+  const multiple = !!def.personMultiple;
   const [members, setMembers] = useState<Member[]>([]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -572,14 +580,35 @@ function PersonValue({ value, onChange, readOnly, compact }: Props) {
     return () => document.removeEventListener('pointerdown', onDown);
   }, [open]);
 
-  if (ro || compact) return raw ? <PersonChip raw={raw} members={members} /> : null;
+  // One face and a name, or for several people one stack of faces — a cell
+  // that printed every name would grow a line per person.
+  const shown =
+    values.length === 0 ? null : values.length === 1 ? (
+      <PersonChip raw={values[0]} members={members} />
+    ) : (
+      <PersonStack values={values} max={4} />
+    );
+  if (ro || compact) return shown;
 
+  const pool = def.personPool?.length ? new Set(def.personPool) : null;
+  const candidates = pool ? members.filter((m) => pool.has(m.userId)) : members;
   const q = query.trim().toLowerCase();
-  const filtered = members.filter((m) => m.name.toLowerCase().includes(q));
-  const pick = (v: string) => {
-    onChange!(v || null);
+  const filtered = candidates.filter((m) => m.name.toLowerCase().includes(q));
+  const holds = (m: Member) => values.includes(m.userId) || values.includes(m.name);
+  const write = (next: string[]) => {
+    if (multiple) onChange!(next.length ? next : null);
+    else onChange!(next[0] || null);
+  };
+  const choose = (v: string) => {
+    if (!multiple) {
+      write(v ? [v] : []);
+      setOpen(false);
+    } else {
+      const m = members.find((x) => x.userId === v);
+      const on = m ? holds(m) : values.includes(v);
+      write(on ? values.filter((x) => x !== v && (!m || x !== m.name)) : [...values, v]);
+    }
     setQuery('');
-    setOpen(false);
   };
 
   return (
@@ -587,14 +616,14 @@ function PersonValue({ value, onChange, readOnly, compact }: Props) {
       {/* Always a real hit target: an empty cell says "＋ Person" instead of
           being an invisible nothing. */}
       <button type="button" className="relation-open" onClick={() => setOpen((v) => !v)}>
-        {raw ? <PersonChip raw={raw} members={members} /> : <span className="prop-empty">{t('＋ Person')}</span>}
+        {shown ?? <span className="prop-empty">{t('＋ Person')}</span>}
       </button>
       {open && (
         <div className="menu relation-menu">
           <input
             className="prop-input"
             autoFocus
-            placeholder={t('Search or type a name…')}
+            placeholder={pool ? t('Search…') : t('Search or type a name…')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -602,8 +631,8 @@ function PersonValue({ value, onChange, readOnly, compact }: Props) {
               // without an account can be entered without leaving the keyboard.
               if (e.key !== 'Enter') return;
               e.preventDefault();
-              if (filtered.length === 1) pick(filtered[0].userId);
-              else if (query.trim()) pick(query.trim());
+              if (filtered.length === 1) choose(filtered[0].userId);
+              else if (query.trim() && !pool) choose(query.trim());
             }}
           />
           <div className="relation-options">
@@ -611,22 +640,29 @@ function PersonValue({ value, onChange, readOnly, compact }: Props) {
               <button
                 key={m.userId}
                 type="button"
-                className={'relation-option' + (m.userId === raw || m.name === raw ? ' on' : '')}
-                onClick={() => pick(m.userId)}
+                className={'relation-option' + (holds(m) ? ' on' : '')}
+                onClick={() => choose(m.userId)}
               >
-                <span className="relation-check">{m.userId === raw || m.name === raw ? '✓' : ''}</span>
+                <span className="relation-check">{holds(m) ? '✓' : ''}</span>
                 <PersonChip raw={m.userId} members={members} />
               </button>
             ))}
-            {q && !filtered.some((m) => m.name.toLowerCase() === q) && (
-              <button type="button" className="relation-option" onClick={() => pick(query.trim())}>
+            {q && !pool && !filtered.some((m) => m.name.toLowerCase() === q) && (
+              <button type="button" className="relation-option" onClick={() => choose(query.trim())}>
                 <span className="relation-check" />
                 {t('Use “{name}”', { name: query.trim() })}
               </button>
             )}
-            {!members.length && !q && <div className="relation-empty">{t('No members')}</div>}
-            {raw && (
-              <button type="button" className="relation-option danger" onClick={() => pick('')}>
+            {!candidates.length && !q && <div className="relation-empty">{t('No members')}</div>}
+            {values.length > 0 && (
+              <button
+                type="button"
+                className="relation-option danger"
+                onClick={() => {
+                  write([]);
+                  setOpen(false);
+                }}
+              >
                 <span className="relation-check" />
                 {t('Remove')}
               </button>

@@ -283,7 +283,7 @@ contact icons — on a card a full address is noise.
 
 ### person
 
-One person: an account, or a name typed for somebody without one.
+One person, or several: an account, or a name typed for somebody without one.
 
 Click the cell — an empty one reads **＋ Person** so there is always something to
 hit — and pick a colleague from the list, or type a name and take it as it
@@ -297,6 +297,15 @@ unrecognised value stays readable text rather than disappearing.
 
 The list holds the members of every workspace this browser can see. It is
 fetched once and shared by every cell on the page.
+
+Two settings in **Properties** change that. **Several people** lets a cell hold
+more than one: the list stays open, each pick adds or removes a tick, and the
+cell shows the faces side by side. Below it, ticking people narrows the list to
+them, so a "Creative team" property offers only the creative team; nobody
+ticked means everybody, and with a list set, a name outside it cannot be typed
+in either. Switching between one and several keeps what the rows already hold: a single
+person reads as a list of one, and a row holding several keeps showing all of
+them until somebody picks one person for it.
 
 **Filters** with is, is not, contains, is empty, is not empty. **Sorts** by what
 is stored — an id for somebody with an account, the typed text otherwise — so

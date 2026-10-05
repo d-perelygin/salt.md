@@ -232,6 +232,11 @@ export interface PropDef {
   // a progress bar, or a ring. numberMax is the value that = 100% (default 100).
   numberDisplay?: 'plain' | 'bar' | 'ring';
   numberMax?: number;
+  // person (#11): several people may be picked, and the value is then a list
+  // of them; and who may be picked at all, by user id — empty means every
+  // member, which is how a person property has always behaved.
+  personMultiple?: boolean;
+  personPool?: string[];
 }
 
 export type FilterOp =

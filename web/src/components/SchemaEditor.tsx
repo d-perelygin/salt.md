@@ -8,6 +8,7 @@ import { renameSelectOption, moveSelectOption, reorderSelectOption } from '../re
 import { confirm } from '../dialog';
 import { GripVertical, Check, Trash2 } from 'lucide-react';
 import { t } from '../i18n';
+import { loadMembers, type Member } from './PropertyValue';
 
 const TYPES: { value: PropType; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -260,6 +261,9 @@ export default function SchemaEditor({
   );
 
   const renderConfig = (p: PropDef) => {
+    if (p.type === 'person') {
+      return <PersonConfig p={p} onChange={(patch) => updateProp(p.id, patch)} />;
+    }
     if (p.type === 'number') {
       return <div className="schema-config">{numberDisplayFields(p)}</div>;
     }
@@ -804,4 +808,47 @@ function OptionPopover({ anchor, name, onClose, children }: {
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
     }}>{children}</div>
   </Portal>;
+}
+
+/** A person property's two settings (#11): one person or several, and who can
+ *  be picked. Nobody ticked means everybody, which is how the property has
+ *  always behaved; the list is the members of every workspace this browser can
+ *  see, the same one the cell offers. */
+function PersonConfig({ p, onChange }: { p: PropDef; onChange: (patch: Partial<PropDef>) => void }) {
+  const [members, setMembers] = useState<Member[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void loadMembers().then((m) => alive && setMembers(m));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const pool = new Set(p.personPool ?? []);
+  const toggle = (id: string) => {
+    const next = pool.has(id) ? [...pool].filter((x) => x !== id) : [...pool, id];
+    onChange({ personPool: next.length ? next : undefined });
+  };
+  return (
+    <div className="schema-config schema-person">
+      <label className="schema-person-check">
+        <input
+          type="checkbox"
+          checked={!!p.personMultiple}
+          onChange={(e) => onChange({ personMultiple: e.target.checked || undefined })}
+        />
+        {t('Several people')}
+      </label>
+      <div className="schema-person-pool">
+        <span className="schema-person-hint">
+          {pool.size ? t('Only these can be picked:') : t('Everybody can be picked. Tick people to narrow it down:')}
+        </span>
+        {members.map((m) => (
+          <label key={m.userId} className="schema-person-check">
+            <input type="checkbox" checked={pool.has(m.userId)} onChange={() => toggle(m.userId)} />
+            {m.name}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
 }

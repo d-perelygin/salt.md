@@ -3009,6 +3009,36 @@ body.is-col-resizing {
   align-items: stretch;
 }
 
+/* A person property's settings (#11): a tick for "several", and the people who
+   may be picked, as a short wrapping list of ticks. The general label rule
+   above is for captions; these labels are the controls themselves. */
+.schema-person {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.schema-config .schema-person-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--fg);
+}
+
+.schema-person-pool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+
+.schema-person-hint {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 .formula-input {
   width: 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
