@@ -28,7 +28,11 @@
      light, because this is the surface people read on for hours. */
   --bg: #fbfaf7;
   --fg: #1c1a15;
-  --muted: rgba(28, 26, 21, 0.56);
+  /* Solid, never alpha: an emoji is drawn in the text colour's alpha, so a
+     translucent --muted made every emoji in a muted place see-through (the
+     sidebar's page icons, a page icon over its cover). This is the colour the
+     alpha version showed on paper. */
+  --muted: #7e7d78;
   /* The sidebar is the site's paper; the document sits a step lighter on it. */
   --sidebar-bg: #f2f1ea;
   --hover: rgba(28, 26, 21, 0.045);
@@ -78,8 +82,9 @@
   /* The document is lifted one step off the ground, the way a card on the
      site is; the sidebar is the ground. */
   --bg: #0b0b0e;
-  --fg: rgba(245, 245, 247, 0.88);
-  --muted: rgba(245, 245, 247, 0.5);
+  /* Solid for the same reason as in light: the emoji follows the alpha. */
+  --fg: #d9d9db;
+  --muted: #808083;
   --sidebar-bg: #07070a;
   --hover: rgba(255, 255, 255, 0.045);
   --active: rgba(255, 255, 255, 0.075);
@@ -412,7 +417,11 @@
     border-radius: inherit;
     box-shadow: inset 0 0 0 1px var(--sheet-line);
     pointer-events: none;
-    z-index: 3;
+    /* Above everything that sticks inside the sheet: the collection toolbar
+       (5), the cover (6) and its icon row (7) used to paint over the edge, so
+       on a collection the sheet lost its left and right border exactly where
+       the toolbar sat. Menus open above it (50). */
+    z-index: 12;
   }
 
   /* The beam: the site's rainbow on a hairline, along the top edge, fading out
@@ -429,7 +438,7 @@
     mask-image: linear-gradient(90deg, transparent, #000 25%, #000 75%, transparent);
     opacity: 0.7;
     pointer-events: none;
-    z-index: 4;
+    z-index: 13;
   }
 
   .tab-bar {
