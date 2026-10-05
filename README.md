@@ -1,33 +1,25 @@
 <p align="center">
-  <img src=".github/banner.png" alt="salt.md" width="100%">
+  <img src=".github/banner.png" alt="salt.md: One workspace. People and agents." width="100%">
 </p>
 
 <p align="center">
-  <b>The open-source workspace for people and AI agents.</b><br>
-  Docs, databases and realtime collaboration for your team. An MCP server sits in
-  the same binary, so an agent works <i>in</i> that workspace instead of talking
-  about it.
+  Docs, databases and realtime editing for your team. The same workspace is open
+  to Claude, ChatGPT and Cursor, on exactly the access you grant them.<br>
+  One binary, on your own server.
 </p>
 
 <p align="center">
-  <a href="https://salt.md">Website</a> ·
-  <a href="https://salt.md/wiki/">Documentation</a> ·
-  <a href="#quickstart">Quickstart</a> ·
-  <a href="#what-an-agent-can-do">Agents</a> ·
-  <a href="https://salt.md/demo/">Live demo</a>
+  <a href="https://salt.md"><b>Website</b></a> ·
+  <a href="https://salt.md/demo/"><b>Live demo</b></a> ·
+  <a href="https://salt.md/wiki/"><b>Documentation</b></a> ·
+  <a href="#quickstart"><b>Quickstart</b></a>
 </p>
+
+<br>
 
 <p align="center">
-  <img src=".github/agent-loop.gif" alt="An agent creates a page and a database; the workspace updates while a person watches." width="100%">
+  <img src=".github/hero.png" alt="A Tasks board in salt.md, cut in two: light mode on the left, dark mode on the right." width="100%">
 </p>
-
----
-
-An agent asks to organise the launch notes. A page appears, a database is
-created, the rows fill in. A person opens the same board a second later and
-carries on editing. Same pages, same permissions, same history.
-
-That is the whole idea. Everything below is how it works.
 
 ## Quickstart
 
@@ -35,159 +27,151 @@ That is the whole idea. Everything below is how it works.
 curl -fsSL https://raw.githubusercontent.com/saltmd/salt.md/main/install.sh | sh
 ```
 
-No `curl` on the machine? A minimal server image often has `wget` instead, and
-the script itself is happy with either:
+One command downloads the binary for your platform, installs it, starts it and
+prints the address to open. On a Linux server it sets itself up as a systemd
+service, and running it again upgrades it. No `curl` on the machine?
+`wget -qO- … | sh` does the same.
 
-```sh
-wget -qO- https://raw.githubusercontent.com/saltmd/salt.md/main/install.sh | sh
-```
-
-That one command downloads the binary for your platform, installs it and starts
-it, then prints the address to open. On a server it prints that machine's
-address rather than `localhost`, which is the thing most install scripts get
-wrong.
-
-**On a Linux server it installs a systemd service** rather than leaving a process
-in your terminal: it starts on boot, restarts after a crash, and your shell is
-free. Running the same command later upgrades it. Everywhere else it runs in the
-foreground, which is right for trying it out on a laptop. There is nothing
-else to install. No database server, no cache, no object store, no separate
-realtime service.
-
-Docker, if you prefer:
+Or with Docker:
 
 ```sh
 docker run -d -p 8420:8420 -v salt-data:/data ghcr.io/saltmd/salt.md:latest
 ```
 
-## Why salt.md exists
+There is nothing else to install: no database server, no cache, no object
+store. Reverse proxies, TLS and backups are in the
+[self-hosting guide](https://salt.md/wiki/self-hosting/).
 
-Agents increasingly need somewhere to put durable, structured work. Not a chat
-log, not a vector store, but pages and tables a person will read tomorrow.
+## People and agents in the same place
 
-Today they get one of two bad options. A workspace built for humans, with an AI
-feature bolted to the side, which means the agent talks *about* the content
-through a chat window. Or agent infrastructure with a decent API and no
-interface a human being would willingly use.
+An agent is asked to organise the launch notes. A page appears, a database is
+created, the rows fill in. A person opens the same board a second later and
+carries on. Same pages, same permissions, same history.
 
-salt.md is one workspace with two front doors. A block editor, databases and
-realtime editing for people. An MCP endpoint for agents, on the same objects
-and the same permission model. And you run the whole thing yourself.
+Connect Claude, ChatGPT, Codex, Cursor, Gemini CLI or any other MCP client to
+`/mcp` and it works on the workspace you use:
 
-## What an agent can do
+- **Pages**: create, edit, move, duplicate, trash and restore
+- **Databases**: create them, change the schema, add and query rows, set up views
+- **Search** with the same permission checks a person gets
+- **Bulk imports** from any JSON source, without the content passing through the agent
+- **Comments**, and an append-only note trail on every page
+- **Presence**: the page shows which agent is working on it, before you start typing
 
-Connect any MCP client to `/mcp` and it gets **33 tools** over the same
-workspace you use:
+**And a list it cannot touch.** No agent can create or delete accounts, issue
+tokens, take or restore a backup, change instance settings or decide who is in
+a workspace, and the server tells every agent that connects. A credential
+carries its person's access and never more, every workspace decides what agents
+may do there, and the activity log keeps their changes apart from yours.
 
-- **Read and write pages**: create, update, move, duplicate, trash, restore
-- **Work with databases**: create one, change its schema, add and query rows,
-  configure views
-- **Search** the whole workspace, with the same permission checks a person gets
-- **Import** from a URL or a Notion export, in bulk
-- **Comment**, and write to a page's append-only note trail
-- **Announce what it is working on**, which shows live in the interface beside
-  the page, so you can see an agent is mid-edit before you start typing
+[MCP tools](https://salt.md/wiki/mcp-tools/) · [Agent access](https://salt.md/wiki/agent-access/) · [Permissions](https://salt.md/wiki/permissions/)
 
-**And a bounded set it cannot touch.** An agent may not create or delete
-accounts, change two-factor settings, issue API tokens, take or restore a
-backup, alter instance settings, or change who is in a workspace. That list is
-not a promise in a README. The server sends it to every agent that connects.
+## A whole workspace
 
-Full reference: [MCP tools](https://salt.md/wiki/mcp-tools/).
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="wiki/img/workspace-overview-dark.png">
+        <img src="wiki/img/workspace-overview.png" alt="A page in the block editor.">
+      </picture>
+      <p><b>Write.</b> A block editor with a slash menu, checklists, code,
+      tables, callouts and diagrams. Page links, backlinks, covers and icons.</p>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="wiki/img/collection-table-dark.png">
+        <img src="wiki/img/collection-table.png" alt="A collection as a table with typed columns.">
+      </picture>
+      <p><b>Organise.</b> Any page becomes a collection with typed properties:
+      select, date, person, relation, rollup, formula and more.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="wiki/img/collection-calendar-dark.png">
+        <img src="wiki/img/collection-calendar.png" alt="The same collection as a month calendar.">
+      </picture>
+      <p><b>Plan.</b> Table, board, list, gallery, calendar, timeline or form,
+      each with its own filters. Any date can be an iCal feed.</p>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="wiki/img/search-dark.png">
+        <img src="wiki/img/search.png" alt="The search dialog with passage results.">
+      </picture>
+      <p><b>Find.</b> Full-text search over every page and the text inside
+      uploaded PDFs, one shortcut away from anywhere.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="wiki/img/comments-panel-dark.png">
+        <img src="wiki/img/comments-panel.png" alt="A page with the comments panel open.">
+      </picture>
+      <p><b>Together.</b> Realtime editing with live cursors, comments, page
+      history and an activity log.</p>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="wiki/img/graph-dark.png">
+        <img src="wiki/img/graph.png" alt="The library showing pages as a graph of linked dots.">
+      </picture>
+      <p><b>Connect.</b> The library holds every page you can open, and the
+      graph shows what links where.</p>
+    </td>
+  </tr>
+</table>
 
-## Agents get permissions, not a master key
+Moving in? Markdown files, CSVs and a Notion export import from the same menu.
 
-A credential belongs to a person and carries that person's access, never more.
-Beyond that:
+## Under the hood
 
-- Every workspace decides for itself what agents may do there: anything they
-  were granted, only signed-in connections, or nothing at all.
-- Tokens narrow by scope and by workspace.
-- Agent actions are attributable: the activity log distinguishes them from
-  yours.
-- Administration is deliberately out of reach of any token.
-
-Giving an agent write access is only useful if you can still say who reached
-what, and what changed. See [Permissions](https://salt.md/wiki/permissions/).
-
-## And it is a real workspace
-
-Not developer infrastructure with a login screen.
-
-**Write.** A block editor with a slash menu, nested lists, checklists, quotes,
-code, tables, images and callouts. Page links, backlinks, tags, covers and
-icons. Comments in a side panel.
-
-**Organise.** Turn any page into a collection with typed properties: text,
-number, select, multi-select, date, person, checkbox, checklist, URL, relation,
-rollup, formula and backrelation. Look at it as a table, board, list, gallery,
-calendar, timeline or form. Filter, sort, group.
-
-**Together.** Realtime editing with live cursors, comments, page history and an
-activity log. Share a page publicly with an optional password and expiry.
-
-Full-text search covers page text and the contents of uploaded PDFs, with
-German stemming so *Verträge* finds *Vertrag*.
-
-## Architecture
-
+```mermaid
+flowchart LR
+    people(["People<br>browser · desktop · phone"]) --> salt
+    agents(["Agents<br>Claude · ChatGPT · Cursor"]) -- MCP --> salt
+    tools(["Your tools"]) -- "REST · webhooks · iCal" --> salt
+    salt["salt.md<br>one Go binary"] --> data[("SQLite file<br>+ uploads")]
 ```
-   Claude · ChatGPT · Cursor · any MCP client
-                     │
-                    MCP
-                     │
-              ┌─────────────┐
-   people ──▶ │   salt.md   │ ◀── REST API
-    (browser) └─────────────┘     webhooks · ICS
-                     │
-            SQLite file + uploads
-```
 
-One Go process. `CGO_ENABLED=0`, so the binary is static and the SQLite driver
-is pure Go. The frontend is embedded in it. Backing up is copying one file and
-one directory.
+One Go process, built with `CGO_ENABLED=0`: a static binary with a pure-Go
+SQLite driver and the frontend embedded. No PostgreSQL, no Redis, no object
+store, no separate collaboration server.
 
-No PostgreSQL, no Redis, no object store, no separate collaboration server.
+- **Install**: one binary, `install.sh`, or the Docker image
+- **Data**: one SQLite file plus an uploads directory
+- **Update**: swap the binary or pull the image, restart
+- **Backup**: stop, copy two paths, start
+- **Platforms**: Linux and macOS on amd64 and arm64, Windows on amd64
 
-## Self-hosting
-
-| | |
-| --- | --- |
-| Install | one binary, `install.sh`, or the Docker image |
-| Data | one SQLite file plus an uploads directory |
-| Update | swap the binary or pull the image, restart |
-| Backup | stop, copy two paths, start |
-| Platforms | Linux, macOS and Windows, amd64 and arm64 |
-
-A desktop application for macOS is available too. It is a window onto a server
-you run, not a second copy of the product. See
-[The desktop app](https://salt.md/wiki/desktop-app/).
+The [desktop app](https://salt.md/wiki/desktop-app/) for macOS and Linux is a
+window onto a server you run, not a second copy of the product.
 
 ## Documentation
 
-[salt.md/wiki](https://salt.md/wiki/) has 40 pages covering every screen, every
-property type, every tool an agent can call and every setting on the server.
-
-It is derived from this source and checked against it on every build. A tool
-name that stopped existing, an API path that is not a route, a screenshot whose
-component has changed: each one fails the build. Every page is also available
-as plain Markdown at the same address with `.md` on the end, and
-[/wiki/llms.txt](https://salt.md/wiki/llms.txt) indexes them for agents.
+[salt.md/wiki](https://salt.md/wiki/) covers every screen, every property type,
+every tool an agent can call and every setting on the server. It is written next
+to this code and checked against it on every build: a tool name that no longer
+exists, an API path that is not a route or a screenshot whose screen has changed
+fails the build. Every page is also plain Markdown at the same address with
+`.md` on the end, indexed for agents at
+[/wiki/llms.txt](https://salt.md/wiki/llms.txt).
 
 ## Contributing
 
-Issues and pull requests are welcome. Pull requests need a signed
-[CLA](CLA.md). [CONTRIBUTING.md](CONTRIBUTING.md) says what that means and why
-it exists.
-
-Security reports: **dev@salt.md**, not a public issue. See
+Issues and pull requests are welcome. Pull requests need a signed [CLA](CLA.md);
+[CONTRIBUTING.md](CONTRIBUTING.md) says what that means and why it exists.
+Security reports go to **dev@salt.md**, not to a public issue: see
 [SECURITY.md](SECURITY.md).
 
 ## License
 
-The components salt.md is built on, and their licences in full:
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). A running instance serves
-the same list at `/licenses`.
-
 [AGPL-3.0](LICENSE). Use it, run it at work, change it. If you offer it to
 others over a network, publish your changes.
+
+The components salt.md is built on, with their licences in full, are in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). A running instance serves the
+same list at `/licenses`.

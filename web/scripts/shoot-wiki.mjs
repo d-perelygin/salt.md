@@ -200,4 +200,8 @@ if (failed.length) {
   console.log(`  ${failed.length} failed:\n${failed.map((f) => '    ' + f).join('\n')}\n`);
   process.exit(1);
 }
+
+// The README's hero is cut from the board's two shots, so it is remade with
+// them (readme-hero.mjs).
+if (wanted.some((s) => s.id === 'collection-board')) await import('./readme-hero.mjs');
 console.log('');
