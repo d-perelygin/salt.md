@@ -59,8 +59,40 @@ export async function withFixture(test) {
       name: 'Browser Tester', email: 'browser@example.test', password: randomUUID(),
     });
     const workspace = (await api('GET', '/api/workspaces'))[0];
+    const collection = await api('POST', '/api/pages', {
+      title: 'Option editing test', type: 'collection', workspaceId: workspace.id,
+    });
+    const schema = ['select', 'multiselect'].map((type, index) => ({
+      id: index === 0 ? 'status' : 'labels', name: index === 0 ? 'Status' : 'Labels', type,
+      options: [
+        { id: 'todo', name: 'To do', color: '#337ea9' },
+        { id: 'done', name: 'Done', color: '#448361' },
+        { id: 'third', name: 'Third', color: '#123456' },
+      ],
+    }));
+    const path = `/api/collections/${collection.id}`;
+    await api('PUT', path, { schema, views: [
+      { id: 'table', name: 'Table', type: 'table', filters: [{ property: 'status', op: 'is', value: 'todo' }] },
+      { id: 'board', name: 'Board', type: 'board', groupBy: 'status' },
+    ] });
+    const rows = [];
+    for (const [title, props] of [
+      ['First row', { status: 'todo', labels: ['todo', 'done'] }],
+      ['Second row', { status: 'done', labels: ['done'] }],
+    ]) rows.push(await api('POST', '/api/pages', { parentId: collection.id, title, props }));
     const page = await context.newPage();
-    await test({ page, api, base, workspace });
+    await page.goto(`${base}/p/${collection.id}`);
+    const open = () => page.getByRole('button', { name: 'Properties', exact: true }).click();
+    const chip = (index, name) => page.locator('.schema-options').nth(index)
+      .getByRole('button', { name, exact: true });
+    const field = page.getByRole('textbox', { name: 'Option name' });
+    const read = () => api('GET', path);
+    const assertRows = async () => {
+      for (const row of rows) assert.deepEqual((await api('GET', `/api/pages/${row.id}`)).props, row.props);
+    };
+    // One fixture for every test here: the collection ones use its helpers,
+    // the callout one only needs the API and a workspace to write into.
+    await test({ page, context, api, base, workspace, path, open, chip, field, read, assertRows, schema });
   } finally {
     await browser?.close();
     if (server && server.exitCode === null) {

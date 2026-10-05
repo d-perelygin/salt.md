@@ -24,3 +24,7 @@ additional runtime dependencies. Tests do not upload fixtures or screenshots.
 Callout coverage: all seven preset icons, immediate background changes when
 cycling icons, existing saved blocks, light/dark appearance, dark-mode text
 contrast, and persistence after reload without changing the callout text.
+
+Property ordering covers dragging in both directions and across multiple rows,
+Save/Cancel, persistence after reload, unchanged row values and view settings,
+ignoring unrelated drags, and narrow layouts.
