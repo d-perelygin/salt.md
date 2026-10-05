@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node callout-colors.mjs && node property-order.mjs"
+    "test": "node callout-colors.mjs && node property-order.mjs && node select-options.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"

@@ -28,3 +28,4 @@ contrast, and persistence after reload without changing the callout text.
 Property ordering covers dragging in both directions and across multiple rows,
 Save/Cancel, persistence after reload, unchanged row values and view settings,
 ignoring unrelated drags, and narrow layouts.
+
