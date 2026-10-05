@@ -9,7 +9,8 @@ import { useExclusiveModal } from '../modal';
 import { formatDay, formatMoment } from '../format';
 import { plural, t } from '../i18n';
 import { AdminSettingsModal, TwoFAModal, CalendarSubModal } from './AdminSettings';
-import { Key, History, CalendarDays, ShieldCheck, Users, Settings, LogOut, Bot, User as UserIcon, Columns2, Type, Languages, Undo2 } from 'lucide-react';
+import { Key, History, CalendarDays, ShieldCheck, Users, Settings, LogOut, Bot, User as UserIcon, Columns2, Type, Languages, Undo2, Keyboard } from 'lucide-react';
+import { chordFor } from '../keys';
 import { LanguageTimeModal } from './LanguageTime';
 
 export function Avatar({ user, size = 22 }: { user: User; size?: number }) {
@@ -225,9 +226,12 @@ interface Props {
   fontPref?: FontPref;
   onSetFont?: (f: FontPref) => void;
   onToggleNotesMode?: () => void;
+  // The shortcut sheet was reachable only by pressing "?", and only if you
+  // already knew that — so nobody found the shortcuts it lists.
+  onOpenShortcuts?: () => void;
 }
 
-export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, notesMode, onToggleNotesMode, fontPref = 'brand', onSetFont }: Props) {
+export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, notesMode, onToggleNotesMode, onOpenShortcuts, fontPref = 'brand', onSetFont }: Props) {
   const [open, setOpen] = useState(false);
   const [modal, setModal] = useState<'users' | 'tokens' | 'activity' | 'twofa' | 'settings' | 'calendar' | 'profile' | 'langtime' | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -273,6 +277,13 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
           <button onClick={() => { setOpen(false); setModal('langtime'); }}>
             <Languages size={16} /> {t('Language and time')}
           </button>
+          {onOpenShortcuts && (
+            <button onClick={() => { setOpen(false); onOpenShortcuts(); }}>
+              <Keyboard size={16} /> {t('Keyboard shortcuts')}
+              {/* From the registry, so the menu cannot advertise a key that moved. */}
+              <kbd className="menu-chord">{chordFor('help.shortcuts')}</kbd>
+            </button>
+          )}
           {onToggleNotesMode && (
             <button onClick={onToggleNotesMode} title={t('Note list as a middle column (Bear style)')}>
               <Columns2 size={16} /> {t('Notes mode')}

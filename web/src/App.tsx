@@ -420,7 +420,10 @@ export default function App() {
   // only when the browser composed one — which a synthetic keypress may not.
   useShortcut({
     id: 'help.shortcuts',
-    keys: ['shift+?', '?', 'shift+/'],
+    // '?' first: the first spelling is the one menus and the sheet print, and
+    // "⇧?" reads as two keys where there is one — on a German board the
+    // question mark is Shift+ß anyway. // i18n-ok: naming a German keycap is the point
+    keys: ['?', 'shift+?', 'shift+/'],
     label: () => t('Keyboard shortcuts'),
     group: () => t('General'),
     run: () => setHelpOpen((v) => !v),
@@ -1151,6 +1154,7 @@ export default function App() {
         onSelectTag={setNotesTag}
         notesModeSetting={notesMode}
         onToggleNotesMode={toggleNotesMode}
+        onOpenShortcuts={() => setHelpOpen(true)}
         fontPref={fontPref}
         onSetFont={setFontPref}
       />

@@ -75,6 +75,7 @@ interface Props {
   // Raw user setting (independent of viewport) + toggle, shown in the UserMenu.
   notesModeSetting?: boolean;
   onToggleNotesMode?: () => void;
+  onOpenShortcuts?: () => void;
   // Choice of typeface: it belongs to the person, not to the instance.
   fontPref?: FontPref;
   onSetFont?: (f: FontPref) => void;
@@ -420,7 +421,7 @@ function RowActions({
           ctx.setAddFor(ctx.addFor === id ? null : id);
         }}
       >
-        +
+        <Plus size={14} />
       </button>
       {ctx.addFor === id && <AddMenu id={id} ctx={ctx} />}
       <button
@@ -430,7 +431,7 @@ function RowActions({
           ctx.setMenuFor(ctx.menuFor === id ? null : id);
         }}
       >
-        <MoreHorizontal size={13} />
+        <MoreHorizontal size={14} />
       </button>
       {ctx.menuFor === id && (
         <PageMenu id={id} title={title} parentId={parentId} workspaceId={workspaceId} ctx={ctx} />
@@ -698,7 +699,7 @@ function TreeItem({
               ctx.setAddFor(ctx.addFor === p.id ? null : p.id);
             }}
           >
-            +
+            <Plus size={14} />
           </button>
           {ctx.addFor === p.id && <AddMenu id={p.id} ctx={ctx} />}
           <button
@@ -708,7 +709,7 @@ function TreeItem({
               ctx.setMenuFor(ctx.menuFor === p.id ? null : p.id);
             }}
           >
-            ⋯
+            <MoreHorizontal size={14} />
           </button>
           {ctx.menuFor === p.id && (
             <PageMenu id={p.id} title={p.title} parentId={p.parentId} workspaceId={p.workspaceId} ctx={ctx} />
@@ -763,6 +764,7 @@ export default function Sidebar({
   onSelectTag,
   notesModeSetting = false,
   onToggleNotesMode,
+  onOpenShortcuts,
   fontPref = 'brand',
   onSetFont,
   collapsed = false,
@@ -1374,7 +1376,7 @@ export default function Sidebar({
                 onNavigate={onNavigate}
                 action={
                   <button title={t('Remove from favourites')} onClick={() => onToggleFavorite(p.id)}>
-                    ★
+                    <Star size={14} fill="currentColor" />
                   </button>
                 }
               />
@@ -1530,13 +1532,13 @@ export default function Sidebar({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <button title={t('New page from this template')} onClick={() => void instantiateTemplate(p.id)}>
-                    ＋
+                    <Plus size={14} />
                   </button>
                   <button
                     title={t('More')}
                     onClick={() => setTplMenuFor(tplMenuFor === p.id ? null : p.id)}
                   >
-                    ⋯
+                    <MoreHorizontal size={14} />
                   </button>
                   {tplMenuFor === p.id && (
                     <AnchoredMenu>
@@ -1587,6 +1589,7 @@ export default function Sidebar({
             onOpenAgents={() => setAgentOpen(true)}
             notesMode={notesModeSetting}
             onToggleNotesMode={onToggleNotesMode}
+            onOpenShortcuts={onOpenShortcuts}
             fontPref={fontPref}
             onSetFont={onSetFont}
           />
