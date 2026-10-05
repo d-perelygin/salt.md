@@ -21,7 +21,7 @@ import TemplateGallery from './TemplateGallery';
 import BlueprintLibrary from './BlueprintLibrary';
 import WorkspaceSettings from './WorkspaceSettings';
 import StrandedWorkspaces from './StrandedWorkspaces';
-import { useExclusiveModal, useMenuDismiss } from '../modal';
+import { modalOpen, useExclusiveModal, useMenuDismiss } from '../modal';
 import { chordFor, hint, useShortcut } from '../keys';
 import { focusRegion, focusedKey, navItem, useNavRegion, withFocusSurvival } from '../nav';
 import { Sun, Moon, Search, Library, Plus, Table2, FileText, Trash2, LayoutTemplate, Tag, ChevronRight, ChevronDown, Users, Check, Download, Upload, Image, PanelLeftClose, PanelLeftOpen, Pencil, Star, ShieldAlert, ScrollText, Paperclip, SquareArrowOutUpRight, Copy, CornerUpRight, CornerLeftUp, Undo2, X, MoreHorizontal, Settings2 } from 'lucide-react';
@@ -850,6 +850,18 @@ export default function Sidebar({
   const tplActionsRef = useRef<HTMLSpanElement>(null);
   useMenuDismiss(tplMenuFor !== null, tplActionsRef, () => setTplMenuFor(null));
   const [galleryOpen, setGalleryOpen] = useState(false);
+  // 't' for a page from a template, under the same single-letter rule as the
+  // others in App.tsx: never while something is being typed.
+  useShortcut({
+    id: 'template.new',
+    keys: ['t'],
+    label: () => t('New page from a template'),
+    group: () => t('General'),
+    run: () => {
+      if (modalOpen()) return false;
+      setGalleryOpen(true);
+    },
+  });
   const unflagTemplate = (id: string) =>
     void api.updatePage(id, { isTemplate: false }).catch(() => toast(t('Could not be changed')));
 

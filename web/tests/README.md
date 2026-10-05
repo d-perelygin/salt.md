@@ -35,3 +35,6 @@ a click elsewhere (#20), a row menu at the foot of the sidebar's tree stays
 whole and on top (#21), ↑ from the second block stops in an empty first block
 instead of jumping to the title (#25), and the library's shelves scroll inside
 a narrow pane (#19).
+
+Shortcuts covers the single letters (#23): each acts only while nothing is
+being typed, stays a plain letter while something is, and appears in the sheet.

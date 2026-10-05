@@ -1069,5 +1069,6 @@
   "Enter a unique, non-empty name.": "Einen eindeutigen, nicht leeren Namen eingeben.",
   "Existing selections are not cleared.": "Bestehende Auswahlen werden nicht gelöscht.",
   "Option name": "Optionsname",
-  "New": "Neu"
+  "New": "Neu",
+  "Add or remove favorite": "Favorit setzen oder entfernen"
 }

@@ -17,7 +17,7 @@ import OAuthConsent from './components/OAuthConsent';
 import { UploadBar, ImageLightbox } from './components/Overlays';
 import Toaster from './components/Toaster';
 import { DialogHost, confirm, promptText } from './dialog';
-import { announceModal } from './modal';
+import { announceModal, modalOpen } from './modal';
 import { toast } from './toast';
 import { onRefresh } from './pwa';
 import PullToRefresh from './components/PullToRefresh';
@@ -118,7 +118,7 @@ export default function App() {
     });
   }, []);
   // Ref mirror so the []-deps ⌥N handler always calls the current createPage.
-  const createPageRef = useRef<((parentId: string | null) => Promise<void>) | null>(null);
+  const createPageRef = useRef<((parentId: string | null, type?: 'doc' | 'collection') => Promise<void>) | null>(null);
   const [currentId, setCurrentId] = useState<string | null>(pageIdFromLocation());
   // Open document tabs (Obsidian-style): an ordered list of page ids; the active
   // one is `currentId`. Seeded from the last session and the URL.
@@ -453,6 +453,60 @@ export default function App() {
     label: () => t('Toggle sidebar'),
     group: () => t('General'),
     run: () => (sidebarCollapsed ? expandSidebar() : collapseSidebar()),
+  });
+
+  // Single letters, the way Linear does it (#3, #23). They act only while the
+  // caret is NOT in a text field, where every one of them is simply a letter —
+  // the rule '[' and '?' already follow — so none needs a modifier that a
+  // browser or a keyboard layout has already claimed (⌘N, ⌘L, ⌥ on a Mac).
+  useShortcut({
+    id: 'collection.new',
+    keys: ['shift+n'],
+    label: () => t('New collection'),
+    group: () => t('General'),
+    // Not behind an open dialog: a letter pressed there belongs to the dialog.
+    // Checked in run, not in `when`, because the help sheet is a dialog too and
+    // lists only what `when` allows — the letters would vanish from the one
+    // place that names them. Returning false lets the key through untouched.
+    run: () => {
+      if (modalOpen()) return false;
+      void createPageRef.current?.(null, 'collection');
+    },
+  });
+
+  useShortcut({
+    id: 'library.open',
+    keys: ['l'],
+    label: () => t('Library'),
+    group: () => t('General'),
+    run: () => {
+      if (modalOpen()) return false;
+      announceModal(); // close any open modal + collapse the sidebar
+      setIndexOpen(true);
+    },
+  });
+
+  useShortcut({
+    id: 'notes.toggle',
+    keys: ['m'],
+    label: () => t('Notes mode'),
+    group: () => t('General'),
+    run: () => {
+      if (modalOpen()) return false;
+      toggleNotesMode();
+    },
+  });
+
+  useShortcut({
+    id: 'page.favorite',
+    keys: ['f'],
+    when: () => !!currentId,
+    label: () => t('Add or remove favorite'),
+    group: () => t('Page'),
+    run: () => {
+      if (modalOpen() || !currentId) return false;
+      void toggleFavorite(currentId);
+    },
   });
 
   // The arrows, from outside every region: the regions bind them only once you

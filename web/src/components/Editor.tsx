@@ -34,7 +34,7 @@ import { AgentPresence } from './AgentBadge';
 import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
-import { useMenuDismiss } from '../modal';
+import { modalOpen, useMenuDismiss } from '../modal';
 import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow} from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
@@ -93,6 +93,20 @@ export default function Editor(props: EditorProps) {
     }
   };
   const toggleStructure = () => showStructure(!structureOpen);
+
+  // Same rule as the other single letters (see App.tsx): only while nothing is
+  // being typed. A collection has no comment panel, so there it stays a letter.
+  useShortcut({
+    id: 'comments.toggle',
+    keys: ['c'],
+    when: () => !!page && page.type !== 'collection',
+    label: () => t('Comments'),
+    group: () => t('Page'),
+    run: () => {
+      if (modalOpen()) return false;
+      showComments(!commentsOpen);
+    },
+  });
 
   useEffect(() => {
     let alive = true;
