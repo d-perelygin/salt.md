@@ -164,7 +164,7 @@ func renderBlocks(b *strings.Builder, blocks []mdBlock, depth int) {
 			// in the database page. So the Markdown carries a link there — a dump
 			// of the rows would be a copy that goes stale at once.
 			if id := strProp(blk.Props, "collectionId", ""); id != "" {
-				b.WriteString(indent + "[Datenbank](/p/" + id + ")\n\n")
+				b.WriteString(indent + "[Collection](/p/" + id + ")\n\n")
 			}
 		case "toc":
 			// Generated client-side from headings; nothing meaningful to export.

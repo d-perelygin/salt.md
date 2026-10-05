@@ -4,7 +4,7 @@ import { Table2 } from 'lucide-react';
 import { useBlockCtx } from './blockContext';
 import { MERMAID_REV, renderMermaid } from './mermaidLoader';
 import { PageIcon } from './pageIcon';
-import CollectionView from './components/CollectionView';
+import CollectionView, { type EmbedState } from './components/CollectionView';
 import { plural, t } from './i18n';
 
 // Custom salt.md block types (Welle 17): callout, table of contents, bookmark.
@@ -263,11 +263,35 @@ export const bookmarkSpec = createReactBlockSpec(
 // document AND a database separately, because a database page cannot have a
 // body of text. Now both live in one document.
 
+type EmbedLocal = { viewId: string; views: EmbedState['views'] };
+
+// Tolerant on purpose: the prop is free text in a document anybody (or any
+// agent) can write, and a malformed value must cost the embed its filters, not
+// the document its rendering.
+function parseEmbedLocal(raw: string): EmbedLocal {
+  try {
+    const v = raw ? JSON.parse(raw) : null;
+    if (v && typeof v === 'object') {
+      return {
+        viewId: typeof v.viewId === 'string' ? v.viewId : '',
+        views: v.views && typeof v.views === 'object' ? v.views : {},
+      };
+    }
+  } catch {
+    /* fall through */
+  }
+  return { viewId: '', views: {} };
+}
+
 export const databaseSpec = createReactBlockSpec(
   {
     type: 'database',
     propSchema: {
       collectionId: { default: '' },
+      // This embed's own way of looking at the collection, as JSON: the view
+      // it shows, and per view the filters and sort it applies (#26). Empty
+      // means "as the collection's views say" — every embed written before.
+      local: { default: '' },
     },
     content: 'none',
   } as const,
@@ -275,8 +299,24 @@ export const databaseSpec = createReactBlockSpec(
     render: (props) => {
       const { block, editor } = props;
       const collectionId = (block.props as { collectionId: string }).collectionId;
+      const localRaw = (block.props as { local?: string }).local ?? '';
       const { pagesById, tagColors, onNavigate, onPagesChanged } = useBlockCtx();
       const [q, setQ] = useState('');
+      // Somebody who may read the document but not change it can still filter
+      // what they see; it just stays with them instead of being written back.
+      const [unsaved, setUnsaved] = useState<EmbedLocal | null>(null);
+      const local = unsaved ?? parseEmbedLocal(localRaw);
+      const keep = (next: EmbedLocal) => {
+        if (editor.isEditable) editor.updateBlock(block, { props: { local: JSON.stringify(next) } } as never);
+        else setUnsaved(next);
+      };
+      const embed: EmbedState = {
+        viewId: local.viewId,
+        views: local.views,
+        onViewId: (viewId) => keep({ ...local, viewId }),
+        onView: (viewId, patch) =>
+          keep({ ...local, views: { ...local.views, [viewId]: { ...local.views[viewId], ...patch } } }),
+      };
 
       if (!collectionId) {
         const dbs = [...pagesById.values()]
@@ -331,6 +371,7 @@ export const databaseSpec = createReactBlockSpec(
             tagColors={tagColors}
             onNavigate={onNavigate}
             onPagesChanged={onPagesChanged}
+            embed={embed}
           />
         </div>
       );

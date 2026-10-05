@@ -1070,5 +1070,7 @@
   "Existing selections are not cleared.": "Bestehende Auswahlen werden nicht gelöscht.",
   "Option name": "Optionsname",
   "New": "Neu",
-  "Add or remove favorite": "Favorit setzen oder entfernen"
+  "Add or remove favorite": "Favorit setzen oder entfernen",
+  "No rows match the current filter.": "Keine Zeile passt zum aktuellen Filter.",
+  "No rows yet — click ＋ New above.": "Noch keine Zeilen. Oben auf ＋ Neu klicken."
 }

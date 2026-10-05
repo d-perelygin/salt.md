@@ -2111,6 +2111,22 @@ button {
   max-height: min(560px, 70vh);
 }
 
+/* An embed is a window onto the rows, not a second copy of the collection
+   (#22): its toolbar keeps to filter, sort and New, and steps back until the
+   pointer comes to the embed. Only where there IS a pointer (on a touch screen
+   nothing would ever bring it back), and never while a filter of the embed's
+   own is on: rows quietly missing from a table are worse than a toolbar. */
+@media (hover: hover) {
+  .collection-scroll.is-embed:not(.is-filtered) .collection-actions {
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .bn-db-embed:hover .collection-scroll.is-embed .collection-actions,
+  .bn-db-embed:focus-within .collection-scroll.is-embed .collection-actions {
+    opacity: 1;
+  }
+}
+
 /* Widened from 272px. At that width a normal task title broke after three or
    four words and a card with five faces plus an agent had almost no line left —
    the board read as cramped before anyone had put much in it. The columns are

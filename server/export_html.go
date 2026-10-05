@@ -191,7 +191,7 @@ func renderBlockHTML(b *strings.Builder, blk mdBlock) {
 		// Only the reference, as in the Markdown export — the rows live in the
 		// database page and a copy of them would go stale immediately.
 		if id := strProp(blk.Props, "collectionId", ""); id != "" {
-			b.WriteString(`<p><a href="/p/` + html.EscapeString(id) + `">▦ Datenbank</a></p>`)
+			b.WriteString(`<p><a href="/p/` + html.EscapeString(id) + `">▦ Collection</a></p>`)
 		}
 	case "toc":
 		// Generated client-side; skip in export.

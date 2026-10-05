@@ -94,12 +94,28 @@ function propTypeIcon(t: PropDef['type']) {
   }
 }
 
+/** A collection shown inside a document rather than as its own page.
+ *
+ *  The rows stay the collection's: an edit in an embed is an edit everywhere.
+ *  What an embed keeps to itself is how it LOOKS at them — which view, and the
+ *  filters and sort it applies there — so filtering the Tasks embedded in
+ *  Project A to Project A no longer filters Tasks for everybody, everywhere
+ *  (#26). A view without an entry shows what the collection's view says, which
+ *  is every embed written before this existed. */
+export interface EmbedState {
+  viewId: string;
+  views: Record<string, { filters?: Filter[]; sort?: ViewDef['sort'] }>;
+  onViewId: (viewId: string) => void;
+  onView: (viewId: string, patch: { filters?: Filter[]; sort?: ViewDef['sort'] }) => void;
+}
+
 interface Props {
   collectionId: string;
   pages: Map<string, PageMeta>;
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
   onPagesChanged: () => void;
+  embed?: EmbedState;
 }
 
 interface Row {
@@ -216,10 +232,14 @@ function applyView(rows: Row[], view: ViewDef): Row[] {
   return out;
 }
 
-export default function CollectionView({ collectionId, pages, tagColors, onNavigate, onPagesChanged }: Props) {
+export default function CollectionView({ collectionId, pages, tagColors, onNavigate, onPagesChanged, embed }: Props) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
-  const [viewId, setViewId] = useState<string>('');
+  const [viewId, setViewId] = useState<string>(embed?.viewId ?? '');
+  const pickView = (id: string) => {
+    setViewId(id);
+    embed?.onViewId(id);
+  };
   const [schemaOpen, setSchemaOpen] = useState(false);
 
   // Open comments per row. Trello shows on every card whether anything was
@@ -275,7 +295,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Rows are fetched from the server (filtered/paginated there), NOT from the
   // global page list — a database can have tens of thousands of rows that must
   // not choke the sidebar tree load.
-  const view0 = config?.views.find((v) => v.id === viewId) ?? config?.views[0];
+  const savedView = config?.views.find((v) => v.id === viewId) ?? config?.views[0];
+  // In a document, the embed's own filters and sort stand in for the view's.
+  const own = savedView && embed?.views[savedView.id];
+  const view0 = savedView && own ? { ...savedView, ...own } : savedView;
   // Server-side filter/sort (real Q25): the view's filters/sort become query
   // params so a 50k-row database is filtered in SQLite, not in the browser.
   // Only finished conditions travel. An unfinished one is not "match nothing",
@@ -435,6 +458,17 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   if (!config || !view) return <div className="editor-loading" />;
 
   const updateView = (patch: Partial<ViewDef>) => {
+    // An embed keeps its filters and sort to itself (#26): set inside a
+    // document, they must not change the collection's view everywhere else.
+    if (embed && ('filters' in patch || 'sort' in patch)) {
+      const { filters, sort, ...rest } = patch;
+      embed.onView(view.id, {
+        ...('filters' in patch ? { filters } : {}),
+        ...('sort' in patch ? { sort } : {}),
+      });
+      if (Object.keys(rest).length === 0) return;
+      patch = rest;
+    }
     const next = {
       ...config,
       views: config.views.map((v) => (v.id === view.id ? { ...v, ...patch } : v)),
@@ -507,8 +541,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const viewRows = applyView(rows, view);
   const emptyLabel =
     rows.length > 0 && viewRows.length === 0
-      ? 'No rows match the current filter.'
-      : 'No rows yet — click ＋ New above.';
+      ? t('No rows match the current filter.')
+      : t('No rows yet — click ＋ New above.');
   const tabIcon = (t: ViewDef['type']) => {
     const sz = 14;
     if (t === 'board') return <Columns3 size={sz} />;
@@ -536,9 +570,15 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           <span key={v.id} className="view-tab-wrap">
             <button
               className={'view-tab view-tab--' + v.type + (v.id === view.id ? ' active' : '')}
-              onClick={() => setViewId(v.id)}
-              onDoubleClick={() => void renameView(v)}
+              onClick={() => pickView(v.id)}
+              onDoubleClick={() => {
+                if (!embed) void renameView(v);
+              }}
               onContextMenu={(e) => {
+                // Inside a document the views are the collection's business,
+                // reached through "Open as page" — not something a reader of
+                // the document should rename or remove by accident.
+                if (embed) return;
                 e.preventDefault();
                 setTabMenu({
                   view: v,
@@ -557,14 +597,16 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             </button>
           </span>
         ))}
-        <button
-          ref={addViewBtnRef}
-          className="view-add"
-          title={t('Add view')}
-          onClick={() => setAddViewOpen((o) => !o)}
-        >
-          <Plus size={15} />
-        </button>
+        {!embed && (
+          <button
+            ref={addViewBtnRef}
+            className="view-add"
+            title={t('Add view')}
+            onClick={() => setAddViewOpen((o) => !o)}
+          >
+            <Plus size={15} />
+          </button>
+        )}
       </div>
       {tabMenu && (
         <Portal>
@@ -665,15 +707,22 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           </select>
         )}
         {view.type !== 'form' && <FilterSortControls schema={schema} view={view} onChange={updateView} />}
-        <ColumnsControl schema={schema} view={view} onChange={updateView} />
-        <button className="btn-sm" onClick={() => setSchemaOpen(true)}>
-          <Settings2 size={14} /> {t('Properties')}
-        </button>
+        {/* What the collection IS — its columns, its properties, its views —
+            is edited on its own page. An embed is a window onto the rows, and
+            carrying the whole toolbar into a document made it look like a
+            second copy of the collection (#22). */}
+        {!embed && <ColumnsControl schema={schema} view={view} onChange={updateView} />}
+        {!embed && (
+          <button className="btn-sm" onClick={() => setSchemaOpen(true)}>
+            <Settings2 size={14} /> {t('Properties')}
+          </button>
+        )}
         {/* Renaming and removing the view you are on. It sat inside the tab as a
             ⋯ first, which looked like a smudge in the pill and had to reserve
             room in a row where nothing else does. This bar is already "settings
             for the current view" — filter, sort, group, columns — so it is
             where the last two belong. */}
+        {!embed && (
         <div className="view-menu-wrap">
           <button
             className="btn-sm"
@@ -714,6 +763,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             </>
           )}
         </div>
+        )}
         {view.type !== 'form' && (
           <button className="btn-sm primary" onClick={() => void addRow()}>
             <Plus size={14} /> {t('New')}
@@ -724,7 +774,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   );
 
   return (
-    <div className={'collection-scroll' + (view.type === 'board' ? ' is-board' : '')}>
+    <div
+      className={
+        'collection-scroll' +
+        (view.type === 'board' ? ' is-board' : '') +
+        (embed ? ' is-embed' : '') +
+        (embed && (view.filters ?? []).some(filterIsArmed) ? ' is-filtered' : '')
+      }
+    >
       {viewSwitcher}
       {view.type === 'form' ? (
         <FormView

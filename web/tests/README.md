@@ -38,3 +38,8 @@ a narrow pane (#19).
 
 Shortcuts covers the single letters (#23): each acts only while nothing is
 being typed, stays a plain letter while something is, and appears in the sheet.
+
+Embeds covers a collection inside a document (#22, #26): the embed keeps its
+filters to itself and across a reload, a second embed and the collection's own
+page still show the saved view, and the embed's toolbar leaves out what belongs
+to the collection page.
