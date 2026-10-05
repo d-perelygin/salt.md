@@ -73,6 +73,38 @@ await withFixture(async ({ page, api, base, workspace, read }) => {
   assert.equal(where.inTitle, false, '↑ must not jump past the empty block to the title');
   assert.equal(where.block, 'empty');
 
+  // The icon picker stays above the editor (found on the test box): over a
+  // cover, the editor's side menu (+ and the drag handle) drew through it and
+  // followed the pointer underneath.
+  const covered = await api('POST', '/api/pages', { title: 'Covered', workspaceId: workspace.id });
+  await api('PATCH', `/api/pages/${covered.id}`, {
+    icon: '🤝',
+    cover: 'gradient:linear-gradient(120deg,#4fa872,#2f7d4f)',
+    content: [
+      { id: 'b1', type: 'paragraph', props: {}, content: [{ type: 'text', text: 'First', styles: {} }], children: [] },
+      { id: 'b2', type: 'paragraph', props: {}, content: [{ type: 'text', text: 'Second', styles: {} }], children: [] },
+    ],
+  });
+  await page.goto(`${base}/p/${covered.id}`);
+  await page.locator('[data-id="b2"] .bn-inline-content').waitFor();
+  await page.locator('.page-icon').click();
+  const picker = page.locator('.icon-picker');
+  await picker.waitFor();
+  const pb = await picker.boundingBox();
+  for (const [fx, fy] of [[0.15, 0.5], [0.5, 0.65], [0.3, 0.85]]) {
+    const x = pb.x + pb.width * fx;
+    const y = pb.y + pb.height * fy;
+    await page.mouse.move(x, y);
+    await page.waitForTimeout(150);
+    const onTop = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.icon-picker'), [x, y]);
+    assert(onTop, 'the picker is on top where the pointer is');
+  }
+  const showing = await page.locator('.bn-side-menu').evaluateAll(
+    (els) => els.filter((e) => getComputedStyle(e).visibility === 'visible' && e.getBoundingClientRect().width > 0).length,
+  );
+  assert.equal(showing, 0, 'no side menu shows through the picker');
+  await page.keyboard.press('Escape');
+
   // #19 — beside the sidebar, a 1000px window leaves the library a narrow pane.
   await page.setViewportSize({ width: 1000, height: 800 });
   await page.getByRole('button', { name: /^Library/ }).first().click();
@@ -86,5 +118,5 @@ await withFixture(async ({ page, api, base, workspace, read }) => {
   assert(fit.right <= fit.paneRight + 1, 'the shelves end inside the pane');
   assert(fit.scrolls, 'the shelves that do not fit are reached by scrolling');
 
-  console.log('Menus, view tabs, arrow keys and library shelves passed.');
+  console.log('Menus, view tabs, arrow keys, the icon picker and library shelves passed.');
 });

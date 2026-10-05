@@ -1014,6 +1014,23 @@ button {
   gap: 8px;
 }
 
+/* The picker belongs on top. Over a cover the icon row sticks, and a sticky
+   row with a z-index is a stacking context of its own (7): the editor's
+   floating side menu, the + and the drag handle, sat above the whole row,
+   picker included. Raised while the picker is open, with and without a cover;
+   the second selector has to outweigh the sticky rule's, which comes later. */
+.page-body .page-icon-row:has(.icon-picker),
+.page-body.has-cover .page-icon-row:has(.page-icon):has(.icon-picker) {
+  z-index: 100;
+}
+
+/* And the editor behind it holds still. Its side menu follows the pointer by
+   position, under the picker as much as anywhere else, and reacted to every
+   move across the icons. */
+body:has(.icon-picker) .bn-side-menu {
+  visibility: hidden;
+}
+
 .icon-picker-tabs {
   display: flex;
   align-items: center;
