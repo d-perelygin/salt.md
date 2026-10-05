@@ -408,10 +408,10 @@ Turn it on in the account menu. It is off by default. Two things change while it
 is on: the sidebar drops its document tree (the middle column is the document
 list now), and the tag chips filter that list instead of the tree.
 
-The column is there when the window is wider than 900 px. At 900 px and below it
-is gone and the sidebar takes its tree back — except at exactly 900 px, where
-both switches fire at once and neither list is shown; one pixel either way
-brings navigation back.
+The column is there when the window is wider than 900 px. At 900 px and below,
+on a phone for instance, the list moves into the sidebar's drawer and stands
+where the document tree would be: the same cards, the same **All** and
+**Untagged**, and picking a note opens it and closes the drawer.
 
 ## Keyboard and pointer
 
@@ -427,9 +427,14 @@ brings navigation back.
 | `⌘Enter` / `Ctrl+Enter` | posts a comment |
 | `Enter` in a page's raw trail | posts the note; `Shift+Enter` makes a new line. See [Comments and notes](comments-and-notes.md) |
 | `Enter` in a page title | jumps into the body instead of breaking the title over two lines |
+| `?` | the list of every shortcut that works on the screen you are on. It is also in the account menu, as **Keyboard shortcuts**; `Escape` closes it |
+| `[` | collapses the sidebar, or brings it back |
+| `←` / `→`, with nothing focused | into the sidebar / into the page. In the sidebar `↑` `↓` (or `K` `J`) move through the rows, `→` opens a row's children and `←` closes them, `Home` / `End` jump to the first / last row, and `Enter` opens the page. `←` at the very start of a page title goes back to the sidebar |
+| `L` · `M` · `T` · `F` · `C` · `Shift+N` | the library · notes mode on or off · a new page from a template · the open page into or out of the favourites · its comment panel · a new collection. Single letters act only while nothing is being typed: in a text they are simply letters |
+| `⌘Backspace` / `Ctrl+Backspace` | with a row focused in the sidebar: moves that page to the trash |
 | ⌘-click, Ctrl-click or middle-click | opens a page in a new tab |
 | middle-click on a tab | closes it |
-| right-click | opens the ⋯ menu of a sidebar row, a collection row in the sidebar, or a board card |
+| right-click | opens the ⋯ menu of a sidebar row, a collection row in the sidebar, a template, or a board card. On a view's tab it offers renaming, moving and removing that view |
 
 The shortcut badge beside **Search** reads `⌘K` on every platform; `Ctrl+K`
 works just as well.
@@ -439,9 +444,13 @@ works just as well.
 | Width | What changes |
 | --- | --- |
 | 1200 px and below | an agent's note beside its name is dropped — it is in the tooltip |
-| 900 px and below | the notes list is gone; whichever right-hand panel is open floats over the text instead of pushing it aside. The structure panel narrows to 280 px, the comment panel takes the full width |
+| 900 px and below | the notes list moves into the sidebar's drawer; whichever right-hand panel is open floats over the text instead of pushing it aside. The structure panel narrows to 280 px, the comment panel takes the full width |
 | 768 px and below | the sidebar becomes a drawer over the page with a dark backdrop; the hamburger in the topbar opens it, the backdrop closes it, and picking a page closes it. Every input grows to 16 px so tapping a field does not zoom the page on iOS |
 | 640 px and below | the topbar keeps the structure toggle, the star and **⋯**; comments, private/visible and share to web move into that menu |
+
+A right-hand panel also floats over the text at wider sizes, whenever pushing
+the text aside would leave it narrower than a readable column: a sidebar, the
+notes column and a panel side by side on a laptop screen.
 
 The drawer has no close button of its own. Below 768 px the collapse button in
 the sidebar header is hidden, so the backdrop and picking a page are the two

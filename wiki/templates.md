@@ -114,15 +114,16 @@ to a workspace: switch workspaces and you see that workspace's templates.
 
 | Control | What it does |
 | --- | --- |
-| **＋** on the section (**New page from a template**) | opens the template gallery |
-| **＋** on a row (**New page from this template**) | copies that template straight away and opens the copy |
+| **＋** on the section (**New page from a template**), or `T` | opens the template gallery |
+| clicking the row, or its **＋** (**New page from this template**) | copies that template straight away and opens the copy |
+| **⋯** → **Edit the template itself** | opens the template, to change what every later copy starts from |
 | **⋯** → **Remove template flag** | turns it back into an ordinary page: it leaves this list and stays where it already was in the tree |
 | **⋯** → **Move to trash** | throws the snapshot away — recoverable, see [Trash and recovery](trash-and-recovery.md) |
-| clicking the row | opens the template so you can edit it |
 
-Those two entries are the whole menu here — a template row does not offer the
-page menu the tree rows have, and does not answer a right-click. To move a
-template, duplicate it or export it, use its row in the tree instead.
+A right-click on the row opens the same menu, and a click anywhere else closes
+it. Those three entries are the whole menu here — a template row does not offer
+the page menu the tree rows have. To move a template, duplicate it or export
+it, use its row in the tree instead.
 
 If a copy cannot be made you get **The template could not be used**; a failed
 flag change says **Could not be changed**.

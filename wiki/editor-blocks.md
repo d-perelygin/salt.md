@@ -168,7 +168,8 @@ their widths.
 | --- | --- |
 | `Tab` | Nest the current block under the one above it |
 | `Shift+Tab` | Unnest it |
-| `Shift+Mod+↑` / `↓` | Move the block up or down past its neighbour |
+| `Shift+Mod+↑` / `↓`, or `Alt+↑` / `↓` | Move the block up or down past its neighbour |
+| `Ctrl+Enter` | Tick or untick a checklist item; with several lines selected, every item in them |
 | `Mod+Z` | Undo |
 | `Mod+Shift+Z`, `Mod+Y` | Redo |
 
@@ -363,8 +364,20 @@ up in all of them at once. If it is later deleted, or lives in a workspace you
 cannot read, the block says *This collection is no longer available.* rather
 than failing.
 
-The [views](views.md) shown are the collection's own views. This is the same
-thing an agent gets with `embed_database`.
+The [views](views.md) shown are the collection's own views, but **how an embed
+looks at them is its own**: which view it shows, and per view its filters and
+its sort, are kept with the block. Filtering the Tasks embedded in one project
+to that project leaves the same Tasks embedded elsewhere, and the collection's
+own page, exactly as they were. The rows themselves stay shared, so editing a
+row in an embed edits it everywhere. Somebody who may read the document but not
+change it can still filter what they see; it is not kept for them.
+
+An embed is a window onto the rows rather than a second copy of the collection,
+so its toolbar keeps to the filter, the sort and **New**, and fades in when the
+pointer comes to the embed (on a touch screen, and while a filter is on, it
+stays visible: rows quietly missing from a table are worse than a toolbar). Columns, properties and the views themselves are
+changed on the collection's page, which the title or **Open as page ↗**
+reaches. This is the same block an agent makes with `embed_database`.
 
 ## Page links
 

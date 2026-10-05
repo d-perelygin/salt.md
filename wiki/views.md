@@ -455,7 +455,9 @@ The two are worth telling apart before you go looking for lost data.
    menu offers **Table**, **Board**, **Gallery**, **Calendar**, **Timeline**,
    **List**, **Form**. The new view is named after its type, is appended at the
    end, and opens straight away.
-2. **Rename** by double-clicking the tab, or through `⋯` → **Rename view**.
+2. **Rename** by double-clicking the tab, or through `⋯` → **Rename view**. A
+   right-click on any tab offers renaming, moving and removing for that view,
+   without switching to it first; `⋯` acts on the view you are on.
 3. **Move** it along the strip with `⋯` → **Move left** / **Move right**. The
    entries grey out at the ends. The order of the tabs is the order they are in;
    the first tab is what opens when someone opens the collection.
