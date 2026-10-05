@@ -1068,5 +1068,6 @@
   "Delete option “{name}”?": "Option „{name}“ löschen?",
   "Enter a unique, non-empty name.": "Einen eindeutigen, nicht leeren Namen eingeben.",
   "Existing selections are not cleared.": "Bestehende Auswahlen werden nicht gelöscht.",
-  "Option name": "Optionsname"
+  "Option name": "Optionsname",
+  "New": "Neu"
 }
