@@ -1020,7 +1020,7 @@ export default function PropertyValue({
       // — on a board that is pure noise. The host is what is shown, the full
       // address is what is opened.
       const href = String(value ?? '').trim();
-      if (!href) return compact ? null : <span className="prop-empty">—</span>;
+      const full = href.includes('://') ? href : 'https://' + href;
       let label = href;
       try {
         const u = new URL(href.includes('://') ? href : 'https://' + href);
@@ -1028,10 +1028,10 @@ export default function PropertyValue({
       } catch {
         /* not a valid URL — then leave it unshortened */
       }
-      return (
+      const chip = href ? (
         <a
           className="prop-url-chip"
-          href={href.includes('://') ? href : 'https://' + href}
+          href={full}
           target="_blank"
           rel="noopener noreferrer"
           title={href}
@@ -1040,6 +1040,41 @@ export default function PropertyValue({
           <LinkIcon size={11} />
           {label}
         </a>
+      ) : compact ? null : (
+        <span className="prop-empty">—</span>
+      );
+      if (ro) return chip;
+      if (compact) return chip;
+      if (!editing) {
+        return (
+          <span
+            className="prop-url-editable"
+            title={href || t('Click to edit')}
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditing(true);
+            }}
+          >
+            {chip}
+          </span>
+        );
+      }
+      return (
+        <input
+          className="prop-input"
+          autoFocus
+          defaultValue={href}
+          placeholder="https://…"
+          onClick={(e) => e.stopPropagation()}
+          onBlur={(e) => {
+            setEditing(false);
+            if (e.target.value.trim() !== href) onChange!(e.target.value.trim());
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+        />
       );
     }
     case 'person':

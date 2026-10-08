@@ -189,10 +189,9 @@ agree with it. You can override it under **Week starts on** in your
 A date property is a calendar date and is never shifted by a time zone: a row
 dated the 18th sits on the 18th for everyone.
 
-One limit: the calendar's date property is chosen when the view is created (the
-first date property in the schema) and the settings bar has no control to change
-it afterwards. An agent can change it with `set_view` and `date_prop`. Without a
-usable one the view says *This calendar needs a Date property. Open ⚙ Properties
+The settings bar carries a **Date:** picker for this view: any date property
+in the schema. An agent can change the same with `set_view` and `date_prop`.
+Without a usable one the view says *This calendar needs a Date property. Open ⚙ Properties
 to add one.*
 
 ### `timeline`
@@ -201,7 +200,7 @@ A horizontal day grid with a sticky title column on the left, one bar per row,
 month headings across the top and a line marking today. Clicking either the label
 or the bar opens the row.
 
-The settings bar carries two pickers for this view, and only for this view:
+The settings bar carries two pickers for this view:
 
 | Picker | Options | Effect |
 | --- | --- | --- |

@@ -1630,6 +1630,14 @@ function BlockContent({
         icon: <span>📑</span>,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'toc' } as never),
       },
+      {
+        title: t('Sub-pages'),
+        subtext: t('List of pages below this one'),
+        aliases: ['subpages', 'unterseiten', 'children', 'sub-pages'], // i18n-ok: search aliases, deliberately multilingual so a German user can type it
+        group: 'Basic blocks',
+        icon: <span>📄</span>,
+        onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'subpages' } as never),
+      },
     ];
     return filterSuggestionItems(
       [
@@ -1906,7 +1914,7 @@ function BlockContent({
       <div className="editor-inner" onClickCapture={onFileClick}>
         {/* The database block renders inside the editor and would otherwise
             not reach the page list, the tag colours or navigation. */}
-        <BlockContext.Provider value={{ pagesById, tagColors, onNavigate, onPagesChanged }}>
+        <BlockContext.Provider value={{ pagesById, tagColors, onNavigate, onPagesChanged, pageId: provider.pageId }}>
         <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false}>
           <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
           <SuggestionMenuController
