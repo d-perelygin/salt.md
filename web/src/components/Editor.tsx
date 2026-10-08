@@ -490,6 +490,16 @@ function PageHeader({
   const [visibility, setVisibility] = useState(page.visibility);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  // The server's shared flag survives navigation; the local states do not, so
+  // both are reset here. shareOff masks a just-revoked link the list still
+  // reports until it reloads.
+  const [shareOff, setShareOff] = useState(false);
+  useEffect(() => {
+    setShareUrl(null);
+    setShareOff(false);
+    setShareOpen(false);
+  }, [pageId]);
+  const isShared = shareUrl != null || (!!page.shared && !shareOff);
   const [shareExpiry, setShareExpiry] = useState(0); // days; 0 = never
   const [sharePassword, setSharePassword] = useState('');
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -634,6 +644,7 @@ function PageHeader({
       const res = await api.sharePage(pageId, days, password);
       // Absolute URL on the external domain when configured; else current origin.
       setShareUrl(res.url.startsWith('http') ? res.url : location.origin + res.url);
+      setShareOff(false);
     } catch {
       toast(t('Sharing failed'));
     }
@@ -653,6 +664,7 @@ function PageHeader({
   const stopShare = async () => {
     await api.unsharePage(pageId).catch(() => {});
     setShareUrl(null);
+    setShareOff(true);
     setShareOpen(false);
   };
 
@@ -852,7 +864,7 @@ function PageHeader({
             {visibility === 'private' ? <Lock size={17} /> : <LockOpen size={17} />}
           </button>
           <div className="share-wrap" ref={shareWrapRef}>
-            <button className="icon-btn topbar-wide-only" title={t('Share to web (read-only link)')} onClick={openShare}>
+            <button className={'icon-btn topbar-wide-only' + (isShared ? ' shared-active' : '')} title={isShared ? t('Shared') : t('Share to web (read-only link)')} onClick={openShare}>
               <Globe size={17} />
             </button>
             {shareOpen && (

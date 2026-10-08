@@ -5,7 +5,7 @@ import { PageIcon } from '../pageIcon';
 import { FilePreview, isPreviewable } from './FilePreview';
 import { formatBytes } from '../format';
 import { t } from '../i18n';
-import { CornerDownRight, FileText, Link2, PanelRightClose, Table2 } from 'lucide-react';
+import { CornerDownRight, FileText, Globe, Link2, PanelRightClose, Table2 } from 'lucide-react';
 
 // What a document carries but never showed: the pages below it, the files
 // hanging off it, and who points at it. All three existed — parent_id has
@@ -214,6 +214,11 @@ export default function StructurePanel({
                   )}
                 </span>
                 <span className="structure-text">{page.title || t('Untitled')}</span>
+                {page.shared && (
+                  <span className="tree-shared" title={t('Shared')}>
+                    <Globe size={12} />
+                  </span>
+                )}
               </button>
             ))}
           </Section>

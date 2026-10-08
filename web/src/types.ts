@@ -24,6 +24,8 @@ export interface PageMeta {
   trashedAt?: string;
   trashedBy?: string;
   trashedByAgent?: boolean;
+  /** The page carries a live public link (read-share or form-share). */
+  shared?: boolean;
 }
 
 export interface Workspace {

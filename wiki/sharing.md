@@ -65,12 +65,18 @@ token and the previous one stops working immediately.
 
 Three behaviours of this menu are worth knowing before you use it a second time.
 
-**Opening the menu publishes the page.** There is no "publish" button and no
-confirmation. If you open the globe menu to see whether a page is shared, you
-have shared it. Use **Stop sharing** to undo that.
+**You can see sharing without opening the menu.** A published page carries a
+small globe: in the sidebar tree, in the sub-pages list, and on the topbar
+globe button itself, which is highlighted while the link is live. An expired
+link drops the marker on its own. So to check whether a page is shared, look
+at the marker — opening the menu publishes the page if it was not.
 
-**The menu never shows an existing link.** Nothing in salt.md reports whether a
-page is currently published, so the dialog cannot show you the link you made
+**Opening the menu publishes the page.** There is no "publish" button and no
+confirmation. If you open the globe menu on an unmarked page, you have shared
+it. Use **Stop sharing** to undo that.
+
+**The menu shows the state, not the link.** The marker tells you a page is
+published, but the dialog cannot show you the link you made
 last week; it makes a fresh one, and the old one dies at that moment. The same
 happens when you change the expiry or leave the password field: each of those
 re-mints the link. So the address you send out is the address you copied in that

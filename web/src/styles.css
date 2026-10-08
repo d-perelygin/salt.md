@@ -323,6 +323,17 @@ button {
   text-overflow: ellipsis;
 }
 
+/* A live public link on the page. Muted, not accent: sharing is a state to
+   notice, not an action calling for attention — and it must never read as a
+   second icon-button next to the row's real actions. */
+.tree-shared {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
 .tree-actions {
   display: none;
   align-items: center;
@@ -4223,6 +4234,11 @@ body.is-col-resizing {
 
 .icon-btn.active-star {
   color: #e0a91b;
+}
+
+/* The share button while the page carries a live public link. */
+.icon-btn.shared-active {
+  color: var(--accent);
 }
 
 /* ---------- Page cover ---------- */

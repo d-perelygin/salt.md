@@ -41,6 +41,10 @@ type pageMeta struct {
 	TrashedAt      string `json:"trashedAt,omitempty"`
 	TrashedBy      string `json:"trashedBy,omitempty"`
 	TrashedByAgent bool   `json:"trashedByAgent,omitempty"`
+	// Whether the page currently carries a live public link (read-share or
+	// form-share, unexpired). Computed per listing from share_links — pages
+	// carry no flag of their own, so there is nothing to keep in sync.
+	Shared bool `json:"shared,omitempty"`
 }
 
 type page struct {
@@ -135,6 +139,7 @@ func (s *Server) handleListPages(w http.ResponseWriter, r *http.Request) {
 	}
 	list = s.filterReadable(requestUser(r).ID, list)
 	s.attachTrashers(list)
+	s.markShared(list)
 	writeJSON(w, list)
 }
 
@@ -212,7 +217,54 @@ func (s *Server) handleGetPage(w http.ResponseWriter, r *http.Request) {
 	}
 	// A database row opened as a page must show the same numbers its card shows.
 	s.fillDerivedForPage(requestUser(r), p)
+	if s.liveShared([]string{p.ID})[p.ID] {
+		p.Shared = true
+	}
 	writeJSON(w, p)
+}
+
+// liveShared reports which of the given pages carry a live public link
+// (read-share or form-share, unexpired). share_links is the only source of
+// truth — pages carry no flag of their own — so this is one extra query per
+// listing, not a column to keep in sync.
+func (s *Server) liveShared(ids []string) map[string]bool {
+	live := map[string]bool{}
+	if len(ids) == 0 {
+		return live
+	}
+	args := make([]any, len(ids)+1)
+	for i, id := range ids {
+		args[i] = id
+	}
+	args[len(ids)] = now()
+	rows, err := s.db.Query(`SELECT DISTINCT page_id FROM share_links WHERE page_id IN (`+placeholders(len(ids))+`) AND (expires_at IS NULL OR expires_at = '' OR expires_at > ?)`, args...)
+	if err != nil {
+		return live
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			live[id] = true
+		}
+	}
+	return live
+}
+
+func (s *Server) markShared(list []pageMeta) {
+	if len(list) == 0 {
+		return
+	}
+	ids := make([]string, len(list))
+	for i, m := range list {
+		ids[i] = m.ID
+	}
+	live := s.liveShared(ids)
+	for i := range list {
+		if live[list[i].ID] {
+			list[i].Shared = true
+		}
+	}
 }
 
 func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
