@@ -254,8 +254,8 @@ shows **Form not found**: *This link is not valid or has been switched off.* The
 same page appears if the form view itself has been deleted while the link is
 still live.
 
-The submit button carries the label stored on the view. Nothing in the interface
-writes that label, so in practice every form's button reads `Absenden`. It can be
+The submit button carries the label stored on the view, or the interface
+language's word for Submit when none is stored. It can be
 set through the HTTP API, which stores a view's settings as they are given (see
 the route table at the end of this page), but there is no MCP tool for it and no
 box in the browser.

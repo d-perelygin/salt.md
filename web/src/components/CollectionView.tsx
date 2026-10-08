@@ -1057,7 +1057,7 @@ function FormView({
         </div>
         <div className="form-actions">
           <button className="btn-sm primary form-submit" disabled={busy || !title.trim()} onClick={() => void submit()}>
-            <Send size={14} /> {view.formSubmit?.trim() || 'Absenden'}
+            <Send size={14} /> {view.formSubmit?.trim() || t('Submit')}
           </button>
         </div>
       </div>
