@@ -250,10 +250,10 @@ You can use the form yourself before it is published, and pressing Enter in the
 visitor's: *Sent* / *Your answer has been saved.* with a **Send another answer**
 button.
 
-The submit button reads **Absenden**. Its label is stored on the view, but no
-control in the interface writes it and `set_view` does not accept it, so the
-German fallback is what everybody gets unless the view configuration is written
-directly through `/api/collections/{id}`.
+The submit button carries the label stored on the view, or the interface
+language's word for Submit when none is stored. No
+control in the interface writes it and `set_view` does not accept it, so a
+custom label is written directly through `/api/collections/{id}`.
 
 **Publishing.** The bar above the form has **Share publicly**. Press it and a
 link is created and copied to your clipboard; the bar then shows a **Public**
