@@ -380,7 +380,7 @@ if (process.argv.includes('--german')) {
 // text was edited); a source string with no entry is simply untranslated.
 const localeDir = join(src, 'locales');
 const report = [];
-for (const name of readdirSync(localeDir).filter((f) => f.endsWith('.json'))) {
+for (const name of readdirSync(localeDir).filter((f) => f.endsWith('.json') && !f.endsWith('.machine.json'))) {
   const cat = JSON.parse(readFileSync(join(localeDir, name), 'utf8'));
   const keys = Object.keys(cat);
   const orphans = keys.filter((k) => !used.has(k));
