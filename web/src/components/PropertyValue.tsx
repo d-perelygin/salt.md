@@ -7,7 +7,7 @@ import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
 import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
 import { showActivityFor } from './ActivityLogHost';
 import { initials, nameColor } from './CommentsPanel';
-import { Check, Link2 as LinkIcon, Plus, Trash2 } from 'lucide-react';
+import { Check, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import { t } from '../i18n';
 
@@ -1046,16 +1046,41 @@ export default function PropertyValue({
       if (ro) return chip;
       if (compact) return chip;
       if (!editing) {
+        // A filled chip is a real link, so a plain click on it opens the URL
+        // and can never mean "edit". Editing is entered through the pencil
+        // (revealed on hover), a double-click, or a click on an empty value.
         return (
           <span
             className="prop-url-editable"
             title={href || t('Click to edit')}
-            onClick={(e) => {
+            onDoubleClick={(e) => {
               e.stopPropagation();
               setEditing(true);
             }}
           >
-            {chip}
+            <span
+              onClick={
+                href
+                  ? undefined
+                  : (e) => {
+                      e.stopPropagation();
+                      setEditing(true);
+                    }
+              }
+            >
+              {chip}
+            </span>
+            <button
+              type="button"
+              className="prop-url-edit-btn"
+              title={t('Edit link')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditing(true);
+              }}
+            >
+              <Pencil size={12} />
+            </button>
           </span>
         );
       }
