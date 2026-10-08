@@ -196,9 +196,14 @@ drawn as a proper tree item rather than as a row, so it keeps its full ⋯ menu.
 salt.md keeps several pages open at once, like an editor rather than like a web
 page. Three ways to open one in a new tab:
 
-- **Open in new tab**, the first entry of the sidebar ⋯ menu.
-- **⌘-click** (Ctrl-click on Windows and Linux) a row in the sidebar tree.
-- **Middle-click** a row in the sidebar tree.
+- **Open in new tab**, the first entry of the sidebar ⋯ menu — and of a board
+  card's ⋯ menu.
+- **⌘-click** (Ctrl-click on Windows and Linux) a row in the sidebar tree, a
+  card on a board, a row in any collection view, or a note in the notes column.
+- **Middle-click** any of those.
+
+The same two gestures therefore work wherever a page is listed: the sidebar, a
+board, a table, a gallery, a list, a calendar, a timeline and the notes column.
 
 A new tab opens immediately after the active one and takes focus. Ordinary
 clicking navigates the tab you are in, so the number of tabs only grows when you

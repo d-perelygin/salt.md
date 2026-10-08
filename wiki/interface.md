@@ -282,7 +282,9 @@ the second tab: one document needs no tab bar.
 
 - **Clicking a page anywhere does not add a tab.** It navigates the tab you are
   in, the way a browser tab does. Use ⌘-click, middle-click or *Open in new tab*
-  to add one.
+  to add one — the gestures work on a sidebar row, a board card, a row in any
+  collection view and a note in the notes column, and a board card's ⋯ menu
+  carries the entry too.
 - A new tab opens directly after the active one and is focused.
 - **✕** closes a tab, and so does a **middle-click** on it.
 - Closing the active tab activates the neighbour that slides into its place.

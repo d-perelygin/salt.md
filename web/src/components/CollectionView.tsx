@@ -20,6 +20,7 @@ import type {
   ViewDef,
 } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
+import { openPage, openPageAux } from '../pageOpen';
 import { AgentDot } from './AgentBadge';
 import { planCard, isBlank, zoneOf, contactKind, needsLabel } from '../cardLayout';
 import SchemaEditor from './SchemaEditor';
@@ -63,6 +64,7 @@ import {
   Pencil,
   Trash2,
   SquareArrowOutUpRight,
+  ExternalLink,
   ArrowLeft,
   ArrowRight, History} from 'lucide-react';
 
@@ -114,6 +116,9 @@ interface Props {
   pages: Map<string, PageMeta>;
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
+  /** ⌘/Ctrl-click and middle-click on a row open a second tab; a plain click
+   *  navigates the one you are in (see pageOpen). */
+  onOpenInNewTab?: (id: string) => void;
   onPagesChanged: () => void;
   embed?: EmbedState;
 }
@@ -232,7 +237,7 @@ function applyView(rows: Row[], view: ViewDef): Row[] {
   return out;
 }
 
-export default function CollectionView({ collectionId, pages, tagColors, onNavigate, onPagesChanged, embed }: Props) {
+export default function CollectionView({ collectionId, pages, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, embed }: Props) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [viewId, setViewId] = useState<string>(embed?.viewId ?? '');
@@ -815,6 +820,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           tagColors={tagColors}
           commentCounts={commentCounts}
           onNavigate={onNavigate}
+          onOpenInNewTab={onOpenInNewTab}
           onSetProp={setRowProp}
           onSetOptions={setPropOptions}
           onDrop={(rowId, groupBy, optId) => {
@@ -832,6 +838,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           emptyLabel={emptyLabel}
           tagColors={tagColors}
           onNavigate={onNavigate}
+          onOpenInNewTab={onOpenInNewTab}
           onSetProp={setRowProp}
           onSetOptions={setPropOptions}
         />
@@ -842,6 +849,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           dateProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
           tagColors={tagColors}
           onNavigate={onNavigate}
+          onOpenInNewTab={onOpenInNewTab}
         />
       ) : view.type === 'list' ? (
         <ListView
@@ -850,6 +858,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           emptyLabel={emptyLabel}
           tagColors={tagColors}
           onNavigate={onNavigate}
+          onOpenInNewTab={onOpenInNewTab}
           onSetProp={setRowProp}
           onSetOptions={setPropOptions}
         />
@@ -861,6 +870,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           endProp={view.endDateProp || ''}
           tagColors={tagColors}
           onNavigate={onNavigate}
+          onOpenInNewTab={onOpenInNewTab}
         />
       ) : (
         <TableView
@@ -874,6 +884,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           colWidths={view.colWidths}
           onSetColWidths={(colWidths) => updateView({ colWidths })}
           onNavigate={onNavigate}
+          onOpenInNewTab={onOpenInNewTab}
           onSetProp={setRowProp}
           onSetOptions={setPropOptions}
         />
@@ -1631,6 +1642,7 @@ function BoardView({
   tagColors,
   commentCounts,
   onNavigate,
+  onOpenInNewTab,
   onSetProp,
   onSetOptions,
   onDrop,
@@ -1643,6 +1655,7 @@ function BoardView({
   tagColors: Record<string, string>;
   commentCounts: Record<string, number>;
   onNavigate: (id: string) => void;
+  onOpenInNewTab?: (id: string) => void;
   onSetProp: (rowId: string, propId: string, value: unknown) => void;
   onSetOptions: (propId: string, options: PropOption[]) => void;
   onDrop: (rowId: string, groupBy: string, optId: string) => void;
@@ -1762,12 +1775,13 @@ function BoardView({
                   (armedRow === r.id ? ' is-armed' : '')
                 }
                 onPointerDown={(e) => startDrag(e, r.id, col.id, r.title || 'Untitled')}
-                onClick={() => {
+                onClick={(e) => {
                   // Do NOT open after a drag — otherwise every move jumps
                   // straight into the card.
                   if (consumeClick()) return;
-                  onNavigate(r.id);
+                  openPage(e, r.id, { onNavigate, onOpenInNewTab });
                 }}
+                onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                 // Right-click opens the card's own menu, the same one behind
                 // the ⋯. On a board the card IS the object in front of you, and
                 // aiming at a small mark in its corner to reach "open" or
@@ -1826,6 +1840,18 @@ function BoardView({
                           }}
                         >
                           <SquareArrowOutUpRight size={15} /> {t('Open')}
+                        </button>
+                        {/* The visible way to a second tab, as in the sidebar's
+                            row menu: ⌘-click and middle-click work too, but a
+                            menu that stays silent about them leaves most people
+                            without a way to ask. */}
+                        <button
+                          onClick={() => {
+                            setMoveMenu(null);
+                            (onOpenInNewTab ?? onNavigate)(r.id);
+                          }}
+                        >
+                          <ExternalLink size={15} /> {t('Open in new tab')}
                         </button>
                         {columns.filter((c) => !rowsFor(c.id).some((x) => x.id === r.id)).length > 0 && (
                           <div className="menu-label">{t('Move to')}</div>
@@ -1953,6 +1979,7 @@ function TableView({
   colWidths,
   onSetColWidths,
   onNavigate,
+  onOpenInNewTab,
   onSetProp,
   onSetOptions,
 }: {
@@ -1964,6 +1991,7 @@ function TableView({
   colWidths?: Record<string, number>;
   onSetColWidths: (next: Record<string, number>) => void;
   onNavigate: (id: string) => void;
+  onOpenInNewTab?: (id: string) => void;
   onSetProp: (rowId: string, propId: string, value: unknown) => void;
   onSetOptions: (propId: string, options: PropOption[]) => void;
 }) {
@@ -2115,7 +2143,11 @@ function TableView({
                       <span className="db-tree-spacer" />
                     )
                   ) : null}
-                  <button className="db-title-link" onClick={() => onNavigate(r.id)}>
+                  <button
+                    className="db-title-link"
+                    onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+                    onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+                  >
                     {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
                     {r.title || 'Untitled'}
                   </button>
@@ -2282,6 +2314,7 @@ function TimelineView({
   startProp,
   endProp,
   onNavigate,
+  onOpenInNewTab,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -2289,6 +2322,7 @@ function TimelineView({
   endProp: string;
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
+  onOpenInNewTab?: (id: string) => void;
 }) {
   if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
     return (
@@ -2375,7 +2409,8 @@ function TimelineView({
                   <div
                     className="tl-label"
                     style={{ width: LABELW }}
-                    onClick={() => onNavigate(row.id)}
+                    onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
+                    onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
                     title={row.title}
                   >
                     {row.icon && (
@@ -2390,7 +2425,8 @@ function TimelineView({
                     <div
                       className="tl-bar"
                       style={{ left, width }}
-                      onClick={() => onNavigate(row.id)}
+                      onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
+                      onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
                       title={row.title}
                     >
                       <span className="tl-bar-label">{row.title || 'Untitled'}</span>
@@ -2412,12 +2448,14 @@ function CalendarView({
   dateProp,
   tagColors,
   onNavigate,
+  onOpenInNewTab,
 }: {
   rows: Row[];
   schema: PropDef[];
   dateProp: string;
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
+  onOpenInNewTab?: (id: string) => void;
 }) {
   const [month, setMonth] = useState(() => {
     const n = new Date();
@@ -2475,7 +2513,13 @@ function CalendarView({
             <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
               {d && <div className="calendar-daynum">{d.getDate()}</div>}
               {dayRows.map((r) => (
-                <button key={r.id} className="calendar-event" onClick={() => onNavigate(r.id)} title={r.title}>
+                <button
+                  key={r.id}
+                  className="calendar-event"
+                  onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+                  onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+                  title={r.title}
+                >
                   {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
                   {r.title || 'Untitled'}
                   {!!r.tags?.length && (
