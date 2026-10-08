@@ -201,15 +201,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name, email, password, code }),
     }),
-  // scopes: the whole account, each workspace, and each collection that has a
-  // date property at all (W120). url/webcal stay the unscoped pair.
+  // scopes: the whole account, each workspace, each collection that has a
+  // date property at all, and each saved view of those collections (a view
+  // feed follows the view's filters and its date property). url/webcal stay
+  // the unscoped pair.
   icsInfo: (rotate = false) =>
     req<{
       url: string;
       webcal: string;
       scopes: {
         id: string;
-        kind: 'all' | 'workspace' | 'collection';
+        viewId?: string;
+        kind: 'all' | 'workspace' | 'collection' | 'view';
         name: string;
         links: { url: string; webcal: string };
       }[];

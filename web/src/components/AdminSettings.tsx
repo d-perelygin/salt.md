@@ -890,10 +890,11 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
     toast(t('New calendar link created (the old one no longer works)'));
   };
   const scopes = info?.scopes ?? [];
-  const key = (s: { kind: string; id: string }) => s.kind + ':' + s.id;
+  const key = (s: { kind: string; id: string; viewId?: string }) => s.kind + ':' + s.id + ':' + (s.viewId ?? '');
   const current = scopes.find((s) => key(s) === pick) ?? scopes[0];
   const workspaces = scopes.filter((s) => s.kind === 'workspace');
   const collections = scopes.filter((s) => s.kind === 'collection');
+  const views = scopes.filter((s) => s.kind === 'view');
   return (
     <Portal>
       <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -939,10 +940,24 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                     ))}
                   </optgroup>
                 )}
+                {views.length > 0 && (
+                  <optgroup label={t('Views')}>
+                    {views.map((s) => (
+                      <option key={key(s)} value={key(s)}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               {collections.length === 0 && (
                 <p className="dialog-hint">
                   {t('A collection appears here once it has a date property.')}
+                </p>
+              )}
+              {views.length > 0 && (
+                <p className="dialog-hint">
+                  {t('A view feed contains only what the view shows.')}
                 </p>
               )}
               <label className="dialog-hint">{t('Subscription link (webcal):')}</label>

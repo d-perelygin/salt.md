@@ -143,10 +143,17 @@ The dialog offers a **scope** under *What should the calendar contain?*:
 | **Everything I can see** | every date property in every workspace you can see: your memberships, plus any workspace you currently hold emergency access to |
 | A workspace | the same, narrowed to one workspace |
 | A collection | one collection's dates |
+| A view | one saved view's dates: only the rows its filters show, on its date property |
 
-Only collections that actually have a date property are listed; otherwise the
-dialog would hand out a permanently empty feed. If the list is empty you will
-see *"A collection appears here once it has a date property."*
+Only collections that actually have a date property are listed, with each of
+their saved views beneath them; otherwise the dialog would hand out a
+permanently empty feed. A view feed says which view it came from: the calendar
+name is "salt.md · Collection · View", and the event description is
+"Collection / View". A view with its own date property writes one clean event
+per row ("Kickoff" instead of "Kickoff (Due)"). If the list is empty you will
+see *"A collection appears here once it has a date property."* A view that is
+deleted later leaves an empty calendar rather than an error, so a stale
+subscription does not sit there flashing red.
 
 Below the scope, the field **Subscription link (webcal):** shows the feed
 itself, read-only; clicking it selects the whole address so you can copy it by
@@ -160,6 +167,7 @@ works)"*.
 https://salt.example.com/ics/<token>.ics
 https://salt.example.com/ics/<token>.ics?workspace=<id>
 https://salt.example.com/ics/<token>.ics?collection=<id>
+https://salt.example.com/ics/<token>.ics?collection=<id>&view=<viewId>
 ```
 
 Five things worth knowing before you paste that link anywhere:
