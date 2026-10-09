@@ -5078,6 +5078,7 @@ body.is-col-resizing {
    picker and Remove on the second. */
 .access-menu .prop-empty {
   font-size: 12.5px;
+  margin: 0;
   padding: 2px 8px;
 }
 .access-menu .user-row {
@@ -5111,8 +5112,12 @@ body.is-col-resizing {
 .access-menu .share-add {
   flex-wrap: wrap;
 }
+.access-menu .share-add select[name='share-member'] {
+  flex: 1 1 100%;
+}
 .access-menu .share-actions-full {
   flex-wrap: wrap;
+  margin-top: 6px;
 }
 .access-menu .share-actions-full .prop-empty {
   flex: 1 1 100%;
