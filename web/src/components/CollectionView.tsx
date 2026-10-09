@@ -4,7 +4,8 @@ import { onRefresh } from '../pwa';
 import Portal from './Portal';
 import { useBoardDrag } from '../boardDrag';
 import { tagColorClass } from '../tags';
-import { compare, firstWeekday, formatMonth, toDayString, weekdayNames } from '../format';
+import { compare, firstWeekday, formatDay, formatMonth, toDayString, weekdayNames } from '../format';
+import { resolveSmartDate } from '../smartdate';
 import { plural, t } from '../i18n';
 import { confirm, promptText } from '../dialog';
 import type {
@@ -170,7 +171,12 @@ function matchesFilter(row: Row, f: Filter): boolean {
   const v = row.props[f.property];
   const op = f.op ?? (f.value === '' ? 'is_not_empty' : 'is');
   if (!filterIsArmed(f)) return true;
-  const vals = filterValues(f);
+  // A relative day names a different date every day. Resolve it now — the
+  // same way the server resolves it per query — or the rows the server sent
+  // and the rows shown here would disagree.
+  const day = (s: string) => resolveSmartDate(s) ?? s;
+  const value = day(f.value);
+  const vals = filterValues(f).map(day);
   // One value or several, the question is the same: does the cell hold any of
   // them. A cell may itself be a list (multiselect, relation).
   const holdsAny = () =>
@@ -185,27 +191,27 @@ function matchesFilter(row: Row, f: Filter): boolean {
     case 'is_not_empty':
       return !isEmptyVal(v);
     case 'contains': {
-      const needle = f.value.toLowerCase();
+      const needle = value.toLowerCase();
       if (Array.isArray(v)) return v.some((x) => String(x).toLowerCase().includes(needle));
       return String(v ?? '').toLowerCase().includes(needle);
     }
     case 'gt':
     case 'lt': {
       const nv = Number(v);
-      const nf = Number(f.value);
-      const cmp = !Number.isNaN(nv) && !Number.isNaN(nf) ? nv - nf : compare(String(v ?? ''), f.value);
+      const nf = Number(value);
+      const cmp = !Number.isNaN(nv) && !Number.isNaN(nf) ? nv - nf : compare(String(v ?? ''), value);
       return op === 'gt' ? cmp > 0 : cmp < 0;
     }
     case 'between': {
       // Inclusive at both ends — a range named by two dates contains them.
       // ISO dates compare correctly as text, so only numbers need Number().
-      const hi = f.value2 ?? '';
+      const hi = f.value2 === undefined ? '' : (resolveSmartDate(f.value2) ?? f.value2);
       const nv = Number(v);
-      if (!Number.isNaN(nv) && !Number.isNaN(Number(f.value)) && !Number.isNaN(Number(hi))) {
-        return nv >= Number(f.value) && nv <= Number(hi);
+      if (!Number.isNaN(nv) && !Number.isNaN(Number(value)) && !Number.isNaN(Number(hi))) {
+        return nv >= Number(value) && nv <= Number(hi);
       }
       const sv = String(v ?? '');
-      return sv !== '' && sv >= f.value && sv <= hi;
+      return sv !== '' && sv >= value && sv <= hi;
     }
     case 'is_not':
       return !holdsAny();
@@ -1175,6 +1181,107 @@ export function formField(def: PropDef, value: unknown, onChange: (v: unknown) =
 
 // ---- Filter & sort controls ----
 
+// One date bound of a filter: either a calendar picker or a relative day such
+// as today-1M. The toggle only changes how the value is ENTERED — both write
+// the same Filter.value string, a YYYY-MM-DD day or a word the server
+// resolves anew on every query (see smartdate.ts), so the view stays live.
+function DateFilterValue({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  // Exact or relative is a STICKY choice, not derived from the value: clearing
+  // the field to type a new word must not fling the picker back to Exact.
+  // It only initialises from the value (a stored word reopens as relative)
+  // and changes on an explicit toggle click.
+  const [relative, setRelative] = useState(
+    () => value !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(value),
+  );
+  // Labels are built during render, never as a module constant: a list
+  // resolved once at import keeps its language for the life of the tab.
+  const presets: { token: string; label: string }[] = [
+    { token: 'today', label: t('Today') },
+    { token: 'yesterday', label: t('Yesterday') },
+    { token: 'tomorrow', label: t('Tomorrow') },
+    { token: 'today-7d', label: t('7 days ago') },
+    { token: 'today-30d', label: t('30 days ago') },
+    { token: 'today-1M', label: t('A month ago') },
+    { token: 'today-3M', label: t('3 months ago') },
+    { token: 'today-1Y', label: t('A year ago') },
+    { token: 'today+7d', label: t('In 7 days') },
+    { token: 'today+1M', label: t('In a month') },
+  ];
+  const exact = !relative;
+  const resolved = resolveSmartDate(value);
+  const picked = presets.some((p) => p.token === value) ? value : 'custom';
+  return (
+    <div className="fs-date">
+      <div className="fs-seg">
+        <button
+          type="button"
+          className={exact ? 'on' : ''}
+          onClick={() => {
+            // Baking the word in: switching to Exact keeps the day the word
+            // names today, or clears an already-empty field.
+            if (relative) {
+              setRelative(false);
+              onChange(resolved ?? '');
+            }
+          }}
+        >
+          {t('Exact')}
+        </button>
+        <button
+          type="button"
+          className={exact ? '' : 'on'}
+          onClick={() => {
+            if (exact) {
+              setRelative(true);
+              onChange('today');
+            }
+          }}
+        >
+          {t('Relative')}
+        </button>
+      </div>
+      {exact ? (
+        <input
+          className="prop-input"
+          type="date"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : (
+        <>
+          <select
+            className="prop-select"
+            value={picked}
+            onChange={(e) =>
+              onChange(e.target.value === 'custom' ? (picked === 'custom' ? value : 'today') : e.target.value)
+            }
+          >
+            {presets.map((p) => (
+              <option key={p.token} value={p.token}>
+                {p.label}
+              </option>
+            ))}
+            <option value="custom">{t('Custom…')}</option>
+          </select>
+          <input
+            className="prop-input"
+            type="text"
+            value={value}
+            placeholder="today-1M" // i18n-ok: example token, identical in every language
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {value !== '' &&
+            (resolved ? (
+              <div className="fs-hint">{t('Resolves to {date}', { date: formatDay(resolved) })}</div>
+            ) : (
+              <div className="fs-hint">{t('Unknown relative day — try today-1M.')}</div>
+            ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 function FilterSortControls({
   schema,
   view,
@@ -1359,7 +1466,7 @@ function FilterSortControls({
               patch({ values: next, value: '' });
             };
             return (
-              <div key={ci} className="fs-filter">
+              <div key={i} className="fs-filter">
                 <div className="fs-filter-head">
                   <span className="fs-label">{propName(f.property)}</span>
                   <select
@@ -1414,21 +1521,29 @@ function FilterSortControls({
                         ))}
                       </div>
                     ) : op === 'between' ? (
-                      <div className="fs-range">
-                        <input
-                          className="prop-input"
-                          type={isDate ? 'date' : 'number'}
-                          value={f.value}
-                          onChange={(e) => patch({ value: e.target.value })}
-                        />
-                        <span className="fs-range-sep">–</span>
-                        <input
-                          className="prop-input"
-                          type={isDate ? 'date' : 'number'}
-                          value={f.value2 ?? ''}
-                          onChange={(e) => patch({ value2: e.target.value })}
-                        />
-                      </div>
+                      isDate ? (
+                        <div className="fs-range">
+                          <DateFilterValue value={f.value} onChange={(v) => patch({ value: v })} />
+                          <span className="fs-range-sep">–</span>
+                          <DateFilterValue value={f.value2 ?? ''} onChange={(v) => patch({ value2: v })} />
+                        </div>
+                      ) : (
+                        <div className="fs-range">
+                          <input
+                            className="prop-input"
+                            type="number"
+                            value={f.value}
+                            onChange={(e) => patch({ value: e.target.value })}
+                          />
+                          <span className="fs-range-sep">–</span>
+                          <input
+                            className="prop-input"
+                            type="number"
+                            value={f.value2 ?? ''}
+                            onChange={(e) => patch({ value2: e.target.value })}
+                          />
+                        </div>
+                      )
                     ) : options.length > 0 ? (
                       <select
                         className="prop-select"
@@ -1442,14 +1557,12 @@ function FilterSortControls({
                           </option>
                         ))}
                       </select>
+                    ) : isDate ? (
+                      <DateFilterValue value={f.value} onChange={(v) => patch({ value: v, values: undefined })} />
                     ) : (
                       <input
                         className="prop-input"
-                        // A date needs a picker, not a box you have to spell
-                        // 2026-08-18 into by hand. That, plus the empty
-                        // condition emptying the table, was the whole of
-                        // "date filtering does not work".
-                        type={isDate ? 'date' : propType === 'number' ? 'number' : 'text'}
+                        type={propType === 'number' ? 'number' : 'text'}
                         value={f.value}
                         placeholder={t('value')}
                         onChange={(e) => patch({ value: e.target.value, values: undefined })}
