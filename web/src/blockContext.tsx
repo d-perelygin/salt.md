@@ -11,6 +11,9 @@ export interface BlockCtx {
   pagesById: Map<string, PageMeta>;
   tagColors: Record<string, string>;
   onNavigate: (id: string | null) => void;
+  /** The second tab a ⌘/Ctrl-click asks for (see pageOpen). Optional: a bare
+   *  context used in isolation falls back to plain navigation. */
+  onOpenInNewTab?: (id: string) => void;
   onPagesChanged: () => void;
 }
 
