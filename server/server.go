@@ -42,6 +42,7 @@ type Server struct {
 	// in every real build; set only by tests, whose receiver lives on an address
 	// safeDial refuses by design (see webhooks.go).
 	webhookTransport http.RoundTripper
+	dist fs.FS
 }
 
 // Close stops background maintenance and releases the database. Call on
@@ -110,6 +111,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 		tokenRate:   newRateLimiter(60, 20),
 		formRate:    newRateLimiter(20, 8), // 20 public form submits/min per IP, burst 8
 		stopCleanup: make(chan struct{}),
+		dist:        dist,
 	}
 	if err := s.seed(); err != nil {
 		return nil, err
@@ -290,6 +292,8 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("PATCH /api/workspaces/{id}/members/{userId}", s.auth(s.handleUpdateMember))
 	m.HandleFunc("DELETE /api/workspaces/{id}/members/{userId}", s.auth(s.handleRemoveMember))
 	m.HandleFunc("POST /api/pages/{id}/share", s.auth(s.handleSharePage))
+	m.HandleFunc("GET /api/pages/{id}/share", s.auth(s.handleShareStatus))
+	m.HandleFunc("PATCH /api/pages/{id}/share", s.auth(s.handlePatchShare))
 	m.HandleFunc("DELETE /api/pages/{id}/share", s.auth(s.handleUnsharePage))
 	// Restricted-page member shares (fork): list, grant, revoke.
 	m.HandleFunc("GET /api/pages/{id}/shares", s.auth(s.handleListPageShares))
@@ -302,6 +306,9 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("GET /api/public/form/{token}", s.handlePublicFormConfig)
 	m.HandleFunc("POST /api/public/form/{token}/submit", s.handlePublicFormSubmit)
 	m.HandleFunc("GET /api/public/{token}", s.handlePublicPage)
+	m.HandleFunc("GET /api/public/c/{token}", s.handlePublicCollection)
+	m.HandleFunc("GET /api/public/c/{token}/rows", s.handlePublicCollectionRows)
+	m.HandleFunc("GET /api/public/c/{token}/row/{rowId}", s.handlePublicCollectionRow)
 	m.HandleFunc("GET /public/{token}", s.handlePublicView)
 	m.HandleFunc("POST /public/{token}", s.handlePublicView)
 

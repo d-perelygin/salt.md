@@ -2,6 +2,7 @@ package server
 
 import (
 	"html"
+	"io/fs"
 	"net/http"
 )
 
@@ -56,16 +57,35 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.Type == "collection" {
-		// A database renders as its Markdown table inside <pre> — faithful and
-		// dependency-free. (Rows only; never children pages.)
-		md, err := s.collectionMarkdown(p)
-		if err != nil {
-			httpError(w, 500, err.Error())
+		// Collections render in the SPA (PublicCollection) so the public view
+		// looks like the in-app collection: same tabs, same boards/tables.
+		// Serve the app shell; the password (if any) is asked inside the app.
+		// GET without JS still needs something honest rather than a blank page.
+		if r.Method == http.MethodPost {
+			// A password POST from an old form: fall through to the app shell
+			// too — the SPA reads ?pw= or the password dialog.
+			http.Redirect(w, r, "/public/"+token, http.StatusSeeOther)
 			return
 		}
-		title := html.EscapeString(p.Title)
-		w.Write([]byte(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>` + title + `</title><style>` + htmlDocStyle + `</style></head><body><pre style="white-space:pre-wrap">` + html.EscapeString(md) + `</pre></body></html>`))
+		s.servePublicAppShell(w, r)
 		return
 	}
 	w.Write([]byte(s.pageHTML(p, false, s.printOptionsFor(p))))
+}
+
+// servePublicAppShell serves index.html for the public collection viewer.
+func (s *Server) servePublicAppShell(w http.ResponseWriter, r *http.Request) {
+	if s.dist == nil {
+		httpError(w, 500, "frontend not built")
+		return
+	}
+	b, err := fs.ReadFile(s.dist, "index.html")
+	if err != nil {
+		httpError(w, 500, "frontend not built")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Robots-Tag", "noindex")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(b)
 }

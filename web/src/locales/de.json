@@ -1102,5 +1102,21 @@
   "Everyone in the workspace": "Alle im Workspace",
   "Only me": "Nur ich",
   "Chosen members": "Gewählte Mitglieder",
-  "Only you and the workspace admins.": "Nur du und die Workspace-Admins."
+  "Only you and the workspace admins.": "Nur du und die Workspace-Admins.",
+  "A new link was created — the old one no longer works": "Ein neuer Link wurde erstellt — der alte funktioniert nicht mehr.",
+  "Anyone with this link can view this page (read-only).": "Jeder mit diesem Link kann diese Seite ansehen (nur Lesen).",
+  "Anyone with this link sees this collection (read-only).": "Jeder mit diesem Link sieht diese Sammlung (nur Lesen).",
+  "Apply": "Anwenden",
+  "Create a new link": "Neuen Link erstellen",
+  "Keep at least one view shared": "Mindestens eine Ansicht freigegeben lassen",
+  "Let readers open notes": "Lesern erlauben, Notizen zu öffnen",
+  "Off = rows are visible, but do not open.": "Aus = Zeilen sind sichtbar, lassen sich aber nicht öffnen.",
+  "Page not found": "Seite nicht gefunden",
+  "Protected page": "Geschützte Seite",
+  "Setting or removing the password creates a new link.": "Setzen oder Entfernen des Passworts erstellt einen neuen Link.",
+  "The link is active, but this browser does not have its URL.": "Der Link ist aktiv, aber dieser Browser hat seine URL nicht.",
+  "This board needs a Select property to group by.": "Dieses Board braucht eine Auswahl-Eigenschaft zum Gruppieren.",
+  "This page is protected by a password.": "Diese Seite ist durch ein Passwort geschützt.",
+  "Views in the link": "Ansichten im Link",
+  "Wrong password.": "Falsches Passwort."
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -1046,9 +1047,14 @@ func (s *Server) handleSharePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Optional expiry (expiresInDays<=0 = never) and optional password.
+	// AllowedViews limits which collection views a public link shows (empty =
+	// all); AllowDetail lets readers open rows. Both travel in share_links.options
+	// so re-minting with new settings replaces the old link atomically.
 	var body struct {
-		ExpiresInDays int    `json:"expiresInDays"`
-		Password      string `json:"password"`
+		ExpiresInDays int      `json:"expiresInDays"`
+		Password      string   `json:"password"`
+		AllowedViews  []string `json:"allowedViews"`
+		AllowDetail   bool     `json:"allowDetail"`
 	}
 	decodeJSON(w, r, &body)
 	var expiresAt any
@@ -1070,11 +1076,131 @@ func (s *Server) handleSharePage(w http.ResponseWriter, r *http.Request) {
 	// with a new expiry/password doesn't leave the old token valid. Form-shares
 	// (mode='form') are independent and left untouched.
 	s.db.Exec(`DELETE FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID)
-	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, page_id, created_at, expires_at, password_hash) VALUES (?, ?, ?, ?, ?)`, tokenHash(token), pageID, now(), expiresAt, pwHash); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, page_id, created_at, expires_at, password_hash, options) VALUES (?, ?, ?, ?, ?, ?)`, tokenHash(token), pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail)); err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}
 	writeJSON(w, map[string]string{"token": token, "url": s.publicShareBase(r) + "/public/" + token})
+}
+
+// shareOptions is what share_links.options carries: which collection views the
+// public link shows (empty = all) and whether readers may open rows.
+type shareOptions struct {
+	AllowedViews []string `json:"allowed_views,omitempty"`
+	AllowDetail  bool     `json:"allow_detail,omitempty"`
+}
+
+func encodeShareOptions(allowed []string, allowDetail bool) string {
+	if len(allowed) == 0 && !allowDetail {
+		return ""
+	}
+	b, err := json.Marshal(shareOptions{AllowedViews: allowed, AllowDetail: allowDetail})
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeShareOptions(raw string) shareOptions {
+	var o shareOptions
+	if raw == "" {
+		return o
+	}
+	if json.Unmarshal([]byte(raw), &o) != nil {
+		return shareOptions{}
+	}
+	return o
+}
+
+// handleShareStatus reports the live read-share settings (no token/URL: the
+// token itself is stored hashed and cannot be recovered). The panel mints once
+// to get the URL, then PATCHes settings in place without rotating the link.
+func (s *Server) handleShareStatus(w http.ResponseWriter, r *http.Request) {
+	pageID := r.PathValue("id")
+	if !s.canWriteReq(r, pageID) {
+		httpError(w, 403, "forbidden")
+		return
+	}
+	var raw sql.NullString
+	var expiresAt sql.NullString
+	var pwHash sql.NullString
+	err := s.db.QueryRow(`SELECT options, expires_at, password_hash FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID).Scan(&raw, &expiresAt, &pwHash)
+	if err != nil {
+		writeJSON(w, map[string]any{"shared": false})
+		return
+	}
+	opts := ""
+	if raw.Valid {
+		opts = raw.String
+	}
+	o := decodeShareOptions(opts)
+	writeJSON(w, map[string]any{
+		"shared":       true,
+		"allowedViews": o.AllowedViews,
+		"allowDetail":  o.AllowDetail,
+		"hasPassword":  pwHash.Valid && pwHash.String != "",
+		"expiresAt":    expiresAt.String,
+	})
+}
+
+// handlePatchShare updates share options (and optionally password/expiry)
+// without rotating the token, so toggling "which views" does not invalidate
+// the link somebody already sent.
+func (s *Server) handlePatchShare(w http.ResponseWriter, r *http.Request) {
+	pageID := r.PathValue("id")
+	if !s.canWriteReq(r, pageID) {
+		httpError(w, 403, "forbidden")
+		return
+	}
+	var body struct {
+		AllowedViews  *[]string `json:"allowedViews"`
+		AllowDetail   *bool     `json:"allowDetail"`
+		ExpiresInDays *int      `json:"expiresInDays"`
+		Password      *string   `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpError(w, 400, "invalid JSON")
+		return
+	}
+	var raw sql.NullString
+	err := s.db.QueryRow(`SELECT options FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID).Scan(&raw)
+	if err != nil {
+		httpError(w, 404, "not shared")
+		return
+	}
+	opts := ""
+	if raw.Valid {
+		opts = raw.String
+	}
+	o := decodeShareOptions(opts)
+	if body.AllowedViews != nil {
+		o.AllowedViews = *body.AllowedViews
+	}
+	if body.AllowDetail != nil {
+		o.AllowDetail = *body.AllowDetail
+	}
+	var expiresAt any
+	if body.ExpiresInDays != nil {
+		if *body.ExpiresInDays > 0 {
+			expiresAt = time.Now().UTC().AddDate(0, 0, *body.ExpiresInDays).Format(time.RFC3339Nano)
+		}
+		if _, err := s.db.Exec(`UPDATE share_links SET expires_at = ? WHERE page_id = ? AND mode != 'form'`, expiresAt, pageID); err != nil {
+			httpError(w, 500, err.Error())
+			return
+		}
+	}
+	// Password change needs the raw token, which only the hashed form is stored
+	// as — so it is applied on the next re-mint. The panel re-mints when the
+	// password field changes (same as expiry used to).
+	var encoded string
+	if b, err := json.Marshal(o); err == nil && string(b) != "{}" {
+		encoded = string(b)
+	}
+	if _, err := s.db.Exec(`UPDATE share_links SET options = ? WHERE page_id = ? AND mode != 'form'`, encoded, pageID); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "allowedViews": o.AllowedViews, "allowDetail": o.AllowDetail})
 }
 
 func (s *Server) handleUnsharePage(w http.ResponseWriter, r *http.Request) {

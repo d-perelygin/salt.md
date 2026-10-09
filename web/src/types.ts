@@ -309,6 +309,19 @@ export interface PublicFormConfig {
   schema: PropDef[];
 }
 
+// Public collection config served (unauthenticated) at /api/public/c/{token} —
+// only the shared views and schema, never the rest of the workspace.
+export interface PublicCollectionConfig {
+  title: string;
+  icon: string;
+  cover: string;
+  description: string;
+  type: string;
+  schema: PropDef[];
+  views: ViewDef[];
+  allowDetail: boolean;
+}
+
 // One item on the blueprint shelf (see server/library.go). Everything from
 // `databases` down is READ OUT OF THE BLUEPRINT by the server, never written
 // beside it — the preview built from this cannot promise something the
