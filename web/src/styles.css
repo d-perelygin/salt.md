@@ -2238,7 +2238,10 @@ body:has(.icon-picker) .bn-side-menu {
   flex-direction: column;
   gap: 9px;
   overflow-y: auto;
-  overscroll-behavior-y: contain;
+  /* Chained scrolling: the column goes first, and when it hits its end the
+     page keeps going. `contain` used to swallow the wheel there, so with the
+     pointer over cards a page that still had room would not move at all. */
+  overscroll-behavior-y: auto;
   min-height: 0;
   flex: 1 1 auto;
 }
