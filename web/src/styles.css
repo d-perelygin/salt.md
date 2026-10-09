@@ -5072,6 +5072,52 @@ body.is-col-resizing {
   padding: 2px 8px;
 }
 
+/* The dialog this replaces had room to spare; the menu does not. Explanatory
+   lines drop to hint size, and a member row wraps: identity on the first
+   line (long emails ellipsize instead of pushing the controls off), access
+   picker and Remove on the second. */
+.access-menu .prop-empty {
+  font-size: 12.5px;
+  padding: 2px 8px;
+}
+.access-menu .user-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.access-menu .user-row-name {
+  min-width: 0;
+}
+.access-menu .user-row-email {
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.access-menu .user-row-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1 1 100%;
+}
+.access-menu .user-row-controls select.prop-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+.access-menu .user-row-controls .btn-sm {
+  flex: none;
+}
+.access-menu .share-add {
+  flex-wrap: wrap;
+}
+.access-menu .share-actions-full {
+  flex-wrap: wrap;
+}
+.access-menu .share-actions-full .prop-empty {
+  flex: 1 1 100%;
+}
+
 .share-input {
   width: 100%;
   border: 1px solid var(--border);

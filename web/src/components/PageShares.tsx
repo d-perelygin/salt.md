@@ -106,7 +106,6 @@ export default function PageShares({
   return (
     <div className="menu access-menu" role="dialog" aria-label={t('Page access')}>
       <h2 className="access-title">{t('Page access')}</h2>
-          <p className="prop-empty">{t('Who can see this page?')}</p>
           <div className="user-list">
             {(
               [
@@ -144,22 +143,21 @@ export default function PageShares({
                         {s.name} {s.userId === myUserId && <span className="prop-empty">{t('(you)')}</span>}
                       </span>
                       <span className="user-row-email">{s.email}</span>
-                      <select
-                        className="prop-select"
-                        value={s.access}
-                        onChange={(e) => void changeAccess(s, e.target.value as Access)}
-                      >
-                        <option value="view">{t('Can view')}</option>
-                        <option value="edit">{t('Can edit')}</option>
-                      </select>
-                      <button className="btn-sm danger" onClick={() => void revoke(s)}>
-                        {t('Remove')}
-                      </button>
+                      <span className="user-row-controls">
+                        <select
+                          className="prop-select"
+                          value={s.access}
+                          onChange={(e) => void changeAccess(s, e.target.value as Access)}
+                        >
+                          <option value="view">{t('Can view')}</option>
+                          <option value="edit">{t('Can edit')}</option>
+                        </select>
+                        <button className="btn-sm danger" onClick={() => void revoke(s)}>
+                          {t('Remove')}
+                        </button>
+                      </span>
                     </div>
                   ))}
-                  {shares?.length === 0 && (
-                    <p className="prop-empty">{t('Nobody yet — the page is visible to nobody but you and the workspace admins.')}</p>
-                  )}
                 </div>
                 {candidates.length > 0 && (
                   <form className="share-add" onSubmit={(e) => void grant(e)}>
@@ -191,6 +189,9 @@ export default function PageShares({
               </>
             ))}
           <div className="share-actions share-actions-full">
+            {shares?.length === 0 && (
+              <p className="prop-empty">{t('Nobody yet — the page is visible to nobody but you and the workspace admins.')}</p>
+            )}
             <button className="btn-sm" onClick={onClose}>
               {t('Done')}
             </button>
