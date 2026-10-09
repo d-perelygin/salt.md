@@ -3,7 +3,7 @@
     "width": 1280,
     "height": 800
   },
-  "note": "Every shot records the source files it shows. check-wiki.mjs fails when one of them changed after takenAt \u2014 retake with: node scripts/shoot-wiki.mjs <id>",
+  "note": "Every shot records the source files it shows. check-wiki.mjs fails when one of them changed after takenAt — retake with: node scripts/shoot-wiki.mjs <id>",
   "shots": [
     {
       "id": "setup-welcome",
@@ -80,8 +80,8 @@
       ],
       "takenAt": {
         "web/src/components/Sidebar.tsx": "1e3ee17e3c19",
-        "web/src/components/Editor.tsx": "20f2eeaabbb9",
-        "web/src/App.tsx": "88c09a530818",
+        "web/src/components/Editor.tsx": "86db28b31de1",
+        "web/src/App.tsx": "f7a586db1c72",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -141,7 +141,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Editor.tsx": "20f2eeaabbb9",
+        "web/src/components/Editor.tsx": "86db28b31de1",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -299,7 +299,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "3d8961329516",
+        "web/src/components/CollectionView.tsx": "b77d953b9ed9",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -333,7 +333,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "3d8961329516",
+        "web/src/components/CollectionView.tsx": "b77d953b9ed9",
         "web/src/cardLayout.ts": "eb7f92584275",
         "web/src/theme.css": "b1c3dece61ce"
       }
@@ -367,7 +367,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "3d8961329516",
+        "web/src/components/CollectionView.tsx": "b77d953b9ed9",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -394,7 +394,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/IndexView.tsx": "38620799fb17",
+        "web/src/components/IndexView.tsx": "3878171637d4",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -455,8 +455,8 @@
         }
       ],
       "takenAt": {
-        "server/public.go": "37843af6889b",
-        "web/src/components/Editor.tsx": "20f2eeaabbb9",
+        "server/public.go": "eee3d3e66d4c",
+        "web/src/components/Editor.tsx": "86db28b31de1",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -486,7 +486,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/UserMenu.tsx": "f0c79ecfbe06",
+        "web/src/components/UserMenu.tsx": "b6f66be52e57",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"
@@ -519,7 +519,7 @@
       ],
       "takenAt": {
         "server/users.go": "b08479ea99c2",
-        "web/src/components/UserMenu.tsx": "f0c79ecfbe06",
+        "web/src/components/UserMenu.tsx": "b6f66be52e57",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"
@@ -585,7 +585,7 @@
       ],
       "takenAt": {
         "web/src/components/AgentConnect.tsx": "048c1dc5ffa2",
-        "server/mcp.go": "90087dac715f",
+        "server/mcp.go": "c1d5050242b3",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"
