@@ -7641,6 +7641,20 @@ a,
   color: var(--accent);
   text-decoration: underline;
 }
+.prop-url-editable { cursor: text; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+.prop-url-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  padding: 2px;
+  border-radius: 4px;
+  opacity: 0;
+  flex-shrink: 0;
+}
+.prop-url-editable:hover .prop-url-edit-btn { opacity: 1; }
+.prop-url-edit-btn:hover { background: var(--hover); color: var(--fg); }
+@media (hover: none) { .prop-url-edit-btn { opacity: 1; } }
 
 /* The card spacing lives ONCE, up with .board-card. There used to be a second,
    later block here tightening the same three values — it won by position, so
