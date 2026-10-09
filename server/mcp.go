@@ -142,7 +142,7 @@ var mcpTools = []map[string]any{
 				"icon":         map[string]any{"type": "string", "description": "Emoji, \"lucide:Name\", \"mdi:Name\" or an image URL"},
 				"cover":        map[string]any{"type": "string", "description": "Image URL or \"gradient:linear-gradient(...)\""},
 				"description":  map[string]any{"type": "string"},
-				"visibility":   map[string]any{"type": "string", "description": "\"workspace\" (everyone in the workspace) or \"private\" (only you)"},
+				"visibility":   map[string]any{"type": "string", "description": "\"workspace\" (everyone in the workspace), \"private\" (only you) or \"restricted\" (only granted members)"},
 				"tags":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Replaces all tags on the page"},
 				"parent_id":    map[string]any{"type": "string", "description": "Move under this page. Pass \"\" to move it to the top level."},
 				"workspace_id": map[string]any{"type": "string", "description": "Move the page and its whole sub-tree into this workspace. Takes precedence over parent_id."},

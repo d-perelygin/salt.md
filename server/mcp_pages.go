@@ -53,8 +53,8 @@ func (s *Server) mcpUpdatePageMeta(pageID, title, icon, cover, description, visi
 		add("description", description, "description")
 	}
 	if visibility != "" {
-		if visibility != "workspace" && visibility != "private" {
-			return "", fmt.Errorf("visibility must be %q or %q", "workspace", "private")
+		if visibility != "workspace" && visibility != "private" && visibility != "restricted" {
+			return "", fmt.Errorf("visibility must be %q, %q or %q", "workspace", "private", "restricted")
 		}
 		add("visibility", visibility, "visibility")
 	}
