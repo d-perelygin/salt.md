@@ -22,6 +22,10 @@ func sharePasswordForm(token string, wrong bool) string {
 	if wrong {
 		msg = `<p class="pw-error">Wrong password.</p>`
 	}
+	wrongJS := "false"
+	if wrong {
+		wrongJS = "true"
+	}
 	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>salt.md — protected page</title><style>
 .pw-page{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 20px 60px;font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c1a15;background:#fbfaf7}
 .pw-card{background:#fff;border:1px solid rgba(28,26,21,.11);border-radius:14px;box-shadow:0 0 0 1px rgba(28,26,21,.07),0 1px 2px rgba(28,26,21,.04),0 22px 48px -24px rgba(28,26,21,.32);padding:32px;width:100%;max-width:400px}
@@ -47,10 +51,23 @@ func sharePasswordForm(token string, wrong bool) string {
 		`<svg class="pw-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>` +
 		`<h1>Protected page</h1></div>` +
 		`<p class="pw-desc">This page is protected by a password.</p>` + msg +
-		`<form method="post" action="/public/` + html.EscapeString(token) + `">` +
+		`<form id="pwform" method="post" action="/public/` + html.EscapeString(token) + `">` +
 		`<input class="pw-input" type="password" name="pw" placeholder="Password" autofocus> ` +
 		`<button class="pw-btn" type="submit">Open</button>` +
-		`</form></div></body></html>`
+		`</form></div><script>(function(){try{` +
+		`var m=location.pathname.match(/^\/public\/([a-f0-9]+)$/);if(!m)return;` +
+		`var k='salt:share-pw:'+m[1],fk=k+':failed';` +
+		`var f=document.getElementById('pwform');if(!f)return;` +
+		`var saved=null;try{saved=sessionStorage.getItem(k)}catch(e){}` +
+		// A wrong password lands back on this form: remember the failure so
+		// the auto-submit below does not loop the same dead password.
+		`if(` + wrongJS + `&&saved){try{sessionStorage.setItem(fk,saved)}catch(e){}}` +
+		`f.addEventListener('submit',function(){try{sessionStorage.setItem(k,f.pw.value);sessionStorage.removeItem(fk)}catch(e){}});` +
+		// Same deal as the collection gate: a password that worked reopens
+		// the page straight away, tab-scoped, with no server session.
+		`var failed=null;try{failed=sessionStorage.getItem(fk)}catch(e){}` +
+		`if(!` + wrongJS + `&&saved&&saved!==failed){f.pw.value=saved;f.submit()}` +
+		`}catch(e){}})();</script></body></html>`
 }
 
 func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
