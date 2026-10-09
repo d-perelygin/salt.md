@@ -365,7 +365,18 @@ GET /api/collections/{id}/rows?filter={"property":"due","op":"between","value":"
 
 `values` replaces `value` for `is` / `is_not` and means *any of* / *none of*.
 `value2` is the upper bound of `between`, inclusive; without it the condition
-does nothing. `sort` is
+does nothing.
+
+A `filter_group` param carries one OR group: a JSON array of conditions in the
+same shape, ANDed inside. Groups are ORed between each other:
+
+```
+GET /api/collections/{id}/rows?filter_group=[{"property":"status","op":"is","value":"done"}]&filter_group=[{"property":"priority","op":"is","value":"high"}]
+```
+
+Combined with repeatable `filter`, those distribute into every group, so
+`filter=due:gt:2026-01-01` beside the two groups above reads "due after
+January 1st AND (done OR high priority)". `sort` is
 `prop:asc` or `prop:desc`. The answer is
 `{"rows": […], "total": n, "offset": …, "limit": …}`, where `total` counts the
 whole filtered set, not the page. Rollups, formulas and backrelations are filled

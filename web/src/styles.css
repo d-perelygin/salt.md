@@ -4654,6 +4654,50 @@ body.is-col-resizing {
   border: 1px dashed var(--border) !important;
 }
 
+/* OR groups: one box per group, an OR divider between them, the group's own
+   add-select and (past the first group) a remove-group ✕ in the foot. */
+.fs-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fs-or {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.fs-or::before,
+.fs-or::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.fs-group-foot {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.fs-group-foot .fs-add {
+  flex: 1;
+  min-width: 0;
+}
+
+.fs-remove-group {
+  flex: none;
+}
+
+.fs-add-group {
+  align-self: flex-start;
+}
+
 /* ---------- Mobile / responsive ---------- */
 
 @media (max-width: 768px) {

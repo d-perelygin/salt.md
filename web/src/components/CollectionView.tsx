@@ -106,9 +106,9 @@ function propTypeIcon(t: PropDef['type']) {
  *  is every embed written before this existed. */
 export interface EmbedState {
   viewId: string;
-  views: Record<string, { filters?: Filter[]; sort?: ViewDef['sort'] }>;
+  views: Record<string, { filters?: Filter[]; filterGroups?: Filter[][]; sort?: ViewDef['sort'] }>;
   onViewId: (viewId: string) => void;
-  onView: (viewId: string, patch: { filters?: Filter[]; sort?: ViewDef['sort'] }) => void;
+  onView: (viewId: string, patch: { filters?: Filter[]; filterGroups?: Filter[][]; sort?: ViewDef['sort'] }) => void;
 }
 
 interface Props {
@@ -217,12 +217,22 @@ function matchesFilter(row: Row, f: Filter): boolean {
   }
 }
 
-// Apply a view's filters and sort to the row set.
+// The effective OR-of-AND groups of a view. Conditions inside one group are
+// ANDed, groups are ORed. filterGroups wins when present; the legacy flat list
+// reads as a single group, so older views keep their meaning exactly.
+export function viewFilterGroups(view: Pick<ViewDef, 'filters' | 'filterGroups'>): Filter[][] {
+  if (view.filterGroups !== undefined) return view.filterGroups;
+  if (view.filters?.length) return [view.filters];
+  return [];
+}
+
+// Apply a view's filters and sort to the row set. A row passes when some group
+// passes wholly; groups with nothing armed in them do not filter.
 function applyView(rows: Row[], view: ViewDef): Row[] {
-  let out = rows;
-  for (const f of view.filters ?? []) {
-    out = out.filter((r) => matchesFilter(r, f));
-  }
+  const armed = viewFilterGroups(view)
+    .map((g) => g.filter(filterIsArmed))
+    .filter((g) => g.length > 0);
+  let out = armed.length === 0 ? rows : rows.filter((r) => armed.some((g) => g.every((f) => matchesFilter(r, f))));
   const sort = view.sort;
   if (sort) {
     out = [...out].sort((a, b) => {
@@ -304,15 +314,15 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // In a document, the embed's own filters and sort stand in for the view's.
   const own = savedView && embed?.views[savedView.id];
   const view0 = savedView && own ? { ...savedView, ...own } : savedView;
-  // Server-side filter/sort (real Q25): the view's filters/sort become query
-  // params so a 50k-row database is filtered in SQLite, not in the browser.
-  // Only finished conditions travel. An unfinished one is not "match nothing",
-  // it is "not asked yet".
-  const serverFilters = (view0?.filters ?? [])
-    .filter(filterIsArmed)
-    .map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 }));
+  // Server-side filter/sort (real Q25): the view's filter groups and sort become
+  // query params so a 50k-row database is filtered in SQLite, not in the
+  // browser. Only finished conditions travel. An unfinished one is not "match
+  // nothing", it is "not asked yet".
+  const serverGroups = viewFilterGroups(view0 ?? { filters: [] })
+    .map((g) => g.filter(filterIsArmed).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })))
+    .filter((g) => g.length > 0);
   const serverSort = view0?.sort ?? null;
-  const fsKey = JSON.stringify([serverFilters, serverSort]);
+  const fsKey = JSON.stringify([serverGroups, serverSort]);
 
   // Loads ALL rows, in steps of 200 one after another. It used to stop at the
   // first page plus a "Load more" button — with the result that a board of 656
@@ -328,7 +338,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       const res = await api.collectionRows(collectionId, {
         limit: PAGE,
         offset: acc.length,
-        filters: serverFilters,
+        filterGroups: serverGroups,
         sort: serverSort,
       });
       if (epoch !== epochRef.current) return; // inzwischen neu geladen
@@ -465,10 +475,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const updateView = (patch: Partial<ViewDef>) => {
     // An embed keeps its filters and sort to itself (#26): set inside a
     // document, they must not change the collection's view everywhere else.
-    if (embed && ('filters' in patch || 'sort' in patch)) {
-      const { filters, sort, ...rest } = patch;
+    if (embed && ('filters' in patch || 'filterGroups' in patch || 'sort' in patch)) {
+      const { filters, filterGroups, sort, ...rest } = patch;
       embed.onView(view.id, {
         ...('filters' in patch ? { filters } : {}),
+        ...('filterGroups' in patch ? { filterGroups } : {}),
         ...('sort' in patch ? { sort } : {}),
       });
       if (Object.keys(rest).length === 0) return;
@@ -800,7 +811,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         'collection-scroll' +
         (view.type === 'board' ? ' is-board' : '') +
         (embed ? ' is-embed' : '') +
-        (embed && (view.filters ?? []).some(filterIsArmed) ? ' is-filtered' : '')
+        (embed && viewFilterGroups(view).some((g) => g.some(filterIsArmed)) ? ' is-filtered' : '')
       }
     >
       {viewSwitcher}
@@ -1216,7 +1227,11 @@ function FilterSortControls({
       setPos({ position: 'fixed', left, width, top: r.bottom + 6, maxHeight: vh - r.bottom - 24 });
     }
   }, [open]);
-  const filters = view.filters ?? [];
+  const groups = viewFilterGroups(view);
+  const filterCount = groups.reduce((n, g) => n + g.length, 0);
+  // Write both shapes at once: the flat list mirrors the first group, so
+  // readers that only know the old shape still see something honest.
+  const setGroups = (next: Filter[][]) => onChange({ filters: next[0] ?? [], filterGroups: next });
   const sort = view.sort ?? null;
   const propName = (id: string) => schema.find((p) => p.id === id)?.name ?? id;
 
@@ -1291,10 +1306,10 @@ function FilterSortControls({
   return (
     <div className="fs-controls" ref={controlsRef}>
       <button
-        className={'btn-sm' + (filters.length ? ' active' : '')}
+        className={'btn-sm' + (filterCount ? ' active' : '')}
         onClick={() => setOpen(open === 'filter' ? null : 'filter')}
       >
-        <FilterIcon size={14} /> Filter{filters.length ? ` (${filters.length})` : ''}
+        <FilterIcon size={14} /> Filter{filterCount ? ` (${filterCount})` : ''}
       </button>
       <button
         className={'btn-sm' + (sort ? ' active' : '')}
@@ -1321,13 +1336,16 @@ function FilterSortControls({
           <div className="fs-popover" style={pos}>
             {open === 'filter' && (
               <>
-          {filters.map((f, i) => {
+          {groups.map((group, gi) => (
+          <div key={gi} className="fs-group">
+          {gi > 0 && <div className="fs-or">OR</div>}
+          {group.map((f, ci) => {
             const op = f.op ?? (f.value === '' ? 'is_not_empty' : 'is');
             const options = valuesFor(f.property);
             const patch = (u: Partial<Filter>) => {
-              const next = filters.slice();
-              next[i] = { ...f, ...u };
-              onChange({ filters: next });
+              const next = groups.map((g) => g.slice());
+              next[gi][ci] = { ...f, ...u };
+              setGroups(next);
             };
             const propType = schema.find((p) => p.id === f.property)?.type;
             const isDate = propType === 'date';
@@ -1369,7 +1387,13 @@ function FilterSortControls({
                   <button
                     className="icon-btn danger fs-remove"
                     title={t('Remove filter')}
-                    onClick={() => onChange({ filters: filters.filter((_, j) => j !== i) })}
+                    onClick={() =>
+                      setGroups(
+                        groups
+                          .map((g, j) => (j === gi ? g.filter((_, k) => k !== ci) : g))
+                          .filter((g) => g.length > 0),
+                      )
+                    }
                   >
                     ✕
                   </button>
@@ -1437,21 +1461,57 @@ function FilterSortControls({
               </div>
             );
           })}
-          <select
-            className="prop-select fs-add"
-            value=""
-            onChange={(e) => {
-              if (!e.target.value) return;
-              onChange({ filters: [...filters, { property: e.target.value, op: 'is', value: '' }] });
-            }}
-          >
-            <option value="">{t('+ Add filter…')}</option>
-            {schema.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+              <div className="fs-group-foot">
+              <select
+                className="prop-select fs-add"
+                value=""
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  const next = groups.map((g) => g.slice());
+                  next[gi] = [...next[gi], { property: e.target.value, op: 'is', value: '' }];
+                  setGroups(next);
+                }}
+              >
+                <option value="">{t('+ Add filter…')}</option>
+                {schema.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              {groups.length > 1 && (
+                <button
+                  className="icon-btn danger fs-remove-group"
+                  title={t('Remove group')}
+                  onClick={() => setGroups(groups.filter((_, j) => j !== gi))}
+                >
+                  ✕
+                </button>
+              )}
+              </div>
+            </div>
+          ))}
+          {groups.length === 0 ? (
+            <select
+              className="prop-select fs-add"
+              value=""
+              onChange={(e) => {
+                if (!e.target.value) return;
+                setGroups([[{ property: e.target.value, op: 'is', value: '' }]]);
+              }}
+            >
+              <option value="">{t('+ Add filter…')}</option>
+              {schema.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <button className="btn-sm fs-add-group" onClick={() => setGroups([...groups, []])}>
+              {t('+ Add group')}
+            </button>
+          )}
               </>
             )}
             {open === 'sort' && (
