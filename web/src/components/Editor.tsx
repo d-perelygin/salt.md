@@ -36,7 +36,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow} from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList} from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -1079,7 +1079,7 @@ function PageHeader({
                       {t('Share publicly')}
                     </button>
                     {formShared && (
-                      <div className="share-hint">{t('The form on this page is already shared separately.')}</div>
+                      <div className="share-hint share-hint-icon"><ClipboardList size={13} />{t('The form on this page is already shared separately.')}</div>
                     )}
                   </>
                 ) : displayUrl ? (

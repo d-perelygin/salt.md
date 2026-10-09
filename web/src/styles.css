@@ -5044,6 +5044,11 @@ body.is-col-resizing {
   font-size: 12px;
   color: var(--muted);
 }
+.share-hint-icon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 .share-input {
   width: 100%;
