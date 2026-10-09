@@ -82,6 +82,65 @@ func TestCreateViewCarriesItsConfiguration(t *testing.T) {
 	}
 }
 
+// OR groups on a view: stored as filterGroups, with the flat list mirroring
+// the first group so readers that only know the old shape still see
+// something honest. Either shape replaces the whole filter.
+func TestCreateViewWithFilterGroups(t *testing.T) {
+	s := testServer(t)
+	uid, _ := signedIn(t, s, "viewgroups@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+	tasks := tasksCollection(t, s, ws, uid)
+
+	if _, err := s.mcpCreateView(tasks, viewSpec{
+		Name: "Open", Type: "board", GroupBy: ptr("status"),
+		FilterGroups: &[][]map[string]any{
+			{{"property": "status", "op": "is", "value": "open"}},
+			{{"property": "system", "op": "is_not_empty"}},
+		},
+	}); err != nil {
+		t.Fatalf("create Open: %v", err)
+	}
+	v := viewByID(t, s, tasks, "open")
+	groups, _ := v["filterGroups"].([]any)
+	if len(groups) != 2 {
+		t.Fatalf("Open should carry 2 groups, has %d", len(groups))
+	}
+	// The flat list mirrors the first group.
+	flat, _ := v["filters"].([]any)
+	if len(flat) != 1 {
+		t.Fatalf("flat mirror should carry 1 condition, has %d", len(flat))
+	}
+	first, _ := flat[0].(map[string]any)
+	if first["property"] != "status" || first["op"] != "is" || first["value"] != "open" {
+		t.Errorf("flat mirror is %#v, want status is open", flat[0])
+	}
+
+	// A flat list replaces the whole filter: the groups are gone.
+	if _, err := s.mcpUpdateView(tasks, "open", viewSpec{
+		Filters: &[]map[string]any{{"property": "status", "op": "is_not", "value": "done"}},
+	}); err != nil {
+		t.Fatalf("update Open: %v", err)
+	}
+	v = viewByID(t, s, tasks, "open")
+	if _, kept := v["filterGroups"]; kept {
+		t.Errorf("a flat list should delete the groups, kept %#v", v["filterGroups"])
+	}
+	if flat, _ := v["filters"].([]any); len(flat) != 1 {
+		t.Errorf("flat list should carry 1 condition, has %d", len(flat))
+	}
+
+	// Unknown properties and operators fail up front, inside the group.
+	if _, err := s.mcpCreateView(tasks, viewSpec{
+		Name: "Bad", Type: "table",
+		FilterGroups: &[][]map[string]any{
+			{{"property": "status", "op": "is", "value": "open"}},
+			{{"property": "nope", "op": "is", "value": "x"}},
+		},
+	}); err == nil {
+		t.Errorf("a group naming an unknown property should fail")
+	}
+}
+
 // MERGE, like update_schema: what is not mentioned survives. Getting this wrong
 // would silently wipe a filter every time somebody renamed a view.
 func TestUpdateViewMergesAndCanClear(t *testing.T) {

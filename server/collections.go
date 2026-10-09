@@ -94,6 +94,10 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 //	limit, offset          — pagination (default 100, max 500)
 //	filter=<propId>:<value> — equals (repeatable); empty value = "is set";
 //	                           matches a scalar OR an array element (multiselect)
+//	filter_group=[{...}] — one OR group as a JSON array of conditions in the
+//	                           same shape (repeatable); ANDed inside, ORed
+//	                           between groups; a repeatable `filter` beside
+//	                           them holds for every group
 //	sort=<propId>:<asc|desc>
 type collectionRow struct {
 	ID       string          `json:"id"`
@@ -152,10 +156,87 @@ func isNumeric(s string) bool {
 	return err == nil
 }
 
+// where builds the SQL for one filter condition and the arguments to go with
+// it. An empty condition means "does not filter": an unsafe property id, a
+// comparison with nothing to compare against, or a half-built range. The
+// caller skips those, so an unfinished condition never blanks the answer.
+func (f rowFilter) where() (string, []any) {
+	if !safePropID(f.Prop) {
+		return "", nil
+	}
+	ex := "json_extract(props, '$." + f.Prop + "')"
+	op := f.Op
+	if op == "" {
+		if f.Value == "" {
+			op = "is_not_empty"
+		} else {
+			op = "is"
+		}
+	}
+	vals := f.vals()
+	// A condition with nothing to compare against does not filter. It used
+	// to compare with the empty string and therefore match nothing, so the
+	// moment you added "Date is …" the table went blank before you had
+	// typed anything — which read as the date filter being broken. The
+	// deliberate version of that question is is_empty.
+	if op != "is_empty" && op != "is_not_empty" && len(vals) == 0 {
+		return "", nil
+	}
+	if op == "between" && f.Value2 == "" {
+		return "", nil
+	}
+	// One placeholder per value, for `IN (?, ?, …)`.
+	holders := strings.TrimSuffix(strings.Repeat("?, ", len(vals)), ", ")
+	anyOf := make([]any, len(vals))
+	for i, v := range vals {
+		anyOf[i] = v
+	}
+	// The value may be stored as a scalar or inside a list (multiselect, a
+	// relation): both spellings have to answer the same question.
+	inList := "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE value IN (" + holders + "))"
+	set := "(" + ex + " IS NOT NULL AND " + ex + " != '' AND " + ex + " != json('[]'))"
+	switch op {
+	case "is_empty":
+		return "NOT " + set, nil
+	case "is_not_empty":
+		return set, nil
+	case "is":
+		return "(" + ex + " IN (" + holders + ") OR " + inList + ")", append(anyOf, anyOf...)
+	case "is_not":
+		// A missing/empty value counts as "is not X" — and with a set, as
+		// "is none of them".
+		return "(" + ex + " IS NULL OR (" + ex + " NOT IN (" + holders + ") AND NOT " + inList + "))", append(anyOf, anyOf...)
+	case "contains":
+		like := "%" + f.Value + "%"
+		return "(" + ex + " LIKE ? OR EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE value LIKE ?))", []any{like, like}
+	case "gt", "lt":
+		cmp := ">"
+		if op == "lt" {
+			cmp = "<"
+		}
+		if isNumeric(f.Value) {
+			return "CAST(" + ex + " AS REAL) " + cmp + " CAST(? AS REAL)", []any{f.Value}
+		}
+		return ex + " " + cmp + " ?", []any{f.Value}
+	case "between":
+		// Inclusive at both ends: a range named by two dates includes the
+		// days it is named after. ISO dates compare correctly as text, so
+		// only numbers need the cast.
+		if isNumeric(f.Value) && isNumeric(f.Value2) {
+			return "(CAST(" + ex + " AS REAL) >= CAST(? AS REAL) AND CAST(" + ex + " AS REAL) <= CAST(? AS REAL))", []any{f.Value, f.Value2}
+		}
+		return "(" + ex + " >= ? AND " + ex + " <= ?)", []any{f.Value, f.Value2}
+	}
+	return "", nil
+}
+
 // collectionRowsQuery filters, sorts and paginates a collection's rows in
 // SQLite and injects computed (rollup/formula/relation) values. Shared by the
 // REST handler and the MCP query_rows tool so both behave identically.
-func (s *Server) collectionRowsQuery(u *user, colID string, filters []rowFilter, sortParam string, limit, offset int) (list []map[string]any, total int, err error) {
+//
+// groups are ORed; the conditions inside one group are ANDed. A flat filter
+// list is one group. Empty groups constrain nothing.
+func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter, sortParam string, limit, offset int) (list []map[string]any, total int, err error) {
 	where := []string{"parent_id = ?", "trashed_at IS NULL"}
 	args := []any{colID}
 	// Hide other people's private rows. The visibility switch in the page header
@@ -172,82 +253,26 @@ func (s *Server) collectionRowsQuery(u *user, colID string, filters []rowFilter,
 	}
 	where = append(where, "(? = 1 OR visibility != 'private' OR owner_id = ?)")
 	args = append(args, wsAdmin, u.ID)
-	for _, f := range filters {
-		if !safePropID(f.Prop) {
+	ors := make([]string, 0, len(groups))
+	for _, g := range groups {
+		ands := make([]string, 0, len(g))
+		for _, f := range g {
+			cond, cargs := f.where()
+			if cond == "" {
+				continue
+			}
+			ands = append(ands, cond)
+			args = append(args, cargs...)
+		}
+		// An empty group constrains nothing — it must not narrow the answer,
+		// or one unfinished group would blank the whole view.
+		if len(ands) == 0 {
 			continue
 		}
-		ex := "json_extract(props, '$." + f.Prop + "')"
-		op := f.Op
-		if op == "" {
-			if f.Value == "" {
-				op = "is_not_empty"
-			} else {
-				op = "is"
-			}
-		}
-		vals := f.vals()
-		// A condition with nothing to compare against does not filter. It used
-		// to compare with the empty string and therefore match nothing, so the
-		// moment you added "Date is …" the table went blank before you had
-		// typed anything — which read as the date filter being broken. The
-		// deliberate version of that question is is_empty.
-		if op != "is_empty" && op != "is_not_empty" && len(vals) == 0 {
-			continue
-		}
-		if op == "between" && f.Value2 == "" {
-			continue
-		}
-		// One placeholder per value, for `IN (?, ?, …)`.
-		holders := strings.TrimSuffix(strings.Repeat("?, ", len(vals)), ", ")
-		anyOf := make([]any, len(vals))
-		for i, v := range vals {
-			anyOf[i] = v
-		}
-		// The value may be stored as a scalar or inside a list (multiselect, a
-		// relation): both spellings have to answer the same question.
-		inList := "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE value IN (" + holders + "))"
-		set := "(" + ex + " IS NOT NULL AND " + ex + " != '' AND " + ex + " != json('[]'))"
-		switch op {
-		case "is_empty":
-			where = append(where, "NOT "+set)
-		case "is_not_empty":
-			where = append(where, set)
-		case "is":
-			where = append(where, "("+ex+" IN ("+holders+") OR "+inList+")")
-			args = append(args, anyOf...)
-			args = append(args, anyOf...)
-		case "is_not":
-			// A missing/empty value counts as "is not X" — and with a set, as
-			// "is none of them".
-			where = append(where, "("+ex+" IS NULL OR ("+ex+" NOT IN ("+holders+") AND NOT "+inList+"))")
-			args = append(args, anyOf...)
-			args = append(args, anyOf...)
-		case "contains":
-			like := "%" + f.Value + "%"
-			where = append(where, "("+ex+" LIKE ? OR EXISTS (SELECT 1 FROM json_each(props, '$."+f.Prop+"') WHERE value LIKE ?))")
-			args = append(args, like, like)
-		case "gt", "lt":
-			cmp := ">"
-			if op == "lt" {
-				cmp = "<"
-			}
-			if isNumeric(f.Value) {
-				where = append(where, "CAST("+ex+" AS REAL) "+cmp+" CAST(? AS REAL)")
-			} else {
-				where = append(where, ex+" "+cmp+" ?")
-			}
-			args = append(args, f.Value)
-		case "between":
-			// Inclusive at both ends: a range named by two dates includes the
-			// days it is named after. ISO dates compare correctly as text, so
-			// only numbers need the cast.
-			if isNumeric(f.Value) && isNumeric(f.Value2) {
-				where = append(where, "(CAST("+ex+" AS REAL) >= CAST(? AS REAL) AND CAST("+ex+" AS REAL) <= CAST(? AS REAL))")
-			} else {
-				where = append(where, "("+ex+" >= ? AND "+ex+" <= ?)")
-			}
-			args = append(args, f.Value, f.Value2)
-		}
+		ors = append(ors, "("+strings.Join(ands, " AND ")+")")
+	}
+	if len(ors) > 0 {
+		where = append(where, "("+strings.Join(ors, " OR ")+")")
 	}
 	whereSQL := strings.Join(where, " AND ")
 
@@ -306,6 +331,58 @@ func (s *Server) collectionRowsQuery(u *user, colID string, filters []rowFilter,
 	return list, total, nil
 }
 
+// filterJSON is one condition as it travels: the flat `filter` object and one
+// element of a `filter_group` array share the shape.
+type filterJSON struct {
+	Property string   `json:"property"`
+	Op       string   `json:"op"`
+	Value    string   `json:"value"`
+	Values   []string `json:"values"`
+	Value2   string   `json:"value2"`
+}
+
+func (f filterJSON) rowFilter() rowFilter {
+	return rowFilter{Prop: f.Property, Op: f.Op, Value: f.Value, Values: f.Values, Value2: f.Value2}
+}
+
+// parseFilterGroups reads repeatable filter_group params: one JSON array of
+// conditions per OR group. Anything unparsable and any group left without a
+// condition is skipped, so a half-built group never blanks the answer.
+func parseFilterGroups(vals []string) [][]rowFilter {
+	groups := [][]rowFilter{}
+	for _, g := range vals {
+		var conds []filterJSON
+		if json.Unmarshal([]byte(g), &conds) != nil {
+			continue
+		}
+		group := []rowFilter{}
+		for _, c := range conds {
+			if c.Property == "" {
+				continue
+			}
+			group = append(group, c.rowFilter())
+		}
+		if len(group) > 0 {
+			groups = append(groups, group)
+		}
+	}
+	return groups
+}
+
+// distributeFilters folds a flat filter list into every OR group: `filter`
+// beside `filter_group` reads "this AND (that OR those)". Without groups the
+// flat list is the one group there is.
+func distributeFilters(flat []rowFilter, groups [][]rowFilter) [][]rowFilter {
+	if len(groups) == 0 {
+		return [][]rowFilter{flat}
+	}
+	out := make([][]rowFilter, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, append(append([]rowFilter{}, flat...), g...))
+	}
+	return out
+}
+
 func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 	colID := r.PathValue("id")
 	if !s.canReadReq(r, colID) {
@@ -329,18 +406,9 @@ func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 		// range have no place in a colon-separated string. Anything starting
 		// with '{' is the second kind.
 		if strings.HasPrefix(strings.TrimSpace(f), "{") {
-			var jf struct {
-				Property string   `json:"property"`
-				Op       string   `json:"op"`
-				Value    string   `json:"value"`
-				Values   []string `json:"values"`
-				Value2   string   `json:"value2"`
-			}
+			var jf filterJSON
 			if json.Unmarshal([]byte(f), &jf) == nil && jf.Property != "" {
-				filters = append(filters, rowFilter{
-					Prop: jf.Property, Op: jf.Op, Value: jf.Value,
-					Values: jf.Values, Value2: jf.Value2,
-				})
+				filters = append(filters, jf.rowFilter())
 			}
 			continue
 		}
@@ -357,7 +425,7 @@ func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 		}
 		filters = append(filters, rowFilter{Prop: propID, Op: op, Value: value})
 	}
-	list, total, err := s.collectionRowsQuery(requestUser(r), colID, filters, q.Get("sort"), limit, offset)
+	list, total, err := s.collectionRowsQuery(requestUser(r), colID, distributeFilters(filters, parseFilterGroups(q["filter_group"])), q.Get("sort"), limit, offset)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
