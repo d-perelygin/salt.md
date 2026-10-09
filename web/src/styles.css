@@ -5050,6 +5050,28 @@ body.is-col-resizing {
   gap: 6px;
 }
 
+/* ---------- Access menu (Page access, hangs off the lock button) ---------- */
+
+.access-wrap {
+  position: relative;
+}
+
+.access-menu {
+  top: 30px;
+  width: 330px;
+  max-width: calc(100vw - 32px);
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 12px;
+  gap: 8px;
+}
+
+.access-title {
+  font-size: 15px;
+  margin: 0;
+  padding: 2px 8px;
+}
+
 .share-input {
   width: 100%;
   border: 1px solid var(--border);

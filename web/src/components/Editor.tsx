@@ -555,10 +555,14 @@ function PageHeader({
   // Dropdowns must close on an outside click / Escape, not just mouse-leave.
   const shareWrapRef = useRef<HTMLDivElement>(null);
   const overflowWrapRef = useRef<HTMLDivElement>(null);
+  const accessWrapRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(shareOpen, shareWrapRef, () => setShareOpen(false));
   useMenuDismiss(overflowOpen, overflowWrapRef, () => setOverflowOpen(false));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sharesOpen, setSharesOpen] = useState(false);
+  // The access panel hangs off its topbar button like the share menu — same
+  // outside-click/Escape dismissal, no modal overlay.
+  useMenuDismiss(sharesOpen, accessWrapRef, () => setSharesOpen(false));
   const [openComments, setOpenComments] = useState(0);
   // Same rule as in Editor, and it has to be asked here too: this is where the
   // button, the menu entries and the count live.
@@ -1072,13 +1076,25 @@ function PageHeader({
           >
             <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
           </button>
-          <button
-            className={'icon-btn topbar-wide-only' + (visibility !== 'workspace' ? ' active-star' : '')}
-            title={t('Page access…')}
-            onClick={() => setSharesOpen(true)}
-          >
-            {visibility === 'workspace' ? <LockOpen size={17} /> : <Lock size={17} />}
-          </button>
+          <div className="access-wrap" ref={accessWrapRef}>
+            <button
+              className={'icon-btn topbar-wide-only' + (visibility !== 'workspace' ? ' active-star' : '')}
+              title={t('Page access…')}
+              onClick={() => setSharesOpen((o) => !o)}
+            >
+              {visibility === 'workspace' ? <LockOpen size={17} /> : <Lock size={17} />}
+            </button>
+            {sharesOpen && (
+              <PageShares
+                pageId={pageId}
+                workspaceId={page.workspaceId}
+                myUserId={user.id}
+                visibility={visibility}
+                onClose={() => setSharesOpen(false)}
+                onVisibilityChange={setVisibility}
+              />
+            )}
+          </div>
           <div className="share-wrap" ref={shareWrapRef}>
             <button className={'icon-btn topbar-wide-only' + (isShared ? ' shared-active' : '')} title={isShared ? t('Shared') : t('Share to web (read-only link)')} onClick={openShare}>
               <Globe size={17} />
@@ -1425,16 +1441,6 @@ function PageHeader({
             pageId={pageId}
             onClose={() => setHistoryOpen(false)}
             onRestored={onPagesChanged}
-          />
-        )}
-        {sharesOpen && (
-          <PageShares
-            pageId={pageId}
-            workspaceId={page.workspaceId}
-            myUserId={user.id}
-            visibility={visibility}
-            onClose={() => setSharesOpen(false)}
-            onVisibilityChange={setVisibility}
           />
         )}
       </div>

@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import Portal from './Portal';
-import { useExclusiveModal } from '../modal';
 import { toast } from '../toast';
 import { t } from '../i18n';
 
@@ -20,8 +18,9 @@ interface Member {
 }
 
 // Who may see this page: everyone in the workspace, only its owner, or chosen
-// members. One dialog for all three, so the lock button always lands here and
-// there is no second place where access is decided.
+// members. It hangs off the lock button like the share menu — same place,
+// same dismissal — so there is no second place where access is decided and no
+// modal in between.
 export default function PageShares({
   pageId,
   workspaceId,
@@ -42,7 +41,6 @@ export default function PageShares({
   const [members, setMembers] = useState<Member[]>([]);
   const [picked, setPicked] = useState('');
   const [pickedAccess, setPickedAccess] = useState<Access>('view');
-  useExclusiveModal(onClose);
 
   const load = () =>
     void api
@@ -106,10 +104,8 @@ export default function PageShares({
   const candidates = members.filter((m) => !granted.has(m.userId));
 
   return (
-    <Portal>
-      <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-        <div className="dialog" role="dialog" aria-modal="true" aria-label={t('Page access')}>
-          <h2>{t('Page access')}</h2>
+    <div className="menu access-menu" role="dialog" aria-label={t('Page access')}>
+      <h2 className="access-title">{t('Page access')}</h2>
           <p className="prop-empty">{t('Who can see this page?')}</p>
           <div className="user-list">
             {(
@@ -199,8 +195,6 @@ export default function PageShares({
               {t('Done')}
             </button>
           </div>
-        </div>
-      </div>
-    </Portal>
+    </div>
   );
 }
