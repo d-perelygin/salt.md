@@ -20,6 +20,7 @@ import { BlockContext } from '../blockContext';
 import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, navItem, nothingBefore, useNavRegion } from '../nav';
 import { useShortcut } from '../keys';
 import CollectionView from './CollectionView';
+import PageShares from './PageShares';
 import { HistoryModal } from './PageHistory';
 import CommentsPanel, {
   COMMENTS_CHANGED,
@@ -499,6 +500,7 @@ function PageHeader({
   useMenuDismiss(shareOpen, shareWrapRef, () => setShareOpen(false));
   useMenuDismiss(overflowOpen, overflowWrapRef, () => setOverflowOpen(false));
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sharesOpen, setSharesOpen] = useState(false);
   const [openComments, setOpenComments] = useState(0);
   // Same rule as in Editor, and it has to be asked here too: this is where the
   // button, the menu entries and the count live.
@@ -627,6 +629,18 @@ function PageHeader({
     const next = visibility === 'private' ? 'workspace' : 'private';
     setVisibility(next);
     api.updatePage(pageId, { visibility: next }).catch(() => toast(t('Visibility not saved')));
+  };
+
+  // Narrow the page to chosen members: restrict first, then manage the list.
+  // Restricting alone (before anyone is granted) hides the page from every
+  // non-admin, so the dialog opens straight away — the intermediate state
+  // must not sit unnoticed.
+  const restrictToMembers = () => {
+    setVisibility('restricted');
+    api
+      .updatePage(pageId, { visibility: 'restricted' })
+      .then(() => setSharesOpen(true))
+      .catch(() => toast(t('Visibility not saved')));
   };
 
   const createShare = async (days: number, password: string) => {
@@ -845,11 +859,17 @@ function PageHeader({
             <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
           </button>
           <button
-            className={'icon-btn topbar-wide-only' + (visibility === 'private' ? ' active-star' : '')}
-            title={visibility === 'private' ? t('Private (only you) — click to share with the workspace') : t('Visible to the workspace — click to make it private')}
-            onClick={togglePrivate}
+            className={'icon-btn topbar-wide-only' + (visibility !== 'workspace' ? ' active-star' : '')}
+            title={
+              visibility === 'private'
+                ? t('Private (only you) — click to share with the workspace')
+                : visibility === 'restricted'
+                  ? t('Restricted (chosen members) — click to manage access')
+                  : t('Visible to the workspace — click to make it private')
+            }
+            onClick={() => (visibility === 'restricted' ? setSharesOpen(true) : togglePrivate())}
           >
-            {visibility === 'private' ? <Lock size={17} /> : <LockOpen size={17} />}
+            {visibility === 'workspace' ? <LockOpen size={17} /> : <Lock size={17} />}
           </button>
           <div className="share-wrap" ref={shareWrapRef}>
             <button className="icon-btn topbar-wide-only" title={t('Share to web (read-only link)')} onClick={openShare}>
@@ -983,6 +1003,27 @@ function PageHeader({
                   {visibility === 'private' ? <Lock size={15} /> : <LockOpen size={15} />}{' '}
                   {visibility === 'private' ? t('Make it visible to the workspace') : t('Make it private')}
                 </button>
+                {visibility === 'restricted' ? (
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      setSharesOpen(true);
+                    }}
+                  >
+                    <Lock size={15} /> {t('Manage access…')}
+                  </button>
+                ) : (
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      restrictToMembers();
+                    }}
+                  >
+                    <Lock size={15} /> {t('Restrict to chosen members…')}
+                  </button>
+                )}
                 <button
                   className="menu-item narrow-only"
                   onClick={() => {
@@ -1115,6 +1156,15 @@ function PageHeader({
             pageId={pageId}
             onClose={() => setHistoryOpen(false)}
             onRestored={onPagesChanged}
+          />
+        )}
+        {sharesOpen && (
+          <PageShares
+            pageId={pageId}
+            workspaceId={page.workspaceId}
+            myUserId={user.id}
+            onClose={() => setSharesOpen(false)}
+            onUnrestricted={() => setVisibility('workspace')}
           />
         )}
       </div>

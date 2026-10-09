@@ -172,6 +172,23 @@ func (s *Server) collectionRowsQuery(u *user, colID string, filters []rowFilter,
 	}
 	where = append(where, "(? = 1 OR visibility != 'private' OR owner_id = ?)")
 	args = append(args, wsAdmin, u.ID)
+	// Restricted subtrees (fork): hide rows under a restricted node the caller
+	// neither owns nor holds a grant on. Skipped entirely when the workspace
+	// holds no restricted page, so the common case pays nothing — and for
+	// admins the SQL short-circuits on the leading flag.
+	if wsAdmin == 0 && s.hasRestrictedInWorkspace(s.pageWorkspace(colID)) {
+		where = append(where, `NOT EXISTS (
+			WITH RECURSIVE anc(id, parent_id, visibility, owner_id) AS (
+				SELECT p2.id, p2.parent_id, p2.visibility, p2.owner_id FROM pages p2 WHERE p2.id = row.id
+				UNION
+				SELECT p.id, p.parent_id, p.visibility, p.owner_id FROM pages p JOIN anc ON p.id = anc.parent_id
+			) SELECT 1 FROM anc LEFT JOIN page_grants g
+				ON g.page_id = anc.id AND g.user_id = ? AND g.subject_type = 'user'
+			WHERE anc.visibility = 'restricted' AND anc.owner_id != ?
+				AND COALESCE(g.access, '') NOT IN ('view', 'edit')
+		)`)
+		args = append(args, u.ID, u.ID)
+	}
 	for _, f := range filters {
 		if !safePropID(f.Prop) {
 			continue
@@ -263,9 +280,9 @@ func (s *Server) collectionRowsQuery(u *user, colID string, filters []rowFilter,
 		}
 	}
 
-	s.db.QueryRow(`SELECT COUNT(*) FROM pages WHERE `+whereSQL, args...).Scan(&total)
+	s.db.QueryRow(`SELECT COUNT(*) FROM pages AS row WHERE `+whereSQL, args...).Scan(&total)
 
-	rows, err := s.db.Query(`SELECT id, title, icon, cover, position, props, tags FROM pages WHERE `+whereSQL+` ORDER BY `+orderSQL+` LIMIT ? OFFSET ?`, append(args, limit, offset)...)
+	rows, err := s.db.Query(`SELECT id, title, icon, cover, position, props, tags FROM pages AS row WHERE `+whereSQL+` ORDER BY `+orderSQL+` LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}

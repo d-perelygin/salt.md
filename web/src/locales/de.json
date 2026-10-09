@@ -1075,5 +1075,21 @@
   "No rows yet — click ＋ New above.": "Noch keine Zeilen. Oben auf ＋ Neu klicken.",
   "Several people": "Mehrere Personen",
   "Only these can be picked:": "Nur diese stehen zur Auswahl:",
-  "Everybody can be picked. Tick people to narrow it down:": "Alle stehen zur Auswahl. Ankreuzen, um einzugrenzen:"
+  "Everybody can be picked. Tick people to narrow it down:": "Alle stehen zur Auswahl. Ankreuzen, um einzugrenzen:",
+  "Restricted (chosen members) — click to manage access": "Eingeschränkt (gewählte Mitglieder) — klicken, um den Zugriff zu verwalten",
+  "Manage access…": "Zugriff verwalten…",
+  "Restrict to chosen members…": "Auf gewählte Mitglieder einschränken…",
+  "Sharing": "Teilen",
+  "Only workspace admins and the page owner can manage access.": "Nur Workspace-Admins und der Eigentümer der Seite können den Zugriff verwalten.",
+  "Only the people below can see this page and its sub-pages. Workspace admins always can.": "Nur die unten genannten Personen können diese Seite und ihre Unterseiten sehen. Workspace-Admins können das immer.",
+  "Can view": "Kann ansehen",
+  "Can edit": "Kann bearbeiten",
+  "Nobody yet — the page is visible to nobody but you and the workspace admins.": "Noch niemand — die Seite ist für niemanden außer dir und den Workspace-Admins sichtbar.",
+  "Add a member…": "Mitglied hinzufügen…",
+  "Share": "Teilen",
+  "Make visible to the workspace": "Für den Workspace sichtbar machen",
+  "Could not share the page": "Seite konnte nicht geteilt werden",
+  "Could not change the access": "Zugriff konnte nicht geändert werden",
+  "Could not remove the access": "Zugriff konnte nicht entfernt werden",
+  "Restricted": "Eingeschränkt"
 }

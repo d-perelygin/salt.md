@@ -438,7 +438,7 @@ Metadata and place, in one tool. Only the fields you pass change.
 | `icon` | string | no |
 | `cover` | string | no |
 | `description` | string | no |
-| `visibility` | string | no: `workspace` or `private` |
+| `visibility` | string | no: `workspace`, `private` or `restricted` |
 | `tags` | array of string | no |
 | `parent_id` | string | no: `""` moves to the top level |
 | `workspace_id` | string | no |
@@ -456,7 +456,7 @@ Errors: `nothing to update: pass at least one of title, icon, cover,
 description, visibility, tags, parent_id, workspace_id or favorite`;
 `a page cannot be its own parent`; `cannot move a page into its own subtree`;
 `a page can only be re-parented within its own workspace`;
-`visibility must be "workspace" or "private"`.
+`visibility must be "workspace", "private" or "restricted"`.
 
 ### write_content
 
