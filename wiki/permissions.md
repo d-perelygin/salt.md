@@ -307,8 +307,9 @@ question is then **Leave anyway?** or **Remove anyway?**.
 ## Restricted pages
 
 A page can be narrowed to chosen members instead of the whole workspace. The
-padlock menu offers **Restrict to chosen members…** beside the private switch;
-on a restricted page the lock opens **Manage access…** instead of toggling.
+lock button in the topbar always opens the **Page access** dialog (⋯ menu →
+**Page access…** holds the same): **Everyone in the workspace**, **Only me**,
+or **Chosen members** with the member list underneath.
 
 What restricted means exactly:
 

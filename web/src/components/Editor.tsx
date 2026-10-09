@@ -631,18 +631,6 @@ function PageHeader({
     api.updatePage(pageId, { visibility: next }).catch(() => toast(t('Visibility not saved')));
   };
 
-  // Narrow the page to chosen members: restrict first, then manage the list.
-  // Restricting alone (before anyone is granted) hides the page from every
-  // non-admin, so the dialog opens straight away — the intermediate state
-  // must not sit unnoticed.
-  const restrictToMembers = () => {
-    setVisibility('restricted');
-    api
-      .updatePage(pageId, { visibility: 'restricted' })
-      .then(() => setSharesOpen(true))
-      .catch(() => toast(t('Visibility not saved')));
-  };
-
   const createShare = async (days: number, password: string) => {
     try {
       const res = await api.sharePage(pageId, days, password);
@@ -860,14 +848,8 @@ function PageHeader({
           </button>
           <button
             className={'icon-btn topbar-wide-only' + (visibility !== 'workspace' ? ' active-star' : '')}
-            title={
-              visibility === 'private'
-                ? t('Private (only you) — click to share with the workspace')
-                : visibility === 'restricted'
-                  ? t('Restricted (chosen members) — click to manage access')
-                  : t('Visible to the workspace — click to make it private')
-            }
-            onClick={() => (visibility === 'restricted' ? setSharesOpen(true) : togglePrivate())}
+            title={t('Page access…')}
+            onClick={() => setSharesOpen(true)}
           >
             {visibility === 'workspace' ? <LockOpen size={17} /> : <Lock size={17} />}
           </button>
@@ -1003,27 +985,15 @@ function PageHeader({
                   {visibility === 'private' ? <Lock size={15} /> : <LockOpen size={15} />}{' '}
                   {visibility === 'private' ? t('Make it visible to the workspace') : t('Make it private')}
                 </button>
-                {visibility === 'restricted' ? (
-                  <button
-                    className="menu-item"
-                    onClick={() => {
-                      setOverflowOpen(false);
-                      setSharesOpen(true);
-                    }}
-                  >
-                    <Lock size={15} /> {t('Manage access…')}
-                  </button>
-                ) : (
-                  <button
-                    className="menu-item"
-                    onClick={() => {
-                      setOverflowOpen(false);
-                      restrictToMembers();
-                    }}
-                  >
-                    <Lock size={15} /> {t('Restrict to chosen members…')}
-                  </button>
-                )}
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    setSharesOpen(true);
+                  }}
+                >
+                  <Lock size={15} /> {t('Page access…')}
+                </button>
                 <button
                   className="menu-item narrow-only"
                   onClick={() => {
@@ -1163,8 +1133,9 @@ function PageHeader({
             pageId={pageId}
             workspaceId={page.workspaceId}
             myUserId={user.id}
+            visibility={visibility}
             onClose={() => setSharesOpen(false)}
-            onUnrestricted={() => setVisibility('workspace')}
+            onVisibilityChange={setVisibility}
           />
         )}
       </div>

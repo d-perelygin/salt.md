@@ -266,12 +266,12 @@ with accounts: a page narrowed to named people in the same workspace, each as
 **Can view** or **Can edit**. The full rules are in
 [Permissions](permissions.md#restricted-pages); here is the mechanics.
 
-1. Open the page and pick **Restrict to chosen members…** from the ⋯ menu (the
-   lock button toggles private, not this).
-2. The **Sharing** dialog opens. Pick a member, pick the access, press
-   **Share**. Nobody else can see the page from that moment — not in the
-   sidebar, not in search.
-3. **Make visible to the workspace** in the same dialog ends it and drops the
+1. Open the page and pick **Page access…** from the ⋯ menu, or click the lock
+   button in the topbar.
+2. Choose **Chosen members** in the dialog. Pick a member, pick the access,
+   press **Share** — repeat for everybody who needs in. Nobody else can see
+   the page from that moment — not in the sidebar, not in search.
+3. **Everyone in the workspace** in the same dialog ends it and drops the
    access list, so nothing stays armed.
 
 Over HTTP the same acts are `GET /api/pages/{id}/shares` (the access list),
