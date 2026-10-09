@@ -24,3 +24,4 @@ web/public/lucide.json
 # Local tool state and scratch files — never commit.
 .serena/
 tmp/
+.openchamber/
