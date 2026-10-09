@@ -79,9 +79,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Sidebar.tsx": "dada26380fdc",
-        "web/src/components/Editor.tsx": "2c78356b1bb6",
-        "web/src/App.tsx": "e9b9e3ec8225",
+        "web/src/components/Sidebar.tsx": "7012dfee70fd",
+        "web/src/components/Editor.tsx": "35c38578fa0d",
+        "web/src/App.tsx": "88c09a530818",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -106,7 +106,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Sidebar.tsx": "dada26380fdc",
+        "web/src/components/Sidebar.tsx": "7012dfee70fd",
         "web/src/treeMode.ts": "413de5b84cd9",
         "web/src/theme.css": "b1c3dece61ce"
       },
@@ -141,7 +141,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Editor.tsx": "2c78356b1bb6",
+        "web/src/components/Editor.tsx": "35c38578fa0d",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -299,7 +299,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "3da291639314",
+        "web/src/components/CollectionView.tsx": "7c2a9d2df7ce",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -333,7 +333,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "3da291639314",
+        "web/src/components/CollectionView.tsx": "7c2a9d2df7ce",
         "web/src/cardLayout.ts": "eb7f92584275",
         "web/src/theme.css": "b1c3dece61ce"
       }
@@ -367,7 +367,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "3da291639314",
+        "web/src/components/CollectionView.tsx": "7c2a9d2df7ce",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -456,7 +456,7 @@
       ],
       "takenAt": {
         "server/public.go": "37843af6889b",
-        "web/src/components/Editor.tsx": "2c78356b1bb6",
+        "web/src/components/Editor.tsx": "35c38578fa0d",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
