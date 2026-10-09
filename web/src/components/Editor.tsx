@@ -843,12 +843,28 @@ function PageHeader({
 
   // A direct-open link for a passworded share: the raw password exists only
   // in this sitting (it is stored hashed), so the button shows exactly while
-  // there is one to embed — typed-but-unapplied, or just applied.
+  // there is one to embed — typed-but-unapplied, or just applied. Copying
+  // applies a still-unapplied value first, so the copied address always
+  // matches the live link instead of racing it.
   const pwForLink = sharePassword !== '' ? sharePassword : lastPassword;
   const copyPwLink = async () => {
     const url = displayUrl;
-    if (!url || !pwForLink) return;
-    const full = url + (url.includes('?') ? '&' : '?') + 'pw=' + encodeURIComponent(pwForLink);
+    if (!url) return;
+    let pw = lastPassword;
+    if (sharePassword !== '') {
+      try {
+        const res = await api.patchShare(pageId, { password: sharePassword });
+        setShareHasPassword(!!res.hasPassword);
+        setLastPassword(sharePassword);
+        pw = sharePassword;
+        setSharePassword('');
+      } catch {
+        toast(t('Sharing failed'));
+        return;
+      }
+    }
+    if (!pw) return;
+    const full = url + (url.includes('?') ? '&' : '?') + 'pw=' + encodeURIComponent(pw);
     try {
       await navigator.clipboard.writeText(full);
       toast(t('Public link copied'));

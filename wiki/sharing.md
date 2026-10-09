@@ -171,8 +171,10 @@ password is at hand, typed but not yet applied, or just applied.
 
 Three properties of this that surprise people:
 
-- **There is no session.** Nothing is remembered after the page is shown, so
-  every fresh visit, including a reload, asks again.
+- **There is no session — almost.** The server remembers nothing, so a new
+  tab, a closed browser or a cleared tab always asks again. But a password
+  that worked is kept in that tab's own session storage, so a reload reopens
+  the page straight away without asking twice.
 - **The password cannot be read back, but it can be changed in place.** It is
   stored as a salted hash beside the token, and neither you nor an
   administrator can recover it. Setting a different one — or clearing it —

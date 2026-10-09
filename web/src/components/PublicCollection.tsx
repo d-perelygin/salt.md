@@ -46,11 +46,26 @@ export default function PublicCollection({ token }: { token: string }) {
         setViewId(c.views[0]?.id ?? '');
         setNeedPassword(false);
         setState('ready');
+        // A working password is remembered for this tab only: a reload
+        // reopens straight away, a new tab or a closed browser asks again.
+        // The server keeps no session — this never leaves the browser.
+        if (pw) {
+          try {
+            sessionStorage.setItem(`salt:share-pw:${token}`, pw);
+          } catch {
+            // Private mode — every visit asks, as before.
+          }
+        }
       } catch (e) {
         if (e instanceof ApiError && e.status === 403) {
           setNeedPassword(true);
           setPwWrong(!!pw);
           setState('ready');
+          try {
+            sessionStorage.removeItem(`salt:share-pw:${token}`);
+          } catch {
+            // Nothing stored, nothing to forget.
+          }
           return;
         }
         setState('notfound');
@@ -65,16 +80,25 @@ export default function PublicCollection({ token }: { token: string }) {
     // Consumed once: the secret moves from the address into memory, so no
     // history entry and no glance at the bar carries it further. Documents
     // never need this — their gate POSTs the password in the form body.
+    // Without ?pw=, a password remembered by this tab (see load) reopens
+    // the link without asking again.
     const params = new URLSearchParams(window.location.search);
-    const q = params.get('pw');
+    let q = params.get('pw');
     if (q) {
       params.delete('pw');
       const rest = params.toString();
       history.replaceState(null, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
       setPassword(q);
+    } else {
+      try {
+        q = sessionStorage.getItem(`salt:share-pw:${token}`);
+      } catch {
+        q = null;
+      }
+      if (q) setPassword(q);
     }
     void load(q || undefined);
-  }, [load]);
+  }, [load, token]);
 
   const view: ViewDef | undefined = useMemo(
     () => cfg?.views.find((v) => v.id === viewId) ?? cfg?.views[0],
