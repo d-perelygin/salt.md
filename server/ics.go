@@ -426,8 +426,9 @@ func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
 					}
 					// The view's filters, through the same query the row list
 					// uses — what the view shows is what the feed carries.
+					// A flat filter list is one group (groups are ORed).
 					for offset := 0; ; {
-						list, total, err := s.collectionRowsQuery(feedUser, c.id, viewFilters, "", 500, offset)
+						list, total, err := s.collectionRowsQuery(feedUser, c.id, [][]rowFilter{viewFilters}, "", 500, offset)
 						if err != nil {
 							break
 						}
