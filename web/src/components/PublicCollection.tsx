@@ -60,7 +60,11 @@ export default function PublicCollection({ token }: { token: string }) {
   );
 
   useEffect(() => {
-    void load();
+    // A ?pw= query opens a password link directly (the API accepts it too);
+    // a wrong one lands on the dialog with the value ready to correct.
+    const q = new URLSearchParams(window.location.search).get('pw');
+    if (q) setPassword(q);
+    void load(q || undefined);
   }, [load]);
 
   const view: ViewDef | undefined = useMemo(

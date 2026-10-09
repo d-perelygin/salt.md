@@ -592,8 +592,8 @@ export const api = {
     }),
   shareStatus: (id: string) =>
     req<{ shared: boolean; allowedViews?: string[]; allowDetail?: boolean; hasPassword?: boolean; expiresAt?: string }>(`/api/pages/${id}/share`),
-  patchShare: (id: string, patch: { allowedViews?: string[]; allowDetail?: boolean; expiresInDays?: number }) =>
-    req<{ ok: boolean }>(`/api/pages/${id}/share`, {
+  patchShare: (id: string, patch: { allowedViews?: string[]; allowDetail?: boolean; expiresInDays?: number; password?: string }) =>
+    req<{ ok: boolean; allowedViews?: string[]; allowDetail?: boolean; hasPassword?: boolean }>(`/api/pages/${id}/share`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),

@@ -41,8 +41,9 @@ Four things follow from how the link is served:
   index the page. Engines that honour the header will leave it alone. It is a
   request, not a wall: treat the link itself as the secret.
 
-There is exactly **one public link per page**. Publishing again mints a new
-token and the previous one stops working immediately.
+There is exactly **one public read link per page**. Publishing again mints a
+new token and the previous one stops working immediately. A collection's
+form link is separate, with its own switch — see [Forms](forms.md).
 
 ## Publishing from the editor
 
@@ -51,15 +52,21 @@ token and the previous one stops working immediately.
    **Share to web (read-only link)**. On a narrow window the topbar keeps only
    the star, the panel button and **More**; the globe moves into that ⋯ menu
    under the same name.
-3. The menu opens and **the link is created straight away**. The field reads
-   `Creating…` for the moment it takes, then holds the address. Above it:
+3. The menu opens **without creating anything**. Press **Share publicly** to
+   mint the link; the field then holds the address. Above it:
    "Anyone with this link can view this page (read-only)."
 4. Optionally pick an expiry under **Expires:** (`Never`, `In 1 day`,
-   `In 7 days` or `In 30 days`).
-5. Optionally type a password into the **Password (optional)** field. It takes
-   effect when you leave the field.
+   `In 7 days` or `In 30 days`). It applies to the live link in place.
+5. Optionally type a password into the **Password (optional)** field and press
+   **Apply**. It applies to the live link in place — the address stays the
+   same. Clearing the field and pressing **Apply** removes the password,
+   again without touching the address. While a password is set the field
+   shows `••••••`.
 6. **Copy** puts the address on the clipboard. Clicking into the field selects
    the whole address, for a browser where the clipboard button is blocked.
+   The address is also remembered in this browser, so reopening the menu
+   later still shows it. A different browser never saw it: it shows the link
+   as active and offers **Create a new link**, which replaces the old one.
 
 ![Publishing a page: the link, an optional password and an optional expiry.](img/share-dialog.png)
 
@@ -68,33 +75,21 @@ Three behaviours of this menu are worth knowing before you use it a second time.
 **You can see sharing without opening the menu.** A published page carries a
 small globe: in the sidebar tree, in the sub-pages list, and on the topbar
 globe button itself, which is highlighted while the link is live. An expired
-link drops the marker on its own. So to check whether a page is shared, look
-at the marker — opening the menu publishes the page if it was not.
+link drops the marker on its own.
 
-**Opening the menu publishes the page.** There is no "publish" button and no
-confirmation. If you open the globe menu on an unmarked page, you have shared
-it. Use **Stop sharing** to undo that.
+**The menu reads, it never publishes by itself.** Opening it only loads the
+live settings; a fresh link comes solely from the explicit **Share publicly**
+button. Reopening the menu later cannot weaken the link: the expiry, the
+views and the password indicator reflect what is live.
 
-**The menu shows the state, not the link.** The marker tells you a page is
-published, but the dialog cannot show you the link you made
-last week; it makes a fresh one, and the old one dies at that moment. The same
-happens when you change the expiry or leave the password field: each of those
-re-mints the link. So the address you send out is the address you copied in that
-sitting; a link that has been passed around cannot be given a password
-afterwards without breaking it.
+**Settings change in place, the address stays.** Expiry, collection views, row
+detail and the password all apply to the current link — none of them mints a
+new one. So a link that has been passed around can be given a password (or
+have it removed) afterwards without breaking it. Only **Create a new link**
+and sharing the page again replace the token and kill the old address.
 
-**A second sitting publishes an unprotected link.** The expiry and the password
-live only in the open menu, never on the page. Navigate away and back, or
-reload the browser, and the menu reopens at `Never` with an empty password box,
-and mints a link on exactly those settings. A page that carried a password and a
-seven-day expiry yesterday is public with neither from the moment somebody opens
-its globe menu today. If protection matters, set it again in the same sitting
-and hand out the new address.
-
-Taking protection off works the same way, which is the one useful side of it:
-clearing the password field and leaving it, or setting **Expires:** back to
-`Never`, mints a fresh open link. There is no separate "remove password": the
-removal is a new link without one, at a new address.
+Taking protection off is one press: clear the password field, press **Apply**,
+and the same link opens freely. There is no separate "remove password".
 
 ### Who can publish
 
@@ -157,23 +152,27 @@ the menu offers.
 A password is optional and independent of the expiry: a link can have both,
 either or neither.
 
-A visitor who opens a protected link gets a small form instead of the page:
+A visitor who opens a protected link gets a password prompt instead of the
+page. A protected document shows a standalone card:
 
-> 🔒 **Protected page**
+> **Protected page**
 > This page is protected by a password.
 > `Password` [ **Open** ]
 
-A wrong password redisplays the form with **Wrong password.** in red. The
-password is sent in the form body, so it never appears in the address bar or in
-a browser history entry.
+A protected collection opens the same prompt inside the app, with the same
+wording. A wrong password redisplays the prompt with **Wrong password.** in
+red. A document sends the password in the form body, so it never appears in
+the address bar or in a browser history entry; a collection may also take it
+as `?pw=` in the address, which opens the link directly.
 
 Three properties of this that surprise people:
 
 - **There is no session.** Nothing is remembered after the page is shown, so
   every fresh visit, including a reload, asks again.
-- **The password cannot be read back or changed in place.** It is stored
-  scrambled together with the token, and neither you nor an administrator can
-  recover it. Setting a different one re-mints the link.
+- **The password cannot be read back, but it can be changed in place.** It is
+  stored as a salted hash beside the token, and neither you nor an
+  administrator can recover it. Setting a different one — or clearing it —
+  keeps the same link.
 - **It is a second lock on an already unguessable door.** The link is the real
   secret; the password stops a forwarded link from being casually opened by
   whoever it was forwarded to. It is not an account, and it identifies nobody.
@@ -187,7 +186,7 @@ prompt.
 
 There is no salt.md branding **on the document**. The two gates in front of it
 are the exception, and both name the product in the browser tab: the password
-form's tab reads "salt.md: protected page", the "Not found" page's tab reads
+prompt's tab reads "salt.md — protected page", the "Not found" page's tab reads
 "salt.md".
 
 Content survives with its structure: headings, bullet and numbered lists,

@@ -2303,12 +2303,6 @@ body:has(.icon-picker) .bn-side-menu {
   padding: 14px 15px;
   cursor: grab; /* the card is draggable (W95) */
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  overflow: hidden; /* clip inner content to the rounded corners */
-}
-
-/* The ⋯ menu floats below the card edge, so it must escape the clipping above. */
-.board-card:has(.card-move-menu) {
-  overflow: visible;
 }
 
 .board-card:hover {

@@ -1064,13 +1064,15 @@ func (s *Server) handleSharePage(w http.ResponseWriter, r *http.Request) {
 	b := make([]byte, 18)
 	rand.Read(b)
 	token := hex.EncodeToString(b)
-	// Password is stored as sha256(token:password) — salted by the 144-bit
-	// random token, verifiable from the URL-supplied token without keeping the
-	// raw password. (Casual protection on top of an already-unguessable link,
-	// not a substitute for real accounts.)
+	// Password is stored as a salted argon2 hash, independent of the token —
+	// so setting, changing or removing it never rotates the link. Links
+	// minted before this carry sha256(token:password) instead; resolveShare
+	// still verifies those, and they upgrade to the salted form on the next
+	// password change. (Casual protection on top of an already-unguessable
+	// link, not a substitute for real accounts.)
 	var pwHash any
 	if body.Password != "" {
-		pwHash = tokenHash(token + ":" + body.Password)
+		pwHash = hashPassword(body.Password)
 	}
 	// One live read-share per page: replace any existing read link so a re-share
 	// with a new expiry/password doesn't leave the old token valid. Form-shares
@@ -1143,9 +1145,9 @@ func (s *Server) handleShareStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handlePatchShare updates share options (and optionally password/expiry)
-// without rotating the token, so toggling "which views" does not invalidate
-// the link somebody already sent.
+// handlePatchShare updates share options, password and expiry in place — the
+// token never rotates, so toggling "which views" or changing the password
+// does not invalidate the link somebody already sent.
 func (s *Server) handlePatchShare(w http.ResponseWriter, r *http.Request) {
 	pageID := r.PathValue("id")
 	if !s.canWriteReq(r, pageID) {
@@ -1189,9 +1191,29 @@ func (s *Server) handlePatchShare(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Password change needs the raw token, which only the hashed form is stored
-	// as — so it is applied on the next re-mint. The panel re-mints when the
-	// password field changes (same as expiry used to).
+	// The password lives in its own salted hash, so it changes without
+	// touching the token: set a new one, or clear it with an empty string.
+	// (Older links carry the token-bound form; they keep working and upgrade
+	// here the first time their password changes.)
+	hasPassword := false
+	if body.Password != nil {
+		if *body.Password == "" {
+			if _, err := s.db.Exec(`UPDATE share_links SET password_hash = NULL WHERE page_id = ? AND mode != 'form'`, pageID); err != nil {
+				httpError(w, 500, err.Error())
+				return
+			}
+		} else {
+			if _, err := s.db.Exec(`UPDATE share_links SET password_hash = ? WHERE page_id = ? AND mode != 'form'`, hashPassword(*body.Password), pageID); err != nil {
+				httpError(w, 500, err.Error())
+				return
+			}
+			hasPassword = true
+		}
+	} else {
+		var pwHash sql.NullString
+		s.db.QueryRow(`SELECT password_hash FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID).Scan(&pwHash)
+		hasPassword = pwHash.Valid && pwHash.String != ""
+	}
 	var encoded string
 	if b, err := json.Marshal(o); err == nil && string(b) != "{}" {
 		encoded = string(b)
@@ -1200,7 +1222,7 @@ func (s *Server) handlePatchShare(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "allowedViews": o.AllowedViews, "allowDetail": o.AllowDetail})
+	writeJSON(w, map[string]any{"ok": true, "allowedViews": o.AllowedViews, "allowDetail": o.AllowDetail, "hasPassword": hasPassword})
 }
 
 func (s *Server) handleUnsharePage(w http.ResponseWriter, r *http.Request) {
@@ -1216,6 +1238,16 @@ func (s *Server) handleUnsharePage(w http.ResponseWriter, r *http.Request) {
 // handlePublicPage serves a shared page read-only WITHOUT auth. It returns ONLY
 // that page (title/icon/content) — never children or linked/related pages — so
 // a share cannot leak the rest of the workspace.
+// verifySharePassword checks a supplied password against the stored hash.
+// Current links carry a salted argon2 hash (independent of the token, so the
+// link survives password changes); older ones carry sha256(token:password).
+func verifySharePassword(stored, token, password string) bool {
+	if strings.HasPrefix(stored, "$argon2id$") {
+		return verifyPassword(password, stored)
+	}
+	return password != "" && tokenHash(token+":"+password) == stored
+}
+
 // resolveShare validates a share token: existence, expiry (expired links are
 // deleted on sight) and password. Returns the page id, whether a password is
 // required, and whether the supplied password matches.
@@ -1231,7 +1263,7 @@ func (s *Server) resolveShare(token, password string) (pageID string, needPW, pw
 		}
 	}
 	needPW = pwHash.Valid && pwHash.String != ""
-	pwOK = !needPW || (password != "" && tokenHash(token+":"+password) == pwHash.String)
+	pwOK = !needPW || (password != "" && verifySharePassword(pwHash.String, token, password))
 	return pageID, needPW, pwOK, true
 }
 

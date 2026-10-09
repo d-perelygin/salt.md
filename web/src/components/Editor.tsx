@@ -722,8 +722,8 @@ function PageHeader({
       rememberUrl(url);
       setShareOff(false);
       setSharePassword('');
+      setShareHasPassword(password !== '');
       if (rotated) toast(t('A new link was created — the old one no longer works'));
-      else setShareHasPassword(password !== '');
     } catch {
       toast(t('Sharing failed'));
     }
@@ -803,12 +803,18 @@ function PageHeader({
     }
   };
 
-  // A password is bound to the token (sha256(token:password)), so setting or
-  // removing one inherently needs a new link. Explicit button, never silent —
-  // and skipped when there is nothing to change.
+  // The password lives in its own salted hash beside the token, so setting
+  // or removing one keeps the link: PATCH in place, never a re-mint — and
+  // skipped when there is nothing to change.
   const applyPassword = async () => {
     if (sharePassword === '' && !shareHasPassword) return;
-    await mintShare(shareExpiry, sharePassword, shareAllowed, shareAllowDetail, true);
+    try {
+      const res = await api.patchShare(pageId, { password: sharePassword });
+      setSharePassword('');
+      setShareHasPassword(!!res.hasPassword);
+    } catch {
+      toast(t('Sharing failed'));
+    }
   };
 
   const stopShare = async () => {
@@ -1114,7 +1120,7 @@ function PageHeader({
                         {t('Apply')}
                       </button>
                     </div>
-                    <div className="share-hint">{t('Setting or removing the password creates a new link.')}</div>
+                    <div className="share-hint">{t('The password applies to the current link.')}</div>
                   </>
                 )}
               </div>
