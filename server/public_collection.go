@@ -20,6 +20,11 @@ import (
 // Password-protected links send the password in X-Share-Password (same as
 // handlePublicPage). Views travelling in share_links.options narrow what the
 // reader sees: allowed_views (empty = all) and allow_detail.
+//
+// Sharing a collection shares the display names (title/icon) of directly
+// linked rows: relation chips and relation-grouped board columns need them,
+// and an anonymous reader cannot resolve them itself. Titles only — never
+// content — and only for genuine relation properties.
 
 func publicPassword(r *http.Request) string {
 	if pw := r.Header.Get("X-Share-Password"); pw != "" {
@@ -242,6 +247,23 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 			orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position"
 		}
 	}
+	// Relation properties whose ids are resolved to display names below. Loaded
+	// here — before the rows cursor opens — because the pool holds a single
+	// connection: any query issued while the cursor is open deadlocks.
+	// Only genuine relation properties contribute ids: a select option, a text
+	// value or anything else that happens to equal a page id must never pull
+	// that page's title into the answer.
+	relProps := []string{}
+	{
+		var schemaJSON string
+		if err := s.db.QueryRow(`SELECT schema FROM collections WHERE page_id = ?`, colID).Scan(&schemaJSON); err == nil {
+			for _, d := range parseSchema(schemaJSON) {
+				if d.Type == "relation" {
+					relProps = append(relProps, d.ID)
+				}
+			}
+		}
+	}
 	var total int
 	s.db.QueryRow(`SELECT COUNT(*) FROM pages WHERE `+whereSQL, args...).Scan(&total)
 	rows, err := s.db.Query(`SELECT id, title, icon, cover, position, props, tags FROM pages WHERE `+whereSQL+` ORDER BY `+orderSQL+` LIMIT ? OFFSET ?`, append(args, limit, offset)...)
@@ -262,8 +284,8 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 		if json.Unmarshal([]byte(props), &pm) != nil || pm == nil {
 			pm = map[string]any{}
 		}
-		for _, v := range pm {
-			switch t := v.(type) {
+		for _, pid := range relProps {
+			switch t := pm[pid].(type) {
 			case []any:
 				for _, item := range t {
 					if s, ok := item.(string); ok && s != "" {
@@ -271,7 +293,7 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 					}
 				}
 			case string:
-				if t != "" && len(t) < 64 {
+				if t != "" {
 					relIDs[t] = true
 				}
 			}
@@ -285,8 +307,14 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 			"position": position, "props": pm, "tags": tagList,
 		})
 	}
+	rows.Close() // drain first, then resolve (one DB connection — see handleGraph)
+	if err := rows.Err(); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
 	// Resolve relation ids to titles (read-only display names). Titles only —
-	// never content — and only for ids that actually exist.
+	// never content — and only for ids that actually exist. Linked-row names
+	// are part of the share by design (see the header comment).
 	related := map[string]map[string]string{}
 	if len(relIDs) > 0 {
 		ids := make([]string, 0, len(relIDs))
