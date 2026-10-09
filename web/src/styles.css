@@ -5115,6 +5115,10 @@ body.is-col-resizing {
 .access-menu .share-add select[name='share-member'] {
   flex: 1 1 100%;
 }
+.access-menu .share-add select[name='share-access'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .access-menu .share-actions-full {
   flex-wrap: wrap;
   margin-top: 6px;
