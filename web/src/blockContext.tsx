@@ -12,6 +12,7 @@ export interface BlockCtx {
   tagColors: Record<string, string>;
   onNavigate: (id: string | null) => void;
   onPagesChanged: () => void;
+  pageId?: string;
 }
 
 const empty: BlockCtx = {

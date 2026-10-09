@@ -168,6 +168,8 @@ func renderBlocks(b *strings.Builder, blocks []mdBlock, depth int) {
 			}
 		case "toc":
 			// Generated client-side from headings; nothing meaningful to export.
+		case "subpages":
+			// Generated client-side from the page tree; nothing to export.
 		case "columnList", "column":
 			// Layout containers: flatten children at the SAME depth (an indent
 			// would misread as nesting). Children handled below via the generic

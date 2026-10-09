@@ -195,6 +195,8 @@ func renderBlockHTML(b *strings.Builder, blk mdBlock) {
 		}
 	case "toc":
 		// Generated client-side; skip in export.
+	case "subpages":
+		// Generated client-side from the page tree; skip in export.
 	// columnList is the OLD shape, from the paid package that used to provide
 	// columns: an outer block whose children are column blocks, each with its
 	// own children. Nothing writes it any more, and it stays because a page

@@ -3573,6 +3573,12 @@ body.is-col-resizing {
   background: var(--hover);
 }
 
+.bn-subpages .bn-toc-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .bn-bookmark-input {
   width: 100%;
 }

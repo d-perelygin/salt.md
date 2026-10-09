@@ -148,6 +148,43 @@ export const tocSpec = createReactBlockSpec(
   },
 );
 
+// ---- Sub-pages ----
+// The page's direct children as an inline block, next to Contents. The same
+// data the Structure panel shows, but placed by the author in the document.
+export const subpagesSpec = createReactBlockSpec(
+  {
+    type: 'subpages',
+    propSchema: {},
+    content: 'none',
+  } as const,
+  {
+    render: () => {
+      const { pagesById, pageId, onNavigate } = useBlockCtx();
+      if (!pageId) return null;
+      const kids = [...pagesById.values()]
+        .filter((p) => p.parentId === pageId && !p.trashed)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      return (
+        <div className="bn-toc bn-subpages" contentEditable={false}>
+          <div className="bn-toc-title">{t('Sub-pages')}</div>
+          {kids.length === 0 && <div className="bn-toc-empty">{t('No sub-pages')}</div>}
+          {kids.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="bn-toc-entry"
+              onClick={() => onNavigate(p.id)}
+              title={p.title || t('Untitled')}
+            >
+              <PageIcon icon={p.icon} size={14} /> {p.title || t('Untitled')}
+            </button>
+          ))}
+        </div>
+      );
+    },
+  },
+);
+
 // ---- Bookmark / embed ----
 // Paste a URL: YouTube/Vimeo render as an embedded player, everything else as
 // a link card. Stored as a plain {url} prop so export stays trivial.
