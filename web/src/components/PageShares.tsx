@@ -166,9 +166,9 @@ export default function PageShares({
                   )}
                 </div>
                 {candidates.length > 0 && (
-                  <form className="user-add" onSubmit={(e) => void grant(e)}>
+                  <form className="share-add" onSubmit={(e) => void grant(e)}>
                     <select
-                      className="prop-select"
+                      name="share-member"
                       value={picked}
                       onChange={(e) => setPicked(e.target.value)}
                     >
@@ -180,7 +180,7 @@ export default function PageShares({
                       ))}
                     </select>
                     <select
-                      className="prop-select"
+                      name="share-access"
                       value={pickedAccess}
                       onChange={(e) => setPickedAccess(e.target.value as Access)}
                     >

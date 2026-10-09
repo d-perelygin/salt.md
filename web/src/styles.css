@@ -2003,6 +2003,44 @@ body:has(.icon-picker) .bn-side-menu {
   font-family: inherit;
 }
 
+/* One-line add row in the Page access dialog: member picker, access picker,
+   action. The generic prop-select is borderless and full-width (it is made
+   for table cells), so the form carries its own bordered variant. */
+.share-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+
+.share-add select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+  font-family: inherit;
+  width: auto;
+  max-width: 100%;
+}
+
+.share-add select[name='share-member'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.share-add select[name='share-access'] {
+  flex: none;
+}
+
+.share-add button {
+  flex: none;
+}
+
 .check-label {
   display: flex;
   align-items: center;
