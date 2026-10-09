@@ -62,8 +62,17 @@ export default function PublicCollection({ token }: { token: string }) {
   useEffect(() => {
     // A ?pw= query opens a password link directly (the API accepts it too);
     // a wrong one lands on the dialog with the value ready to correct.
-    const q = new URLSearchParams(window.location.search).get('pw');
-    if (q) setPassword(q);
+    // Consumed once: the secret moves from the address into memory, so no
+    // history entry and no glance at the bar carries it further. Documents
+    // never need this — their gate POSTs the password in the form body.
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get('pw');
+    if (q) {
+      params.delete('pw');
+      const rest = params.toString();
+      history.replaceState(null, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+      setPassword(q);
+    }
     void load(q || undefined);
   }, [load]);
 
