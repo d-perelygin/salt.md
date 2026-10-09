@@ -411,6 +411,13 @@ button {
   background: var(--border);
   margin: 4px 2px;
 }
+
+/* Divider inside dialogs (roomier than the menu one). */
+.dialog-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 12px 0 10px;
+}
 .menu-label {
   padding: 6px 10px 2px;
   font-size: 11px;
