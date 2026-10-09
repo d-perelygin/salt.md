@@ -411,13 +411,6 @@ button {
   background: var(--border);
   margin: 4px 2px;
 }
-
-/* Divider inside dialogs (roomier than the menu one). */
-.dialog-sep {
-  height: 1px;
-  background: var(--border);
-  margin: 12px 0 10px;
-}
 .menu-label {
   padding: 6px 10px 2px;
   font-size: 11px;
@@ -4965,6 +4958,11 @@ body.is-col-resizing {
   display: flex;
   gap: 6px;
   justify-content: flex-end;
+}
+
+/* A lone closing action (Done) spans the dialog's width. */
+.share-actions-full .btn-sm {
+  flex: 1;
 }
 
 /* ---------- Toaster ---------- */

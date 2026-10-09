@@ -194,8 +194,7 @@ export default function PageShares({
                 )}
               </>
             ))}
-          {visibility === 'restricted' && !denied && <div className="dialog-sep" />}
-          <div className="share-actions">
+          <div className="share-actions share-actions-full">
             <button className="btn-sm" onClick={onClose}>
               {t('Done')}
             </button>
