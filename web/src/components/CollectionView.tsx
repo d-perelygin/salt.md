@@ -560,7 +560,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Relation props that point back at this same collection — candidates for the
   // sub-item (task hierarchy) relation that the table can render as a tree.
   const selfRelProps = schema.filter((p) => p.type === 'relation' && p.relationCollection === collectionId);
-  // Date props — the timeline's Start/End pickers choose from these.
+  // Date props — the timeline's Start/End pickers and the calendar's Date
+  // picker choose from these.
   const dateProps = schema.filter((p) => p.type === 'date');
 
   const viewSwitcher = (
@@ -690,6 +691,21 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
               ))}
             </select>
           </>
+        )}
+        {view.type === 'calendar' && (
+          <select
+            className="subitems-select"
+            title={t('Date property shown on the calendar')}
+            value={view.dateProp ?? ''}
+            onChange={(e) => updateView({ dateProp: e.target.value || undefined })}
+          >
+            <option value="">{t('Date: —')}</option>
+            {dateProps.map((p) => (
+              <option key={p.id} value={p.id}>
+                {t('Date:')} {p.name}
+              </option>
+            ))}
+          </select>
         )}
         {view.type === 'table' && selfRelProps.length > 0 && (
           <select
