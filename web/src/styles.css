@@ -6696,6 +6696,44 @@ a.btn {
   line-height: 1.5;
   margin: 6px 0 22px;
 }
+
+/* ---- Password gate: one look for collections and documents ----
+   Centered narrow card, full-width bordered field, full-width primary
+   button — the standalone document gate (server/public.go) mirrors this
+   with hardcoded theme values, since it renders without the app. */
+.public-form-page.lock-gate {
+  align-items: center;
+  padding: 24px 20px 60px;
+}
+.public-form-page.lock-gate .form-card {
+  max-width: 400px;
+  padding: 32px;
+}
+.lock-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 15px;
+  background: var(--card);
+  color: var(--fg);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.lock-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.public-form-page.lock-gate .form-actions {
+  margin-top: 12px;
+}
+.lock-btn {
+  width: 100%;
+  justify-content: center;
+}
 .public-form-loading {
   color: var(--muted);
   padding: 40px;

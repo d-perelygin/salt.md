@@ -525,11 +525,21 @@ function PageHeader({
     setShareExpiry(0);
     setSharePassword('');
     setShareHasPassword(false);
+    setReadShared(false);
+    setFormShared(false);
+    setLastPassword('');
   }, [pageId]);
   const isShared = shareUrl != null || (!!page.shared && !shareOff);
   const [shareExpiry, setShareExpiry] = useState(0); // days; 0 = never
   const [sharePassword, setSharePassword] = useState('');
   const [shareHasPassword, setShareHasPassword] = useState(false);
+  // Read-share and form-share are independent links; the dialog tracks them
+  // apart so a live form alone still offers the read share instead of the
+  // "link active, no URL" dead end. lastPassword is the raw password as last
+  // applied here — the only moment it exists — for the ?pw= copy below.
+  const [readShared, setReadShared] = useState(false);
+  const [formShared, setFormShared] = useState(false);
+  const [lastPassword, setLastPassword] = useState('');
   const isCollection = page.type === 'collection';
   // Collection share settings: which views the public link shows (null = all)
   // and whether readers may open rows. Loaded lazily with the share menu.
@@ -721,8 +731,10 @@ function PageHeader({
       setShareUrl(url);
       rememberUrl(url);
       setShareOff(false);
+      setReadShared(true);
       setSharePassword('');
       setShareHasPassword(password !== '');
+      setLastPassword(password);
       if (rotated) toast(t('A new link was created — the old one no longer works'));
     } catch {
       toast(t('Sharing failed'));
@@ -739,13 +751,24 @@ function PageHeader({
           allowed: st.allowedViews && st.allowedViews.length > 0 ? st.allowedViews : null,
           detail: !!st.allowDetail,
         };
+        setReadShared(true);
         setShareAllowed(out.allowed);
         setShareAllowDetail(out.detail);
         setShareHasPassword(!!st.hasPassword);
         setShareExpiry(expiryToDays(st.expiresAt));
+      } else {
+        setReadShared(false);
       }
     } catch {
       // No live share yet — defaults stand.
+    }
+    if (isCollection) {
+      try {
+        const fs = await api.formShareStatus(pageId);
+        setFormShared(fs.shared);
+      } catch {
+        // Form state unknown — the note below simply stays hidden.
+      }
     }
     if (!isCollection) return out;
     try {
@@ -812,6 +835,23 @@ function PageHeader({
       const res = await api.patchShare(pageId, { password: sharePassword });
       setSharePassword('');
       setShareHasPassword(!!res.hasPassword);
+      setLastPassword(sharePassword);
+    } catch {
+      toast(t('Sharing failed'));
+    }
+  };
+
+  // A direct-open link for a passworded share: the raw password exists only
+  // in this sitting (it is stored hashed), so the button shows exactly while
+  // there is one to embed — typed-but-unapplied, or just applied.
+  const pwForLink = sharePassword !== '' ? sharePassword : lastPassword;
+  const copyPwLink = async () => {
+    const url = displayUrl;
+    if (!url || !pwForLink) return;
+    const full = url + (url.includes('?') ? '&' : '?') + 'pw=' + encodeURIComponent(pwForLink);
+    try {
+      await navigator.clipboard.writeText(full);
+      toast(t('Public link copied'));
     } catch {
       toast(t('Sharing failed'));
     }
@@ -823,6 +863,9 @@ function PageHeader({
     forgetUrl();
     setShareOff(true);
     setShareOpen(false);
+    setReadShared(false);
+    setShareHasPassword(false);
+    setLastPassword('');
   };
 
   const saveMeta = (patch: { title?: string; icon?: string; cover?: string; tags?: string[]; description?: string }) => {
@@ -1027,13 +1070,18 @@ function PageHeader({
             {shareOpen && (
               <div className="menu share-menu">
                 <div className="share-hint">{isCollection ? t('Anyone with this link sees this collection (read-only).') : t('Anyone with this link can view this page (read-only).')}</div>
-                {!isShared ? (
-                  <button
-                    className="btn-sm primary"
-                    onClick={() => void mintShare(shareExpiry, sharePassword, shareAllowed, shareAllowDetail)}
-                  >
-                    {t('Share publicly')}
-                  </button>
+                {!readShared && !displayUrl ? (
+                  <>
+                    <button
+                      className="btn-sm primary"
+                      onClick={() => void mintShare(shareExpiry, sharePassword, shareAllowed, shareAllowDetail)}
+                    >
+                      {t('Share publicly')}
+                    </button>
+                    {formShared && (
+                      <div className="share-hint">{t('The form on this page is already shared separately.')}</div>
+                    )}
+                  </>
                 ) : displayUrl ? (
                   <>
                     <input className="share-input" readOnly value={displayUrl} onFocus={(e) => e.currentTarget.select()} />
@@ -1063,7 +1111,7 @@ function PageHeader({
                     </button>
                   </>
                 )}
-                {isShared && isCollection && shareViewsList.length > 1 && (
+                {readShared && isCollection && shareViewsList.length > 1 && (
                   <div className="share-section">
                     <div className="share-section-title">{t('Views in the link')}</div>
                     <div className="share-views">
@@ -1079,7 +1127,7 @@ function PageHeader({
                     </div>
                   </div>
                 )}
-                {isShared && isCollection && (
+                {readShared && isCollection && (
                   <div className="share-section">
                     <label className="share-detail-check">
                       <input type="checkbox" checked={shareAllowDetail} onChange={() => void toggleShareDetail()} />
@@ -1090,7 +1138,7 @@ function PageHeader({
                     </label>
                   </div>
                 )}
-                {isShared && (
+                {(readShared || displayUrl) && (
                   <>
                     <label className="share-expiry">
                       Expires:
@@ -1120,6 +1168,11 @@ function PageHeader({
                         {t('Apply')}
                       </button>
                     </div>
+                    {displayUrl && pwForLink && (
+                      <button className="btn-sm" onClick={() => void copyPwLink()}>
+                        {t('Copy link with password')}
+                      </button>
+                    )}
                     <div className="share-hint">{t('The password applies to the current link.')}</div>
                   </>
                 )}

@@ -43,7 +43,9 @@ Four things follow from how the link is served:
 
 There is exactly **one public read link per page**. Publishing again mints a
 new token and the previous one stops working immediately. A collection's
-form link is separate, with its own switch — see [Forms](forms.md).
+form link is separate, with its own switch — see [Forms](forms.md). Opening
+the globe menu while only the form is shared still offers the read share,
+with a note that the form is already shared.
 
 ## Publishing from the editor
 
@@ -163,7 +165,9 @@ A protected collection opens the same prompt inside the app, with the same
 wording. A wrong password redisplays the prompt with **Wrong password.** in
 red. A document sends the password in the form body, so it never appears in
 the address bar or in a browser history entry; a collection may also take it
-as `?pw=` in the address, which opens the link directly.
+as `?pw=` in the address, which opens the link directly. The share menu has
+**Copy link with password** for exactly that address — it shows while the
+password is at hand, typed but not yet applied, or just applied.
 
 Three properties of this that surprise people:
 

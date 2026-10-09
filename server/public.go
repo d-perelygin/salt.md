@@ -23,22 +23,25 @@ func sharePasswordForm(token string, wrong bool) string {
 		msg = `<p class="pw-error">Wrong password.</p>`
 	}
 	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>salt.md — protected page</title><style>
-.pw-page{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f1f1d;background:#e9e8e4}
-.pw-card{background:#fff;border:1px solid #e3e2df;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.08);padding:32px;width:100%;max-width:400px}
+.pw-page{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 20px 60px;font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c1a15;background:#fbfaf7}
+.pw-card{background:#fff;border:1px solid rgba(28,26,21,.11);border-radius:14px;box-shadow:0 0 0 1px rgba(28,26,21,.07),0 1px 2px rgba(28,26,21,.04),0 22px 48px -24px rgba(28,26,21,.32);padding:32px;width:100%;max-width:400px}
 .pw-head{display:flex;align-items:center;gap:12px;margin:0 0 4px}
-.pw-head h1{font-size:1.35em;margin:0;font-weight:700}
-.pw-lock{flex:none;width:30px;height:30px;color:#2f7d4f}
-.pw-desc{margin:.4em 0 1.2em;color:#5b5b57}
-.pw-error{color:#c4554d;margin:.4em 0 1em}
-.pw-input{display:block;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d8d7d3;border-radius:8px;font-size:15px;margin-bottom:12px;background:#fff;color:inherit}
-.pw-input:focus{outline:2px solid #2f7d4f;outline-offset:-1px;border-color:#2f7d4f}
-.pw-btn{display:block;width:100%;padding:10px 14px;border:none;border-radius:8px;background:#2f7d4f;color:#fff;font-size:15px;font-weight:600;cursor:pointer}
-.pw-btn:hover{background:#276b43}
+.pw-head h1{font-size:22px;margin:0;font-weight:700;letter-spacing:-.01em}
+.pw-lock{flex:none;width:28px;height:28px;color:#b3123f}
+.pw-desc{margin:6px 0 22px;color:#7e7d78;font-size:15px}
+.pw-error{color:#c4554d;font-size:14px;margin:0 0 10px}
+.pw-input{display:block;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid rgba(28,26,21,.2);border-radius:8px;font-size:15px;margin-bottom:12px;background:#fff;color:inherit}
+.pw-input:focus{outline:none;border-color:#b3123f;box-shadow:0 0 0 3px rgba(179,18,63,.085)}
+.pw-btn{display:flex;width:100%;box-sizing:border-box;padding:10px 22px;border:1px solid transparent;border-radius:8px;background:linear-gradient(120deg,#c2185b,#b3123f);color:#fff;font-size:14.5px;font-weight:600;cursor:pointer;justify-content:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),0 2px 10px rgba(179,18,63,.35)}
+.pw-btn:hover{filter:brightness(1.05)}
 @media (prefers-color-scheme:dark){
-.pw-page{color:#e8e7e3;background:#191918}
-.pw-card{background:#222221;border-color:#35352f;box-shadow:0 8px 30px rgba(0,0,0,.4)}
-.pw-desc{color:#a5a49e}
-.pw-input{background:#191918;border-color:#3d3d37}
+.pw-page{color:#d9d9db;background:#0b0b0e}
+.pw-card{background:#111116;border-color:rgba(255,255,255,.08)}
+.pw-lock{color:#ff5c80}
+.pw-desc{color:#808083}
+.pw-input{background:#111116;border-color:rgba(255,255,255,.15);color:#d9d9db}
+.pw-input:focus{border-color:#ff5c80;box-shadow:0 0 0 3px rgba(255,92,128,.13)}
+.pw-btn{background:linear-gradient(120deg,#ff5c80,#ff2d60);box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),0 2px 10px rgba(255,92,128,.35)}
 }</style></head><body class="pw-page">` +
 		`<div class="pw-card"><div class="pw-head">` +
 		`<svg class="pw-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>` +

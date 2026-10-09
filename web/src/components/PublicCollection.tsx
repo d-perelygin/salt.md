@@ -130,7 +130,7 @@ export default function PublicCollection({ token }: { token: string }) {
   }
   if (needPassword && !cfg) {
     return (
-      <div className="public-form-page">
+      <div className="public-form-page lock-gate">
         <div className="form-card">
           <div className="public-form-head">
             <Lock size={28} />
@@ -140,7 +140,7 @@ export default function PublicCollection({ token }: { token: string }) {
           {pwWrong && <p className="form-error">{t('Wrong password.')}</p>}
           <label className="form-field">
             <input
-              className="form-input"
+              className="form-input lock-input"
               type="password"
               autoFocus
               placeholder={t('Password')}
@@ -152,7 +152,7 @@ export default function PublicCollection({ token }: { token: string }) {
             />
           </label>
           <div className="form-actions">
-            <button className="btn-sm primary" disabled={!password} onClick={() => void load(password)}>
+            <button className="btn primary lock-btn" disabled={!password} onClick={() => void load(password)}>
               {t('Open')}
             </button>
           </div>
