@@ -42,7 +42,7 @@ export default function PageShares({
   useExclusiveModal(onClose);
 
   const load = () =>
-    api
+    void api
       .listPageShares(pageId)
       .then((l) => {
         setShares(l);
