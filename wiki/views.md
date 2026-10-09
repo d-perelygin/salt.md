@@ -316,11 +316,18 @@ three quarters of its height.
 
 ## Filters
 
-A filter is a property, an operator and usually a value. Several filters on one
-view are **ANDed**: a row has to satisfy all of them.
+A filter is a property, an operator and usually a value. Conditions live in
+**groups**: inside one group they are **ANDed** (a row has to satisfy all of
+them), and groups are **ORed** (a row in any group is shown). So "status is
+done" in one group and "priority is high" in another shows done rows and
+high-priority rows; adding "date is after X" to *both* groups narrows each
+side. A single group is the old behaviour exactly, and views written before
+groups existed read as one group.
 
-Add one with **+ Add filter…** in the **Filter** popover; remove it with the `✕`
-beside it.
+Add a condition with **+ Add filter…** inside a group; add a group with
+**+ Add group** below them; remove a condition with the `✕` beside it and a
+group with the `✕` in its foot (removing the last condition of a group
+removes the group).
 
 Seven operators exist. Which of them are offered depends on the property type,
 and the labels change to suit it:
@@ -545,7 +552,9 @@ filter value may be a select option's **name** as well as its id, matched withou
 regard to case.
 
 The same is available over HTTP: `GET /api/collections/{id}/rows` takes
-`filter=<property>:<operator>:<value>` (repeatable, ANDed),
+`filter=<property>:<operator>:<value>` (repeatable, ANDed) and
+`filter_group=<JSON array of conditions>` (repeatable, one OR group each;
+ANDed inside, ORed between groups),
 `sort=<property>:asc|desc`, `limit` (default 100, maximum 500) and `offset`, and
 answers with the rows, the total, and the offset and limit it used. Both routes
 run the same permission checks and the same database filter as a view does,

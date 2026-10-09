@@ -14,9 +14,11 @@ import (
 
 // Workspaces are the isolation boundary: every page belongs to exactly one
 // workspace, and a user only ever sees pages in workspaces they are a member
-// of. Within a workspace a page is visibility='workspace' (all members) or
-// 'private' (owner + workspace admins only); private-ness is inherited by the
-// whole subtree. Public read-only sharing is a separate token (share_links).
+// of. Within a workspace a page is visibility='workspace' (all members),
+// 'private' (owner + workspace admins only) or 'restricted' (owner, workspace
+// admins and explicitly granted members — see page_access.go); narrowness is
+// inherited by the whole subtree. Public read-only sharing is a separate
+// token (share_links).
 
 // migrateWorkspaces runs once: if any page lacks a workspace, create a default
 // workspace, assign every existing page/user to it, and make admins its admins.
@@ -176,7 +178,10 @@ func (s *Server) canRead(userID, pageID string) bool {
 	if !s.isMember(userID, ws) && !s.hasBreakGlass(userID, ws) {
 		return false
 	}
-	return !s.forbiddenPrivateAncestor(userID, pageID, ws)
+	if s.forbiddenPrivateAncestor(userID, pageID, ws) {
+		return false
+	}
+	return s.restrictedReadable(userID, pageID, ws)
 }
 
 // canWrite reports whether userID may modify pageID: they must be able to read
@@ -195,7 +200,10 @@ func (s *Server) canWrite(userID, pageID string) bool {
 	// to "viewer", which would have made it accidentally able to write.
 	// Emergency access expressly means read only.
 	role := s.workspaceRole(userID, ws)
-	return role != "" && role != "viewer"
+	if role == "" || role == "viewer" {
+		return false
+	}
+	return s.restrictedWritable(userID, pageID, ws)
 }
 
 // canReadReq / canWriteReq are canRead / canWrite PLUS the request's API-token
@@ -401,8 +409,21 @@ func (s *Server) filterReadable(userID string, all []pageMeta) []pageMeta {
 		adminOf[ws] = v
 		return v
 	}
+	// Direct grants of this user, loaded once: a restricted node passes when
+	// the user owns it or holds a view-or-edit grant on it (admins pass anyway).
+	grants := map[string]string{}
+	if rows, err := s.db.Query(`SELECT page_id, access FROM page_grants WHERE user_id = ? AND subject_type = 'user'`, userID); err == nil {
+		for rows.Next() {
+			var pid, access string
+			if rows.Scan(&pid, &access) == nil {
+				grants[pid] = access
+			}
+		}
+		rows.Close()
+	}
 	// A page is hidden if ANY ancestor-or-self is private and owned by someone
-	// else (unless the user is a workspace admin).
+	// else (unless the user is a workspace admin) — or is restricted without
+	// ownership or a grant on that node.
 	blocked := func(p *pageMeta) bool {
 		if isAdmin(p.WorkspaceID) {
 			return false
@@ -413,6 +434,11 @@ func (s *Server) filterReadable(userID string, all []pageMeta) []pageMeta {
 			guard++
 			if cur.Visibility == "private" && cur.OwnerID != userID {
 				return true
+			}
+			if cur.Visibility == "restricted" && cur.OwnerID != userID {
+				if a := grants[cur.ID]; a != grantView && a != grantEdit {
+					return true
+				}
 			}
 			if cur.ParentID == nil {
 				break

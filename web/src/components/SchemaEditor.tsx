@@ -221,6 +221,10 @@ export default function SchemaEditor({
         next.dateProp = dateProps[0]?.id ?? '';
       }
       if (v.filters) next.filters = v.filters.filter((f) => propIds.has(f.property));
+      if (v.filterGroups)
+        next.filterGroups = v.filterGroups
+          .map((g) => g.filter((f) => propIds.has(f.property)))
+          .filter((g) => g.length > 0);
       if (v.sort && !propIds.has(v.sort.property)) next.sort = null;
       if (v.hidden) next.hidden = v.hidden.filter((id) => propIds.has(id));
       return next;

@@ -13,7 +13,7 @@ export interface PageMeta {
   props: Record<string, unknown>;
   workspaceId: string;
   ownerId: string;
-  visibility: 'workspace' | 'private';
+  visibility: 'workspace' | 'private' | 'restricted';
   isTemplate: boolean;
   tags: string[];
   description: string;
@@ -277,6 +277,10 @@ export interface ViewDef {
   endDateProp?: string; // timeline view: optional end-date property (else 1-day bar)
   hidden?: string[]; // property ids hidden in this view
   filters?: Filter[];
+  /** OR groups: conditions inside one group are ANDed, groups are ORed. When
+   *  present it wins over `filters`; the flat list then mirrors the first
+   *  group for older readers. Absent means the flat list is the whole filter. */
+  filterGroups?: Filter[][];
   sort?: Sort | null;
   formTitle?: string; // form view: heading above the form
   formDesc?: string; // form view: description under the heading

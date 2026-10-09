@@ -438,7 +438,7 @@ Metadata and place, in one tool. Only the fields you pass change.
 | `icon` | string | no |
 | `cover` | string | no |
 | `description` | string | no |
-| `visibility` | string | no: `workspace` or `private` |
+| `visibility` | string | no: `workspace`, `private` or `restricted` |
 | `tags` | array of string | no |
 | `parent_id` | string | no: `""` moves to the top level |
 | `workspace_id` | string | no |
@@ -456,7 +456,7 @@ Errors: `nothing to update: pass at least one of title, icon, cover,
 description, visibility, tags, parent_id, workspace_id or favorite`;
 `a page cannot be its own parent`; `cannot move a page into its own subtree`;
 `a page can only be re-parented within its own workspace`;
-`visibility must be "workspace" or "private"`.
+`visibility must be "workspace", "private" or "restricted"`.
 
 ### write_content
 
@@ -687,11 +687,16 @@ properties to add/change or remove_properties`; `unknown property type "x"`;
 | --- | --- | --- |
 | `page_id` | string | yes |
 | `filter` | array | no |
+| `filter_groups` | array of arrays | no |
 | `sort` | string | no |
 | `limit` | integer | no |
 | `offset` | integer | no |
 
-Each filter is `{property, op, value}`, all ANDed together. `property` is a
+Each filter is `{property, op, value}`, all ANDed together. `filter_groups`
+holds OR groups instead: conditions inside one group are ANDed, groups are
+ORed. `filter` beside `filter_groups` distributes into every group, so a date
+condition in `filter` with two groups reads "after X AND (this OR that)".
+`property` is a
 property id from `get_collection`; **the row title is not a property**, so
 filter titles with `search` instead. Operators:
 
@@ -819,6 +824,7 @@ Create a view, or change one.
 | `date_prop` | string | calendar, timeline |
 | `end_date_prop` | string | timeline |
 | `filters` | array | no |
+| `filter_groups` | array of arrays | no |
 | `sort` | string | no |
 | `hidden` | array of string | no |
 
@@ -839,8 +845,8 @@ add one." instead of columns. The types that produce columns are select,
 multi-select and relation; those are also the only ones the interface's own
 group-by picker offers.
 
-Clearing works through empty values: `""` for `sort`, `[]` for `filters` and
-`hidden`. **`group_by` and `date_prop` cannot be cleared on the view types that
+Clearing works through empty values: `""` for `sort`, `[]` for `filters`,
+`filter_groups` and `hidden`. **`group_by` and `date_prop` cannot be cleared on the view types that
 need them**: passing `""` removes the setting and the view is then refused for
 being incomplete, so a board with `group_by: ""` comes back as `a board needs
 group_by`, and a calendar or timeline with `date_prop: ""` likewise. To be rid
@@ -850,6 +856,11 @@ Filters take the same operators `query_rows` does. A board people actually work
 in usually needs one: without a "status is not done" filter the finished column
 grows forever and pushes the work aside.
 
+`filter_groups` holds OR groups: conditions inside one group are ANDed, groups
+are ORed. Either `filters` or `filter_groups` replaces the whole filter — a
+flat list deletes the groups, and groups reset the flat list to mirror the
+first one, so readers that only know the old shape still see something honest.
+
 An unnamed view is named after its type, capitalised.
 
 Returns `Created <type> view "Name" (id …)` or `Updated view "Name" (id …)`.
@@ -858,7 +869,7 @@ list or form`; `a view's type cannot be changed — delete it and create the new
 one`; `a board needs group_by (the property to make columns from)`;
 `a calendar needs date_prop (a date property id)`; `"x" is not a property of
 this database`; `filter N: unknown op "x" — use is, is_not, contains, gt, lt,
-is_empty or is_not_empty`; `view "…" not found — call get_collection for the
+between, is_empty or is_not_empty`; `view "…" not found — call get_collection for the
 ids`.
 
 ### delete_view

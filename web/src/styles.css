@@ -2014,6 +2014,44 @@ body:has(.icon-picker) .bn-side-menu {
   font-family: inherit;
 }
 
+/* One-line add row in the Page access dialog: member picker, access picker,
+   action. The generic prop-select is borderless and full-width (it is made
+   for table cells), so the form carries its own bordered variant. */
+.share-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+
+.share-add select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+  font-family: inherit;
+  width: auto;
+  max-width: 100%;
+}
+
+.share-add select[name='share-member'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.share-add select[name='share-access'] {
+  flex: none;
+}
+
+.share-add button {
+  flex: none;
+}
+
 .check-label {
   display: flex;
   align-items: center;
@@ -4660,6 +4698,50 @@ body.is-col-resizing {
   border: 1px dashed var(--border) !important;
 }
 
+/* OR groups: one box per group, an OR divider between them, the group's own
+   add-select and (past the first group) a remove-group ✕ in the foot. */
+.fs-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fs-or {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.fs-or::before,
+.fs-or::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.fs-group-foot {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.fs-group-foot .fs-add {
+  flex: 1;
+  min-width: 0;
+}
+
+.fs-remove-group {
+  flex: none;
+}
+
+.fs-add-group {
+  align-self: flex-start;
+}
+
 /* ---------- Mobile / responsive ---------- */
 
 @media (max-width: 768px) {
@@ -4953,6 +5035,14 @@ body.is-col-resizing {
   display: flex;
   gap: 6px;
   justify-content: flex-end;
+}
+
+/* A lone closing action (Done) spans the dialog's width. */
+.share-actions-full {
+  margin-top: 14px;
+}
+.share-actions-full .btn-sm {
+  flex: 1;
 }
 
 /* ---------- Toaster ---------- */

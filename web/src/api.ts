@@ -321,7 +321,7 @@ export const api = {
       propsPatch: Record<string, unknown>;
       parentId: string | null;
       position: number;
-      visibility: 'workspace' | 'private';
+      visibility: 'workspace' | 'private' | 'restricted';
       isTemplate: boolean;
       tags: string[];
       description: string;
@@ -384,20 +384,24 @@ export const api = {
       limit?: number;
       offset?: number;
       filters?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[];
+      filterGroups?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[][];
       sort?: { property: string; dir: 'asc' | 'desc' } | null;
     } = {},
   ) => {
     const p = new URLSearchParams();
     if (opts.limit) p.set('limit', String(opts.limit));
     if (opts.offset) p.set('offset', String(opts.offset));
-    for (const f of opts.filters ?? []) {
+    const encode = (f: { property: string; op?: string; value: string; values?: string[]; value2?: string }) => {
       // A set of values and a range do not fit in a colon-separated string, so
       // anything beyond the simple case travels as JSON. The server reads both
       // — the short form is what curl, a bookmarked URL and every older client
       // sends, and it keeps working unchanged.
-      if (f.values?.length || f.value2) p.append('filter', JSON.stringify(f));
-      else p.append('filter', `${f.property}:${f.op ?? ''}:${f.value}`);
-    }
+      if (f.values?.length || f.value2) return JSON.stringify(f);
+      return `${f.property}:${f.op ?? ''}:${f.value}`;
+    };
+    for (const f of opts.filters ?? []) p.append('filter', encode(f));
+    // One filter_group param per OR group; each is a JSON array of conditions.
+    for (const g of opts.filterGroups ?? []) p.append('filter_group', JSON.stringify(g));
     if (opts.sort) p.set('sort', `${opts.sort.property}:${opts.sort.dir}`);
     return req<{
       rows: {
@@ -584,6 +588,18 @@ export const api = {
     }),
   unsharePage: (id: string) =>
     req<{ ok: boolean }>(`/api/pages/${id}/share`, { method: 'DELETE' }),
+  // Restricted-page member shares (fork): who else may see this page subtree.
+  listPageShares: (id: string) =>
+    req<{ userId: string; name: string; email: string; access: 'view' | 'edit' }[]>(
+      `/api/pages/${id}/shares`,
+    ),
+  grantPageShare: (id: string, userId: string, access: 'view' | 'edit') =>
+    req<{ ok: boolean }>(`/api/pages/${id}/shares`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, access }),
+    }),
+  revokePageShare: (id: string, userId: string) =>
+    req<{ ok: boolean }>(`/api/pages/${id}/shares/${userId}`, { method: 'DELETE' }),
 
   // Resolved external base URL (public_base_url > HTTPS-Domain > Tunnel > Host).
   publicBase: () => req<{ base: string }>('/api/public-base'),

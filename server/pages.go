@@ -519,9 +519,18 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Visibility != nil {
 		v := *body.Visibility
-		if v != "workspace" && v != "private" {
-			httpError(w, 400, "visibility must be 'workspace' or 'private'")
+		if v != "workspace" && v != "private" && v != "restricted" {
+			httpError(w, 400, "visibility must be 'workspace', 'private' or 'restricted'")
 			return
+		}
+		// Leaving 'restricted' drops the page's own grants: resurrecting stale
+		// ones on a later re-restrict would surprise everybody. Grants on
+		// sub-pages stay — they belong to those pages, not to this decision.
+		if v != "restricted" {
+			var old string
+			if s.db.QueryRow(`SELECT visibility FROM pages WHERE id = ?`, id).Scan(&old) == nil && old == "restricted" {
+				s.db.Exec(`DELETE FROM page_grants WHERE page_id = ?`, id)
+			}
 		}
 		sets = append(sets, "visibility = ?")
 		args = append(args, v)
