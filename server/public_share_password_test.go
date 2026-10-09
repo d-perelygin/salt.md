@@ -113,3 +113,46 @@ func TestLegacyTokenBoundSharePasswordStillVerifies(t *testing.T) {
 		t.Error("legacy link accepted a wrong password")
 	}
 }
+
+// A passworded document behaves like a collection link: ?pw= opens it
+// directly, a wrong one renders the gate with the error, and no password
+// renders a clean gate.
+func TestDocSharePasswordQuery(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "docpwq@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+	doc := s.makePage(t, ws, uid, "", "Secret doc", "{}")
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Cookie", cookie)
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, r)
+		return rec
+	}
+	rec := call("POST", "/api/pages/"+doc+"/share", `{"password":"docsecret"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mint share: %d %s", rec.Code, rec.Body.String())
+	}
+	var minted struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &minted); err != nil {
+		t.Fatal(err)
+	}
+	pub := func(q string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "/public/"+minted.Token+q, nil)
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, r)
+		return rec
+	}
+	if rec := pub(""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "pwform") {
+		t.Errorf("no password: got %d, want clean gate", rec.Code)
+	}
+	if rec := pub("?pw=docsecret"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Secret doc") {
+		t.Errorf("right ?pw=: got %d, want the document", rec.Code)
+	}
+	if rec := pub("?pw=nope"); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "Wrong password") {
+		t.Errorf("wrong ?pw=: got %d, want the gate with the error", rec.Code)
+	}
+}

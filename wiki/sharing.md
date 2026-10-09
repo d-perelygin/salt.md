@@ -164,8 +164,9 @@ page. A protected document shows a standalone card:
 A protected collection opens the same prompt inside the app, with the same
 wording. A wrong password redisplays the prompt with **Wrong password.** in
 red. A document sends the password in the form body, so it never appears in
-the address bar or in a browser history entry; a collection may also take it
-as `?pw=` in the address, which opens the link directly. The share menu has
+the address bar or in a browser history entry; both kinds of links also take
+it as `?pw=` in the address, which opens a correct one directly and is
+consumed (scrubbed from the bar) on load. The share menu has
 **Copy link with password** for exactly that address — it shows while the
 password is at hand, typed but not yet applied, or just applied.
 

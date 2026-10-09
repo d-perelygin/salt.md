@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"html"
 	"io/fs"
 	"net/http"
@@ -59,6 +60,15 @@ func sharePasswordForm(token string, wrong bool) string {
 		`var k='salt:share-pw:'+m[1],fk=k+':failed';` +
 		`var f=document.getElementById('pwform');if(!f)return;` +
 		`var saved=null;try{saved=sessionStorage.getItem(k)}catch(e){}` +
+		// A ?pw= address carries its own attempt: consume it like the
+		// collection gate does — strip it from the bar, stage it as the
+		// session candidate. Optimistic: a wrong one is neutralised by the
+		// failure record below, a right one survives reloads.
+		`try{var qp=new URLSearchParams(location.search).get('pw');` +
+		`if(qp){var u=new URL(location.href);u.searchParams.delete('pw');` +
+		`var rs=u.searchParams.toString();history.replaceState(null,'',u.pathname+(rs?'?'+rs:'')+u.hash);` +
+		`saved=qp;try{sessionStorage.setItem(k,qp);sessionStorage.removeItem(fk)}catch(e){}}` +
+		`}catch(e){}` +
 		// A wrong password lands back on this form: remember the failure so
 		// the auto-submit below does not loop the same dead password.
 		`if(` + wrongJS + `&&saved){try{sessionStorage.setItem(fk,saved)}catch(e){}}` +
@@ -79,6 +89,11 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
 		password = r.PostFormValue("pw")
 		submitted = true
+	} else {
+		// A ?pw= address opens a passworded document directly, the same as
+		// for collections. A wrong one renders the form with the error, so
+		// the gate script records the failure and does not loop it.
+		password = publicPassword(r)
 	}
 	pageID, needPW, pwOK, found := s.resolveShare(token, password)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -105,13 +120,32 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if needPW && !pwOK {
-		if submitted {
+		// A wrong password redisplays the gate with the error: a POST that
+		// failed, or a ?pw= address that did. The script records the latter
+		// so it is not retried in a loop.
+		wrong := submitted || (r.Method != http.MethodPost && password != "")
+		if wrong {
 			w.WriteHeader(403)
 		}
-		w.Write([]byte(sharePasswordForm(token, submitted)))
+		w.Write([]byte(sharePasswordForm(token, wrong)))
 		return
 	}
 	w.Write([]byte(s.pageHTML(p, false, s.printOptionsFor(p))))
+	// A ?pw= address that just opened must not keep the secret in the bar,
+	// and the tab should remember it like the gates do: the server verified
+	// it to render this page, so staging it into session storage is exact —
+	// a reload reopens through the gate script without asking again.
+	if r.Method != http.MethodPost && password != "" {
+		if pwJSON, err := json.Marshal(password); err == nil {
+			w.Write([]byte(`<script>(function(){try{` +
+				`var m=location.pathname.match(/^\/public\/([a-f0-9]+)$/);if(!m)return;` +
+				`var k='salt:share-pw:'+m[1];` +
+				`try{sessionStorage.setItem(k,` + string(pwJSON) + `);sessionStorage.removeItem(k+':failed')}catch(e){}` +
+				`var u=new URL(location.href);if(u.searchParams.has('pw')){u.searchParams.delete('pw');` +
+				`var s=u.searchParams.toString();history.replaceState(null,'',u.pathname+(s?'?'+s:'')+u.hash)}` +
+				`}catch(e){}})();</script>`))
+		}
+	}
 }
 
 // servePublicAppShell serves index.html for the public collection viewer.
