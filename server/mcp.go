@@ -180,9 +180,9 @@ var mcpTools = []map[string]any{
 					"items": map[string]any{"type": "object", "properties": map[string]any{
 						"property": map[string]any{"type": "string", "description": "Property id from get_collection"},
 						"op":       map[string]any{"type": "string", "description": "is (default) | is_not | contains | gt | lt | between | is_empty | is_not_empty"},
-						"value":    map[string]any{"type": "string", "description": "Compared value; ignored for is_empty/is_not_empty. For between, the LOWER bound."},
+						"value":    map[string]any{"type": "string", "description": "Compared value; ignored for is_empty/is_not_empty. For between, the LOWER bound. A date property also takes a relative day — today, yesterday, tomorrow, or today with an offset like today-1M (a month ago) or today+7d — resolved on the day the query runs, so a saved view stays live."},
 						"values":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Several values for is/is_not — \"status is any of open, waiting\" as ONE condition. Use instead of value, not beside it."},
-						"value2":   map[string]any{"type": "string", "description": "Upper bound of between, inclusive. A date range is value..value2."}}}},
+						"value2":   map[string]any{"type": "string", "description": "Upper bound of between, inclusive. A date range is value..value2. Relative days like today work here too, e.g. between today-1M and today."}}}},
 				"filter_groups": map[string]any{"type": "array", "description": "OR groups: each group is an array of filters in the same shape, ANDed inside, ORed between groups. A filter beside filter_groups holds for every group.",
 					"items": map[string]any{"type": "array", "items": map[string]any{"type": "object"}}},
 				"sort":   map[string]any{"type": "string", "description": "propertyId:asc or propertyId:desc"},

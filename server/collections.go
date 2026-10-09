@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // A collection turns a page into a small database: its child pages are the
@@ -164,6 +165,9 @@ func (f rowFilter) where() (string, []any) {
 	if !safePropID(f.Prop) {
 		return "", nil
 	}
+	// A relative day ("today-1M") names a different date every day. Resolve
+	// it now, per query, so a saved view stays live (see smartdate.go).
+	f = f.resolveDates(time.Now())
 	ex := "json_extract(props, '$." + f.Prop + "')"
 	op := f.Op
 	if op == "" {
