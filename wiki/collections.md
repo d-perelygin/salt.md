@@ -135,7 +135,7 @@ right, the settings for the view you are on.
 | `+` (Add view) | Menu: **Table**, **Board**, **Gallery**, **Calendar**, **Timeline**, **List**, **Form**. The new view is named after its type and opens straight away. |
 | **Start:** / **End:** | Timeline only: which date property draws the bars. Leaving End empty gives one-day bars. |
 | Sub-item picker | Table only, and only when a relation points back at this same collection. Choosing it draws the table as a tree; **No sub-items** turns it off. |
-| **Filter** | Conditions on properties, ANDed. The button shows the count. |
+| **Filter** | Groups of conditions on properties: ANDed inside a group, ORed between groups. The button shows the count. |
 | **Sort** | One property, **Ascending** or **Descending**, or **No sort**. |
 | **Group** | Board only: which property makes the columns. |
 | **Columns** | Show and hide properties. Two lists, **Shown** and **Hidden**, with **Hide all** and **Show all**. The button reads **Columns**, and `Columns (4/7)` once something is hidden. |
@@ -420,7 +420,8 @@ Two of them behave in a way worth knowing before the first call:
 
 - **`query_rows` filters, sorts and paginates on the server**: the same
   conditions the toolbar offers (`is`, `is_not`, `contains`, `gt`, `lt`,
-  `between`, `is_empty`, `is_not_empty`), ANDed, with `sort` spelled
+  `between`, `is_empty`, `is_not_empty`), ANDed — or in OR groups through
+  `filter_groups`, with `sort` spelled
   `propertyId:asc`. `is` / `is_not` take a set through `values`, `between` takes
   `value` and `value2`. A filter value may be given as an option **name**
   instead of its id. It returns

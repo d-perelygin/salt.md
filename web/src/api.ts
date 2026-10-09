@@ -381,20 +381,24 @@ export const api = {
       limit?: number;
       offset?: number;
       filters?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[];
+      filterGroups?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[][];
       sort?: { property: string; dir: 'asc' | 'desc' } | null;
     } = {},
   ) => {
     const p = new URLSearchParams();
     if (opts.limit) p.set('limit', String(opts.limit));
     if (opts.offset) p.set('offset', String(opts.offset));
-    for (const f of opts.filters ?? []) {
+    const encode = (f: { property: string; op?: string; value: string; values?: string[]; value2?: string }) => {
       // A set of values and a range do not fit in a colon-separated string, so
       // anything beyond the simple case travels as JSON. The server reads both
       // — the short form is what curl, a bookmarked URL and every older client
       // sends, and it keeps working unchanged.
-      if (f.values?.length || f.value2) p.append('filter', JSON.stringify(f));
-      else p.append('filter', `${f.property}:${f.op ?? ''}:${f.value}`);
-    }
+      if (f.values?.length || f.value2) return JSON.stringify(f);
+      return `${f.property}:${f.op ?? ''}:${f.value}`;
+    };
+    for (const f of opts.filters ?? []) p.append('filter', encode(f));
+    // One filter_group param per OR group; each is a JSON array of conditions.
+    for (const g of opts.filterGroups ?? []) p.append('filter_group', JSON.stringify(g));
     if (opts.sort) p.set('sort', `${opts.sort.property}:${opts.sort.dir}`);
     return req<{
       rows: {

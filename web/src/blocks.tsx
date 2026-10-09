@@ -300,7 +300,7 @@ export const databaseSpec = createReactBlockSpec(
       const { block, editor } = props;
       const collectionId = (block.props as { collectionId: string }).collectionId;
       const localRaw = (block.props as { local?: string }).local ?? '';
-      const { pagesById, tagColors, onNavigate, onPagesChanged } = useBlockCtx();
+      const { pagesById, tagColors, onNavigate, onOpenInNewTab, onPagesChanged } = useBlockCtx();
       const [q, setQ] = useState('');
       // Somebody who may read the document but not change it can still filter
       // what they see; it just stays with them instead of being written back.
@@ -370,6 +370,7 @@ export const databaseSpec = createReactBlockSpec(
             pages={pagesById}
             tagColors={tagColors}
             onNavigate={onNavigate}
+            onOpenInNewTab={onOpenInNewTab}
             onPagesChanged={onPagesChanged}
             embed={embed}
           />

@@ -15,6 +15,7 @@ import { PageIcon } from '../pageIcon';
 import TrashSection from './TrashSection';
 import { compare } from '../format';
 import { plural, t } from '../i18n';
+import { openPage, openPageAux } from '../pageOpen';
 import AgentConnectModal from './AgentConnect';
 import BreakGlassLog from './BreakGlassLog';
 import TemplateGallery from './TemplateGallery';
@@ -216,7 +217,8 @@ function DbRows({
               style={pad}
               {...navItem(r.id)}
               data-expanded={kids.length > 0 ? (isOpen ? 'true' : 'false') : undefined}
-              onClick={() => ctx.onNavigate(r.id)}
+              onClick={(e) => openPage(e, r.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
+              onAuxClick={(e) => openPageAux(e, r.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
               onContextMenu={(e) => {
                 e.preventDefault();
                 ctx.setAddFor(null);
@@ -362,16 +364,22 @@ function FlatRow({
   active,
   parentLabel,
   onNavigate,
+  onOpenInNewTab,
   action,
 }: {
   p: PageMeta;
   active: boolean;
   parentLabel?: string;
   onNavigate: (id: string) => void;
+  onOpenInNewTab?: (id: string) => void;
   action?: React.ReactNode;
 }) {
   return (
-    <div className={'tree-item sb-flat' + (active ? ' active' : '')} onClick={() => onNavigate(p.id)}>
+    <div
+      className={'tree-item sb-flat' + (active ? ' active' : '')}
+      onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
+      onAuxClick={(e) => openPageAux(e, p.id, { onNavigate, onOpenInNewTab })}
+    >
       <span className="chevron spacer" />
       <span className="tree-icon">
         <PageIcon
@@ -1374,6 +1382,7 @@ export default function Sidebar({
                 p={p}
                 active={p.id === currentId}
                 onNavigate={onNavigate}
+                onOpenInNewTab={onOpenInNewTab}
                 action={
                   <button title={t('Remove from favourites')} onClick={() => onToggleFavorite(p.id)}>
                     <Star size={14} fill="currentColor" />
@@ -1425,7 +1434,8 @@ export default function Sidebar({
               className={'tree-item' + (p.id === currentId ? ' active' : '')}
               style={{ paddingLeft: 6 }}
               {...navItem(p.id)}
-              onClick={() => onNavigate(p.id)}
+              onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
+              onAuxClick={(e) => openPageAux(e, p.id, { onNavigate, onOpenInNewTab })}
             >
               <span className="chevron spacer" />
               <span className="tree-icon">

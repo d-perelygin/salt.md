@@ -52,6 +52,7 @@ export interface EditorProps {
   onMetaChange: (id: string, patch: Partial<PageMeta>) => void;
   onMissing: (id: string) => void;
   onNavigate: (id: string | null) => void;
+  onOpenInNewTab: (id: string) => void;
   onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
   // Deleting was reachable from the sidebar tree only. A database ROW — and any
   // page filed under one — never appears there as a tree item, so nothing in the
@@ -202,6 +203,7 @@ export default function Editor(props: EditorProps) {
             pages={props.pagesById}
             tagColors={props.tagColors}
             onNavigate={props.onNavigate}
+            onOpenInNewTab={props.onOpenInNewTab}
             onPagesChanged={props.onPagesChanged}
           />
         ) : (
@@ -215,6 +217,7 @@ export default function Editor(props: EditorProps) {
             pagesById={props.pagesById}
             tagColors={props.tagColors}
             onNavigate={props.onNavigate}
+            onOpenInNewTab={props.onOpenInNewTab}
             onCreatePage={props.onCreatePage}
             onPagesChanged={props.onPagesChanged}
             onReset={() => setNonce((n) => n + 1)}
@@ -1358,6 +1361,7 @@ interface CollabProps {
   pagesById: Map<string, PageMeta>;
   tagColors: Record<string, string>;
   onNavigate: (id: string | null) => void;
+  onOpenInNewTab: (id: string) => void;
   onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
   onPagesChanged: () => void;
   onReset: () => void;
@@ -1469,6 +1473,7 @@ function BlockContent({
   pagesById,
   tagColors,
   onNavigate,
+  onOpenInNewTab,
   onCreatePage,
   onPagesChanged,
   structureOpen,
@@ -1484,6 +1489,7 @@ function BlockContent({
   pagesById: Map<string, PageMeta>;
   tagColors: Record<string, string>;
   onNavigate: (id: string | null) => void;
+  onOpenInNewTab: (id: string) => void;
   onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
   onPagesChanged: () => void;
 }) {
@@ -1906,7 +1912,7 @@ function BlockContent({
       <div className="editor-inner" onClickCapture={onFileClick}>
         {/* The database block renders inside the editor and would otherwise
             not reach the page list, the tag colours or navigation. */}
-        <BlockContext.Provider value={{ pagesById, tagColors, onNavigate, onPagesChanged }}>
+        <BlockContext.Provider value={{ pagesById, tagColors, onNavigate, onOpenInNewTab, onPagesChanged }}>
         <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false}>
           <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
           <SuggestionMenuController
