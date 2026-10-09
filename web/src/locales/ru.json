@@ -1153,5 +1153,21 @@
   "⚠ This is the URL of the running quick tunnel — it changes on every start. For OAuth that lasts, use a named tunnel or your own domain and enter it as the base URL.": "⚠ Это URL работающего быстрого туннеля — он меняется при каждом запуске. Для стабильного OAuth используйте именованный туннель или собственный домен и укажите его как base URL.",
   "✓ Resolved": "✓ Решён",
   "＋ Link": "＋ Ссылка",
-  "＋ Person": "＋ Человек"
+  "＋ Person": "＋ Человек",
+  "A new link was created — the old one no longer works": "Создана новая ссылка — старая больше не работает",
+  "Anyone with this link can view this page (read-only).": "Все, у кого есть эта ссылка, могут просматривать страницу (только чтение).",
+  "Anyone with this link sees this collection (read-only).": "Все, у кого есть эта ссылка, видят коллекцию (только чтение).",
+  "Apply": "Применить",
+  "Create a new link": "Создать новую ссылку",
+  "Keep at least one view shared": "Оставьте общим хотя бы один вью",
+  "Let readers open notes": "Разрешить читателям открывать заметки",
+  "Off = rows are visible, but do not open.": "Выкл = строки видны, но не открываются.",
+  "Page not found": "Страница не найдена",
+  "Protected page": "Защищённая страница",
+  "Setting or removing the password creates a new link.": "Установка или снятие пароля создаёт новую ссылку.",
+  "The link is active, but this browser does not have its URL.": "Ссылка активна, но её URL нет в этом браузере.",
+  "This board needs a Select property to group by.": "Для группировки борде нужно свойство Select.",
+  "This page is protected by a password.": "Эта страница защищена паролем.",
+  "Views in the link": "Вью в ссылке",
+  "Wrong password.": "Неверный пароль."
 }
