@@ -114,6 +114,22 @@ CREATE TABLE IF NOT EXISTS collections (
 	schema TEXT NOT NULL DEFAULT '[]',
 	views TEXT NOT NULL DEFAULT '[]'
 );
+-- Named calendar subscriptions (per-scope feeds): each row is one shareable
+-- link with its own token, so one subscription can be revoked without
+-- touching the others. The legacy per-user token (ics_token_* settings)
+-- keeps working alongside these. kind/ref_id/view_id mirror the feed query
+-- scope: all | workspace(ref_id) | collection(ref_id) | view(ref_id+view_id).
+CREATE TABLE IF NOT EXISTS ics_feeds (
+	id TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	token TEXT NOT NULL UNIQUE,
+	kind TEXT NOT NULL DEFAULT 'all',
+	ref_id TEXT NOT NULL DEFAULT '',
+	view_id TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ics_feeds_user ON ics_feeds(user_id);
 CREATE TABLE IF NOT EXISTS yjs_state (
 	page_id TEXT PRIMARY KEY REFERENCES pages(id) ON DELETE CASCADE,
 	snapshot BLOB,

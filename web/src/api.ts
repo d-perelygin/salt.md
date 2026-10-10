@@ -219,8 +219,47 @@ export const api = {
         kind: 'all' | 'workspace' | 'collection' | 'view';
         name: string;
         links: { url: string; webcal: string };
+        count: number;
+        nextTitle?: string;
+        nextDay?: string;
       }[];
+      feeds: {
+        id: string;
+        kind: 'all' | 'workspace' | 'collection' | 'view';
+        refId: string;
+        viewId: string;
+        name: string;
+        url: string;
+        webcal: string;
+        createdAt: string;
+        count: number;
+        nextTitle?: string;
+        nextDay?: string;
+      }[];
+      pastDays: number;
     }>(`/api/ics${rotate ? '?rotate=1' : ''}`),
+  // Personal history window for calendar feeds, in days (0 keeps everything).
+  icsPrefs: (pastDays: number) =>
+    req<{ pastDays: number }>('/api/ics/prefs', {
+      method: 'POST',
+      body: JSON.stringify({ pastDays }),
+    }),
+  // Named calendar subscriptions: each is a link with its own token, so one
+  // can be shared or revoked without touching the others.
+  icsFeedCreate: (kind: string, refId: string, viewId: string, name: string) =>
+    req<{
+      id: string;
+      kind: string;
+      name: string;
+      url: string;
+      webcal: string;
+      count: number;
+    }>('/api/ics/feeds', {
+      method: 'POST',
+      body: JSON.stringify({ kind, refId, viewId, name }),
+    }),
+  icsFeedDelete: (id: string) =>
+    req<{ ok: boolean }>(`/api/ics/feeds/${id}`, { method: 'DELETE' }),
   twoFAStatus: () => req<{ enabled: boolean }>('/api/2fa'),
   twoFASetup: () =>
     req<{ secret: string; otpauthUrl: string; qr: string }>('/api/2fa/setup', { method: 'POST' }),

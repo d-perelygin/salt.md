@@ -886,20 +886,73 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
     void api.icsInfo().then(setInfo).catch((e) => setLoadErr((e as Error).message || t('Loading failed')));
   }, []);
   const rotate = async () => {
+    if (!window.confirm(t('Resetting creates a new main link and breaks its subscriptions. Named subscriptions keep working. Continue?'))) return;
     setInfo(await api.icsInfo(true));
     toast(t('New calendar link created (the old one no longer works)'));
+  };
+  const copyUrl = async (text: string) => {
+    try {
+      await navigator.clipboard?.writeText(text);
+      toast(t('Link copied'));
+    } catch {
+      toast(t('Copy failed — select the link manually'));
+    }
+  };
+  const reload = async () => {
+    setInfo(await api.icsInfo());
+  };
+  const setWindow = async (days: number) => {
+    await api.icsPrefs(days);
+    await reload();
+  };
+  const [newPick, setNewPick] = useState('');
+  const [newName, setNewName] = useState('');
+  const createFeed = async () => {
+    const s = scopes.find((x) => key(x) === newPick) ?? scopes[0];
+    if (!s) return;
+    // The dialog speaks the user's language; the API fallback ("Everything")
+    // is English-only, so never send an empty name from here.
+    const fallbackName = s.kind === 'all' ? t('Everything I can see') : s.name;
+    try {
+      await api.icsFeedCreate(s.kind, s.id, s.viewId ?? '', newName.trim() || fallbackName);
+      setNewName('');
+      await reload();
+      toast(t('Subscription created — copy its link below'));
+    } catch (e) {
+      toast((e as Error).message || t('Could not be created'));
+    }
+  };
+  const revokeFeed = async (id: string, name: string) => {
+    if (!window.confirm(t('Revoke this subscription? Its link stops working at once.'))) return;
+    await api.icsFeedDelete(id);
+    await reload();
+    toast(t('Subscription revoked') + (name ? `: ${name}` : ''));
   };
   const scopes = info?.scopes ?? [];
   const key = (s: { kind: string; id: string; viewId?: string }) => s.kind + ':' + s.id + ':' + (s.viewId ?? '');
   const current = scopes.find((s) => key(s) === pick) ?? scopes[0];
+  const label = (s: { kind: string; name: string; count: number }) =>
+    s.kind === 'all' ? `${t('Everything I can see')} · ${s.count}` : `${s.name} · ${s.count}`;
   const workspaces = scopes.filter((s) => s.kind === 'workspace');
   const collections = scopes.filter((s) => s.kind === 'collection');
   const views = scopes.filter((s) => s.kind === 'view');
+  // Provider-specific subscribe paths: Apple/macOS handles webcal://, Google
+  // and Outlook want a plain https:// address handed to their web UI.
+  const httpsUrl = current?.links.url ?? info?.url ?? '';
+  const googleUrl = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(httpsUrl)}`;
+  const outlookUrl = `https://outlook.live.com/calendar/0/addfromweb?url=${encodeURIComponent(httpsUrl)}&name=${encodeURIComponent('salt.md')}`;
+  const [provider, setProvider] = useState('device');
+  const providerHref =
+    provider === 'google' ? googleUrl : provider === 'outlook' ? outlookUrl : (current?.links.webcal ?? info?.webcal ?? '');
+  const providerNewTab = provider !== 'device';
   return (
     <Portal>
       <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <div className="dialog" role="dialog" aria-modal="true" aria-label={t('Subscribe to calendar')}>
           <h2>{t('Subscribe to calendar')}</h2>
+          <p className="dialog-hint">
+            {t('Each filled date becomes its own calendar event — a row with two dates produces two events.')}
+          </p>
           <p className="dialog-hint">
             {t(
               'Subscribe to every date property in your collections from Apple Calendar, Google Calendar or Outlook. The link is private — do not share it.',
@@ -911,22 +964,22 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
             <div className="dialog-hint">{t('Loading…')}</div>
           ) : (
             <>
-              {/* One feed for everything is rarely what a calendar app wants:
-                  a separate subscription per workspace or per collection can be
-                  switched off in the app without touching the others. */}
-              <label className="dialog-hint">{t('What should the calendar contain?')}</label>
+              {/* 1. What lands in the feed. A separate subscription per
+                  workspace or collection can be switched off in the calendar
+                  app without touching the others. */}
+              <label className="dialog-hint" style={{ marginTop: 16 }}>{t('What should the calendar contain?')}</label>
               <select
                 className="prop-select"
                 value={pick}
                 onChange={(e) => setPick(e.target.value)}
                 aria-label={t('What should the calendar contain?')}
               >
-                <option value="">{t('Everything I can see')}</option>
+                <option value="">{current && pick === '' ? label(current) : t('Everything I can see')}</option>
                 {workspaces.length > 0 && (
                   <optgroup label={t('Workspaces')}>
                     {workspaces.map((s) => (
                       <option key={key(s)} value={key(s)}>
-                        {s.name}
+                        {label(s)}
                       </option>
                     ))}
                   </optgroup>
@@ -935,7 +988,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                   <optgroup label={t('Collections')}>
                     {collections.map((s) => (
                       <option key={key(s)} value={key(s)}>
-                        {s.name}
+                        {label(s)}
                       </option>
                     ))}
                   </optgroup>
@@ -944,12 +997,22 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                   <optgroup label={t('Views')}>
                     {views.map((s) => (
                       <option key={key(s)} value={key(s)}>
-                        {s.name}
+                        {label(s)}
                       </option>
                     ))}
                   </optgroup>
                 )}
               </select>
+              {current && current.count === 0 && (
+                <p className="dialog-hint">
+                  {t('This feed is currently empty — nothing with a date matches it yet.')}
+                </p>
+              )}
+              {current && current.count > 0 && current.nextTitle && (
+                <p className="dialog-hint">
+                  {t('Nearest event:')} {current.nextTitle}{current.nextDay ? ` · ${current.nextDay}` : ''}
+                </p>
+              )}
               {collections.length === 0 && (
                 <p className="dialog-hint">
                   {t('A collection appears here once it has a date property.')}
@@ -960,25 +1023,149 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                   {t('A view feed contains only what the view shows.')}
                 </p>
               )}
-              <label className="dialog-hint">{t('Subscription link (webcal):')}</label>
+              {/* 2. How far back the feed reaches. Everything upcoming is
+                  always included. */}
+              <label className="dialog-hint" style={{ marginTop: 16 }}>{t('How far back should it reach?')}</label>
+              <select
+                className="prop-select"
+                value={String(info.pastDays)}
+                onChange={(e) => void setWindow(Number(e.target.value))}
+                aria-label={t('How far back should it reach?')}
+              >
+                <option value="30">{t('Last 30 days')}</option>
+                <option value="90">{t('Last 90 days')}</option>
+                <option value="365">{t('Last 365 days')}</option>
+                <option value="0">{t('All history')}</option>
+              </select>
+              {/* 3. The link and how to take it away. */}
+              <label className="dialog-hint" style={{ marginTop: 16 }}>{t('Subscription link (webcal):')}</label>
               <input
                 className="prop-input invite-input"
                 readOnly
                 value={current?.links.webcal ?? info.webcal}
                 onFocus={(e) => e.currentTarget.select()}
               />
-              <div className="dialog-buttons" style={{ justifyContent: 'flex-start', gap: 8 }}>
-                <a className="btn primary" href={current?.links.webcal ?? info.webcal}>{t('Open in calendar')}</a>
+              <p className="dialog-hint">
+                {t('Changes reach your calendar within about half an hour.')}{' '}
+                {info.pastDays === 0
+                  ? t('The feed holds all events, past and upcoming.')
+                  : t('The feed holds upcoming events and the last {n} days.', { n: info.pastDays })}
+              </p>
+              {/* Row one connects, row two manages the link itself. The select
+                  shares the row with the button: prop-select is full-width
+                  by default and would push the button onto its own line. */}
+              <div className="dialog-buttons" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'nowrap' }}>
+                <select
+                  className="prop-select"
+                  style={{ width: 'auto', flex: '1 1 auto', minWidth: 0 }}
+                  value={provider}
+                  onChange={(e) => setProvider(e.target.value)}
+                  aria-label={t('Add to')}
+                >
+                  <option value="device">{t('This device')}</option>
+                  <option value="google">{t('Google Calendar')}</option>
+                  <option value="outlook">{t('Outlook')}</option>
+                </select>
+                <a
+                  className="btn primary"
+                  href={providerHref}
+                  target={providerNewTab ? '_blank' : undefined}
+                  rel="noreferrer"
+                >
+                  {t('Add to calendar')}
+                </a>
+              </div>
+              <div className="dialog-buttons" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                 <button
                   className="btn"
-                  onClick={() => void navigator.clipboard?.writeText(current?.links.url ?? info.url)}
+                  onClick={() => void copyUrl(httpsUrl)}
                 >
                   {t('Copy URL')}
                 </button>
-                {/* Rotating kills EVERY feed at once, because there is one token
-                    behind all of them — say so where the button is. */}
-                <button className="btn" onClick={() => void rotate()} title={t('Invalidates all calendar links')}>
+                {/* Rotating replaces the main link only; named subscriptions
+                    below carry their own tokens and keep working. */}
+                <button className="btn" onClick={() => void rotate()} title={t('Invalidates the main link (named subscriptions keep working)')}>
                   {t('Reset the link')}
+                </button>
+              </div>
+              {/* 4. Named subscriptions: one link per scope, each with its own
+                  token, so sharing or revoking one touches nothing else. */}
+              <label className="dialog-hint" style={{ marginTop: 28, borderTop: '1px solid var(--border)', paddingTop: 20 }}>{t('My subscriptions')}</label>
+              <p className="dialog-hint">
+                {t('Each subscription below is a separate link with its own token: share one with somebody, revoke one, the rest keep working.')}
+              </p>
+              {(info.feeds ?? []).length === 0 && (
+                <p className="dialog-hint">{t('No separate subscriptions yet — create one for a project or a person.')}</p>
+              )}
+              {(info.feeds ?? []).map((f) => (
+                <div key={f.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                  <div><strong>{f.name}</strong></div>
+                  <div className="dialog-hint">
+                    {plural(f.count, '{n} event', '{n} events')}
+                    {f.nextTitle ? ` · ${t('Nearest event:')} ${f.nextTitle}${f.nextDay ? ` · ${f.nextDay}` : ''}` : ''}
+                  </div>
+                  <input
+                    className="prop-input invite-input"
+                    readOnly
+                    value={f.webcal}
+                    onFocus={(e) => e.currentTarget.select()}
+                    aria-label={f.name}
+                  />
+                  <div className="dialog-buttons" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    <button className="btn" onClick={() => void copyUrl(f.url)}>
+                      {t('Copy URL')}
+                    </button>
+                    <button className="btn" onClick={() => void revokeFeed(f.id, f.name)}>
+                      {t('Revoke')}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <div className="dialog-buttons" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+                <select
+                  className="prop-select"
+                  value={newPick}
+                  onChange={(e) => setNewPick(e.target.value)}
+                  aria-label={t('What should the new subscription contain?')}
+                >
+                  <option value="">{t('Everything I can see')}</option>
+                  {workspaces.length > 0 && (
+                    <optgroup label={t('Workspaces')}>
+                      {workspaces.map((s) => (
+                        <option key={key(s)} value={key(s)}>
+                          {label(s)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {collections.length > 0 && (
+                    <optgroup label={t('Collections')}>
+                      {collections.map((s) => (
+                        <option key={key(s)} value={key(s)}>
+                          {label(s)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {views.length > 0 && (
+                    <optgroup label={t('Views')}>
+                      {views.map((s) => (
+                        <option key={key(s)} value={key(s)}>
+                          {label(s)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <input
+                  className="prop-input"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder={t('Subscription name (e.g. For the client)')}
+                  aria-label={t('Subscription name')}
+                />
+                <button className="btn primary" onClick={() => void createFeed()}>
+                  {t('Create subscription')}
                 </button>
               </div>
             </>

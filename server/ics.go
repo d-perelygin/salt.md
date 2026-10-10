@@ -33,16 +33,263 @@ import (
 // Why in the URL and not one token per scope: a calendar app remembers a URL
 // and nothing else. Rotating the token then has to invalidate every feed at
 // once — which is exactly what people expect from "revoke my calendar links".
+//
+// Feed quality notes: every timed event carries a DTEND (one hour after the
+// start — an event with a start and no end renders as an invisible dot in
+// most calendar apps), every all-day event carries a DTEND of the next day,
+// and every event carries a URL back to its page (base + "/p/<id>"). Lines
+// are folded at 75 octets per RFC 5545. The calendar advertises
+// REFRESH-INTERVAL/X-PUBLISHED-TTL of half an hour so clients re-poll
+// promptly, and the feed covers the subscriber's history window (a personal
+// choice, 90 days by default) plus everything upcoming, capped at
+// icsMaxEvents — a whole-account feed over years of rows must stay light
+// enough for a phone to sync.
+
+// How often calendar apps are asked to re-poll the feed.
+const icsRefreshInterval = "PT30M"
+
+// How far back a feed reaches by default. Everything upcoming is always
+// included. Each user may pick their own window (or none at all) —
+// icsPastDaysOf reads that choice.
+const icsDefaultPastDays = 90
+
+// icsPastDaysOptions are the windows the dialog offers, in days; 0 means
+// the whole history.
+var icsPastDaysOptions = []int{30, 90, 365, 0}
+
+// Upper bound on events in one feed response.
+const icsMaxEvents = 5000
 
 func (s *Server) icsToken(userID string) string {
 	tok := s.setting("ics_token_"+userID, "")
 	if tok == "" {
-		b := make([]byte, 18)
-		rand.Read(b)
-		tok = hex.EncodeToString(b)
+		tok = icsNewToken()
 		s.setSetting("ics_token_"+userID, tok)
 	}
 	return tok
+}
+
+// icsNewToken mints one credential-grade feed token (like icsToken's, but
+// standalone — each named subscription carries its own).
+func icsNewToken() string {
+	b := make([]byte, 18)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// icsFeedLinks builds the two subscription addresses for one token.
+func icsFeedLinks(r *http.Request, s *Server, tok, query string) (url, webcal string) {
+	base := s.publicShareBase(r)
+	host := strings.TrimPrefix(strings.TrimPrefix(base, "https://"), "http://")
+	return base + "/ics/" + tok + ".ics" + query,
+		"webcal://" + host + "/ics/" + tok + ".ics" + query
+}
+
+// handleICSPrefs stores the caller's history window for calendar feeds.
+func (s *Server) handleICSPrefs(w http.ResponseWriter, r *http.Request) {
+	uid := requestUser(r).ID
+	var body struct {
+		PastDays *int `json:"pastDays"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		return
+	}
+	if body.PastDays == nil {
+		httpError(w, 400, "pastDays is required")
+		return
+	}
+	ok := false
+	for _, allowed := range icsPastDaysOptions {
+		if *body.PastDays == allowed {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		httpError(w, 400, "unknown history window")
+		return
+	}
+	s.setSetting("ics_past_days_"+uid, strconv.Itoa(*body.PastDays))
+	writeJSON(w, map[string]any{"pastDays": *body.PastDays})
+}
+
+// icsFeed is one named subscription row.
+type icsFeed struct {
+	id, kind, refID, viewID, name, token, created string
+}
+
+// icsScopeQuery renders the feed query string for a scope triple.
+func icsScopeQuery(kind, refID, viewID string) string {
+	switch kind {
+	case "workspace":
+		return "?workspace=" + refID
+	case "collection":
+		return "?collection=" + url.QueryEscape(refID)
+	case "view":
+		return "?collection=" + url.QueryEscape(refID) + "&view=" + url.QueryEscape(viewID)
+	default:
+		return ""
+	}
+}
+
+// icsValidateScope checks that uid may subscribe to a scope today and returns
+// its display name. A scope that is unreadable cannot be made into a link.
+func (s *Server) icsValidateScope(uid, kind, refID, viewID string) (string, bool) {
+	switch kind {
+	case "all":
+		return "", true
+	case "workspace":
+		for _, w := range s.visibleWorkspaces(uid) {
+			if w == refID {
+				var nm string
+				s.db.QueryRow(`SELECT name FROM workspaces WHERE id = ?`, refID).Scan(&nm)
+				return nm, true
+			}
+		}
+		return "", false
+	case "collection":
+		if refID == "" || !s.canRead(uid, refID) {
+			return "", false
+		}
+		var title string
+		s.db.QueryRow(`SELECT title FROM pages WHERE id = ? AND trashed_at IS NULL`, refID).Scan(&title)
+		if title == "" {
+			title = "Untitled"
+		}
+		return title, true
+	case "view":
+		if refID == "" || viewID == "" || !s.canRead(uid, refID) {
+			return "", false
+		}
+		var title string
+		s.db.QueryRow(`SELECT title FROM pages WHERE id = ? AND trashed_at IS NULL`, refID).Scan(&title)
+		if title == "" {
+			title = "Untitled"
+		}
+		viewName, _, _, _, found := s.icsViewDetail(refID, viewID)
+		if !found {
+			return "", false
+		}
+		return title + " / " + viewName, true
+	default:
+		return "", false
+	}
+}
+
+// icsFeedJSON renders one subscription for the dialog, with its links and a
+// live preview of what it currently holds.
+func (s *Server) icsFeedJSON(r *http.Request, uid string, f icsFeed) map[string]any {
+	events, _ := s.icsEventsFor(uid, wsOf(f.kind, f.refID), colOf(f.kind, f.refID), viewOf(f.kind, f.viewID))
+	n, nt, nd := icsPreview(events)
+	if len(nd) == 8 {
+		nd = nd[0:4] + "-" + nd[4:6] + "-" + nd[6:8]
+	}
+	u, w := icsFeedLinks(r, s, f.token, icsScopeQuery(f.kind, f.refID, f.viewID))
+	return map[string]any{
+		"id": f.id, "kind": f.kind, "refId": f.refID, "viewId": f.viewID,
+		"name": f.name, "url": u, "webcal": w, "createdAt": f.created,
+		"count": n, "nextTitle": nt, "nextDay": nd,
+	}
+}
+
+// handleICSFeedsCreate mints one named subscription: a link with its own
+// token, scoped to exactly what the body names. Revoking it later touches
+// nothing else.
+func (s *Server) handleICSFeedsCreate(w http.ResponseWriter, r *http.Request) {
+	uid := requestUser(r).ID
+	var body struct {
+		Kind   string `json:"kind"`
+		RefID  string `json:"refId"`
+		ViewID string `json:"viewId"`
+		Name   string `json:"name"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		return
+	}
+	if body.Kind == "" {
+		body.Kind = "all"
+	}
+	scopeName, ok := s.icsValidateScope(uid, body.Kind, body.RefID, body.ViewID)
+	if !ok {
+		httpError(w, 400, "that scope cannot be subscribed to")
+		return
+	}
+	var existing int
+	s.db.QueryRow(`SELECT COUNT(*) FROM ics_feeds WHERE user_id = ?`, uid).Scan(&existing)
+	if existing >= 20 {
+		httpError(w, 400, "too many calendar subscriptions (20)")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = scopeName
+	}
+	if name == "" {
+		name = "Everything"
+	}
+	f := icsFeed{id: newID(), kind: body.Kind, refID: body.RefID, viewID: body.ViewID, name: name, token: icsNewToken(), created: now()}
+	if _, err := s.db.Exec(`INSERT INTO ics_feeds (id, user_id, token, kind, ref_id, view_id, name, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, f.id, uid, f.token, f.kind, f.refID, f.viewID, f.name, f.created); err != nil {
+		httpError(w, 500, "cannot create subscription")
+		return
+	}
+	writeJSON(w, s.icsFeedJSON(r, uid, f))
+}
+
+// handleICSFeedDelete revokes one named subscription. The link stops working
+// at once; every other subscription keeps working.
+func (s *Server) handleICSFeedDelete(w http.ResponseWriter, r *http.Request) {
+	uid := requestUser(r).ID
+	res, err := s.db.Exec(`DELETE FROM ics_feeds WHERE id = ? AND user_id = ?`, r.PathValue("id"), uid)
+	if err != nil {
+		httpError(w, 500, "cannot revoke subscription")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		httpError(w, 404, "not found")
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+// icsListFeeds returns the caller's named subscriptions, oldest first.
+func (s *Server) icsListFeeds(uid string) []icsFeed {
+	rows, err := s.db.Query(`SELECT id, kind, ref_id, view_id, name, token, created_at FROM ics_feeds WHERE user_id = ? ORDER BY created_at`, uid)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []icsFeed
+	for rows.Next() {
+		var f icsFeed
+		if rows.Scan(&f.id, &f.kind, &f.refID, &f.viewID, &f.name, &f.token, &f.created) == nil {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// wsOf/colOf/viewOf map a scope back to feed query parameters: only the
+// matching kind contributes its id, everything else scopes to nothing.
+func wsOf(kind, id string) string {
+	if kind == "workspace" {
+		return id
+	}
+	return ""
+}
+
+func colOf(kind, id string) string {
+	if kind == "collection" || kind == "view" {
+		return id
+	}
+	return ""
+}
+
+func viewOf(kind, viewID string) string {
+	if kind == "view" {
+		return viewID
+	}
+	return ""
 }
 
 // handleICSInfo returns the caller's subscription URL (rotating on request).
@@ -74,8 +321,24 @@ func (s *Server) handleICSInfo(w http.ResponseWriter, r *http.Request) {
 		Kind   string            `json:"kind"` // all | workspace | collection | view
 		Name   string            `json:"name"`
 		Links  map[string]string `json:"links"`
+		// Preview for the subscription dialog: how many events this
+		// scope currently holds and the nearest upcoming one.
+		Count     int    `json:"count"`
+		NextTitle string `json:"nextTitle,omitempty"`
+		NextDay   string `json:"nextDay,omitempty"` // YYYY-MM-DD
 	}
-	scopes := []scope{{ID: "", Kind: "all", Name: "", Links: feed("")}}
+	newScope := func(kind, id, viewID, name, query string) scope {
+		events, _ := s.icsEventsFor(uid, wsOf(kind, id), colOf(kind, id), viewOf(kind, viewID))
+		n, nt, nd := icsPreview(events)
+		if len(nd) == 8 {
+			nd = nd[0:4] + "-" + nd[4:6] + "-" + nd[6:8]
+		}
+		return scope{ID: id, ViewID: viewID, Kind: kind, Name: name, Links: feed(query), Count: n, NextTitle: nt, NextDay: nd}
+	}
+	// Scope descriptors first: previews run their own queries, and the pool
+	// is a single connection, so no cursor may be open when they run.
+	type desc struct{ kind, id, viewID, name, query string }
+	var descs []desc
 
 	ws := s.visibleWorkspaces(uid)
 	if len(ws) > 0 {
@@ -88,7 +351,7 @@ func (s *Server) handleICSInfo(w http.ResponseWriter, r *http.Request) {
 			for wrows.Next() {
 				var id, nm string
 				if wrows.Scan(&id, &nm) == nil {
-					scopes = append(scopes, scope{ID: id, Kind: "workspace", Name: nm, Links: feed("?workspace=" + id)})
+					descs = append(descs, desc{"workspace", id, "", nm, "?workspace=" + id})
 				}
 			}
 			wrows.Close()
@@ -124,15 +387,25 @@ func (s *Server) handleICSInfo(w http.ResponseWriter, r *http.Request) {
 				if title == "" {
 					title = "Untitled"
 				}
-				scopes = append(scopes, scope{ID: c.id, Kind: "collection", Name: title, Links: feed("?collection=" + url.QueryEscape(c.id))})
+				descs = append(descs, desc{"collection", c.id, "", title, "?collection=" + url.QueryEscape(c.id)})
 				for _, v := range icsViewList(c.views) {
-					scopes = append(scopes, scope{
-						ID: c.id, ViewID: v.id, Kind: "view", Name: title + " / " + v.name,
-						Links: feed("?collection=" + url.QueryEscape(c.id) + "&view=" + url.QueryEscape(v.id)),
+					descs = append(descs, desc{
+						"view", c.id, v.id, title + " / " + v.name,
+						"?collection=" + url.QueryEscape(c.id) + "&view=" + url.QueryEscape(v.id),
 					})
 				}
 			}
 		}
+	}
+
+	scopes := []scope{newScope("all", "", "", "", "")}
+	for _, d := range descs {
+		scopes = append(scopes, newScope(d.kind, d.id, d.viewID, d.name, d.query))
+	}
+
+	feeds := make([]map[string]any, 0)
+	for _, f := range s.icsListFeeds(uid) {
+		feeds = append(feeds, s.icsFeedJSON(r, uid, f))
 	}
 
 	writeJSON(w, map[string]any{
@@ -141,6 +414,9 @@ func (s *Server) handleICSInfo(w http.ResponseWriter, r *http.Request) {
 		"url":    base + "/ics/" + tok + ".ics",
 		"webcal": "webcal://" + host + "/ics/" + tok + ".ics",
 		"scopes": scopes,
+		"feeds":  feeds,
+		// The subscriber's history window in days (0 keeps everything).
+		"pastDays": s.icsPastDaysOf(uid),
 	})
 }
 
@@ -149,18 +425,122 @@ func icsEscape(s string) string {
 	return r.Replace(s)
 }
 
-// icsDate formats a stored date value as an all-day (VALUE=DATE) or timed field.
-// Accepts "2026-07-18" and "2026-07-18T14:30".
-func icsDate(prop, v string) string {
-	if len(v) >= 10 && v[4] == '-' && v[7] == '-' {
-		day := strings.ReplaceAll(v[:10], "-", "")
-		if len(v) >= 16 && v[10] == 'T' {
-			hm := strings.ReplaceAll(v[11:16], ":", "")
-			return prop + ":" + day + "T" + hm + "00"
-		}
-		return prop + ";VALUE=DATE:" + day
+// icsFold folds one logical content line at 75 octets per RFC 5545: the
+// first segment is 75 octets, every continuation is a space plus 74 octets.
+// Escaped values are ASCII in practice; the split is on bytes, which is
+// what the limit counts.
+func icsFold(line string) string {
+	const first = 75
+	const rest = 74
+	if len(line) <= first {
+		return line
 	}
-	return ""
+	var b strings.Builder
+	b.WriteString(line[:first])
+	line = line[first:]
+	for len(line) > 0 {
+		b.WriteString("\r\n ")
+		if len(line) <= rest {
+			b.WriteString(line)
+			break
+		}
+		b.WriteString(line[:rest])
+		line = line[rest:]
+	}
+	return b.String()
+}
+
+// icsWrite appends one folded content line (with CRLF) to a feed body.
+func icsWrite(b *strings.Builder, line string) {
+	b.WriteString(icsFold(line) + "\r\n")
+}
+
+// icsDay parses a stored date value into a YYYYMMDD day, whether it carries
+// a time, and the time as HHMMSS when it does. Accepts "2026-07-18",
+// "2026-07-18T14:30", and longer timed forms ("2026-07-18T14:30:05",
+// trailing Z or numeric offsets are ignored — the feed keeps floating
+// local time on purpose, so 14:30 reads as 14:30 wherever it is opened).
+func icsDay(v string) (day string, hm string, timed bool, ok bool) {
+	if len(v) < 10 || v[4] != '-' || v[7] != '-' {
+		return "", "", false, false
+	}
+	for _, i := range []int{0, 1, 2, 3, 5, 6, 8, 9} {
+		if v[i] < '0' || v[i] > '9' {
+			return "", "", false, false
+		}
+	}
+	day = v[0:4] + v[5:7] + v[8:10]
+	if len(v) >= 16 && v[10] == 'T' &&
+		v[11] >= '0' && v[11] <= '9' && v[12] >= '0' && v[12] <= '9' &&
+		v[13] == ':' && v[14] >= '0' && v[14] <= '9' && v[15] >= '0' && v[15] <= '9' {
+		hm = string([]byte{v[11], v[12], v[14], v[15]}) + "00"
+		return day, hm, true, true
+	}
+	return day, "", false, true
+}
+
+// icsDateRange formats a stored date value as a DTSTART/DTEND pair. Timed
+// values get a one-hour duration; all-day values end the next day. The
+// boolean reports whether the value held a date at all.
+func icsDateRange(v string) (start, end string, ok bool) {
+	day, hm, timed, ok := icsDay(v)
+	if !ok {
+		return "", "", false
+	}
+	if !timed {
+		t, err := time.Parse("20060102", day)
+		if err != nil {
+			return "", "", false
+		}
+		return "DTSTART;VALUE=DATE:" + day,
+			"DTEND;VALUE=DATE:" + t.Add(24*time.Hour).Format("20060102"),
+			true
+	}
+	t, err := time.Parse("20060102T150405", day+"T"+hm)
+	if err != nil {
+		return "", "", false
+	}
+	return "DTSTART:" + day + "T" + hm,
+		"DTEND:" + t.Add(time.Hour).Format("20060102T150405"),
+		true
+}
+
+// icsDate formats a stored date value as an all-day (VALUE=DATE) or timed field.
+// Kept for callers that only need the start; new code prefers icsDateRange.
+func icsDate(prop, v string) string {
+	start, _, ok := icsDateRange(v)
+	if !ok {
+		return ""
+	}
+	if strings.HasPrefix(start, "DTSTART;") {
+		return prop + ";VALUE=DATE:" + strings.TrimPrefix(start, "DTSTART;VALUE=DATE:")
+	}
+	return prop + ":" + strings.TrimPrefix(start, "DTSTART:")
+}
+
+// icsPastDaysOf returns the subscriber's history window in days (0 means
+// everything). Unknown stored values fall back to the default rather than
+// widening or emptying the feed by accident.
+func (s *Server) icsPastDaysOf(userID string) int {
+	var days int
+	if _, err := fmt.Sscanf(s.setting("ics_past_days_"+userID, ""), "%d", &days); err != nil {
+		return icsDefaultPastDays
+	}
+	for _, allowed := range icsPastDaysOptions {
+		if days == allowed {
+			return days
+		}
+	}
+	return icsDefaultPastDays
+}
+
+// icsCutoffDay is the oldest YYYYMMDD day a feed still carries ("" keeps
+// everything).
+func icsCutoffDay(pastDays int) string {
+	if pastDays <= 0 {
+		return ""
+	}
+	return time.Now().Add(-time.Duration(pastDays) * 24 * time.Hour).Format("20060102")
 }
 
 // icsViewRef is the identity of one saved view for the scope list.
@@ -281,31 +661,21 @@ func icsViewFilters(raw []any) []rowFilter {
 	return out
 }
 
-func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimSuffix(r.PathValue("token"), ".ics")
-	// Reverse-lookup the owning user (small instance; linear scan of the few
-	// ics_token_* settings rows).
-	var userID string
-	rows, err := s.db.Query(`SELECT key FROM app_settings WHERE key LIKE 'ics_token_%' AND value = ?`, token)
-	if err == nil {
-		if rows.Next() {
-			var key string
-			rows.Scan(&key)
-			userID = strings.TrimPrefix(key, "ics_token_")
-		}
-		rows.Close()
-	}
-	if userID == "" {
-		httpError(w, 404, "not found")
-		return
-	}
+// icsEvent is one rendered calendar entry: DTSTART/DTEND pair, a stable UID,
+// and a pageID pointing back at the row in salt.md.
+type icsEvent struct {
+	uid, title, desc, pageID string
+	start, end               string
+	day                      string // YYYYMMDD, for the archive cutoff and previews
+}
 
+// icsEventsFor gathers the events one feed scope carries: the collections in
+// scope the subscriber may read, each row's date values from icsPastDays ago
+// onward (everything upcoming is always included), at most icsMaxEvents. A
+// view scope follows the view's filters and date property; an unknown view
+// or an unreadable scope yields no events rather than an error.
+func (s *Server) icsEventsFor(userID, scopeWS, scopeCol, scopeView string) ([]icsEvent, string) {
 	ws := s.visibleWorkspaces(userID)
-	// Scope. A workspace the subscriber is not a member of simply drops out of
-	// `ws` below, so a guessed id cannot widen the feed.
-	scopeWS := r.URL.Query().Get("workspace")
-	scopeCol := r.URL.Query().Get("collection")
-	scopeView := r.URL.Query().Get("view")
 	if scopeWS != "" {
 		only := ws[:0]
 		for _, w := range ws {
@@ -316,10 +686,6 @@ func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
 		ws = only
 	}
 
-	// A view scope resolves to one saved view: its name (for the calendar
-	// name and the event description), its single date property when it still
-	// names a date-typed one, and its filters. An unknown view yields an empty
-	// calendar rather than an error, same as an unreadable collection.
 	viewScoped := scopeCol != "" && scopeView != ""
 	var viewName, viewDateProp string
 	var viewFilters []rowFilter
@@ -328,12 +694,8 @@ func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
 		viewName, viewDateProp, _, viewFilters, viewFound = s.icsViewDetail(scopeCol, scopeView)
 	}
 
-	var b strings.Builder
 	name := "salt.md"
 	if scopeCol != "" {
-		// The calendar's NAME is what the subscriber sees in their app, so it
-		// says which collection or workspace this feed is — three feeds called
-		// "salt.md" would be indistinguishable there.
 		var title string
 		s.db.QueryRow(`SELECT title FROM pages WHERE id = ?`, scopeCol).Scan(&title)
 		if title != "" {
@@ -349,149 +711,277 @@ func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
 			name = "salt.md · " + title
 		}
 	}
-	b.WriteString("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//salt.md//Calendar//EN\r\nCALSCALE:GREGORIAN\r\nX-WR-CALNAME:" + icsEscape(name) + "\r\n")
 
-	// The feed user for filtered (view) queries: the same permission model as
-	// the row list, so a view feed shows exactly what its view shows.
+	var out []icsEvent
+	if len(ws) == 0 {
+		return out, name
+	}
+	cutoff := icsCutoffDay(s.icsPastDaysOf(userID))
 	feedUser := s.userByID(userID)
 
-	if len(ws) > 0 {
-		wargs := make([]any, len(ws))
-		for i, v := range ws {
-			wargs[i] = v
+	wargs := make([]any, len(ws))
+	for i, v := range ws {
+		wargs[i] = v
+	}
+	q := `SELECT c.page_id, c.schema, p.title, p.workspace_id FROM collections c
+		JOIN pages p ON p.id = c.page_id
+		WHERE p.trashed_at IS NULL AND p.workspace_id IN (` + placeholders(len(ws)) + `)`
+	if scopeCol != "" {
+		q += ` AND c.page_id = ?`
+		wargs = append(wargs, scopeCol)
+	}
+	crows, err := s.db.Query(q, wargs...)
+	if err != nil {
+		return out, name
+	}
+	type coll struct{ id, schema, title, ws string }
+	var colls []coll
+	for crows.Next() {
+		var c coll
+		if crows.Scan(&c.id, &c.schema, &c.title, &c.ws) == nil {
+			colls = append(colls, c)
 		}
-		q := `SELECT c.page_id, c.schema, p.title, p.workspace_id FROM collections c
-			JOIN pages p ON p.id = c.page_id
-			WHERE p.trashed_at IS NULL AND p.workspace_id IN (` + placeholders(len(ws)) + `)`
-		if scopeCol != "" {
-			q += ` AND c.page_id = ?`
-			wargs = append(wargs, scopeCol)
+	}
+	crows.Close() // drain before per-collection row queries (single conn)
+
+	readable := colls[:0]
+	for _, c := range colls {
+		if s.canRead(userID, c.id) {
+			readable = append(readable, c)
 		}
-		// Every collection in scope + its date-typed props.
-		crows, err := s.db.Query(q, wargs...)
-		if err == nil {
-			type coll struct{ id, schema, title, ws string }
-			var colls []coll
-			for crows.Next() {
-				var c coll
-				if crows.Scan(&c.id, &c.schema, &c.title, &c.ws) == nil {
-					colls = append(colls, c)
+	}
+	colls = readable
+
+	added := 0
+	add := func(pageID, title, desc, pid string, v string) {
+		if added >= icsMaxEvents {
+			return
+		}
+		day, _, _, ok := icsDay(v)
+		if !ok || day < cutoff {
+			return
+		}
+		start, end, ok := icsDateRange(v)
+		if !ok {
+			return
+		}
+		if title == "" {
+			title = "Untitled"
+		}
+		out = append(out, icsEvent{
+			uid: pageID + "-" + pid + "@salt.md", title: title,
+			desc: desc, pageID: pageID, start: start, end: end, day: day,
+		})
+		added++
+	}
+
+	for _, c := range colls {
+		if added >= icsMaxEvents {
+			break
+		}
+		dateProps := map[string]string{} // id -> name
+		var defs []propDef
+		json.Unmarshal([]byte(c.schema), &defs)
+		for _, d := range defs {
+			if d.Type == "date" {
+				dateProps[d.ID] = d.Name
+			}
+		}
+		if len(dateProps) == 0 {
+			continue
+		}
+		desc := c.title
+		singlePID := ""
+		type row struct {
+			id, title string
+			pm        map[string]any
+		}
+		var rowsData []row
+		if viewScoped {
+			// A view the subscriber cannot resolve contributes nothing.
+			if c.id != scopeCol || !viewFound || feedUser == nil {
+				continue
+			}
+			if viewDateProp != "" {
+				if _, ok := dateProps[viewDateProp]; ok {
+					dateProps = map[string]string{viewDateProp: dateProps[viewDateProp]}
+					singlePID = viewDateProp
 				}
 			}
-			crows.Close() // drain before per-collection row queries (single conn)
-
-			// Drop collections in private or restricted subtrees the subscriber
-			// can't read — membership alone is not enough (same rule
-			// handleListPages applies).
-			readable := colls[:0]
-			for _, c := range colls {
-				if s.canRead(userID, c.id) {
-					readable = append(readable, c)
+			if viewName != "" {
+				desc = c.title + " / " + viewName
+			}
+			// The view's filters, through the same query the row list
+			// uses — what the view shows is what the feed carries.
+			// A flat filter list is one group (groups are ORed).
+			for offset := 0; ; {
+				list, total, err := s.collectionRowsQuery(feedUser, c.id, [][]rowFilter{viewFilters}, "", 500, offset)
+				if err != nil {
+					break
+				}
+				for _, item := range list {
+					id, _ := item["id"].(string)
+					title, _ := item["title"].(string)
+					pm, _ := item["props"].(map[string]any)
+					if pm == nil {
+						pm = map[string]any{}
+					}
+					rowsData = append(rowsData, row{id: id, title: title, pm: pm})
+				}
+				if len(rowsData) >= total || len(list) == 0 {
+					break
+				}
+				offset += len(list)
+			}
+		} else {
+			rrows, err := s.db.Query(`SELECT id, title, props FROM pages WHERE parent_id = ? AND trashed_at IS NULL LIMIT 5000`, c.id)
+			if err != nil {
+				continue
+			}
+			for rrows.Next() {
+				var id, title, props string
+				if rrows.Scan(&id, &title, &props) == nil {
+					var pm map[string]any
+					json.Unmarshal([]byte(props), &pm)
+					rowsData = append(rowsData, row{id: id, title: title, pm: pm})
 				}
 			}
-			colls = readable
-
-			stamp := time.Now().UTC().Format("20060102T150405Z")
-			for _, c := range colls {
-				dateProps := map[string]string{} // id -> name
-				var defs []propDef
-				json.Unmarshal([]byte(c.schema), &defs)
-				for _, d := range defs {
-					if d.Type == "date" {
-						dateProps[d.ID] = d.Name
+			rrows.Close()
+		}
+		if singlePID != "" {
+			for _, rw := range rowsData {
+				if v, _ := rw.pm[singlePID].(string); v != "" {
+					add(rw.id, rw.title, desc, singlePID, v)
+				}
+			}
+			continue
+		}
+		for _, rw := range rowsData {
+			// Only rows with several filled date properties keep a
+			// "(Property)" suffix — otherwise every summary is just
+			// the row title.
+			filled := 0
+			for pid := range dateProps {
+				if v, _ := rw.pm[pid].(string); v != "" {
+					if _, _, _, ok := icsDay(v); ok {
+						filled++
 					}
 				}
-				if len(dateProps) == 0 {
+			}
+			for pid, pname := range dateProps {
+				v, _ := rw.pm[pid].(string)
+				if v == "" {
 					continue
 				}
-				desc := c.title
-				single := false // one date property: no "(Due)" suffix needed
-				type row struct {
-					id, title string
-					pm        map[string]any
+				title := rw.title
+				if title == "" {
+					title = "Untitled"
 				}
-				var rowsData []row
-				if viewScoped {
-					// A view the subscriber cannot resolve contributes nothing.
-					if c.id != scopeCol || !viewFound || feedUser == nil {
-						continue
-					}
-					if viewDateProp != "" {
-						if _, ok := dateProps[viewDateProp]; ok {
-							dateProps = map[string]string{viewDateProp: dateProps[viewDateProp]}
-							single = true
-						}
-					}
-					if viewName != "" {
-						desc = c.title + " / " + viewName
-					}
-					// The view's filters, through the same query the row list
-					// uses — what the view shows is what the feed carries.
-					// A flat filter list is one group (groups are ORed).
-					for offset := 0; ; {
-						list, total, err := s.collectionRowsQuery(feedUser, c.id, [][]rowFilter{viewFilters}, "", 500, offset)
-						if err != nil {
-							break
-						}
-						for _, item := range list {
-							id, _ := item["id"].(string)
-							title, _ := item["title"].(string)
-							pm, _ := item["props"].(map[string]any)
-							if pm == nil {
-								pm = map[string]any{}
-							}
-							rowsData = append(rowsData, row{id: id, title: title, pm: pm})
-						}
-						if len(rowsData) >= total || len(list) == 0 {
-							break
-						}
-						offset += len(list)
-					}
-				} else {
-					rrows, err := s.db.Query(`SELECT id, title, props FROM pages WHERE parent_id = ? AND trashed_at IS NULL`, c.id)
-					if err != nil {
-						continue
-					}
-					for rrows.Next() {
-						var id, title, props string
-						if rrows.Scan(&id, &title, &props) == nil {
-							var pm map[string]any
-							json.Unmarshal([]byte(props), &pm)
-							rowsData = append(rowsData, row{id: id, title: title, pm: pm})
-						}
-					}
-					rrows.Close()
+				if filled > 1 {
+					title += " (" + pname + ")"
 				}
-				for _, rw := range rowsData {
-					for pid, pname := range dateProps {
-						v, _ := rw.pm[pid].(string)
-						dt := icsDate("DTSTART", v)
-						if dt == "" {
-							continue
-						}
-						title := rw.title
-						if title == "" {
-							title = "Untitled"
-						}
-						b.WriteString("BEGIN:VEVENT\r\n")
-						b.WriteString("UID:" + rw.id + "-" + pid + "@salt.md\r\n")
-						b.WriteString("DTSTAMP:" + stamp + "\r\n")
-						b.WriteString(dt + "\r\n")
-						if single {
-							b.WriteString("SUMMARY:" + icsEscape(title) + "\r\n")
-						} else {
-							b.WriteString("SUMMARY:" + icsEscape(title) + " (" + icsEscape(pname) + ")\r\n")
-						}
-						b.WriteString("DESCRIPTION:" + icsEscape(desc) + "\r\n")
-						b.WriteString("END:VEVENT\r\n")
-					}
-				}
+				add(rw.id, title, desc, pid, v)
 			}
 		}
 	}
-	b.WriteString("END:VCALENDAR\r\n")
+	return out, name
+}
+
+// icsPreview summarizes a scope for the subscription dialog: how many events
+// it currently holds and the nearest upcoming one (title and YYYY-MM-DD).
+func icsPreview(events []icsEvent) (count int, nextTitle, nextDay string) {
+	if len(events) == 0 {
+		return 0, "", ""
+	}
+	today := time.Now().Format("20060102")
+	best := ""
+	for _, e := range events {
+		if e.day >= today && (best == "" || e.day < best) {
+			best = e.day
+			nextDay = e.day
+			nextTitle = e.title
+		}
+	}
+	if best == "" {
+		for _, e := range events {
+			if e.day > best {
+				best = e.day
+				nextDay = e.day
+				nextTitle = e.title
+			}
+		}
+	}
+	return len(events), nextTitle, nextDay
+}
+
+func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSuffix(r.PathValue("token"), ".ics")
+	// A named subscription first: its token fixes the scope, so query
+	// parameters cannot widen it — holding one link never grants more than
+	// that link was made for.
+	var userID, feedKind, feedRef, feedView string
+	var f icsFeed
+	if err := s.db.QueryRow(`SELECT user_id, kind, ref_id, view_id FROM ics_feeds WHERE token = ?`, token).
+		Scan(&userID, &feedKind, &feedRef, &feedView); err == nil {
+		f = icsFeed{kind: feedKind, refID: feedRef, viewID: feedView}
+	} else {
+		// Reverse-lookup the owning user (small instance; linear scan of the
+		// few ics_token_* settings rows).
+		rows, err := s.db.Query(`SELECT key FROM app_settings WHERE key LIKE 'ics_token_%' AND value = ?`, token)
+		if err == nil {
+			if rows.Next() {
+				var key string
+				rows.Scan(&key)
+				userID = strings.TrimPrefix(key, "ics_token_")
+			}
+			rows.Close()
+		}
+	}
+	if userID == "" {
+		httpError(w, 404, "not found")
+		return
+	}
+
+	scopeWS := r.URL.Query().Get("workspace")
+	scopeCol := r.URL.Query().Get("collection")
+	scopeView := r.URL.Query().Get("view")
+	if f.kind != "" {
+		// Named links are fixed-scope: the URL carries no query, and any
+		// query a holder appends is ignored rather than honoured.
+		scopeWS, scopeCol, scopeView = wsOf(f.kind, f.refID), colOf(f.kind, f.refID), viewOf(f.kind, f.viewID)
+	}
+
+	events, name := s.icsEventsFor(userID, scopeWS, scopeCol, scopeView)
+	base := s.publicShareBase(r)
+
+	var b strings.Builder
+	icsWrite(&b, "BEGIN:VCALENDAR")
+	icsWrite(&b, "VERSION:2.0")
+	icsWrite(&b, "PRODID:-//salt.md//Calendar//EN")
+	icsWrite(&b, "CALSCALE:GREGORIAN")
+	icsWrite(&b, "METHOD:PUBLISH")
+	icsWrite(&b, "X-WR-CALNAME:"+icsEscape(name))
+	icsWrite(&b, "X-PUBLISHED-TTL:"+icsRefreshInterval)
+	icsWrite(&b, "REFRESH-INTERVAL;VALUE=DURATION:"+icsRefreshInterval)
+
+	stamp := time.Now().UTC().Format("20060102T150405Z")
+	for _, e := range events {
+		icsWrite(&b, "BEGIN:VEVENT")
+		icsWrite(&b, "UID:"+e.uid)
+		icsWrite(&b, "DTSTAMP:"+stamp)
+		icsWrite(&b, e.start)
+		icsWrite(&b, e.end)
+		icsWrite(&b, "SUMMARY:"+icsEscape(e.title))
+		icsWrite(&b, "DESCRIPTION:"+icsEscape(e.desc))
+		if base != "" {
+			icsWrite(&b, "URL:"+base+"/p/"+e.pageID)
+		}
+		icsWrite(&b, "END:VEVENT")
+	}
+	icsWrite(&b, "END:VCALENDAR")
 
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 	w.Header().Set("Content-Disposition", `inline; filename="salt.ics"`)
+	w.Header().Set("Cache-Control", "private, max-age=1800")
 	fmt.Fprint(w, b.String())
 }

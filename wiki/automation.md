@@ -129,12 +129,18 @@ Every date property, on every row, in every collection you can read, as an
 iCalendar feed your calendar app subscribes to. Open it from the user menu:
 **Subscribe to calendar**. Every account has this; it is not an admin feature.
 
-One event is written per date value: the summary is the row's title with the
-property's name in parentheses, "Kickoff (Due)", and the description is the
-name of the collection it came from. A row with two date properties therefore
-produces two events. A plain date becomes an all-day event; a value that carries
-a time becomes a timed one, written without a time zone, so it shows at that
-clock time wherever the calendar is read. Events have a start and no end.
+One event is written per date value: the summary is the row's title, and the
+description is the name of the collection it came from. A row with two filled
+date properties produces two events, told apart by the property's name in
+parentheses, "Kickoff (Due)" and "Kickoff (Start)"; a row with a single date
+reads cleanly as just "Kickoff". A plain date becomes an all-day event ending
+the next day; a value that carries a time becomes a timed event lasting one
+hour, written without a time zone, so it shows at that clock time wherever the
+calendar is read. Every event links back to its row: opening it in the
+calendar app jumps straight to the page in salt.md. Only recent history
+travels with the feed — everything upcoming plus a window into the past you
+choose yourself (30, 90 or 365 days, or the whole history), 90 days to begin
+with — so years of done rows do not clog the calendar on a phone.
 
 The dialog offers a **scope** under *What should the calendar contain?*:
 
@@ -147,21 +153,34 @@ The dialog offers a **scope** under *What should the calendar contain?*:
 
 Only collections that actually have a date property are listed, with each of
 their saved views beneath them; otherwise the dialog would hand out a
-permanently empty feed. A view feed says which view it came from: the calendar
+permanently empty feed. Every scope shows its event count and the nearest
+upcoming event, so a scope holding nothing says so before anything is
+subscribed. A view feed says which view it came from: the calendar
 name is "salt.md · Collection · View", and the event description is
-"Collection / View". A view with its own date property writes one clean event
-per row ("Kickoff" instead of "Kickoff (Due)"). If the list is empty you will
+"Collection / View". If the list is empty you will
 see *"A collection appears here once it has a date property."* A view that is
 deleted later leaves an empty calendar rather than an error, so a stale
 subscription does not sit there flashing red.
 
-Below the scope, the field **Subscription link (webcal):** shows the feed
+Below the scope, *How far back should it reach?* sets that window. Then the
+field **Subscription link (webcal):** shows the feed
 itself, read-only; clicking it selects the whole address so you can copy it by
-hand. The buttons are **Open in calendar**, which hands a `webcal://` link to
-Apple Calendar, Google Calendar or Outlook; **Copy URL**, which copies the same
-feed as an ordinary web address for a calendar that wants one; and **Reset the
-link**, which confirms with *"New calendar link created (the old one no longer
-works)"*.
+hand. The first row connects: one **Add to calendar** button subscribes through
+the calendar of your choice — **This device** hands a `webcal://` link to the
+local calendar app, **Google Calendar** and **Outlook** open the web import of
+the plain `https://` address. The second row manages the link: **Copy URL**
+copies the same feed as an ordinary web address for a calendar that wants one;
+and **Reset the link**, which asks for confirmation and then reports *"New
+calendar link created (the old one no longer works)"*. Resetting touches only
+this main link; named subscriptions below keep working.
+
+**My subscriptions** is the list of named links: one per project or per
+person, each with its own token. Creating one takes a scope and a name —
+"For the client", "Releases on the phone" — and hands over a link that sees
+exactly that scope and nothing wider. Each entry shows its event count and can
+be copied or **revoked** on its own; revoking stops that link at once and
+touches nothing else. A link whose scope becomes unreadable simply goes empty,
+like any other stale subscription.
 
 ```
 https://salt.example.com/ics/<token>.ics
@@ -173,20 +192,25 @@ https://salt.example.com/ics/<token>.ics?collection=<id>&view=<viewId>
 Five things worth knowing before you paste that link anywhere:
 
 - **The token is the credential.** No login, like a share link. Anybody holding
-  the URL sees what you see. Do not share it.
-- **There is one token per person**, behind every scope. Narrowing the feed is a
-  view on what you may read, never a way to see more.
-- **Reset the link invalidates every feed at once**, because they all sit behind
-  that one token. The button says so on hover: *Invalidates all calendar links*.
-  Afterwards you re-subscribe in each calendar app.
+  the URL sees what that link's scope sees — the main link sees everything
+  you see, a named link sees only its own scope. Do not share a link that sees
+  more than its reader should.
+- **There is one token per person for the main link**, behind every scope.
+  Narrowing the feed is a view on what you may read, never a way to see more.
+  Named subscriptions each carry their own token instead.
+- **Reset the link invalidates the main link only**, because the named links
+  sit behind their own tokens. Each of those is revoked on its own, in
+  **My subscriptions**. Afterwards you re-subscribe the main link in each
+  calendar app.
 - **Permissions are checked on every fetch, not at subscription time.** A
   collection that is moved, made private or trashed simply stops producing
   events. A scope you can no longer read yields an **empty calendar rather than
   an error**, so a stale subscription does not sit there flashing red in
   somebody's calendar app.
-- **The feed is read-only, and how often it is refreshed is your calendar app's
-  decision**: salt.md sets no refresh interval and no expiry on it. Editing an
-  event in your calendar changes nothing in salt.md.
+- **The feed is read-only, and clients re-read it about every half an hour**:
+  salt.md advertises a half-hour refresh interval, so a moved deadline reaches
+  the calendar without re-subscribing. Editing an event in your calendar
+  changes nothing in salt.md.
 
 ## Content coming in
 
