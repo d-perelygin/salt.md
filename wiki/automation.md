@@ -174,7 +174,7 @@ and **Reset the link**, which asks for confirmation and then reports *"New
 calendar link created (the old one no longer works)"*. Resetting touches only
 this main link; named subscriptions below keep working.
 
-**My subscriptions** is the list of named links: one per project or per
+**Named links** is the list of named links: one per project or per
 person, each with its own token. Creating one takes a scope and a name —
 "For the client", "Releases on the phone" — and hands over a link that sees
 exactly that scope and nothing wider. Each entry shows its event count and can
@@ -200,7 +200,7 @@ Five things worth knowing before you paste that link anywhere:
   Named subscriptions each carry their own token instead.
 - **Reset the link invalidates the main link only**, because the named links
   sit behind their own tokens. Each of those is revoked on its own, in
-  **My subscriptions**. Afterwards you re-subscribe the main link in each
+  **Named links**. Afterwards you re-subscribe the main link in each
   calendar app.
 - **Permissions are checked on every fetch, not at subscription time.** A
   collection that is moved, made private or trashed simply stops producing

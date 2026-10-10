@@ -945,6 +945,9 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const providerHref =
     provider === 'google' ? googleUrl : provider === 'outlook' ? outlookUrl : (current?.links.webcal ?? info?.webcal ?? '');
   const providerNewTab = provider !== 'device';
+  // Section titles read as titles, not as hints: the dialog was one flat
+  // grey flow and nothing stood out.
+  const sectionTitle = { marginTop: 24, fontWeight: 600, fontSize: 14, color: 'var(--fg)', display: 'block' } as const;
   return (
     <Portal>
       <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -954,9 +957,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
             {t('Each filled date becomes its own calendar event — a row with two dates produces two events.')}
           </p>
           <p className="dialog-hint">
-            {t(
-              'Subscribe to every date property in your collections from Apple Calendar, Google Calendar or Outlook. The link is private — do not share it.',
-            )}
+            {t('The link above is private — do not share it. Below you can create links for sharing.')}
           </p>
           {loadErr ? (
             <div className="login-error">{loadErr}</div>
@@ -967,7 +968,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
               {/* 1. What lands in the feed. A separate subscription per
                   workspace or collection can be switched off in the calendar
                   app without touching the others. */}
-              <label className="dialog-hint" style={{ marginTop: 16 }}>{t('What should the calendar contain?')}</label>
+              <label style={sectionTitle}>{t('What should the calendar contain?')}</label>
               <select
                 className="prop-select"
                 value={pick}
@@ -1025,7 +1026,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
               )}
               {/* 2. How far back the feed reaches. Everything upcoming is
                   always included. */}
-              <label className="dialog-hint" style={{ marginTop: 16 }}>{t('How far back should it reach?')}</label>
+              <label style={sectionTitle}>{t('How far back should it reach?')}</label>
               <select
                 className="prop-select"
                 value={String(info.pastDays)}
@@ -1038,7 +1039,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                 <option value="0">{t('All history')}</option>
               </select>
               {/* 3. The link and how to take it away. */}
-              <label className="dialog-hint" style={{ marginTop: 16 }}>{t('Subscription link (webcal):')}</label>
+              <label style={sectionTitle}>{t('Subscription link (webcal):')}</label>
               <input
                 className="prop-input invite-input"
                 readOnly
@@ -1078,19 +1079,20 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
               <div className="dialog-buttons" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                 <button
                   className="btn"
+                  style={{ flex: '1 1 0' }}
                   onClick={() => void copyUrl(httpsUrl)}
                 >
                   {t('Copy URL')}
                 </button>
                 {/* Rotating replaces the main link only; named subscriptions
                     below carry their own tokens and keep working. */}
-                <button className="btn" onClick={() => void rotate()} title={t('Invalidates the main link (named subscriptions keep working)')}>
+                <button className="btn" style={{ flex: '1 1 0' }} onClick={() => void rotate()} title={t('Invalidates the main link (named subscriptions keep working)')}>
                   {t('Reset the link')}
                 </button>
               </div>
               {/* 4. Named subscriptions: one link per scope, each with its own
                   token, so sharing or revoking one touches nothing else. */}
-              <label className="dialog-hint" style={{ marginTop: 28, borderTop: '1px solid var(--border)', paddingTop: 20 }}>{t('My subscriptions')}</label>
+              <label style={{ ...sectionTitle, marginTop: 28, borderTop: '1px solid var(--border)', paddingTop: 20 }}>{t('Named links')}</label>
               <p className="dialog-hint">
                 {t('Each subscription below is a separate link with its own token: share one with somebody, revoke one, the rest keep working.')}
               </p>
