@@ -941,10 +941,14 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const httpsUrl = current?.links.url ?? info?.url ?? '';
   const googleUrl = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(httpsUrl)}`;
   const outlookUrl = `https://outlook.live.com/calendar/0/addfromweb?url=${encodeURIComponent(httpsUrl)}&name=${encodeURIComponent('salt.md')}`;
-  const [provider, setProvider] = useState('device');
+  const [provider, setProvider] = useState(() =>
+    // On Apple hardware the obvious choice is preselected — people look for
+    // the name they know instead of guessing what "this device" means.
+    /Mac|iPhone|iPad|iPod/.test(navigator.platform || '') || /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? 'apple' : 'device',
+  );
   const providerHref =
     provider === 'google' ? googleUrl : provider === 'outlook' ? outlookUrl : (current?.links.webcal ?? info?.webcal ?? '');
-  const providerNewTab = provider !== 'device';
+  const providerNewTab = provider === 'google' || provider === 'outlook';
   // Section titles read as titles, not as hints: the dialog was one flat
   // grey flow and nothing stood out.
   const sectionTitle = { marginTop: 24, fontWeight: 600, fontSize: 14, color: 'var(--fg)', display: 'block' } as const;
@@ -1064,6 +1068,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                   aria-label={t('Add to')}
                 >
                   <option value="device">{t('This device')}</option>
+                  <option value="apple">{t('Apple Calendar')}</option>
                   <option value="google">{t('Google Calendar')}</option>
                   <option value="outlook">{t('Outlook')}</option>
                 </select>

@@ -166,9 +166,10 @@ Below the scope, *How far back should it reach?* sets that window. Then the
 field **Subscription link (webcal):** shows the feed
 itself, read-only; clicking it selects the whole address so you can copy it by
 hand. The first row connects: one **Add to calendar** button subscribes through
-the calendar of your choice — **This device** hands a `webcal://` link to the
-local calendar app, **Google Calendar** and **Outlook** open the web import of
-the plain `https://` address. The second row manages the link: **Copy URL**
+the calendar of your choice — **This device** and **Apple Calendar** hand a
+`webcal://` link to the local calendar app (**Apple Calendar** is preselected
+on Apple hardware), **Google Calendar** and **Outlook**
+open the web import of the plain `https://` address. The second row manages the link: **Copy URL**
 copies the same feed as an ordinary web address for a calendar that wants one;
 and **Reset the link**, which asks for confirmation and then reports *"New
 calendar link created (the old one no longer works)"*. Resetting touches only
