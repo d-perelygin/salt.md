@@ -880,8 +880,24 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const [info, setInfo] = useState<Info | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   // Which feed the links below refer to. '' is the whole account, which is what
-  // the dialog offered before W120 and stays the default.
-  const [pick, setPick] = useState('');
+  // the dialog offered before W120 and stays the default. The last pick is
+  // remembered across openings — reopening on "Everything" every time hid
+  // the scope people actually use.
+  const [pick, setPick] = useState(() => {
+    try {
+      return localStorage.getItem('salt.calScopePick') ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const rememberPick = (v: string) => {
+    setPick(v);
+    try {
+      localStorage.setItem('salt.calScopePick', v);
+    } catch {
+      // Storage may be unavailable; the dialog still works for this opening.
+    }
+  };
   useEffect(() => {
     void api.icsInfo().then(setInfo).catch((e) => setLoadErr((e as Error).message || t('Loading failed')));
   }, []);
@@ -976,7 +992,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
               <select
                 className="prop-select"
                 value={pick}
-                onChange={(e) => setPick(e.target.value)}
+                onChange={(e) => rememberPick(e.target.value)}
                 aria-label={t('What should the calendar contain?')}
               >
                 <option value="">{current && pick === '' ? label(current) : t('Everything I can see')}</option>
