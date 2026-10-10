@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"html"
 	"net/url"
@@ -247,7 +248,16 @@ func renderBlockHTML(b *strings.Builder, blk mdBlock) {
 			// stripped when it was drawn so that CSS could decide, which means
 			// something has to say what the size IS — and on paper "as wide as
 			// the page" turns a small flowchart into a full sheet.
-			b.WriteString(`<div class="diagram"` + diagramStyle(clean) + `>` + clean + `</div>`)
+			//
+			// And as a picture, never as markup. Written into the page, the
+			// stored SVG was part of the document, so any event handler the
+			// sanitizer's list did not know (onbegin on an animation got
+			// through) ran with the session of whoever opened the print view
+			// or the shared link. An <img> runs no script at all, which is
+			// also how the editor shows a diagram.
+			code, _ := blk.Props["code"].(string)
+			b.WriteString(`<div class="diagram"` + diagramStyle(clean) + `><img alt="` + html.EscapeString(strings.TrimSpace(code)) +
+				`" src="data:image/svg+xml;base64,` + base64.StdEncoding.EncodeToString([]byte(clean)) + `"></div>`)
 			return
 		}
 		if code, _ := blk.Props["code"].(string); strings.TrimSpace(code) != "" {
@@ -399,7 +409,7 @@ body:not(.opt-ws) .cover-ws{display:none}
 .cols[data-count="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
 .cols>div>*:first-child{margin-top:0}
 .diagram{margin:1em 0}
-.diagram svg{width:100%;height:auto;display:block}
+.diagram img{width:100%;height:auto;display:block}
 .doc-comments{margin-top:2.2em;border-top:1px solid #e3e2df;padding-top:1em}
 .doc-comments h2{font-size:1.2em;margin:0 0 .6em}
 .doc-comment{margin:0 0 .8em;font-size:.95em}
