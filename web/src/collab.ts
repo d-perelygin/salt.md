@@ -36,17 +36,41 @@ export class SaltProvider {
   private lastMsg = 0;
   private connectStarted = 0;
   private watchdog: ReturnType<typeof setInterval>;
+  private pushOnFirstSync = false;
 
-  constructor(pageId: string, onSynced: (isNew: boolean) => void, onReset: () => void) {
+  constructor(
+    pageId: string,
+    onSynced: (isNew: boolean) => void,
+    onReset: () => void,
+    opts?: { initialUpdate?: Uint8Array | null; onLocalUpdate?: (update: Uint8Array) => void },
+  ) {
     this.pageId = pageId;
     this.onSynced = onSynced;
     this.onReset = onReset;
     this.doc = new Y.Doc();
     this.awareness = new Awareness(this.doc);
+    // Offline snapshot taken while disconnected: apply before connecting so the
+    // local edits survive a reload and merge with the server replay.
+    if (opts?.initialUpdate && opts.initialUpdate.length > 0) {
+      try {
+        Y.applyUpdate(this.doc, opts.initialUpdate, 'offline');
+      } catch {
+        /* a corrupt snapshot must not block the fresh server state */
+      }
+    }
+    const hasOfflineSnapshot = !!opts?.initialUpdate && opts.initialUpdate.length > 0;
+    this.pushOnFirstSync = hasOfflineSnapshot;
 
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       if (origin === 'remote') return;
       this.send(FRAME_UPDATE, update);
+      // Persist every local change (origin 'offline' included): the tab may be
+      // closed while disconnected, and the server replay is the only other copy.
+      try {
+        opts?.onLocalUpdate?.(update);
+      } catch {
+        /* persistence is best-effort */
+      }
     });
     this.awareness.on(
       'update',
@@ -117,9 +141,13 @@ export class SaltProvider {
         } else if ('synced' in msg) {
           this.synced = true;
           this.reconnectAttempt = 0; // a clean sync resets the backoff
-          if (this.everSynced) {
+          if (this.everSynced || this.pushOnFirstSync) {
             // Reconnect: push local state so offline edits reach the server.
+            // First sync with a restored offline snapshot: the same push, or
+            // edits typed while the tab was closed would never leave this
+            // browser (the server replay below already merged into this doc).
             this.send(FRAME_UPDATE, Y.encodeStateAsUpdate(this.doc));
+            this.pushOnFirstSync = false;
           }
           const first = !this.everSynced;
           this.everSynced = true;

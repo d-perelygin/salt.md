@@ -8,6 +8,9 @@ import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blockno
 import { en as coreEn } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { api } from '../api';
+import * as Y from 'yjs';
+import { getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
+import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User } from '../types';
 import { SaltProvider } from '../collab';
@@ -67,6 +70,8 @@ export interface EditorProps {
 export default function Editor(props: EditorProps) {
   const [page, setPage] = useState<Page | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [offlineCopy, setOfflineCopy] = useState(false);
+  const online = useOnline();
   const [nonce, setNonce] = useState(0);
   // The panel is a reading preference, not a property of the page: it stays
   // put while you move through the workspace, like the comment column's.
@@ -145,13 +150,26 @@ export default function Editor(props: EditorProps) {
     let alive = true;
     setPage(null);
     setError(null);
+    setOfflineCopy(false);
     api
       .getPage(props.pageId)
       .then((p) => {
-        if (alive) setPage(p);
+        if (!alive) return;
+        setPage(p);
+        void putCachedPage(p);
       })
       .catch((e: Error) => {
-        if (alive) setError(e.message);
+        // Offline with a snapshot: render the last seen copy instead of an
+        // error. Edits still merge through the CRDT layer on reconnect.
+        void getCachedPage(props.pageId).then((cached) => {
+          if (!alive) return;
+          if (cached) {
+            setPage(cached);
+            setOfflineCopy(true);
+          } else {
+            setError(e.message);
+          }
+        });
       });
     return () => {
       alive = false;
@@ -188,6 +206,11 @@ export default function Editor(props: EditorProps) {
         (arriving ? ' panel-arriving' : '')
       }
     >
+      {(offlineCopy || !online) && page ? (
+        <div className="offline-banner" role="status">
+          {t('Offline copy — changes will sync when the connection is back')}
+        </div>
+      ) : null}
       <PageHeader
         page={page}
         {...props}
@@ -1706,57 +1729,96 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
   // destroyed the committed provider for good — dev hung on a dead Y.Doc.
   // Here, setup→cleanup→setup simply produces a second provider.
   useEffect(() => {
-    const p = new SaltProvider(
-      page.id,
-      (isNew) => {
-        // Seed a brand-new CRDT doc from the page's stored content once.
-        if (isNew && Array.isArray(page.content) && page.content.length > 0) {
-          seedRef.current = page.content;
+    let cancelled = false;
+    let p: SaltProvider | null = null;
+    let saveTimer = 0;
+    let onVisibility: (() => void) | null = null;
+    // Restore the offline snapshot first so edits typed before a reload are
+    // not lost; the provider merges it with the server replay on connect.
+    void getYDoc(page.id).then((initialUpdate) => {
+      if (cancelled) return;
+      const scheduleSave = () => {
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(() => {
+          try {
+            if (p) {
+              const cur = Y.encodeStateAsUpdate(p.doc);
+              if (cur.length > 0) void putYDoc(page.id, cur);
+            }
+          } catch {
+            /* snapshot is best-effort */
+          }
+        }, 1000);
+      };
+      p = new SaltProvider(
+        page.id,
+        (isNew) => {
+          // Seed a brand-new CRDT doc from the page's stored content once.
+          if (isNew && Array.isArray(page.content) && page.content.length > 0) {
+            seedRef.current = page.content;
+          }
+          setReady(true);
+        },
+        onReset,
+        { initialUpdate, onLocalUpdate: () => scheduleSave() },
+      );
+      // Presence means "is looking at this page right now": a tab in a hidden
+      // window must not show up as a peer for hours. Doc sync stays connected;
+      // only the awareness state is withdrawn. IMPORTANT: setLocalState, not
+      // setLocalStateField — after setLocalState(null) the latter is a silent
+      // no-op (y-protocols checks state !== null), and presence would never come
+      // back after switching tabs.
+      const applyPresence = () => {
+        if (!p) return;
+        if (document.visibilityState === 'hidden') {
+          p.awareness.setLocalState(null);
+        } else {
+          p.awareness.setLocalState({
+            user: { name: user.name, color: user.color, avatar: user.avatar },
+          });
         }
-        setReady(true);
-      },
-      onReset,
-    );
-
-    // Presence means "is looking at this page right now": a tab in a hidden
-    // window must not show up as a peer for hours. Doc sync stays connected;
-    // only the awareness state is withdrawn. IMPORTANT: setLocalState, not
-    // setLocalStateField — after setLocalState(null) the latter is a silent
-    // no-op (y-protocols checks state !== null), and presence would never come
-    // back after switching tabs.
-    const applyPresence = () => {
-      if (document.visibilityState === 'hidden') {
-        p.awareness.setLocalState(null);
-      } else {
-        p.awareness.setLocalState({
-          user: { name: user.name, color: user.color, avatar: user.avatar },
+      };
+      onVisibility = applyPresence;
+      applyPresence();
+      // Awareness has long known about the others — you just never saw them.
+      // Here they are written into the presence store the header reads.
+      const pushPeers = () => {
+        if (!p) return;
+        const mine = p.awareness.clientID;
+        const out: { name: string; color: string; avatar?: string }[] = [];
+        p.awareness.getStates().forEach((state: Record<string, unknown>, id: number) => {
+          if (id === mine) return;
+          const u = state.user as { name?: string; color?: string; avatar?: string } | undefined;
+          if (u?.name) out.push({ name: u.name, color: u.color || '#888', avatar: u.avatar });
         });
-      }
-    };
-    applyPresence(); // deckt auch den nie fokussierten Hintergrund-Tab ab (startet hidden)
-
-    // Awareness has long known about the others — you just never saw them.
-    // Here they are written into the presence store the header reads.
-    const pushPeers = () => {
-      const mine = p.awareness.clientID;
-      const out: { name: string; color: string; avatar?: string }[] = [];
-      p.awareness.getStates().forEach((state: Record<string, unknown>, id: number) => {
-        if (id === mine) return;
-        const u = state.user as { name?: string; color?: string; avatar?: string } | undefined;
-        if (u?.name) out.push({ name: u.name, color: u.color || '#888', avatar: u.avatar });
-      });
-      setPeers(page.id, out);
-    };
-    p.awareness.on('change', pushPeers);
-    pushPeers();
-
-    document.addEventListener('visibilitychange', applyPresence);
-    setProvider(p);
+        setPeers(page.id, out);
+      };
+      p.awareness.on('change', pushPeers);
+      pushPeers();
+      document.addEventListener('visibilitychange', applyPresence);
+      setProvider(p);
+    });
     return () => {
-      document.removeEventListener('visibilitychange', applyPresence);
+      cancelled = true;
+      window.clearTimeout(saveTimer);
+      if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
       clearPeers(page.id);
       setReady(false); // the next provider (StrictMode) gates itself again
-      p.destroy();
+      // Flush the latest state so a tab closed right now keeps its edits.
+      try {
+        if (p) {
+          const cur = Y.encodeStateAsUpdate(p.doc);
+          if (cur.length > 0) void putYDoc(page.id, cur);
+        }
+      } catch {
+        /* best-effort */
+      }
+      try {
+        p?.destroy();
+      } catch {
+        /* best-effort */
+      }
+      setProvider(null);
     };
     // page.id is constant over the lifetime (key={currentId} remounts)
     // eslint-disable-next-line react-hooks/exhaustive-deps

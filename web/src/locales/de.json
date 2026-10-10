@@ -536,6 +536,8 @@
   "Open to every new user": "Für alle neuen Nutzer öffnen",
   "Open-source licences": "Open-Source-Lizenzen",
   "Options not saved": "Optionen nicht gespeichert",
+  "Offline copy — changes will sync when the connection is back": "Offline-Kopie — Änderungen werden synchronisiert, sobald die Verbindung zurück ist",
+  "Offline copy — filters and new rows need a connection": "Offline-Kopie — Filter und neue Zeilen brauchen eine Verbindung",
   "Or connect an agent in one step — paste this into your terminal:": "Oder in einem Schritt einen Agenten verbinden — das hier ins Terminal einfügen:",
   "Or like one you already have": "Oder wie einer, den du schon hast",
   "Or the classic way: SMTP": "Oder klassisch: SMTP",

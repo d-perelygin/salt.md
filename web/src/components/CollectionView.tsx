@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { onRefresh } from '../pwa';
+import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
+import { useOnline } from '../useOnline';
 import Portal from './Portal';
 import { useBoardDrag } from '../boardDrag';
 import { tagColorClass } from '../tags';
@@ -256,6 +258,8 @@ function applyView(rows: Row[], view: ViewDef): Row[] {
 export default function CollectionView({ collectionId, pages, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, embed }: Props) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
+  const [offlineSnapshot, setOfflineSnapshot] = useState(false);
+  const online = useOnline();
   const [viewId, setViewId] = useState<string>(embed?.viewId ?? '');
   const pickView = (id: string) => {
     setViewId(id);
@@ -284,10 +288,17 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   }, [workspaceId]);
 
   const loadConfig = useCallback(() => {
-    void api.getCollection(collectionId).then((c) => {
-      setConfig(c);
-      setViewId((v) => v || c.views[0]?.id || '');
-    });
+    void api
+      .getCollection(collectionId)
+      .then((c) => {
+        setConfig(c);
+        setOfflineSnapshot(false);
+        setViewId((v) => v || c.views[0]?.id || '');
+      })
+      .catch(() => {
+        // Offline: keep the last seen schema so the frozen rows still render
+        // with their columns. Rows fallback happens in loadRows.
+      });
   }, [collectionId]);
 
   const [total, setTotal] = useState(0);
@@ -340,27 +351,52 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const loadRows = useCallback(async () => {
     const epoch = ++epochRef.current;
     let acc: Row[] = [];
-    for (;;) {
-      const res = await api.collectionRows(collectionId, {
-        limit: PAGE,
-        offset: acc.length,
-        filterGroups: serverGroups,
-        sort: serverSort,
-      });
-      if (epoch !== epochRef.current) return; // inzwischen neu geladen
-      const mapped: Row[] = res.rows.map((r) => ({
-        id: r.id,
-        title: r.title,
-        icon: r.icon,
-        cover: r.cover || '',
-        props: r.props || {},
-        position: r.position,
-        tags: r.tags ?? [],
-      }));
-      acc = [...acc, ...mapped];
-      setTotal(res.total);
-      setRows(acc);
-      if (acc.length >= res.total || mapped.length === 0) return;
+    try {
+      for (;;) {
+        const res = await api.collectionRows(collectionId, {
+          limit: PAGE,
+          offset: acc.length,
+          filterGroups: serverGroups,
+          sort: serverSort,
+        });
+        if (epoch !== epochRef.current) return; // inzwischen neu geladen
+        const mapped: Row[] = res.rows.map((r) => ({
+          id: r.id,
+          title: r.title,
+          icon: r.icon,
+          cover: r.cover || '',
+          props: r.props || {},
+          position: r.position,
+          tags: r.tags ?? [],
+        }));
+        acc = [...acc, ...mapped];
+        setTotal(res.total);
+        setRows(acc);
+        if (acc.length >= res.total || mapped.length === 0) break;
+      }
+      if (epoch !== epochRef.current) return;
+      setOfflineSnapshot(false);
+      // Freeze this exact view (filters + sort included): offline we can only
+      // show what was seen, not run a new query.
+      const snapConfig = config;
+      if (snapConfig && acc.length > 0) {
+        void putCollectionSnapshot({
+          key: collectionKey(collectionId, fsKey),
+          config: snapConfig,
+          rows: acc,
+          total: acc.length,
+        });
+      }
+    } catch {
+      if (epoch !== epochRef.current) return;
+      // Offline with a snapshot: render the frozen view instead of an empty table.
+      const snap = await getCollectionSnapshot(collectionKey(collectionId, fsKey));
+      if (snap && epoch === epochRef.current) {
+        if (!config) setConfig(snap.config);
+        setRows(snap.rows);
+        setTotal(snap.total);
+        setOfflineSnapshot(true);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId, fsKey]);
@@ -820,6 +856,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         (embed && viewFilterGroups(view).some((g) => g.some(filterIsArmed)) ? ' is-filtered' : '')
       }
     >
+      {(offlineSnapshot || !online) && rows.length > 0 ? (
+        <div className="offline-banner" role="status">
+          {t('Offline copy — filters and new rows need a connection')}
+        </div>
+      ) : null}
       {viewSwitcher}
       {view.type === 'form' ? (
         <FormView
