@@ -104,6 +104,7 @@
   "Cancel": "Abbrechen",
   "Cancelled.": "Abgebrochen.",
   "Cannot reach the server": "Server nicht erreichbar",
+  "Change": "Änderung",
   "Change colour": "Farbe ändern",
   "Change cover": "Cover ändern",
   "Change not saved": "Änderung nicht gespeichert",
@@ -174,6 +175,8 @@
   "Could not post the comment": "Kommentar fehlgeschlagen",
   "Could not remove the member": "Mitglied konnte nicht entfernt werden",
   "Could not save as template": "Als Vorlage speichern fehlgeschlagen",
+  "Could not sync “{label}”: giving up": "„{label}“ konnte nicht synchronisiert werden: Versuche aufgebraucht",
+  "Could not sync “{label}”: {reason}": "„{label}“ konnte nicht synchronisiert werden: {reason}",
   "Cover": "Cover",
   "Create a new user": "Neuen Nutzer anlegen",
   "Create a token above (or paste one) — it is filled into the snippet automatically.": "Oben Token erstellen (oder einsetzen) — er wird automatisch in den Schnipsel übernommen.",
@@ -402,6 +405,7 @@
   "More actions": "Weitere Aktionen",
   "Most backlinks": "Meiste Backlinks",
   "Most outgoing links": "Meiste ausgehende Links",
+  "Move": "Verschieben",
   "Move block down": "Block nach unten verschieben",
   "Move block up": "Block nach oben verschieben",
   "Move left": "Nach links",
@@ -547,6 +551,7 @@
   "Override the sender address (optional, alias)": "Absender-Adresse überschreiben (optional, Alias)",
   "PNG, JPG, GIF or SVG — shown square, as an icon.": "PNG, JPG, GIF oder SVG — wird quadratisch als Icon angezeigt.",
   "Page": "Seite",
+  "Page content": "Seiteninhalt",
   "Page content not saved": "Seiteninhalt nicht gespeichert",
   "Page imported": "Seite importiert",
   "Page numbers": "Seitenzahlen",
@@ -579,6 +584,7 @@
   "Profile": "Profil",
   "Progress bar": "Fortschrittsbalken",
   "Properties": "Eigenschaften",
+  "Property": "Eigenschaft",
   "Property not saved": "Eigenschaft nicht gespeichert",
   "Proposal dismissed": "Vorschlag verworfen",
   "Proposed by {name} — {when}": "Vorgeschlagen von {name} — {when}",
@@ -728,6 +734,7 @@
   "Subscribe to calendar": "Kalender abonnieren",
   "Subscribe to every date property in your collections from Apple Calendar, Google Calendar or Outlook. The link is private — do not share it.": "Abonniere alle Datums-Eigenschaften deiner Sammlungen in Apple Kalender, Google Calendar oder Outlook. Der Link ist privat — teile ihn nicht.",
   "Subscription link (webcal):": "Abo-Link (webcal):",
+  "Sync now": "Jetzt synchronisieren",
   "Table": "Tabelle",
   "Table of contents": "Inhaltsverzeichnis",
   "Tabs": "Tabs",
@@ -736,6 +743,7 @@
   "Takes every page in it along": "Nimmt jede Seite darin mit",
   "Teach the agent how you work here": "Dem Agenten beibringen, wie hier gearbeitet wird",
   "Tell other tools when something changes": "Andere Programme benachrichtigen, wenn sich etwas ändert",
+  "Template": "Vorlage",
   "Templates": "Vorlagen",
   "Test failed": "Test fehlgeschlagen",
   "Test mail sent to {address} ✓": "Test-Mail an {address} verschickt ✓",
@@ -788,6 +796,8 @@
   "This link is not valid or has been switched off.": "Dieser Link ist ungültig oder wurde deaktiviert.",
   "This page": "Diese Seite",
   "This page could not be loaded.": "Diese Seite konnte nicht geladen werden.",
+  "This page was deleted on the server. Open the trash to get it back.": "Diese Seite wurde auf dem Server gelöscht. Öffne den Papierkorb, um sie zurückzuholen.",
+  "This page was replaced on the server. Open Version history to recover your text.": "Diese Seite wurde auf dem Server ersetzt. Öffne die Versionsgeschichte, um deinen Text wiederherzustellen.",
   "This person has {pages} here. They stay in the workspace and will only be visible to its admins afterwards.": "Diese Person hat hier {pages} liegen. Sie bleiben im Workspace und sind danach nur noch für dessen Admins sichtbar.",
   "This row is not readable from here.": "Diese Zeile ist von hier aus nicht lesbar.",
   "This sign-in method is not configured.": "Diese Anmeldeart ist nicht eingerichtet.",
@@ -801,6 +811,7 @@
   "Timeline": "Timeline",
   "Title": "Titel",
   "Title and date at the foot of every page": "Titel und Datum am Fuß jeder Seite",
+  "Title and properties": "Titel und Eigenschaften",
   "Title/icon not saved": "Titel/Icon nicht gespeichert",
   "To sign-in": "Zum Login",
   "To the comments": "Zu den Kommentaren",
@@ -853,6 +864,7 @@
   "Viewer": "Betrachter",
   "Viewer (read only)": "Betrachter (Nur lesen)",
   "Views": "Ansichten",
+  "Visibility": "Sichtbarkeit",
   "Visibility not saved": "Sichtbarkeit nicht gespeichert",
   "Visible only now — already filled into the snippet below.": "Nur jetzt sichtbar — ist unten schon eingesetzt.",
   "Web page (.html)": "Web-Seite (.html)",
@@ -868,6 +880,7 @@
   "Who is in, and in which role": "Wer dabei ist, und in welcher Rolle",
   "Who looked in as the instance owner — and why": "Wer hat sich als Instanz-Owner Einsicht verschafft — und warum",
   "Who may register?": "Wer darf sich registrieren?",
+  "Will sync when the connection is back": "Wird synchronisiert, sobald die Verbindung zurück ist",
   "With nobody in charge…": "Ohne Verantwortlichen…",
   "Workspace": "Workspace",
   "Workspace access": "Workspace-Zugriff",
@@ -1004,6 +1017,10 @@
     "one": "{n} Admin",
     "other": "{n} Admins"
   },
+  "{n} changes waiting to sync": {
+    "one": "{n} Änderung wartet auf Synchronisierung",
+    "other": "{n} Änderungen warten auf Synchronisierung"
+  },
   "{n} columns": {
     "one": "{n} Spalte",
     "other": "{n} Spalten"
@@ -1137,5 +1154,6 @@
   "This board needs a Select property to group by.": "Dieses Board braucht eine Auswahl-Eigenschaft zum Gruppieren.",
   "This page is protected by a password.": "Diese Seite ist durch ein Passwort geschützt.",
   "Views in the link": "Ansichten im Link",
-  "Wrong password.": "Falsches Passwort."
+  "Wrong password.": "Falsches Passwort.",
+  "…and {n} more": "…und {n} weitere"
 }

@@ -130,6 +130,13 @@ the tab stays open. When the connection returns, everything you wrote is pushed
 across in one go and merged with whatever the others wrote meanwhile. Neither
 side wins; both texts survive.
 
+**Creations and small edits queue.** A page or row created offline opens at once
+under a temporary id and syncs in the background once the connection is back;
+title, property, comment and note edits made offline replay in the order they
+were made. The sync button carries the count of what is still waiting, and
+opening it lists the items. Queued writes survive a reload — they live in the
+browser, not in the tab.
+
 **Reconnecting is automatic and backs off.** The first retry comes within a
 second, and each following wait is about twice the one before it, up to a ceiling
 of thirty seconds. Every delay carries a random part, so twenty open tabs do not

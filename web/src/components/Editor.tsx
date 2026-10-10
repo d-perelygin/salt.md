@@ -7,9 +7,10 @@ import {
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core';
 import { en as coreEn } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
-import { api } from '../api';
+import { api, ApiError } from '../api';
 import * as Y from 'yjs';
 import { getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
+import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User } from '../types';
@@ -244,7 +245,13 @@ export default function Editor(props: EditorProps) {
             onOpenInNewTab={props.onOpenInNewTab}
             onCreatePage={props.onCreatePage}
             onPagesChanged={props.onPagesChanged}
-            onReset={() => setNonce((n) => n + 1)}
+            onReset={() => {
+              // The server replaced the document under us (restore, agent
+              // rewrite, import): our in-flight edits lost to the replacement.
+              // The state before it survives as a revision — point there.
+              toast(t('This page was replaced on the server. Open Version history to recover your text.'));
+              setNonce((n) => n + 1);
+            }}
           />
         )}
       </PageHeader>
@@ -435,8 +442,10 @@ function RowProperties({
     setProps((p) => ({ ...p, [propId]: value }));
     try {
       await api.updatePage(pageId, { propsPatch: { [propId]: value } });
-    } catch {
-      toast(t('Property not saved'));
+    } catch (e) {
+      if (!(await savePageUpdate(pageId, { propsPatch: { [propId]: value } }, { label: t('Property') }))) {
+        toast(t('Property not saved'));
+      }
     }
   };
   const setOptions = async (propId: string, options: PropOption[]) => {
@@ -713,7 +722,13 @@ function PageHeader({
   const togglePrivate = () => {
     const next = visibility === 'private' ? 'workspace' : 'private';
     setVisibility(next);
-    api.updatePage(pageId, { visibility: next }).catch(() => toast(t('Visibility not saved')));
+    api.updatePage(pageId, { visibility: next }).catch((e) => {
+      if (isTempId(pageId) || isOfflineError(e)) {
+        void savePageUpdate(pageId, { visibility: next }, { label: t('Visibility') });
+        return;
+      }
+      toast(t('Visibility not saved'));
+    });
   };
 
   // The token itself is stored hashed server-side, so a minted URL cannot be
@@ -922,7 +937,14 @@ function PageHeader({
     saveTimer.current = window.setTimeout(() => {
       const merged = pendingMeta.current;
       pendingMeta.current = {};
-      api.updatePage(pageId, merged).catch(() => {
+      api.updatePage(pageId, merged).catch((e) => {
+        // Temp pages and dead networks both journal into the outbox (it
+        // survives reloads and remaps temp ids on flush); any other failure
+        // keeps the existing in-memory retry.
+        if (isTempId(pageId) || isOfflineError(e)) {
+          void savePageUpdate(pageId, merged as Record<string, unknown>, { label: t('Title and properties') });
+          return;
+        }
         Object.assign(pendingMeta.current, merged); // keep for a later retry
         toast(t('Title/icon not saved'));
       });
@@ -2069,6 +2091,45 @@ function BlockContent({
               ' ',
             ]);
           } catch (e) {
+            // Offline: journal the page but insert no link — a link to a temp
+            // id would dangle after the flush remaps it, and there is no
+            // in-doc fixup pass. The page itself appears in the tree on sync.
+            if (isOfflineError(e)) {
+              const tempId = newTempId();
+              const now = new Date().toISOString();
+              await putCachedPage({
+                id: tempId,
+                parentId: null,
+                title: query.trim(),
+                icon: '',
+                cover: '',
+                position: Date.now(),
+                updatedAt: now,
+                trashed: false,
+                type: 'doc',
+                props: {},
+                workspaceId: '',
+                ownerId: '',
+                visibility: 'workspace',
+                isTemplate: false,
+                tags: [],
+                description: '',
+                snippet: '',
+                thumb: '',
+                content: [],
+                createdAt: now,
+              });
+              await enqueue({
+                kind: 'create-page',
+                pageId: tempId,
+                parentId: null,
+                payload: { title: query.trim(), type: 'doc', props: {} },
+                label: query.trim(),
+              });
+              onPagesChanged();
+              toast(t('Will sync when the connection is back'));
+              return;
+            }
             console.error('salt.md: failed to create page from mention', e);
           }
         },
@@ -2152,7 +2213,23 @@ function BlockContent({
           keepalive: true,
         });
       } else {
-        api.updatePage(provider.pageId, { content: doc }, { materialize: true }).catch(() => {
+        api.updatePage(provider.pageId, { content: doc }, { materialize: true }).catch((e) => {
+          // Dead network or a not-yet-synced temp page: journal the snapshot
+          // (the outbox replays it after the create). A 404 here means the
+          // page was deleted or replaced under us — say so plainly (#4).
+          if (isTempId(provider.pageId) || isOfflineError(e)) {
+            dirty.current = false;
+            void savePageUpdate(
+              provider.pageId,
+              { content: doc } as Record<string, unknown>,
+              { materialize: true, label: t('Page content') },
+            );
+            return;
+          }
+          if (e instanceof ApiError && e.status === 404) {
+            toast(t('This page was deleted on the server. Open the trash to get it back.'));
+            return;
+          }
           dirty.current = true; // retry on next change / unmount flush
           toast(t('Page content not saved'));
         });

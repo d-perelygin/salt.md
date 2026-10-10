@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { api } from '../api';
 import { onRefresh } from '../pwa';
 import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
+import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
 import { useOnline } from '../useOnline';
 import Portal from './Portal';
 import { useBoardDrag } from '../boardDrag';
@@ -453,9 +454,50 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // Deliberately does NOT onNavigate() into the new row: creating an item
     // from a collection view should keep you looking at the collection, same
     // as Notion. Opening it is the same click as any other existing row.
-    await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
+    try {
+      await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
+    } catch (e) {
+      // Offline: show a temp row at once and journal the create. The flush
+      // remaps its id (REMAP_EVENT below); prop edits meanwhile journal
+      // against the temp id and remap with it.
+      if (!isOfflineError(e)) throw e;
+      const tempId = newTempId();
+      setRows((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          title: t('Untitled'),
+          icon: '',
+          cover: '',
+          props: presetProps ?? {},
+          position: Date.now(),
+          tags: [],
+        },
+      ]);
+      setTotal((n) => n + 1);
+      await enqueue({
+        kind: 'create-page',
+        pageId: tempId,
+        parentId: collectionId,
+        payload: { title: 'Untitled', type: 'doc', props: presetProps ?? {} },
+        label: t('Untitled'),
+      });
+      toast(t('Will sync when the connection is back'));
+      return;
+    }
     onPagesChanged();
   };
+
+  // A queued create resolving: swap the temp row id for the real one so the
+  // card stops looking pending and its links work.
+  useEffect(() => {
+    const onRemap = (e: Event) => {
+      const { tempId, realId } = (e as CustomEvent<{ tempId: string; realId: string }>).detail;
+      setRows((prev) => prev.map((r) => (r.id === tempId ? { ...r, id: realId } : r)));
+    };
+    window.addEventListener(REMAP_EVENT, onRemap);
+    return () => window.removeEventListener(REMAP_EVENT, onRemap);
+  }, []);
 
   // Persist an inline change to a select/multiselect property's options (create,
   // recolour, delete) — the cell editor edits the schema, not just the value.
@@ -475,8 +517,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // different properties of the same row don't overwrite each other.
     try {
       await api.updatePage(rowId, { propsPatch: { [propId]: value } });
-    } catch {
-      toast(t('Change not saved'));
+    } catch (e) {
+      // Temp rows and dead networks journal into the outbox (remapped on
+      // flush); anything else is a real failure worth a toast.
+      if (isTempId(rowId) || isOfflineError(e)) {
+        await savePageUpdate(rowId, { propsPatch: { [propId]: value } }, { label: t('Change') });
+      } else {
+        toast(t('Change not saved'));
+      }
     }
   };
 

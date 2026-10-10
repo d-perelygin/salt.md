@@ -30,6 +30,20 @@ interface CachedPage {
   savedAt: number;
 }
 
+export interface OutboxOp {
+  key: string;
+  kind: 'create-page' | 'update-page' | 'comment' | 'note';
+  /** Target page; may be a temp id (see newTempId in outbox.ts). */
+  pageId: string;
+  /** create-page only: parent, possibly a temp id too. */
+  parentId?: string | null;
+  payload: Record<string, unknown>;
+  /** Human-readable snapshot for the pending list. */
+  label: string;
+  createdAt: number;
+  attempts: number;
+}
+
 interface CachedYDoc {
   id: string;
   update: ArrayBuffer;
@@ -37,7 +51,7 @@ interface CachedYDoc {
 }
 
 const DB_NAME = 'salt-offline-v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const MAX_PAGES = 100;
 const MAX_COLLECTIONS = 50;
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -57,6 +71,7 @@ function idb(): Promise<IDBDatabase | null> {
           db.createObjectStore('collections', { keyPath: 'key' });
         }
         if (!db.objectStoreNames.contains('ydocs')) db.createObjectStore('ydocs', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'key' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -193,5 +208,40 @@ export async function dropYDoc(pageId: string): Promise<void> {
     await tx('ydocs', 'readwrite', (s) => s.delete(pageId));
   } catch {
     /* best-effort */
+  }
+}
+
+export async function dropPage(id: string): Promise<void> {
+  try {
+    await tx('pages', 'readwrite', (s) => s.delete(id));
+  } catch {
+    /* best-effort */
+  }
+}
+
+export async function putOp(op: OutboxOp): Promise<void> {
+  try {
+    await tx('outbox', 'readwrite', (s) => s.put(op));
+  } catch {
+    /* the write already happened optimistically on screen; losing the queue
+       entry only means it will not replay — surface nothing here, the caller
+       toasts */
+  }
+}
+
+export async function deleteOp(key: string): Promise<void> {
+  try {
+    await tx('outbox', 'readwrite', (s) => s.delete(key));
+  } catch {
+    /* best-effort */
+  }
+}
+
+export async function listOps(): Promise<OutboxOp[]> {
+  try {
+    const ops = await tx<OutboxOp[]>('outbox', 'readonly', (s) => s.getAll());
+    return (ops ?? []).sort((a, b) => a.createdAt - b.createdAt);
+  } catch {
+    return [];
   }
 }
