@@ -85,32 +85,55 @@ func icsFeedLinks(r *http.Request, s *Server, tok, query string) (url, webcal st
 		"webcal://" + host + "/ics/" + tok + ".ics" + query
 }
 
-// handleICSPrefs stores the caller's history window for calendar feeds.
+// handleICSPrefs stores the caller's calendar preferences: history window
+// and the dialog's last scope pick (so it survives across devices).
 func (s *Server) handleICSPrefs(w http.ResponseWriter, r *http.Request) {
 	uid := requestUser(r).ID
 	var body struct {
-		PastDays *int `json:"pastDays"`
+		PastDays *int    `json:"pastDays"`
+		Scope    *string `json:"scope"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		return
 	}
-	if body.PastDays == nil {
-		httpError(w, 400, "pastDays is required")
-		return
+	out := map[string]any{}
+	if body.PastDays != nil {
+		ok := false
+		for _, allowed := range icsPastDaysOptions {
+			if *body.PastDays == allowed {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			httpError(w, 400, "unknown history window")
+			return
+		}
+		s.setSetting("ics_past_days_"+uid, strconv.Itoa(*body.PastDays))
+		out["pastDays"] = *body.PastDays
 	}
-	ok := false
-	for _, allowed := range icsPastDaysOptions {
-		if *body.PastDays == allowed {
-			ok = true
-			break
+	if body.Scope != nil {
+		// Stored raw and validated on read against the live scope list: a
+		// deleted collection simply stops matching and the dialog falls
+		// back to Everything.
+		kind := *body.Scope
+		if i := strings.Index(kind, ":"); i >= 0 {
+			kind = kind[:i]
+		}
+		switch kind {
+		case "", "all", "workspace", "collection", "view":
+			s.setSetting("ics_scope_"+uid, *body.Scope)
+			out["scope"] = *body.Scope
+		default:
+			httpError(w, 400, "unknown scope")
+			return
 		}
 	}
-	if !ok {
-		httpError(w, 400, "unknown history window")
+	if len(out) == 0 {
+		httpError(w, 400, "nothing to store")
 		return
 	}
-	s.setSetting("ics_past_days_"+uid, strconv.Itoa(*body.PastDays))
-	writeJSON(w, map[string]any{"pastDays": *body.PastDays})
+	writeJSON(w, out)
 }
 
 // icsFeed is one named subscription row.
@@ -415,8 +438,10 @@ func (s *Server) handleICSInfo(w http.ResponseWriter, r *http.Request) {
 		"webcal": "webcal://" + host + "/ics/" + tok + ".ics",
 		"scopes": scopes,
 		"feeds":  feeds,
-		// The subscriber's history window in days (0 keeps everything).
+		// The subscriber's history window in days (0 keeps everything), and
+		// the dialog's last scope pick ("" falls back to Everything).
 		"pastDays": s.icsPastDaysOf(uid),
+		"scope":    s.setting("ics_scope_"+uid, ""),
 	})
 }
 

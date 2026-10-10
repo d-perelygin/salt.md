@@ -280,6 +280,31 @@ func TestICSFeedHistoryWindowPref(t *testing.T) {
 	}
 }
 
+// The dialog's scope pick is a personal preference: stored, returned with
+// the info, and rejected when malformed.
+func TestICSFeedScopePref(t *testing.T) {
+	s, uid, col, _ := icsViewFixture(t)
+	want := "collection:" + col + ":"
+	if rec := icsAPI(t, s, uid, "POST", "/api/ics/prefs", `{"scope":"`+want+`"}`); rec.Code != 200 {
+		t.Fatalf("POST prefs scope: status %d: %s", rec.Code, rec.Body.String())
+	}
+	info := icsAPI(t, s, uid, "GET", "/api/ics", "")
+	var parsed struct {
+		Scope string `json:"scope"`
+	}
+	if err := json.Unmarshal(info.Body.Bytes(), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Scope != want {
+		t.Errorf("info scope = %q, want %q", parsed.Scope, want)
+	}
+	for _, body := range []string{`{"scope":"nope:x:"}`, `{}`} {
+		if rec := icsAPI(t, s, uid, "POST", "/api/ics/prefs", body); rec.Code != 400 {
+			t.Errorf("POST %s: status %d, want 400", body, rec.Code)
+		}
+	}
+}
+
 // Rows with several filled date properties keep a "(Property)" suffix so
 // the two events stay distinguishable; single-date rows stay clean.
 func TestICSFeedSuffixOnlyForSeveralDates(t *testing.T) {

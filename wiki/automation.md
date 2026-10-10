@@ -153,7 +153,9 @@ The dialog offers a **scope** under *What should the calendar contain?*:
 
 Only collections that actually have a date property are listed, with each of
 their saved views beneath them; otherwise the dialog would hand out a
-permanently empty feed. Every scope shows its event count and the nearest
+permanently empty feed. The dialog remembers your last scope on the server,
+so it reopens where you left it on any device; a scope that is gone falls
+back to Everything. Every scope shows its event count and the nearest
 upcoming event, so a scope holding nothing says so before anything is
 subscribed. A view feed says which view it came from: the calendar
 name is "salt.md · Collection · View", and the event description is

@@ -237,12 +237,14 @@ export const api = {
         nextDay?: string;
       }[];
       pastDays: number;
+      scope: string;
     }>(`/api/ics${rotate ? '?rotate=1' : ''}`),
-  // Personal history window for calendar feeds, in days (0 keeps everything).
-  icsPrefs: (pastDays: number) =>
-    req<{ pastDays: number }>('/api/ics/prefs', {
+  // Personal calendar preferences: history window in days (0 keeps
+  // everything) and the dialog's last scope pick. Each is optional.
+  icsPrefs: (p: { pastDays?: number; scope?: string }) =>
+    req<{ pastDays?: number; scope?: string }>('/api/ics/prefs', {
       method: 'POST',
-      body: JSON.stringify({ pastDays }),
+      body: JSON.stringify(p),
     }),
   // Named calendar subscriptions: each is a link with its own token, so one
   // can be shared or revoked without touching the others.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import Portal from './Portal';
 import { useExclusiveModal } from '../modal';
@@ -881,23 +881,10 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const [loadErr, setLoadErr] = useState<string | null>(null);
   // Which feed the links below refer to. '' is the whole account, which is what
   // the dialog offered before W120 and stays the default. The last pick is
-  // remembered across openings — reopening on "Everything" every time hid
-  // the scope people actually use.
-  const [pick, setPick] = useState(() => {
-    try {
-      return localStorage.getItem('salt.calScopePick') ?? '';
-    } catch {
-      return '';
-    }
-  });
-  const rememberPick = (v: string) => {
-    setPick(v);
-    try {
-      localStorage.setItem('salt.calScopePick', v);
-    } catch {
-      // Storage may be unavailable; the dialog still works for this opening.
-    }
-  };
+  // remembered server-side, so it follows the user across devices; a stored
+  // pick that no longer matches anything falls back to Everything.
+  const [pick, setPick] = useState('');
+  const touchedScope = useRef(false);
   useEffect(() => {
     void api.icsInfo().then(setInfo).catch((e) => setLoadErr((e as Error).message || t('Loading failed')));
   }, []);
@@ -918,7 +905,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
     setInfo(await api.icsInfo());
   };
   const setWindow = async (days: number) => {
-    await api.icsPrefs(days);
+    await api.icsPrefs({ pastDays: days });
     await reload();
   };
   const [newPick, setNewPick] = useState('');
@@ -947,6 +934,20 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const scopes = info?.scopes ?? [];
   const key = (s: { kind: string; id: string; viewId?: string }) => s.kind + ':' + s.id + ':' + (s.viewId ?? '');
   const current = scopes.find((s) => key(s) === pick) ?? scopes[0];
+  // Once the scope list arrives, restore the stored pick (unless the user
+  // already chose something this opening).
+  useEffect(() => {
+    if (touchedScope.current || !info) return;
+    const saved = info.scope ?? '';
+    if (saved !== '' && saved !== pick && scopes.some((s) => key(s) === saved)) {
+      setPick(saved);
+    }
+  }, [info, scopes, pick]);
+  const changeScope = (v: string) => {
+    touchedScope.current = true;
+    setPick(v);
+    void api.icsPrefs({ scope: v }).catch((e) => toast((e as Error).message || t('Change not saved')));
+  };
   const label = (s: { kind: string; name: string; count: number }) =>
     s.kind === 'all' ? `${t('Everything I can see')} · ${s.count}` : `${s.name} · ${s.count}`;
   const workspaces = scopes.filter((s) => s.kind === 'workspace');
@@ -992,7 +993,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
               <select
                 className="prop-select"
                 value={pick}
-                onChange={(e) => rememberPick(e.target.value)}
+                onChange={(e) => void changeScope(e.target.value)}
                 aria-label={t('What should the calendar contain?')}
               >
                 <option value="">{current && pick === '' ? label(current) : t('Everything I can see')}</option>
