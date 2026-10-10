@@ -3180,6 +3180,34 @@ body.is-col-resizing {
   text-decoration: underline;
 }
 
+/* The pencil edits the field: the chip itself navigates now, so the picker
+   needs its own affordance. Same reveal as URL chips — hidden until hover,
+   always on where there is no hover. */
+.relation-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  padding: 2px;
+  border-radius: 4px;
+  opacity: 0;
+  flex-shrink: 0;
+  margin-left: 2px;
+  vertical-align: -1px;
+}
+.prop-multi:hover .relation-edit-btn {
+  opacity: 1;
+}
+.relation-edit-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+@media (hover: none) {
+  .relation-edit-btn {
+    opacity: 1;
+  }
+}
+
 /* On cards a relation chip folds instead of forcing the card wider than its
    column: a related row can be called anything, including a whole sentence.
    Same two-line clamp as card text chips. Tables keep nowrap with ellipsis

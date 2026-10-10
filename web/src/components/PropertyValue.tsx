@@ -741,8 +741,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
     return () => document.removeEventListener('pointerdown', onDown);
   }, [open]);
 
-  // Three cases, and the middle one is the whole point:
-  //
+  // Three cases, and the middle one is the whole point:  //
   //   in the list with a title   → the title
   //   in the list with none      → "Untitled", which is then TRUE of that row
   //   not in the list at all     → '' — we do not know, and say so
@@ -771,6 +770,12 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // through PageIcon like everywhere else. Printed raw, a Lucide or MDI icon
   // arrived as the literal text "lucide:PhoneCall" — visible in the picker on
   // every row whose icon was not an emoji.
+  // The pencil on a chip opens this field's picker — the chip itself
+  // navigates, so editing needs its own affordance, like URL chips have.
+  const openPicker = () => {
+    if (!open && targetId) void loadRelationOptions(targetId, true).then(setOptions);
+    setOpen(true);
+  };
   const chips = (
     <span className="prop-multi">
       {shown.map((id) => {
@@ -822,6 +827,17 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
               }}
             >
               {inner}
+              <button
+                type="button"
+                className="relation-edit-btn"
+                title={t('Edit relation')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openPicker();
+                }}
+              >
+                <Pencil size={12} />
+              </button>
             </span>
           );
         }
