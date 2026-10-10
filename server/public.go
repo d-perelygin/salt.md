@@ -130,7 +130,7 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sharePasswordForm(token, wrong)))
 		return
 	}
-	w.Write([]byte(s.pageHTML(p, false, s.printOptionsFor(p), &pubView{Token: token, View: publicDocView(r), AutoPrint: r.URL.Query().Get("print") == "1"})))
+	w.Write([]byte(s.pageHTML(p, false, publicPrintOptions(s.printOptionsFor(p)), &pubView{Token: token, View: publicDocView(r), AutoPrint: r.URL.Query().Get("print") == "1"})))
 	// A ?pw= address that just opened must not keep the secret in the bar,
 	// and the tab should remember it like the gates do: the server verified
 	// it to render this page, so staging it into session storage is exact —
@@ -163,4 +163,22 @@ func (s *Server) servePublicAppShell(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Robots-Tag", "noindex")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(b)
+
+}
+
+// publicPrintOptions trims the print view down to what an anonymous visitor
+// may read. The signed-in print view renders every optional part and hides the
+// unchosen ones by class, so its side panel can switch them on without asking
+// the server. A visitor has no panel, so a hidden part is only data sitting in
+// the source: every comment on the page with its author's name, and the names
+// of the workspace and the instance. The names go out only when the house style
+// actually shows them, on a cover. Comments never do: a discussion about a page
+// is not part of what was published.
+func publicPrintOptions(o printOptions) printOptions {
+	o.Comments = false
+	o.CommentL = nil
+	if !o.Cover || !o.Workspace {
+		o.WSName, o.Instance = "", ""
+	}
+	return o
 }
