@@ -156,10 +156,13 @@ outage in words. If the faces vanish and you know your colleagues are still
 sitting there, it is your connection that went, not theirs; they reappear within
 seconds of it coming back.
 
-**The one way to lose work** is to close the tab while it is disconnected. The
-edits made in that window exist only in that window until the connection returns.
-If you have been typing and are not sure the page is live, leave the tab open
-until the faces come back.
+**Closing the tab while disconnected** used to lose the edits made in that
+window. A snapshot of them is now kept in the browser and pushed across on the
+next visit, merged with whatever the others wrote meanwhile. The remaining way
+to lose work is a replacement landing in between (below): the stored document
+is discarded, and what was in flight has nowhere to land. If you have been
+typing and are not sure the page is live, leave the tab open until the faces
+come back.
 
 ## When the page is replaced under you
 

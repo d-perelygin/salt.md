@@ -572,6 +572,8 @@
   "Option name": "Название варианта",
   "Options not saved": "Параметры не сохранены",
   "Outlook": "Outlook",
+  "Offline copy — changes will sync when the connection is back": "Оффлайн-копия — изменения синхронизируются, когда соединение вернётся",
+  "Offline copy — filters and new rows need a connection": "Оффлайн-копия — для фильтров и новых строк нужно соединение",
   "Or connect an agent in one step — paste this into your terminal:": "Или подключите агента в один шаг — вставьте это в терминал:",
   "Or like one you already have": "Или похожее на уже существующее",
   "Or the classic way: SMTP": "Или классическим способом: SMTP",
