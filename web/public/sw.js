@@ -35,7 +35,18 @@ function isSnapshotRequest(pathname) {
 }
 
 self.addEventListener('install', (e) => {
-  self.skipWaiting();
+  // Precache the shell so the first offline reload already works: without
+  // this '/' only lands in the cache after a navigation the worker saw, and
+  // an SPA session may never do one (login + clicks are pushState).
+  e.waitUntil(
+    caches
+      .open(SHELL)
+      .then((c) => c.add('/'))
+      .catch(() => {
+        /* first paint must never fail over a cache */
+      })
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (e) => {

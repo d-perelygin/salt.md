@@ -21,6 +21,16 @@ import { DialogHost, confirm, promptText } from './dialog';
 import { announceModal, modalOpen } from './modal';
 import { toast } from './toast';
 import { onRefresh } from './pwa';
+import { putPage as putCachedPage } from './offlineCache';
+import {
+  REMAP_EVENT,
+  enqueue,
+  flush as flushOutbox,
+  initOutbox,
+  isOfflineError,
+  isTempId,
+  newTempId,
+} from './outbox';
 import PullToRefresh from './components/PullToRefresh';
 import Logo from './Logo';
 import ThemeSwitch, { type ThemePref } from './ThemeSwitch';
@@ -803,6 +813,32 @@ export default function App() {
     run: () => cycleTab(-1),
   });
 
+  // A create queued offline resolves its temp id here: swap the tree entry,
+  // the tabs and the active page onto the real id, then reload the tree for
+  // the server's authoritative meta (position, owner).
+  // Registered once; the outbox owns the mapping, this owns the UI state.
+  useEffect(() => {
+    const onRemap = (e: Event) => {
+      const { tempId, realId } = (e as CustomEvent<{ tempId: string; realId: string }>).detail;
+      setPages((prev) => prev?.map((p) => (p.id === tempId ? { ...p, id: realId } : p)) ?? prev);
+      setExtraPages((prev) => {
+        if (!prev.has(tempId)) return prev;
+        const next = new Map(prev);
+        const meta = next.get(tempId);
+        next.delete(tempId);
+        if (meta) next.set(realId, { ...meta, id: realId });
+        return next;
+      });
+      setOpenTabs((prev) => prev.map((id) => (id === tempId ? realId : id)));
+      if (activeRef.current === tempId) navigate(realId, true);
+      void loadPages();
+    };
+    window.addEventListener(REMAP_EVENT, onRemap);
+    initOutbox();
+    return () => window.removeEventListener(REMAP_EVENT, onRemap);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Pick a landing page when nothing is selected, and bounce away from a page
   // that was trashed. IMPORTANT: a selected id that is simply absent from the
   // tree list is still valid — database rows are children of a collection and
@@ -838,7 +874,10 @@ export default function App() {
     if (!pages) return;
     const known = new Set(pages.map((p) => p.id));
     for (const id of openTabs) {
-      if (known.has(id) || extraPages.has(id) || resolvingRef.current.has(id)) continue;
+      // Temp ids from offline creates resolve through REMAP_EVENT on flush,
+      // not through the server: asking for one now would 404 and close a tab
+      // the user is actively typing in.
+      if (known.has(id) || extraPages.has(id) || resolvingRef.current.has(id) || isTempId(id)) continue;
       resolvingRef.current.add(id);
       void api
         .getPage(id)
@@ -871,6 +910,10 @@ export default function App() {
     // the agent's sign-in vanished into the app before anyone could answer it.
     if (window.location.pathname === '/oauth/consent') return;
     if (currentId) {
+      // A temp id from an offline create resolves through REMAP_EVENT on
+      // flush — it is valid by definition, never a stale selection, so keep it
+      // instead of bouncing to the first page.
+      if (isTempId(currentId)) return;
       const cur = pages.find((p) => p.id === currentId);
       if (!cur || !cur.trashed) return; // in-tree-and-live, OR a row not in the tree → keep
       // else: the current page is trashed → fall through and pick another
@@ -892,8 +935,56 @@ export default function App() {
 
   const createPage = useCallback(
     async (parentId: string | null, type: 'doc' | 'collection' = 'doc') => {
+      // Shortcuts are global: without this an Alt+N on the sign-in screen
+      // would journal a temp page nobody can open yet.
+      if (!me?.authenticated) {
+        toast(t('Sign in to your workspace.'));
+        return;
+      }
       // Root pages land in the selected workspace; children inherit the parent's.
-      const p = await api.createPage(parentId, '', type, undefined, parentId ? undefined : currentWs);
+      let p: PageMeta;
+      try {
+        p = await api.createPage(parentId, '', type, undefined, parentId ? undefined : currentWs);
+      } catch (e) {
+        if (!isOfflineError(e)) throw e;
+        // Offline: create locally with a temp id and journal the create. The
+        // page renders from the snapshot cache at once; flush() swaps the temp
+        // id for the real one (REMAP_EVENT below) once the server answers.
+        const tempId = newTempId();
+        const now = new Date().toISOString();
+        const wsId = parentId ? (pagesByIdRef.current.get(parentId)?.workspaceId ?? currentWs) : currentWs;
+        p = {
+          id: tempId,
+          parentId,
+          title: '',
+          icon: '',
+          cover: '',
+          position: Date.now(),
+          updatedAt: now,
+          trashed: false,
+          type,
+          props: {},
+          workspaceId: wsId,
+          ownerId: '',
+          visibility: 'workspace',
+          isTemplate: false,
+          tags: [],
+          description: '',
+          snippet: '',
+          thumb: '',
+        };
+        await putCachedPage({ ...p, content: [], createdAt: now });
+        await enqueue({
+          kind: 'create-page',
+          pageId: tempId,
+          parentId,
+          payload: { title: '', type, props: {}, workspaceId: parentId ? undefined : wsId },
+          label: t('New page'),
+        });
+        toast(t('Will sync when the connection is back'));
+        // A transient blip rather than a dead network: try at once.
+        void flushOutbox();
+      }
       setPages((prev) => (prev ? [...prev, p] : [p]));
       navigate(p.id);
       // Land in the title: a new page is created to be named, and from ⌥N there
@@ -913,7 +1004,7 @@ export default function App() {
       // immediately against the wrong page's title and never waits for `p`'s.
       focusKey('content', 'title', 180, (root) => root.dataset.pageId === p.id);
     },
-    [navigate, currentWs],
+    [navigate, currentWs, me?.authenticated],
   );
   createPageRef.current = createPage;
 

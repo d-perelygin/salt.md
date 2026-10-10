@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { toast } from '../toast';
+import { isOfflineError, isTempId, savePageUpdate } from '../outbox';
 import { t } from '../i18n';
 
 type Access = 'view' | 'edit';
@@ -65,7 +66,15 @@ export default function PageShares({
       // Restricting alone hides the page from every non-admin, so the member
       // list stays open — the intermediate state must not sit unnoticed.
       if (next === 'restricted') load();
-    } catch {
+    } catch (e) {
+      // Sharing changes are account-visible; queueing them silently would be
+      // worse than refusing, but losing the intent is worst: journal it.
+      if (isTempId(pageId) || isOfflineError(e)) {
+        if (await savePageUpdate(pageId, { visibility: next }, { label: t('Visibility') })) {
+          onVisibilityChange(next);
+          return;
+        }
+      }
       toast(t('Visibility not saved'));
     }
   };
