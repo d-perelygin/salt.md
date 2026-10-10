@@ -3168,6 +3168,23 @@ body.is-col-resizing {
   white-space: nowrap;
 }
 
+/* On cards a relation chip folds instead of forcing the card wider than its
+   column: a related row can be called anything, including a whole sentence.
+   Same two-line clamp as card text chips. Tables keep nowrap with ellipsis
+   (see .db-table td .relation-chip) — there shortening is the point, and the
+   cell clips it. Clipping is scoped to the chip itself, never the card, so
+   the floating ⋯ menu still escapes. */
+.board-card .relation-chip,
+.public-collection .relation-chip {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+
 /* A row icon may be an emoji (text) or an SVG. Centring the box rather than the
    glyph keeps both sitting on the same line as the title. */
 .relation-icon {
