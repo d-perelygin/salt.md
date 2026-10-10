@@ -305,8 +305,9 @@ func safeFilename(name string) string {
 	return name
 }
 
-// collectionMarkdown renders a database page as a Markdown table of its rows.
-func (s *Server) collectionMarkdown(p *page) (string, error) {
+// collectionMarkdown renders a database page as a Markdown table of the rows
+// userID may read. "" is an anonymous visitor of a shared link.
+func (s *Server) collectionMarkdown(p *page, userID string) (string, error) {
 	var schemaJSON string
 	if err := s.db.QueryRow(`SELECT schema FROM collections WHERE page_id = ?`, p.ID).Scan(&schemaJSON); err != nil {
 		return pageMarkdown(p), nil
@@ -344,7 +345,9 @@ func (s *Server) collectionMarkdown(p *page) (string, error) {
 	}
 	b.WriteString("\n")
 
-	rows, err := s.db.Query(`SELECT title, props FROM pages WHERE parent_id = ? AND trashed_at IS NULL ORDER BY position, created_at`, p.ID)
+	rule, ruleArgs := s.privateRowRule(userID, p.ID)
+	rows, err := s.db.Query(`SELECT title, props FROM pages WHERE parent_id = ? AND trashed_at IS NULL AND `+rule+` ORDER BY position, created_at`,
+		append([]any{p.ID}, ruleArgs...)...)
 	if err != nil {
 		return "", err
 	}
@@ -429,7 +432,7 @@ func (s *Server) handleExportPage(w http.ResponseWriter, r *http.Request) {
 	}
 	md := ""
 	if p.Type == "collection" {
-		md, err = s.collectionMarkdown(p)
+		md, err = s.collectionMarkdown(p, requestUser(r).ID)
 		if err != nil {
 			httpError(w, 500, err.Error())
 			return

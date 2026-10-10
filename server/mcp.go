@@ -878,7 +878,7 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 				return "", err
 			}
 			if p.Type == "collection" {
-				md, err := s.collectionMarkdown(p)
+				md, err := s.collectionMarkdown(p, userID)
 				if err != nil {
 					return "", err
 				}

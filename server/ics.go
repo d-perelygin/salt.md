@@ -1007,7 +1007,12 @@ func (s *Server) icsEventsFor(userID, scopeWS, scopeCol, scopeView, feedDateProp
 					singlePID = feedDateProp
 				}
 			}
-			rrows, err := s.db.Query(`SELECT id, title, props FROM pages WHERE parent_id = ? AND trashed_at IS NULL LIMIT 5000`, c.id)
+			// A feed URL carries no account: private rows stay out for
+			// anonymous readers, and a named feed sees only its owner's
+			// share (see privateRowRule).
+			rule, ruleArgs := s.privateRowRule(userID, c.id)
+			rrows, err := s.db.Query(`SELECT id, title, props FROM pages WHERE parent_id = ? AND trashed_at IS NULL AND `+rule+` LIMIT 5000`,
+				append([]any{c.id}, ruleArgs...)...)
 			if err != nil {
 				continue
 			}

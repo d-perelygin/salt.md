@@ -266,9 +266,10 @@ front of it, then a pipe table.
   A relation prints the internal ids of the pages it points at, and a person
   column prints the internal id of whoever was picked from the member list:
   ids, not titles and not names.
-- **Rows marked private are included.** The private flag governs who may read
-  the page inside salt.md; it does not filter this table. Check a collection for
-  private rows before you publish it.
+- **Rows marked private are left out**, whoever they belong to, your own
+  included. A visitor without an account is nobody's colleague, so the private
+  flag hides a row from the published table just as it hides it from other
+  members.
 - Sub-pages of the rows are not included.
 
 ## Sharing more than one page
