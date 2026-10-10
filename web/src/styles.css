@@ -3188,15 +3188,25 @@ body.is-col-resizing {
   align-items: center;
   justify-content: center;
   color: var(--muted);
-  padding: 2px;
   border-radius: 4px;
-  opacity: 0;
   flex-shrink: 0;
-  margin-left: 2px;
   vertical-align: -1px;
+  /* Invisible means absent from the layout too: an opacity-only hide keeps
+     a ~18px gap after every chip, so without hover the row reads as if the
+     button is not there at all. */
+  max-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: opacity 0.12s ease, max-width 0.12s ease, padding 0.12s ease, margin 0.12s ease;
 }
 .prop-multi:hover .relation-edit-btn {
   opacity: 1;
+  max-width: 24px;
+  padding: 2px;
+  margin-left: 2px;
 }
 .relation-edit-btn:hover {
   background: var(--hover);
@@ -3205,6 +3215,9 @@ body.is-col-resizing {
 @media (hover: none) {
   .relation-edit-btn {
     opacity: 1;
+    max-width: 24px;
+    padding: 2px;
+    margin-left: 2px;
   }
 }
 
