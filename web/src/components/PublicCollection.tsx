@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Columns3, LayoutGrid, List, Lock, Table2 } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { plural, t } from '../i18n';
-import { firstWeekday, formatMonth, toDayString, weekdayNames } from '../format';
+import { firstWeekday, formatDay, formatMonth, toDayString, weekdayNames } from '../format';
 import { PageIcon } from '../pageIcon';
 import { tagColorClass } from '../tags';
 import PropertyValue from './PropertyValue';
@@ -572,12 +572,12 @@ function PublicCalendar({
               {d && <div className="calendar-daynum">{d.getDate()}</div>}
               {dayRows.map((r) =>
                 allowDetail ? (
-                  <button key={r.id} className="calendar-event" onClick={() => void onOpen(r.id)} title={r.title}>
+                  <button key={r.id} className="calendar-event" onClick={() => void onOpen(r.id)} title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
                     {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
                     {r.title || t('Untitled')}
                   </button>
                 ) : (
-                  <span key={r.id} className="calendar-event is-static" title={r.title}>
+                  <span key={r.id} className="calendar-event is-static" title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
                     {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
                     {r.title || t('Untitled')}
                   </span>
@@ -686,13 +686,19 @@ function PublicTimeline({
             {items.map(({ row, start, end }) => {
               const left = (start - min) * DAY;
               const width = Math.max(DAY - 4, (end - start + 1) * DAY - 4);
+              // Native tooltip like links have: name plus the bar's span.
+              const sv = typeof row.props[startProp] === 'string' ? (row.props[startProp] as string) : '';
+              const ev = endProp && typeof row.props[endProp] === 'string' ? (row.props[endProp] as string) : '';
+              const tip =
+                (row.title || t('Untitled')) +
+                (sv ? ' — ' + formatDay(sv) + (end !== start && ev ? ' → ' + formatDay(ev) : '') : '');
               return (
                 <div key={row.id} className="tl-row">
                   <div
                     className={'tl-label' + (allowDetail ? '' : ' is-static')}
                     style={{ width: LABELW }}
                     onClick={allowDetail ? () => void onOpen(row.id) : undefined}
-                    title={row.title}
+                    title={tip}
                   >
                     {row.icon && (
                       <span className="inline-icon">
@@ -707,7 +713,7 @@ function PublicTimeline({
                       className={'tl-bar' + (allowDetail ? '' : ' is-static')}
                       style={{ left, width }}
                       onClick={allowDetail ? () => void onOpen(row.id) : undefined}
-                      title={row.title}
+                      title={tip}
                     >
                       <span className="tl-bar-label">{row.title || t('Untitled')}</span>
                     </div>

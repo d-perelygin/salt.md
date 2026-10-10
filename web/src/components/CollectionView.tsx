@@ -2635,6 +2635,12 @@ function TimelineView({
             {items.map(({ row, start, end }) => {
               const left = (start - min) * DAY;
               const width = Math.max(DAY - 4, (end - start + 1) * DAY - 4);
+              // Native tooltip like links have: name plus the bar's span.
+              const sv = typeof row.props[startProp] === 'string' ? (row.props[startProp] as string) : '';
+              const ev = endProp && typeof row.props[endProp] === 'string' ? (row.props[endProp] as string) : '';
+              const tip =
+                (row.title || t('Untitled')) +
+                (sv ? ' — ' + formatDay(sv) + (end !== start && ev ? ' → ' + formatDay(ev) : '') : '');
               return (
                 <div key={row.id} className="tl-row">
                   <div
@@ -2642,7 +2648,7 @@ function TimelineView({
                     style={{ width: LABELW }}
                     onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
                     onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                    title={row.title}
+                    title={tip}
                   >
                     {row.icon && (
                       <span className="inline-icon">
@@ -2658,7 +2664,7 @@ function TimelineView({
                       style={{ left, width }}
                       onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
                       onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                      title={row.title}
+                      title={tip}
                     >
                       <span className="tl-bar-label">{row.title || 'Untitled'}</span>
                     </div>
@@ -2749,7 +2755,7 @@ function CalendarView({
                   className="calendar-event"
                   onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
                   onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
-                  title={r.title}
+                  title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
                 >
                   {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
                   {r.title || 'Untitled'}
