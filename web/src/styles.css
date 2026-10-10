@@ -3168,6 +3168,18 @@ body.is-col-resizing {
   white-space: nowrap;
 }
 
+/* A chip whose row opens in a new tab on click. Read-only spots render it as
+   a button; inside the editor's picker toggle it stays a span (a button in
+   a button is invalid HTML) — the pointer and hover are what make both read
+   as links. Unknown rows never get here: there is nothing to open. */
+.relation-chip.relation-link {
+  cursor: pointer;
+}
+.relation-chip.relation-link:hover {
+  filter: brightness(0.94);
+  text-decoration: underline;
+}
+
 /* On cards a relation chip folds instead of forcing the card wider than its
    column: a related row can be called anything, including a whole sentence.
    Same two-line clamp as card text chips. Tables keep nowrap with ellipsis

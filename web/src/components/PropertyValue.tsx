@@ -23,6 +23,10 @@ interface Props {
    *  table is not for. The rest is summarised as "+N" and stays one click
    *  away. Same reasoning as the one-line truncation of long text cells. */
   maxChips?: number;
+  /** Open a related row when its chip is clicked — always in a new tab, never
+   *  in place. Absent, chips stay static text (unknown rows always do: there
+   *  is nothing readable to open). */
+  onOpen?: (id: string) => void;
 }
 
 // idList reads a list-shaped value (relation, multiselect). A single id stored
@@ -702,7 +706,7 @@ export function loadRelationOptions(colId: string, force = false): Promise<RelOp
   return relCache.get(colId)!;
 }
 
-function RelationValue({ def, value, onChange, readOnly, compact, maxChips }: Props) {
+function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen }: Props) {
   const targetId = def.relationCollection;
   const ids = idList(value);
   const [options, setOptions] = useState<RelOption[]>([]);
@@ -769,23 +773,64 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips }: Pr
   // every row whose icon was not an emoji.
   const chips = (
     <span className="prop-multi">
-      {shown.map((id) => (
-        <span
-          key={id}
-          className={
-            'prop-chip relation-chip' + (titleOf(id) ? '' : loaded ? ' is-unknown' : ' is-pending')
+      {shown.map((id) => {
+        const title = titleOf(id);
+        const inner = (
+          <>
+            {iconOf(id) && (
+              <span className="relation-icon">
+                <PageIcon icon={iconOf(id)} size={14} />
+              </span>
+            )}
+            {title}
+          </>
+        );
+        const cls =
+          'prop-chip relation-chip' + (title ? '' : loaded ? ' is-unknown' : ' is-pending');
+        const tip = title || (loaded ? t('This row is not readable from here.') : undefined);
+        // A readable row opens in a new tab; an unknown one stays plain text.
+        // In the editor below the same chip is a span, not a button: it sits
+        // inside the picker toggle, and a button in a button is invalid HTML.
+        const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
+        if (onOpen && title) {
+          if (ro) {
+            return (
+              <button
+                key={id}
+                type="button"
+                className={cls + ' relation-link'}
+                title={title}
+                style={chipStyle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpen(id);
+                }}
+              >
+                {inner}
+              </button>
+            );
           }
-          title={titleOf(id) || (loaded ? t('This row is not readable from here.') : undefined)}
-          style={{ background: '#3b6fb52e', color: '#3b6fb5' }}
-        >
-          {iconOf(id) && (
-            <span className="relation-icon">
-              <PageIcon icon={iconOf(id)} size={14} />
+          return (
+            <span
+              key={id}
+              className={cls + ' relation-link'}
+              title={title}
+              style={chipStyle}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen(id);
+              }}
+            >
+              {inner}
             </span>
-          )}
-          {titleOf(id)}
-        </span>
-      ))}
+          );
+        }
+        return (
+          <span key={id} className={cls} title={tip} style={chipStyle}>
+            {inner}
+          </span>
+        );
+      })}
       {hidden > 0 && (
         <span className="prop-chip relation-more" title={ids.map(titleOf).filter(Boolean).join(', ')}>
           {t('+{n} more', { n: hidden })}
@@ -858,6 +903,7 @@ export default function PropertyValue({
   readOnly,
   compact,
   maxChips,
+  onOpen,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const ro = readOnly || !onChange;
@@ -872,6 +918,7 @@ export default function PropertyValue({
           readOnly={readOnly}
           compact={compact}
           maxChips={maxChips}
+          onOpen={onOpen}
         />
       );
     // A backrelation IS a relation to read — same ids, same titles, same
@@ -886,6 +933,7 @@ export default function PropertyValue({
           readOnly
           compact={compact}
           maxChips={maxChips}
+          onOpen={onOpen}
         />
       );
     case 'lastActivity': {

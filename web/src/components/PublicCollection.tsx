@@ -307,7 +307,7 @@ export default function PublicCollection({ token }: { token: string }) {
                 ✕
               </button>
             </div>
-            <PublicDetailProps schema={schema} values={detail.props} related={related} />
+            <PublicDetailProps schema={schema} values={detail.props} related={related} onOpen={openRow} />
             <PublicDetailContent content={detail.content} />
           </div>
         </div>
@@ -328,10 +328,12 @@ function PublicPropValue({
   def,
   value,
   related,
+  onOpen,
 }: {
   def: PropDef;
   value: unknown;
   related: Record<string, { title: string; icon: string }>;
+  onOpen?: (id: string) => void;
 }) {
   if (def.type === 'relation') {
     const ids = Array.isArray(value) ? (value as string[]) : value ? [value as string] : [];
@@ -352,7 +354,7 @@ function PublicPropValue({
       </span>
     );
   }
-  return <PropertyValue def={def} value={value} readOnly compact maxChips={2} />;
+  return <PropertyValue def={def} value={value} readOnly compact maxChips={2} onOpen={onOpen} />;
 }
 
 function PublicTable({
@@ -406,7 +408,7 @@ function PublicTable({
               </td>
               {schema.map((p) => (
                 <td key={p.id}>
-                  <PublicPropValue def={p} value={r.props[p.id]} related={related} />
+                  <PublicPropValue def={p} value={r.props[p.id]} related={related} onOpen={allowDetail ? onOpen : undefined} />
                 </td>
               ))}
             </tr>
@@ -490,7 +492,7 @@ function PublicBoard({
                   if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) return null;
                   return (
                     <div key={p.id} className="card-prop">
-                      <PublicPropValue def={p} value={v} related={related} />
+                      <PublicPropValue def={p} value={v} related={related} onOpen={allowDetail ? onOpen : undefined} />
                     </div>
                   );
                 })}
@@ -724,10 +726,12 @@ function PublicDetailProps({
   schema,
   values,
   related,
+  onOpen,
 }: {
   schema: PropDef[];
   values: Record<string, unknown>;
   related: Record<string, { title: string; icon: string }>;
+  onOpen: (id: string) => void;
 }) {
   const shown = schema.filter((p) => {
     const v = values[p.id];
@@ -739,7 +743,7 @@ function PublicDetailProps({
       {shown.map((p) => (
         <div key={p.id} className="public-detail-prop">
           <span className="public-detail-prop-name">{p.name}</span>
-          <PublicPropValue def={p} value={values[p.id]} related={related} />
+          <PublicPropValue def={p} value={values[p.id]} related={related} onOpen={onOpen} />
         </div>
       ))}
     </div>

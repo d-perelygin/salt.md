@@ -80,6 +80,7 @@ export default function ListView({
                   readOnly={readOnly}
                   onChange={readOnly ? undefined : (v) => onSetProp(r.id, p.id, v)}
                   onOptionsChange={readOnly ? undefined : (opts) => onSetOptions(p.id, opts)}
+                  onOpen={onOpenInNewTab ?? onNavigate}
                 />
               ))}
             </span>
