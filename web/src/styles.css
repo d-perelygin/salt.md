@@ -3125,6 +3125,76 @@ body.is-col-resizing {
   white-space: nowrap;
 }
 
+/* A chip whose row opens in a new tab on click. Read-only spots render it as
+   a button; inside the editor's picker toggle it stays a span (a button in
+   a button is invalid HTML) — the pointer and hover are what make both read
+   as links. Unknown rows never get here: there is nothing to open. */
+.relation-chip.relation-link {
+  cursor: pointer;
+}
+.relation-chip.relation-link:hover {
+  filter: brightness(0.94);
+  text-decoration: underline;
+}
+
+/* The pencil edits the field: the chip itself navigates now, so the picker
+   needs its own affordance. Same reveal as URL chips — hidden until hover,
+   always on where there is no hover. */
+.relation-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  border-radius: 4px;
+  flex-shrink: 0;
+  vertical-align: -1px;
+  /* Invisible means absent from the layout too: an opacity-only hide keeps
+     a ~18px gap after every chip, so without hover the row reads as if the
+     button is not there at all. */
+  max-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: opacity 0.12s ease, max-width 0.12s ease, padding 0.12s ease, margin 0.12s ease;
+}
+.prop-multi:hover .relation-edit-btn {
+  opacity: 1;
+  max-width: 24px;
+  padding: 2px;
+  margin-left: 2px;
+}
+.relation-edit-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+@media (hover: none) {
+  .relation-edit-btn {
+    opacity: 1;
+    max-width: 24px;
+    padding: 2px;
+    margin-left: 2px;
+  }
+}
+
+/* On cards a relation chip folds instead of forcing the card wider than its
+   column: a related row can be called anything, including a whole sentence.
+   Same two-line clamp as card text chips. Tables keep nowrap with ellipsis
+   (see .db-table td .relation-chip) — there shortening is the point, and the
+   cell clips it. Clipping is scoped to the chip itself, never the card, so
+   the floating ⋯ menu still escapes. */
+.board-card .relation-chip,
+.public-collection .relation-chip {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+
 /* A row icon may be an emoji (text) or an SVG. Centring the box rather than the
    glyph keeps both sitting on the same line as the title. */
 .relation-icon {

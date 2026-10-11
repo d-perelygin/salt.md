@@ -381,11 +381,13 @@ function RowProperties({
   parentId,
   initialProps,
   canEdit,
+  onOpen,
 }: {
   pageId: string;
   parentId: string;
   initialProps: Record<string, unknown>;
   canEdit: boolean;
+  onOpen?: (id: string) => void;
 }) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [props, setProps] = useState<Record<string, unknown>>(initialProps ?? {});
@@ -442,6 +444,7 @@ function RowProperties({
               onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
               onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
               readOnly={!canEdit}
+              onOpen={onOpen}
             />
           </div>
         </div>
@@ -1324,6 +1327,7 @@ function PageHeader({
             parentId={page.parentId}
             initialProps={page.props}
             canEdit={canEdit}
+            onOpen={onNavigate}
           />
         )}
       </div>
