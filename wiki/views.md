@@ -201,8 +201,15 @@ to add one.*
 ### `timeline`
 
 A horizontal day grid with a sticky title column on the left, one bar per row,
-month headings across the top and a line marking today. Clicking either the label
-or the bar opens the row.
+month headings across the top with every single day numbered underneath, and a
+line marking today. Clicking either the label or the bar opens the row.
+Hovering a bar highlights the days it spans; a bar's tooltip names the row and
+its span. The last row of the label column holds **+ New**, which adds a row
+dated at what the timeline is showing.
+
+The head carries the same Day / Week / Month / 2 months / Year switch as the
+calendar, stored on the view the same way; a public link shows what its owner
+set, without the switch and without the add button.
 
 The settings bar carries two pickers for this view:
 

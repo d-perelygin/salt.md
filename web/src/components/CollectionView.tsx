@@ -21,6 +21,7 @@ import type {
   PropOption,
   PropType,
   Sort,
+  SpanMode,
   ViewDef,
 } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
@@ -979,6 +980,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           tagColors={tagColors}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
+          mode={view.tlMode ?? 'month'}
+          onModeChange={(m) => updateView({ tlMode: m })}
+          onAddRow={(preset) => addRow(preset)}
         />
       ) : (
         <TableView
@@ -2637,6 +2641,9 @@ function TimelineView({
   endProp,
   onNavigate,
   onOpenInNewTab,
+  mode,
+  onModeChange,
+  onAddRow,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -2645,21 +2652,18 @@ function TimelineView({
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
+  mode: SpanMode;
+  onModeChange: (m: SpanMode) => void;
+  onAddRow: (presetProps?: Record<string, unknown>) => void;
 }) {
-  if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
-    return (
-      <div className="board-empty">
-        {t('This timeline needs a {type} property as its start. Open ⚙ Properties to add one.', { type: t('Date') })}
-      </div>
-    );
-  }
-
   const DAY = 26; // px per day
+  const YEARW = 140; // px per month in year mode
   const LABELW = 190; // sticky title column width
   const dayNum = (iso: string) => {
     const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
     return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
   };
+  const isoDay = (n: number) => new Date(n * 86400000).toISOString().slice(0, 10);
 
   type Item = { row: Row; start: number; end: number };
   const items: Item[] = [];
@@ -2675,6 +2679,22 @@ function TimelineView({
     items.push({ row: r, start, end });
   }
 
+  const today = dayNum(ymd(new Date()));
+  const dataMin = items.length ? Math.min(...items.map((i) => i.start)) : today;
+  const dataMax = items.length ? Math.max(...items.map((i) => i.end)) : today;
+  const [cursor, setCursor] = useState(() =>
+    today < dataMin - 3 ? dataMin : today > dataMax + 4 ? dataMax : today,
+  );
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
+    return (
+      <div className="board-empty">
+        {t('This timeline needs a {type} property as its start. Open ⚙ Properties to add one.', { type: t('Date') })}
+      </div>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <div className="board-empty">
@@ -2683,55 +2703,202 @@ function TimelineView({
     );
   }
 
-  const today = dayNum(ymd(new Date()));
-  const min = Math.min(today, ...items.map((i) => i.start)) - 3;
-  const max = Math.max(today, ...items.map((i) => i.end)) + 4;
-  const totalDays = max - min + 1;
-  const gridWidth = totalDays * DAY;
-
-  // Month header segments across the visible range.
-  const months: { label: string; left: number; width: number }[] = [];
-  let cursor = min;
-  while (cursor <= max) {
-    const d = new Date(cursor * 86400000);
-    const y = d.getUTCFullYear();
-    const mo = d.getUTCMonth();
-    const nextMonthDay = Math.floor(Date.UTC(y, mo + 1, 1) / 86400000);
-    const segEnd = Math.min(nextMonthDay - 1, max);
-    months.push({
-      label: formatMonth(y, mo, 'short'),
-      left: (cursor - min) * DAY,
-      width: (segEnd - cursor + 1) * DAY,
-    });
-    cursor = nextMonthDay;
+  // Visible window per mode. Day modes count days; year mode counts
+  // fixed-width months.
+  const yearOf = (n: number) => new Date(n * 86400000).getUTCFullYear();
+  const monthOf = (n: number) => new Date(n * 86400000).getUTCMonth();
+  let dayCols: number[] = [];
+  let monthCols: { y: number; mo: number }[] = [];
+  if (mode === 'day') {
+    dayCols = [cursor];
+  } else if (mode === 'week') {
+    const ws = cursor - ((new Date(cursor * 86400000).getUTCDay() - firstWeekday() + 7) % 7);
+    dayCols = Array.from({ length: 7 }, (_, k) => ws + k);
+  } else if (mode === 'year') {
+    const y = yearOf(cursor);
+    monthCols = Array.from({ length: 12 }, (_, mo) => ({ y, mo }));
+  } else {
+    const nMonths = mode === '2months' ? 2 : 1;
+    const m0 = { y: yearOf(cursor), mo: monthOf(cursor) };
+    const firstDay = Math.floor(Date.UTC(m0.y, m0.mo, 1) / 86400000);
+    const lastDay = Math.floor(Date.UTC(m0.y, m0.mo + nMonths, 1) / 86400000) - 1;
+    dayCols = Array.from({ length: lastDay - firstDay + 1 }, (_, k) => firstDay + k);
   }
-  const todayLeft = (today - min) * DAY;
+  const isYear = monthCols.length > 0;
+  // Grid geometry is proportional so spans narrower than a month stretch to
+  // the full width: day columns share the track equally (never narrower than
+  // 26px — below that the track scrolls), year columns split it in twelve.
+  const gridMin = isYear ? monthCols.length * YEARW : dayCols.length * DAY;
+
+  // Month header segments across the visible range, in percent of the grid.
+  const months: { label: string; left: string; width: string; from: number; to: number }[] = [];
+  if (!isYear) {
+    const min = dayCols[0];
+    const max = dayCols[dayCols.length - 1];
+    const n = dayCols.length;
+    let c = min;
+    while (c <= max) {
+      const d = new Date(c * 86400000);
+      const y = d.getUTCFullYear();
+      const mo = d.getUTCMonth();
+      const nextMonthDay = Math.floor(Date.UTC(y, mo + 1, 1) / 86400000);
+      const segEnd = Math.min(nextMonthDay - 1, max);
+      months.push({
+        label: formatMonth(y, mo, 'short'),
+        left: `${((c - min) / n) * 100}%`,
+        width: `${((segEnd - c + 1) / n) * 100}%`,
+        from: c,
+        to: segEnd,
+      });
+      c = nextMonthDay;
+    }
+  } else {
+    monthCols.forEach((m, i) => {
+      const from = Math.floor(Date.UTC(m.y, m.mo, 1) / 86400000);
+      const to = Math.floor(Date.UTC(m.y, m.mo + 1, 1) / 86400000) - 1;
+      months.push({
+        label: formatMonth(m.y, m.mo, 'short'),
+        left: `${(i / monthCols.length) * 100}%`,
+        width: `${(1 / monthCols.length) * 100}%`,
+        from,
+        to,
+      });
+    });
+  }
+  const inWindow = (n: number) =>
+    isYear ? yearOf(n) === yearOf(cursor) : n >= dayCols[0] && n <= dayCols[dayCols.length - 1];
+  const todayLeft = ((): string | null => {
+    if (!isYear) {
+      if (today < dayCols[0] || today > dayCols[dayCols.length - 1]) return null;
+      return `${((today - dayCols[0]) / dayCols.length) * 100}%`;
+    }
+    const mi = monthCols.findIndex((m) => m.y === yearOf(today) && m.mo === monthOf(today));
+    if (mi < 0) return null;
+    const mStart = Math.floor(Date.UTC(monthCols[mi].y, monthCols[mi].mo, 1) / 86400000);
+    const mDays = Math.floor(Date.UTC(monthCols[mi].y, monthCols[mi].mo + 1, 1) / 86400000) - mStart;
+    return `${((mi + (today - mStart) / mDays) / monthCols.length) * 100}%`;
+  })();
+
+  const title =
+    mode === 'day'
+      ? formatDay(isoDay(cursor))
+      : mode === 'week'
+        ? formatDay(isoDay(dayCols[0])) + ' — ' + formatDay(isoDay(dayCols[dayCols.length - 1]))
+        : mode === 'year'
+          ? String(yearOf(cursor))
+          : dayCols.length > 0 && monthOf(dayCols[0]) === monthOf(dayCols[dayCols.length - 1])
+            ? formatMonth(yearOf(dayCols[0]), monthOf(dayCols[0]), 'long')
+            : formatMonth(yearOf(dayCols[0]), monthOf(dayCols[0]), 'long') +
+              ' — ' +
+              formatMonth(yearOf(dayCols[dayCols.length - 1]), monthOf(dayCols[dayCols.length - 1]), 'long');
+  const step = (delta: number) => {
+    if (mode === 'day') setCursor((c) => c + delta);
+    else if (mode === 'week') setCursor((c) => c + delta * 7);
+    else if (mode === 'year')
+      setCursor((c) => {
+        const d = new Date(c * 86400000);
+        return Math.floor(Date.UTC(d.getUTCFullYear() + delta, d.getUTCMonth(), 1) / 86400000);
+      });
+    // Month modes always slide by one month — even showing two — so no month
+    // is ever skipped over.
+    else
+      setCursor((c) => {
+        const d = new Date(c * 86400000);
+        return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + delta, 1) / 86400000);
+      });
+  };
+  const goToday = () => setCursor(today);
+
+  // Bar geometry in percent of the grid, clamped to the window. Null when
+  // the item is fully outside.
+  const barGeom = (it: Item) => {
+    if (!isYear) {
+      const n = dayCols.length;
+      const s = Math.max(it.start, dayCols[0]);
+      const e = Math.min(it.end, dayCols[n - 1]);
+      if (e < s) return null;
+      return { left: `${((s - dayCols[0]) / n) * 100}%`, width: `calc(${(((e - s + 1) / n) * 100).toFixed(4)}% - 4px)` };
+    }
+    const ser = (n: number) => yearOf(n) * 12 + monthOf(n);
+    const base = yearOf(cursor) * 12;
+    const a = Math.max(0, ser(it.start) - base);
+    const b = Math.min(11, ser(it.end) - base);
+    if (b < a) return null;
+    return { left: `${(a / 12) * 100}%`, width: `calc(${(((b - a + 1) / 12) * 100).toFixed(4)}% - 4px)` };
+  };
+  const covers = (it: Item, n: number) =>
+    isYear
+      ? yearOf(n) * 12 + monthOf(n) >= yearOf(it.start) * 12 + monthOf(it.start) &&
+        yearOf(n) * 12 + monthOf(n) <= yearOf(it.end) * 12 + monthOf(it.end)
+      : n >= it.start && n <= it.end;
+  const hoveredItem = hovered ? items.find((i) => i.row.id === hovered) ?? null : null;
+  const tipFor = (row: Row, it: Item) => {
+    const sv = typeof row.props[startProp] === 'string' ? (row.props[startProp] as string) : '';
+    const ev = endProp && typeof row.props[endProp] === 'string' ? (row.props[endProp] as string) : '';
+    return (
+      (row.title || t('Untitled')) +
+      (sv ? ' — ' + formatDay(sv) + (it.end !== it.start && ev ? ' → ' + formatDay(ev) : '') : '')
+    );
+  };
 
   return (
     <div className="timeline">
+      <div className="tl-controls">
+        <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
+        <span className="tl-title">{title}</span>
+        <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
+        <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
+        <ModePicker mode={mode} onChange={onModeChange} />
+      </div>
       <div className="tl-scroll">
-        <div className="tl-inner" style={{ width: LABELW + gridWidth }}>
+        <div className="tl-inner" style={{ minWidth: LABELW + gridMin }}>
           <div className="tl-header">
             <div className="tl-corner" style={{ width: LABELW }} />
-            <div className="tl-months" style={{ width: gridWidth }}>
-              {months.map((m, i) => (
-                <div key={i} className="tl-month" style={{ left: m.left, width: m.width }}>
-                  {m.label}
+            <div className="tl-head-right">
+              <div className="tl-months">
+                {months.map((m, i) => {
+                  const span =
+                    hoveredItem && hoveredItem.start <= m.to && hoveredItem.end >= m.from;
+                  return (
+                    <div
+                      key={i}
+                      className={'tl-month' + (span ? ' is-span' : '')}
+                      style={{ left: m.left, width: m.width }}
+                    >
+                      {m.label}
+                    </div>
+                  );
+                })}
+                {todayLeft && <div className="tl-today-tick" style={{ left: todayLeft }} title={t('Today')} />}
+              </div>
+              {!isYear && (
+                <div
+                  className="tl-days"
+                  style={{ gridTemplateColumns: `repeat(${dayCols.length}, minmax(26px, 1fr))` }}
+                >
+                  {dayCols.map((n) => (
+                    <div
+                      key={n}
+                      className={
+                        'tl-day' +
+                        (n === today ? ' is-today' : '') +
+                        (hoveredItem && covers(hoveredItem, n) ? ' is-span' : '') +
+                        (hoveredItem && covers(hoveredItem, n) && !covers(hoveredItem, n - 1) ? ' is-span-first' : '') +
+                        (hoveredItem && covers(hoveredItem, n) && !covers(hoveredItem, n + 1) ? ' is-span-last' : '')
+                      }
+                    >
+                      {new Date(n * 86400000).getUTCDate()}
+                    </div>
+                  ))}
                 </div>
-              ))}
-              <div className="tl-today-tick" style={{ left: todayLeft }} title={t('Today')} />
+              )}
             </div>
           </div>
           <div className="tl-body">
-            {items.map(({ row, start, end }) => {
-              const left = (start - min) * DAY;
-              const width = Math.max(DAY - 4, (end - start + 1) * DAY - 4);
-              // Native tooltip like links have: name plus the bar's span.
-              const sv = typeof row.props[startProp] === 'string' ? (row.props[startProp] as string) : '';
-              const ev = endProp && typeof row.props[endProp] === 'string' ? (row.props[endProp] as string) : '';
-              const tip =
-                (row.title || t('Untitled')) +
-                (sv ? ' — ' + formatDay(sv) + (end !== start && ev ? ' → ' + formatDay(ev) : '') : '');
+            {items.map((it) => {
+              const { row } = it;
+              const g = barGeom(it);
+              if (!g) return null;
               return (
                 <div key={row.id} className="tl-row">
                   <div
@@ -2739,7 +2906,7 @@ function TimelineView({
                     style={{ width: LABELW }}
                     onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
                     onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                    title={tip}
+                    title={tipFor(row, it)}
                   >
                     {row.icon && (
                       <span className="inline-icon">
@@ -2748,14 +2915,16 @@ function TimelineView({
                     )}
                     <span className="tl-label-text">{row.title || 'Untitled'}</span>
                   </div>
-                  <div className="tl-track" style={{ width: gridWidth }}>
-                    <div className="tl-today-line" style={{ left: todayLeft }} />
+                  <div className="tl-track">
+                    {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
                     <div
                       className="tl-bar"
-                      style={{ left, width }}
+                      style={{ left: g.left, width: g.width }}
                       onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
                       onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                      title={tip}
+                      onMouseEnter={() => setHovered(row.id)}
+                      onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
+                      title={tipFor(row, it)}
                     >
                       <span className="tl-bar-label">{row.title || 'Untitled'}</span>
                     </div>
@@ -2763,9 +2932,69 @@ function TimelineView({
                 </div>
               );
             })}
+            <div className="tl-row">
+              <div className="tl-label tl-add" style={{ width: LABELW }}>
+                <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
+                  <Plus size={14} /> {t('New')}
+                </button>
+              </div>
+              <div className="tl-track" />
+            </div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Day/Week/Month/2-months/Year switch shared by the calendar and the
+// timeline headers: same control, same place, same labels.
+function ModePicker({ mode, onChange }: { mode: SpanMode; onChange: (m: SpanMode) => void }) {
+  const [open, setOpen] = useState(false);
+  const label =
+    mode === 'day'
+      ? t('Day')
+      : mode === 'week'
+        ? t('Week')
+        : mode === 'year'
+          ? t('Year')
+          : mode === '2months'
+            ? t('2 months')
+            : t('Month');
+  const pick = (m: SpanMode) => {
+    setOpen(false);
+    if (m !== mode) onChange(m);
+  };
+  return (
+    <div className="cal-range-wrap">
+      <button className="btn-sm" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        {label} <ChevronDown size={14} />
+      </button>
+      {open && (
+        <>
+          <div className="fs-backdrop" onClick={() => setOpen(false)} />
+          <div className="menu view-tab-menu" role="listbox">
+            {(['day', 'week', 'month', '2months', 'year'] as const).map((m) => (
+              <button
+                key={m}
+                role="option"
+                aria-selected={mode === m}
+                onClick={() => pick(m)}
+              >
+                {m === 'day'
+                  ? t('Day')
+                  : m === 'week'
+                    ? t('Week')
+                    : m === 'year'
+                      ? t('Year')
+                      : m === '2months'
+                        ? t('2 months')
+                        : t('Month')}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2786,14 +3015,13 @@ function CalendarView({
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
-  mode: 'day' | 'week' | 'month' | '2months' | 'year';
-  onModeChange: (m: 'day' | 'week' | 'month' | '2months' | 'year') => void;
+  mode: SpanMode;
+  onModeChange: (m: SpanMode) => void;
 }) {
   const [cursor, setCursor] = useState(() => {
     const n = new Date();
     return new Date(n.getFullYear(), n.getMonth(), n.getDate());
   });
-  const [modeOpen, setModeOpen] = useState(false);
 
   if (!dateProp || !schema.some((p) => p.id === dateProp && p.type === 'date')) {
     return (
@@ -2850,20 +3078,6 @@ function CalendarView({
     const n = new Date();
     setCursor(new Date(n.getFullYear(), n.getMonth(), n.getDate()));
   };
-  const pickMode = (m: 'day' | 'week' | 'month' | '2months' | 'year') => {
-    setModeOpen(false);
-    if (m !== mode) onModeChange(m);
-  };
-  const modeLabel =
-    mode === 'day'
-      ? t('Day')
-      : mode === 'week'
-        ? t('Week')
-        : mode === 'year'
-          ? t('Year')
-          : mode === '2months'
-            ? t('2 months')
-            : t('Month');
   const title =
     mode === 'day'
       ? formatDay(toDayString(cursor))
@@ -2915,36 +3129,7 @@ function CalendarView({
         <span className="calendar-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
         <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
-        <div className="cal-range-wrap">
-          <button className="btn-sm" onClick={() => setModeOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={modeOpen}>
-            {modeLabel} <ChevronDown size={14} />
-          </button>
-          {modeOpen && (
-            <>
-              <div className="fs-backdrop" onClick={() => setModeOpen(false)} />
-              <div className="menu view-tab-menu" role="listbox">
-                {( ['day', 'week', 'month', '2months', 'year'] as const).map((m) => (
-                  <button
-                    key={m}
-                    role="option"
-                    aria-selected={mode === m}
-                    onClick={() => pickMode(m)}
-                  >
-                    {m === 'day'
-                      ? t('Day')
-                      : m === 'week'
-                        ? t('Week')
-                        : m === 'year'
-                          ? t('Year')
-                          : m === '2months'
-                            ? t('2 months')
-                            : t('Month')}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <ModePicker mode={mode} onChange={onModeChange} />
       </div>
       {mode === 'day' ? (
         <div className="cal-day-list">
@@ -2968,7 +3153,7 @@ function CalendarView({
                 className="cal-mini-title"
                 onClick={() => {
                   setCursor(new Date(first.getFullYear(), first.getMonth(), 1));
-                  pickMode('month');
+                  onModeChange('month');
                 }}
               >
                 {formatMonth(first.getFullYear(), first.getMonth(), 'long')}
@@ -2992,7 +3177,7 @@ function CalendarView({
                       onClick={() => {
                         if (!d) return;
                         setCursor(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
-                        pickMode('day');
+                        onModeChange('day');
                       }}
                       title={d ? formatDay(toDayString(d)) : undefined}
                     >

@@ -7449,17 +7449,38 @@ a.btn {
 /* ---- Timeline / Gantt view ---- */
 .timeline { width: 100%; }
 .tl-scroll { overflow-x: auto; overflow-y: hidden; }
-.tl-inner { position: relative; }
+.tl-inner { position: relative; width: 100%; }
+.tl-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tl-controls .cal-range-wrap {
+  margin-left: auto;
+}
+.tl-title {
+  font-weight: 600;
+  min-width: 160px;
+  text-transform: capitalize;
+}
 .tl-header { display: flex; }
 .tl-corner {
   position: sticky;
   left: 0;
   z-index: 4;
   flex: none;
-  height: 32px;
+  align-self: stretch;
+  min-height: 32px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border);
+}
+.tl-head-right {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .tl-months {
   position: relative;
@@ -7483,6 +7504,41 @@ a.btn {
   text-transform: capitalize;
 }
 .tl-today-tick { position: absolute; top: 0; width: 2px; height: 32px; background: var(--danger); }
+.tl-days {
+  display: grid;
+  border-bottom: 1px solid var(--border);
+}
+.tl-day {
+  box-sizing: border-box;
+  min-width: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 3px 0;
+}
+.tl-day.is-today {
+  color: var(--accent);
+  font-weight: 700;
+}
+.tl-day.is-span {
+  background: var(--accent-soft);
+}
+.tl-day.is-span-first {
+  border-radius: 8px 0 0 8px;
+}
+.tl-day.is-span-last {
+  border-radius: 0 8px 8px 0;
+}
+.tl-month.is-span {
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+.tl-label.tl-add {
+  cursor: default;
+}
+.tl-label.tl-add:hover {
+  background: none;
+}
 .tl-row { display: flex; align-items: stretch; height: 40px; }
 .tl-label {
   position: sticky;
@@ -7506,7 +7562,7 @@ a.btn {
   white-space: nowrap;
   font-size: 13.5px;
 }
-.tl-track { position: relative; flex: none; border-bottom: 1px solid var(--border); }
+.tl-track { position: relative; flex: 1 1 auto; min-width: 0; border-bottom: 1px solid var(--border); }
 .tl-today-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--danger); opacity: 0.28; }
 .tl-bar {
   position: absolute;
