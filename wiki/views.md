@@ -182,9 +182,10 @@ a date simply do not appear.
 The head of the calendar has `‹`, the span, `›`, and **Today**, which
 jumps back to today. A mode picker beside it switches between **Day**, **Week**,
 **Month**, **2 months** and **Year**; two months stack one under the other, and
-the year is twelve small grids whose month names jump straight there. The choice
+the year is twelve small grids whose month names jump straight there. `‹`/`›`
+always slide by one step of the shown span — one day, week, month or year — so
+no month is ever skipped over in the two-month view. The choice
 is stored on the view, and a public link shows what its owner set. Which day the week starts on follows your
-language and region (Monday across most of Europe, Sunday in the US and Japan,
 Saturday in much of the Arab world) and the column headings are rotated to
 agree with it. You can override it under **Week starts on** in your
 [account settings](account.md).

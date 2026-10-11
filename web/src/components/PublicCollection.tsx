@@ -578,7 +578,9 @@ function PublicCalendar({
     if (mode === 'day') setCursor((c) => addDays(c, delta));
     else if (mode === 'week') setCursor((c) => addDays(c, delta * 7));
     else if (mode === 'year') setCursor((c) => new Date(c.getFullYear() + delta, c.getMonth(), 1));
-    else setCursor((c) => new Date(c.getFullYear(), c.getMonth() + delta * (mode === '2months' ? 2 : 1), 1));
+    // Month modes always slide by one month — even showing two — so no month
+    // is ever skipped over.
+    else setCursor((c) => new Date(c.getFullYear(), c.getMonth() + delta, 1));
   };
   const goToday = () => {
     const n = new Date();
