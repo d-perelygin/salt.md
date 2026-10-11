@@ -5,7 +5,7 @@ import Portal from './Portal';
 import { PageIcon } from '../pageIcon';
 import { useExclusiveModal } from '../modal';
 import { t } from '../i18n';
-import { openPage, openPageAux } from '../pageOpen';
+import { openPage, openPageAux, peekPage } from '../pageOpen';
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -57,10 +57,15 @@ export default function SearchModal({ recent, onClose, onNavigate, onOpenInNewTa
       e.preventDefault();
       setSel((s) => Math.max(s - 1, 0));
     } else if (e.key === 'Enter' && results[sel]) {
-      // Ctrl/⌘+Enter opens beside the current tab; Alt+Enter stays, like clicks.
-      if (e.altKey) onNavigate(results[sel].id);
-      else if (e.metaKey || e.ctrlKey) (onOpenInNewTab ?? onNavigate)(results[sel].id);
-      else onNavigate(results[sel].id);
+      // The click modifiers, on the keyboard: Option peeks (and closes the
+      // palette), Ctrl/⌘ together with Alt stays, Ctrl/⌘ opens beside.
+      const id = results[sel].id;
+      if (e.altKey && !e.metaKey && !e.ctrlKey) {
+        if (peekPage(e, id)) onClose();
+        else onNavigate(id);
+      } else if (e.altKey) onNavigate(id);
+      else if (e.metaKey || e.ctrlKey) (onOpenInNewTab ?? onNavigate)(id);
+      else onNavigate(id);
     }
   };
 

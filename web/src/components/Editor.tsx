@@ -42,7 +42,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList} from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2} from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -68,6 +68,12 @@ export interface EditorProps {
   // the one menu every page has, so it is the honest place for it.
   onTrash: (id: string) => void;
   onPagesChanged: () => void;
+  // Side peek chrome (see PeekPanel): when present, the panel controls sit
+  // inline at the head of this topbar instead of on a bar of their own, and
+  // the structure and favorite buttons move into the ⋯ menu — a narrow panel
+  // has no room for a full desktop topbar.
+  onPeekClose?: () => void;
+  onPeekOpenFull?: (id: string) => void;
   // Which keyboard-navigation region this editor owns. The main view is
   // 'content'; a second mounted editor (the side peek) takes another id, or
   // the two would register the same region and the later mount would steal
@@ -550,6 +556,8 @@ function PageHeader({
   onPagesChanged,
   pagesById,
   regionId,
+  onPeekClose,
+  onPeekOpenFull,
   structureOpen,
   onToggleStructure,
   commentsOpen,
@@ -559,6 +567,8 @@ function PageHeader({
   page: Page;
   onLocalMeta: (patch: Partial<PageMeta>) => void;
   regionId: string;
+  onPeekClose?: () => void;
+  onPeekOpenFull?: (id: string) => void;
   structureOpen: boolean;
   onToggleStructure: () => void;
   commentsOpen: boolean;
@@ -1136,6 +1146,20 @@ function PageHeader({
   return (
     <>
       <header className="topbar">
+        {onPeekClose && (
+          <>
+            <button className="icon-btn" title={t('Close preview')} onClick={onPeekClose}>
+              <ChevronsRight size={17} />
+            </button>
+            <button
+              className="icon-btn"
+              title={t('Open as page ↗')}
+              onClick={() => onPeekOpenFull?.(pageId)}
+            >
+              <Maximize2 size={16} />
+            </button>
+          </>
+        )}
         <button className="menu-btn topbar-menu" title={t('Menu')} onClick={onMenu}>
           <Menu size={18} />
         </button>
@@ -1197,6 +1221,10 @@ function PageHeader({
             {openComments > 0 && <span className="badge-count">{openComments}</span>}
           </button>
           )}
+          {/* In the side peek these two move into the ⋯ menu below — a narrow
+              panel has no room for a full desktop topbar. */}
+          {!onPeekClose && (
+          <>
           <button
             className={'icon-btn' + (structureOpen ? ' is-on' : '')}
             title={structureOpen ? t('Hide structure') : t('Show structure')}
@@ -1211,6 +1239,8 @@ function PageHeader({
           >
             <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
           </button>
+          </>
+          )}
           <div className="access-wrap" ref={accessWrapRef}>
             <button
               className={'icon-btn topbar-wide-only' + (visibility !== 'workspace' ? ' active-star' : '')}
@@ -1364,6 +1394,30 @@ function PageHeader({
             />
             {overflowOpen && (
               <div className="menu overflow-menu">
+                {onPeekClose && (
+                  <>
+                    <button
+                      className="menu-item"
+                      onClick={() => {
+                        setOverflowOpen(false);
+                        onToggleStructure();
+                      }}
+                    >
+                      <PanelRight size={15} /> {structureOpen ? t('Hide structure') : t('Show structure')}
+                    </button>
+                    <button
+                      className="menu-item"
+                      onClick={() => {
+                        setOverflowOpen(false);
+                        onToggleFavorite(pageId);
+                      }}
+                    >
+                      <Star size={15} fill={favorite ? 'currentColor' : 'none'} />{' '}
+                      {favorite ? t('Remove from favorites') : t('Add to favorites')}
+                    </button>
+                    <div className="menu-sep" />
+                  </>
+                )}
                 {canEdit && !showDesc && !description && (
                   <button
                     className="menu-item"

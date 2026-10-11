@@ -870,7 +870,7 @@ button {
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(620px, 46vw);
+  width: min(680px, 50vw);
   z-index: 90;
   background: var(--bg);
   border-left: 1px solid var(--border);
@@ -879,23 +879,22 @@ button {
   flex-direction: column;
 }
 
-.peek-bar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.peek-spacer {
-  flex: 1;
-}
-
 .peek-panel > .editor-page {
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
+}
+
+/* A long trail fades instead of cutting mid-word. The mask only touches the
+   trailing edge, so a trail that fits shows no change at all; the last crumb
+   is uncapped so the fade — not a per-crumb ellipsis — decides where it ends. */
+.peek-panel .breadcrumbs {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent 100%);
+}
+
+.peek-panel .crumb-wrap:last-child .crumb {
+  max-width: none;
 }
 
 @media (max-width: 768px) {
