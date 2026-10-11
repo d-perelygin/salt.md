@@ -179,10 +179,11 @@ a date simply do not appear.
 
 ![A calendar view. It needs a date property to place rows on.](img/collection-calendar.png)
 
-The head of the calendar has `‹`, the month and year, `›`, and **Today**, which
-jumps back to the current month. A range picker beside it switches between one
-month and two side by side (`‹`/`›` then step by the shown span); the choice is
-stored on the view, and a public link shows what its owner set. Which day the week starts on follows your
+The head of the calendar has `‹`, the span, `›`, and **Today**, which
+jumps back to today. A mode picker beside it switches between **Day**, **Week**,
+**Month**, **2 months** and **Year**; two months stack one under the other, and
+the year is twelve small grids whose month names jump straight there. The choice
+is stored on the view, and a public link shows what its owner set. Which day the week starts on follows your
 language and region (Monday across most of Europe, Sunday in the US and Japan,
 Saturday in much of the Arab world) and the column headings are rotated to
 agree with it. You can override it under **Week starts on** in your

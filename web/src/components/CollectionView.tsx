@@ -956,8 +956,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           tagColors={tagColors}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
-          range={view.calRange === 2 ? 2 : 1}
-          onRangeChange={(n) => updateView({ calRange: n })}
+          mode={view.calMode ?? (view.calRange === 2 ? '2months' : 'month')}
+          onModeChange={(m) => updateView({ calMode: m, calRange: m === '2months' ? 2 : 1 })}
         />
       ) : view.type === 'list' ? (
         <ListView
@@ -2777,8 +2777,8 @@ function CalendarView({
   tagColors,
   onNavigate,
   onOpenInNewTab,
-  range,
-  onRangeChange,
+  mode,
+  onModeChange,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -2786,14 +2786,14 @@ function CalendarView({
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
-  range: 1 | 2;
-  onRangeChange: (n: 1 | 2) => void;
+  mode: 'day' | 'week' | 'month' | '2months' | 'year';
+  onModeChange: (m: 'day' | 'week' | 'month' | '2months' | 'year') => void;
 }) {
-  const [month, setMonth] = useState(() => {
+  const [cursor, setCursor] = useState(() => {
     const n = new Date();
-    return new Date(n.getFullYear(), n.getMonth(), 1);
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate());
   });
-  const [rangeOpen, setRangeOpen] = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
 
   if (!dateProp || !schema.some((p) => p.id === dateProp && p.type === 'date')) {
     return (
@@ -2812,13 +2812,18 @@ function CalendarView({
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(r);
   }
 
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  // One cell grid per shown month; two sit side by side on wide screens and
-  // stack on narrow ones (.cal-grids).
-  const monthStarts: Date[] = [];
-  for (let k = 0; k < range; k++) {
-    monthStarts.push(new Date(month.getFullYear(), month.getMonth() + k, 1));
-  }
+  const today = ymd(new Date());
+  const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const addMonths = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth() + n, 1);
+  const startOfWeek = (d: Date) => addDays(d, -((d.getDay() - firstWeekday() + 7) % 7));
+  const weekStart = startOfWeek(cursor);
+  const weekDays: Date[] = [];
+  for (let k = 0; k < 7; k++) weekDays.push(addDays(weekStart, k));
+  // One cell grid per shown month.
+  const monthStarts: Date[] =
+    mode === '2months'
+      ? [new Date(cursor.getFullYear(), cursor.getMonth(), 1), addMonths(cursor, 1)]
+      : [new Date(cursor.getFullYear(), cursor.getMonth(), 1)];
   const monthCells = (first: Date) => {
     // Where the week starts is a property of the language, not of the code:
     // Monday across most of Europe, Sunday in the US and Japan, Saturday in much
@@ -2832,83 +2837,183 @@ function CalendarView({
     return cells;
   };
 
-  const today = ymd(new Date());
   const second = monthStarts[1];
-  const monthLabel =
-    range === 1 || !second
-      ? formatMonth(month.getFullYear(), month.getMonth(), 'long')
-      : formatMonth(month.getFullYear(), month.getMonth(), 'long') +
-        ' — ' +
-        formatMonth(second.getFullYear(), second.getMonth(), 'long');
-  const step = (delta: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + delta * range, 1));
-  const pickRange = (n: 1 | 2) => {
-    setRangeOpen(false);
-    if (n !== range) onRangeChange(n);
+  const step = (delta: number) => {
+    if (mode === 'day') setCursor((c) => addDays(c, delta));
+    else if (mode === 'week') setCursor((c) => addDays(c, delta * 7));
+    else if (mode === 'year') setCursor((c) => new Date(c.getFullYear() + delta, c.getMonth(), 1));
+    else setCursor((c) => addMonths(c, delta * (mode === '2months' ? 2 : 1)));
   };
+  const goToday = () => {
+    const n = new Date();
+    setCursor(new Date(n.getFullYear(), n.getMonth(), n.getDate()));
+  };
+  const pickMode = (m: 'day' | 'week' | 'month' | '2months' | 'year') => {
+    setModeOpen(false);
+    if (m !== mode) onModeChange(m);
+  };
+  const modeLabel =
+    mode === 'day'
+      ? t('Day')
+      : mode === 'week'
+        ? t('Week')
+        : mode === 'year'
+          ? t('Year')
+          : mode === '2months'
+            ? t('2 months')
+            : t('Month');
+  const title =
+    mode === 'day'
+      ? formatDay(toDayString(cursor))
+      : mode === 'week'
+        ? formatDay(toDayString(weekStart)) + ' — ' + formatDay(toDayString(addDays(weekStart, 6)))
+        : mode === 'year'
+          ? String(cursor.getFullYear())
+          : mode === '2months' && second
+            ? formatMonth(monthStarts[0].getFullYear(), monthStarts[0].getMonth(), 'long') +
+              ' — ' +
+              formatMonth(second.getFullYear(), second.getMonth(), 'long')
+            : formatMonth(cursor.getFullYear(), cursor.getMonth(), 'long');
+  const eventButton = (r: Row, d: Date | null) => (
+    <button
+      key={r.id}
+      className="calendar-event"
+      onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+      onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+      title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
+    >
+      {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+      {r.title || 'Untitled'}
+      {!!r.tags?.length && (
+        <span className="cal-event-tags">
+          {r.tags.map((t) => (
+            <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
+          ))}
+        </span>
+      )}
+    </button>
+  );
+  const dayCell = (d: Date | null, i: number | string) => {
+    const key = d ? ymd(d) : '';
+    const dayRows = d ? byDate.get(key) ?? [] : [];
+    return (
+      <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
+        {d && <div className="calendar-daynum">{d.getDate()}</div>}
+        {dayRows.map((r) => eventButton(r, d))}
+      </div>
+    );
+  };
+  const yearMonths: Date[] = [];
+  for (let m = 0; m < 12; m++) yearMonths.push(new Date(cursor.getFullYear(), m, 1));
 
   return (
     <div className="calendar">
       <div className="calendar-head">
         <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
-        <span className="calendar-title">{monthLabel}</span>
+        <span className="calendar-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
-        <button className="btn-sm" onClick={() => setMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>{t('Today')}</button>
+        <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
         <div className="cal-range-wrap">
-          <button className="btn-sm" onClick={() => setRangeOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={rangeOpen}>
-            {range === 2 ? t('2 months') : t('Month')} <ChevronDown size={14} />
+          <button className="btn-sm" onClick={() => setModeOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={modeOpen}>
+            {modeLabel} <ChevronDown size={14} />
           </button>
-          {rangeOpen && (
+          {modeOpen && (
             <>
-              <div className="fs-backdrop" onClick={() => setRangeOpen(false)} />
+              <div className="fs-backdrop" onClick={() => setModeOpen(false)} />
               <div className="menu view-tab-menu" role="listbox">
-                <button role="option" aria-selected={range === 1} onClick={() => pickRange(1)}>
-                  {t('Month')}
-                </button>
-                <button role="option" aria-selected={range === 2} onClick={() => pickRange(2)}>
-                  {t('2 months')}
-                </button>
+                {( ['day', 'week', 'month', '2months', 'year'] as const).map((m) => (
+                  <button
+                    key={m}
+                    role="option"
+                    aria-selected={mode === m}
+                    onClick={() => pickMode(m)}
+                  >
+                    {m === 'day'
+                      ? t('Day')
+                      : m === 'week'
+                        ? t('Week')
+                        : m === 'year'
+                          ? t('Year')
+                          : m === '2months'
+                            ? t('2 months')
+                            : t('Month')}
+                  </button>
+                ))}
               </div>
             </>
           )}
         </div>
       </div>
-      <div className="cal-grids">
-        {monthStarts.map((first, mi) => (
-          <div key={mi} className="calendar-grid">
-            {weekdayNames().map((d) => (
-              <div key={d} className="calendar-dow">{d}</div>
-            ))}
-            {monthCells(first).map((d, i) => {
-              const key = d ? ymd(d) : '';
-              const dayRows = d ? byDate.get(key) ?? [] : [];
-              return (
-                <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
-                  {d && <div className="calendar-daynum">{d.getDate()}</div>}
-                  {dayRows.map((r) => (
+      {mode === 'day' ? (
+        <div className="cal-day-list">
+          {(byDate.get(toDayString(cursor)) ?? []).map((r) => eventButton(r, cursor))}
+          {(byDate.get(toDayString(cursor)) ?? []).length === 0 && (
+            <div className="db-empty">{t('Nothing on this day.')}</div>
+          )}
+        </div>
+      ) : mode === 'week' ? (
+        <div className="calendar-grid">
+          {weekdayNames().map((d) => (
+            <div key={d} className="calendar-dow">{d}</div>
+          ))}
+          {weekDays.map((d, i) => dayCell(d, i))}
+        </div>
+      ) : mode === 'year' ? (
+        <div className="cal-year">
+          {yearMonths.map((first, mi) => (
+            <div key={mi} className="cal-mini">
+              <button
+                className="cal-mini-title"
+                onClick={() => {
+                  setCursor(new Date(first.getFullYear(), first.getMonth(), 1));
+                  pickMode('month');
+                }}
+              >
+                {formatMonth(first.getFullYear(), first.getMonth(), 'long')}
+              </button>
+              <div className="cal-mini-grid">
+                {monthCells(first).map((d, i) => {
+                  const key = d ? ymd(d) : '';
+                  const has = d && (byDate.get(key) ?? []).length > 0;
+                  const dim = d && d.getMonth() !== first.getMonth();
+                  return (
                     <button
-                      key={r.id}
-                      className="calendar-event"
-                      onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
-                      onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
-                      title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
+                      key={i}
+                      className={
+                        'cal-mini-day' +
+                        (!d ? ' empty' : '') +
+                        (key === today ? ' today' : '') +
+                        (has ? ' has-events' : '') +
+                        (dim ? ' dim' : '')
+                      }
+                      disabled={!d}
+                      onClick={() => {
+                        if (!d) return;
+                        setCursor(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+                        pickMode('day');
+                      }}
+                      title={d ? formatDay(toDayString(d)) : undefined}
                     >
-                      {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                      {r.title || 'Untitled'}
-                      {!!r.tags?.length && (
-                        <span className="cal-event-tags">
-                          {r.tags.map((t) => (
-                            <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
-                          ))}
-                        </span>
-                      )}
+                      {d?.getDate() ?? ''}
                     </button>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="cal-grids">
+          {monthStarts.map((first, mi) => (
+            <div key={mi} className="calendar-grid">
+              {weekdayNames().map((d) => (
+                <div key={d} className="calendar-dow">{d}</div>
+              ))}
+              {monthCells(first).map((d, i) => dayCell(d, `${mi}-${i}`))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

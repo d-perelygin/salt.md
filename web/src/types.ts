@@ -274,7 +274,10 @@ export interface ViewDef {
   type: 'table' | 'board' | 'list' | 'gallery' | 'calendar' | 'form' | 'timeline';
   groupBy?: string;
   dateProp?: string; // calendar/timeline view: date property (timeline: start)
-  calRange?: 1 | 2; // calendar view: one month grid, or two side by side
+  /** Calendar view: which span the grid shows. Older views carry calRange
+   *  instead (1 = month, 2 = two months); calMode wins when both are set. */
+  calMode?: 'day' | 'week' | 'month' | '2months' | 'year';
+  calRange?: 1 | 2; // deprecated: superseded by calMode, still read as a fallback
   endDateProp?: string; // timeline view: optional end-date property (else 1-day bar)
   hidden?: string[]; // property ids hidden in this view
   filters?: Filter[];

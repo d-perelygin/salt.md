@@ -3450,14 +3450,87 @@ body.is-col-resizing {
 
 .cal-grids {
   display: flex;
-  gap: 24px 32px;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 28px;
+  align-items: stretch;
 }
 
 .cal-grids .calendar-grid {
-  flex: 1 1 340px;
   min-width: 0;
+}
+
+/* One day's rows as a plain vertical list. */
+.cal-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px;
+}
+
+.cal-day-list .calendar-event {
+  text-align: left;
+}
+
+/* Year overview: twelve compact month grids. Days with rows read bolder;
+   today keeps its marker; the mini title drills into that month. */
+.cal-year {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 20px 24px;
+}
+
+.cal-mini {
+  min-width: 0;
+}
+
+.cal-mini-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  text-transform: capitalize;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--fg);
+}
+
+button.cal-mini-title:hover {
+  background: var(--hover);
+}
+
+.cal-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+
+.cal-mini-day {
+  font-size: 11.5px;
+  text-align: center;
+  padding: 3px 0;
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.cal-mini-day.empty {
+  visibility: hidden;
+}
+
+.cal-mini-day.dim {
+  opacity: 0.45;
+}
+
+.cal-mini-day.today {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.cal-mini-day.has-events {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+button.cal-mini-day:hover {
+  background: var(--hover);
 }
 
 .calendar-grid {

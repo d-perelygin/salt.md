@@ -272,7 +272,7 @@ export default function PublicCollection({ token }: { token: string }) {
               dateProp={view.dateProp ?? ''}
               allowDetail={cfg.allowDetail}
               onOpen={openRow}
-              range={view.calRange === 2 ? 2 : 1}
+              mode={view.calMode ?? (view.calRange === 2 ? '2months' : 'month')}
             />
           ) : view.type === 'timeline' ? (
             <PublicTimeline
@@ -514,18 +514,18 @@ function PublicCalendar({
   dateProp,
   allowDetail,
   onOpen,
-  range,
+  mode,
 }: {
   rows: Row[];
   schema: PropDef[];
   dateProp: string;
   allowDetail: boolean;
   onOpen: (id: string) => void;
-  range: 1 | 2;
+  mode: 'day' | 'week' | 'month' | '2months' | 'year';
 }) {
-  const [month, setMonth] = useState(() => {
+  const [cursor, setCursor] = useState(() => {
     const n = new Date();
-    return new Date(n.getFullYear(), n.getMonth(), 1);
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate());
   });
 
   if (!dateProp || !schema.some((p) => p.id === dateProp && p.type === 'date')) {
@@ -544,11 +544,10 @@ function PublicCalendar({
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(r);
   }
 
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const monthStarts: Date[] = [];
-  for (let k = 0; k < range; k++) {
-    monthStarts.push(new Date(month.getFullYear(), month.getMonth() + k, 1));
-  }
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const monthStarts: Date[] =
+    mode === '2months' ? [first, new Date(first.getFullYear(), first.getMonth() + 1, 1)] : [first];
   const monthCells = (first: Date) => {
     const startWeekday = (first.getDay() - firstWeekday() + 7) % 7;
     const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
@@ -559,14 +558,58 @@ function PublicCalendar({
     return cells;
   };
   const today = toDayString(new Date());
+  const weekStart = addDays(cursor, -((cursor.getDay() - firstWeekday() + 7) % 7));
+  const weekDays: Date[] = [];
+  for (let k = 0; k < 7; k++) weekDays.push(addDays(weekStart, k));
   const second = monthStarts[1];
   const monthLabel =
-    range === 1 || !second
-      ? formatMonth(month.getFullYear(), month.getMonth(), 'long')
-      : formatMonth(month.getFullYear(), month.getMonth(), 'long') +
-        ' — ' +
-        formatMonth(second.getFullYear(), second.getMonth(), 'long');
-  const step = (delta: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + delta * range, 1));
+    mode === 'day'
+      ? formatDay(toDayString(cursor))
+      : mode === 'week'
+        ? formatDay(toDayString(weekStart)) + ' — ' + formatDay(toDayString(addDays(weekStart, 6)))
+        : mode === 'year'
+          ? String(cursor.getFullYear())
+          : mode === '2months' && second
+            ? formatMonth(monthStarts[0].getFullYear(), monthStarts[0].getMonth(), 'long') +
+              ' — ' +
+              formatMonth(second.getFullYear(), second.getMonth(), 'long')
+            : formatMonth(cursor.getFullYear(), cursor.getMonth(), 'long');
+  const step = (delta: number) => {
+    if (mode === 'day') setCursor((c) => addDays(c, delta));
+    else if (mode === 'week') setCursor((c) => addDays(c, delta * 7));
+    else if (mode === 'year') setCursor((c) => new Date(c.getFullYear() + delta, c.getMonth(), 1));
+    else setCursor((c) => new Date(c.getFullYear(), c.getMonth() + delta * (mode === '2months' ? 2 : 1), 1));
+  };
+  const goToday = () => {
+    const n = new Date();
+    setCursor(new Date(n.getFullYear(), n.getMonth(), n.getDate()));
+  };
+  // A public visitor sees what the owner set; the year grid drills down by
+  // navigating its own state, exactly like inside.
+  const yearMonths: Date[] = [];
+  for (let m = 0; m < 12; m++) yearMonths.push(new Date(cursor.getFullYear(), m, 1));
+  const eventButton = (r: Row, d: Date | null) =>
+    allowDetail ? (
+      <button key={r.id} className="calendar-event" onClick={() => void onOpen(r.id)} title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
+        {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+        {r.title || t('Untitled')}
+      </button>
+    ) : (
+      <span key={r.id} className="calendar-event is-static" title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
+        {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+        {r.title || t('Untitled')}
+      </span>
+    );
+  const dayCell = (d: Date | null, i: number | string) => {
+    const key = d ? toDayString(d) : '';
+    const dayRows = d ? byDate.get(key) ?? [] : [];
+    return (
+      <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
+        {d && <div className="calendar-daynum">{d.getDate()}</div>}
+        {dayRows.map((r) => eventButton(r, d))}
+      </div>
+    );
+  };
 
   return (
     <div className="calendar">
@@ -574,39 +617,64 @@ function PublicCalendar({
         <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
         <span className="calendar-title">{monthLabel}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
-        <button className="btn-sm" onClick={() => setMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>{t('Today')}</button>
+        <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
       </div>
-      <div className="cal-grids">
-        {monthStarts.map((first, mi) => (
-          <div key={mi} className="calendar-grid">
-            {weekdayNames().map((d) => (
-              <div key={d} className="calendar-dow">{d}</div>
-            ))}
-            {monthCells(first).map((d, i) => {
-              const key = d ? toDayString(d) : '';
-              const dayRows = d ? byDate.get(key) ?? [] : [];
-              return (
-                <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
-                  {d && <div className="calendar-daynum">{d.getDate()}</div>}
-                  {dayRows.map((r) =>
-                    allowDetail ? (
-                      <button key={r.id} className="calendar-event" onClick={() => void onOpen(r.id)} title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
-                        {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                        {r.title || t('Untitled')}
-                      </button>
-                    ) : (
-                      <span key={r.id} className="calendar-event is-static" title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
-                        {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                        {r.title || t('Untitled')}
-                      </span>
-                    ),
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+      {mode === 'day' ? (
+        <div className="cal-day-list">
+          {(byDate.get(toDayString(cursor)) ?? []).map((r) => eventButton(r, cursor))}
+          {(byDate.get(toDayString(cursor)) ?? []).length === 0 && (
+            <div className="db-empty">{t('Nothing on this day.')}</div>
+          )}
+        </div>
+      ) : mode === 'week' ? (
+        <div className="calendar-grid">
+          {weekdayNames().map((d) => (
+            <div key={d} className="calendar-dow">{d}</div>
+          ))}
+          {weekDays.map((d, i) => dayCell(d, i))}
+        </div>
+      ) : mode === 'year' ? (
+        <div className="cal-year">
+          {yearMonths.map((first, mi) => (
+            <div key={mi} className="cal-mini">
+              <div className="cal-mini-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
+              <div className="cal-mini-grid">
+                {monthCells(first).map((d, i) => {
+                  const key = d ? toDayString(d) : '';
+                  const has = d && (byDate.get(key) ?? []).length > 0;
+                  const dim = d && d.getMonth() !== first.getMonth();
+                  return (
+                    <span
+                      key={i}
+                      className={
+                        'cal-mini-day' +
+                        (!d ? ' empty' : '') +
+                        (key === today ? ' today' : '') +
+                        (has ? ' has-events' : '') +
+                        (dim ? ' dim' : '')
+                      }
+                      title={d ? formatDay(toDayString(d)) : undefined}
+                    >
+                      {d?.getDate() ?? ''}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="cal-grids">
+          {monthStarts.map((first, mi) => (
+            <div key={mi} className="calendar-grid">
+              {weekdayNames().map((d) => (
+                <div key={d} className="calendar-dow">{d}</div>
+              ))}
+              {monthCells(first).map((d, i) => dayCell(d, `${mi}-${i}`))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
