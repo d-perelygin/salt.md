@@ -1076,6 +1076,7 @@
   "•••••• (token stored)": "•••••• (Token gespeichert)",
   "•••••• (unchanged)": "•••••• (unverändert)",
   "… or paste an existing token here": "… oder vorhandenen Token hier einsetzen",
+  "…and {n} more": "…und {n} weitere",
   "← Backlinks": "← Backlinks",
   "→ Certificates & secrets → client secret.": "→ Zertifikate & Geheimnisse → Client-Secret.",
   "→ Links": "→ Links",
