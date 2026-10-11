@@ -5,6 +5,7 @@ import { WifiOff } from 'lucide-react';
 import type { Me, PageMeta, User, Workspace } from './types';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
+import PeekPanel from './components/PeekPanel';
 import TabBar from './components/TabBar';
 import SearchModal from './components/SearchModal';
 import IndexView from './components/IndexView';
@@ -428,10 +429,22 @@ export default function App() {
     window.addEventListener('salt:unauthorized', onUnauthorized);
     window.addEventListener('popstate', onPop);
     window.addEventListener('salt:navigate', onLinkNav);
+    // A Shift-click anywhere a page link opens one asks for a side peek
+    // instead (see peekPage in pageOpen). preventDefault marks the request
+    // claimed, so the click falls through to its normal meaning where no
+    // peek exists to answer.
+    const onPeek = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (!id) return;
+      e.preventDefault();
+      setPeekId(id);
+    };
+    window.addEventListener('salt:peek', onPeek);
     return () => {
       window.removeEventListener('salt:unauthorized', onUnauthorized);
       window.removeEventListener('popstate', onPop);
       window.removeEventListener('salt:navigate', onLinkNav);
+      window.removeEventListener('salt:peek', onPeek);
     };
   }, []);
 
@@ -1195,6 +1208,18 @@ export default function App() {
     return role !== 'viewer';
   }, [currentId, pagesById, workspaces]);
 
+  // The side peek: a second editor over the right side (see PeekPanel),
+  // opened with Shift-click wherever a page link opens one. It lives outside
+  // the URL and the history — closing it changes nothing about the tabs.
+  const [peekId, setPeekId] = useState<string | null>(null);
+  const canEditPeek = useMemo(() => {
+    if (!peekId) return true;
+    const page = pagesById.get(peekId);
+    if (!page) return true;
+    const role = workspaces.find((w) => w.id === page.workspaceId)?.role;
+    return role !== 'viewer';
+  }, [peekId, pagesById, workspaces]);
+
   // Switching workspaces must not leave the editor (and the URL) pointing at a
   // document that belonged to the workspace you just left — the picker used
   // to be wired straight to setCurrentWs, so `currentId` never changed and
@@ -1501,6 +1526,38 @@ export default function App() {
           </div>
         )}
       </main>
+      {peekId && me?.user && (
+        <PeekPanel
+          pageId={peekId}
+          pagesById={pagesById}
+          user={me.user}
+          theme={theme}
+          canEdit={canEditPeek}
+          favorite={favorites.includes(peekId)}
+          tagColors={tagColors}
+          onSetTagColor={setTagColor}
+          onMenu={openSidebar}
+          onToggleFavorite={toggleFavorite}
+          onMetaChange={updateMeta}
+          onMissing={(id) => {
+            setPeekId(null);
+            handleMissing(id);
+          }}
+          onNavigate={navigate}
+          onOpenInNewTab={openInNewTab}
+          onCreatePage={createPage}
+          onTrash={(id) => {
+            if (id === peekId) setPeekId(null);
+            trashPage(id);
+          }}
+          onPagesChanged={loadPages}
+          onClose={() => setPeekId(null)}
+          onOpenFull={(id) => {
+            setPeekId(null);
+            navigate(id);
+          }}
+        />
+      )}
       {helpOpen && <ShortcutSheet onClose={() => setHelpOpen(false)} />}
       {searchOpen && (
         <SearchModal

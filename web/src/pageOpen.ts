@@ -19,10 +19,24 @@ export type PageOpeners = {
 
 const open = (id: string, o: PageOpeners) => (o.onOpenInNewTab ?? o.onNavigate)(id);
 
-export type ClickMods = { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean };
+export type ClickMods = { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean };
 
-/** A click, with modifiers. Alt stays in place, ⌘/Ctrl opens a new tab. */
+/** Ask for a side peek of the page instead of navigating anywhere.
+ *
+ *  True when somebody claims the request — App listens for `salt:peek` and
+ *  answers with preventDefault. With no listener (tests, a bare component,
+ *  a public view) it reports false and the click falls through to its normal
+ *  meaning, so no call site needs to know whether peeking exists. */
+export function peekPage(e: { shiftKey?: boolean }, id: string): boolean {
+  if (!e.shiftKey || typeof window === 'undefined') return false;
+  return !window.dispatchEvent(
+    new CustomEvent('salt:peek', { detail: { id }, cancelable: true }),
+  );
+}
+
+/** A click, with modifiers. Shift peeks, Alt stays in place, ⌘/Ctrl opens a new tab. */
 export function openPage(e: ClickMods, id: string, o: PageOpeners): void {
+  if (peekPage(e, id)) return;
   if (e.altKey) {
     o.onNavigate(id);
     return;
@@ -32,15 +46,16 @@ export function openPage(e: ClickMods, id: string, o: PageOpeners): void {
 }
 
 /** The middle button, which a browser reports on `auxclick` — as every button
- *  but the left one — rather than as a `click`. Alt with it stays in place,
- *  like Alt with a plain click. */
+ *  but the left one — rather than as a `click`. Shift peeks, Alt with it stays
+ *  in place, like Alt with a plain click. */
 export function openPageAux(
-  e: { button?: number; altKey?: boolean; preventDefault: () => void },
+  e: { button?: number; altKey?: boolean; shiftKey?: boolean; preventDefault: () => void },
   id: string,
   o: PageOpeners,
 ): void {
   if (e.button !== 1) return;
   e.preventDefault();
+  if (peekPage(e, id)) return;
   if (e.altKey) o.onNavigate(id);
   else open(id, o);
 }
@@ -55,6 +70,7 @@ export const collectionRowNewTab = (): boolean => getPrefs().openRowsNewTab ?? t
 
 /** A click on a collection row, with modifiers. */
 export function openCollectionRow(e: ClickMods, id: string, o: PageOpeners): void {
+  if (peekPage(e, id)) return;
   if (e.altKey) {
     o.onNavigate(id);
     return;

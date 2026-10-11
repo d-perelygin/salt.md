@@ -859,6 +859,52 @@ button {
   position: relative;
 }
 
+/* ---------- Side peek ---------- */
+
+/* A second document over the right side (Shift-click a page link), below the
+   modals (100) but above everything else, so its own dropdowns (310+) and
+   dialogs still open over it. No backdrop: the page behind stays usable, and
+   Escape or ≫ closes the panel. */
+.peek-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(620px, 46vw);
+  z-index: 90;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+}
+
+.peek-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.peek-spacer {
+  flex: 1;
+}
+
+.peek-panel > .editor-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+@media (max-width: 768px) {
+  .peek-panel {
+    width: 100vw;
+    border-left: none;
+  }
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -7588,6 +7634,7 @@ a.btn {
      drag and, on iOS, leaving a callout that swallows taps. */
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .tl-bar:hover { filter: brightness(1.07); }
 
@@ -7631,6 +7678,15 @@ a.btn {
 }
 .tl-resize-r {
   right: 1px;
+}
+/* While an edge is held the whole page stops offering a text selection: a drag
+   that wanders off the bar must not be able to start one there instead, and the
+   cursor stays the resize one wherever the pointer goes. */
+body.is-tl-resizing {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: ew-resize;
 }
 .tl-drag-tip {
   position: absolute;

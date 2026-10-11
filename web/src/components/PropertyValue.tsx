@@ -9,6 +9,7 @@ import { showActivityFor } from './ActivityLogHost';
 import { initials, nameColor } from './CommentsPanel';
 import { Check, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
+import { peekPage } from '../pageOpen';
 import { t } from '../i18n';
 
 interface Props {
@@ -808,7 +809,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
                 style={chipStyle}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onOpen(id);
+                  if (!peekPage(e, id)) onOpen(id);
                 }}
               >
                 {inner}
@@ -823,7 +824,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
               style={chipStyle}
               onClick={(e) => {
                 e.stopPropagation();
-                onOpen(id);
+                if (!peekPage(e, id)) onOpen(id);
               }}
             >
               {inner}

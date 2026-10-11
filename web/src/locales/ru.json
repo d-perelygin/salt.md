@@ -135,6 +135,7 @@
   "Client secret": "Секрет клиента",
   "Clock": "Часы",
   "Close": "Закрыть",
+  "Close preview": "Закрыть предпросмотр",
   "Close tab {title}": "Закрыть вкладку {title}",
   "Cloudflare Tunnel (no open port needed)": "Cloudflare Tunnel (открытый порт не нужен)",
   "Cloudflare: leave the DNS record “Proxied” (orange cloud); WebSockets are on by default. Caddy handles certificates and WebSockets by itself. Alternatively, direct TLS without a proxy via": "Cloudflare: оставьте DNS-запись «Proxied» (оранжевое облако); WebSockets включены по умолчанию. Caddy сам занимается сертификатами и WebSockets. Либо прямой TLS без прокси через",

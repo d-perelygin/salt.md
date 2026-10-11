@@ -68,6 +68,15 @@ export interface EditorProps {
   // the one menu every page has, so it is the honest place for it.
   onTrash: (id: string) => void;
   onPagesChanged: () => void;
+  // Which keyboard-navigation region this editor owns. The main view is
+  // 'content'; a second mounted editor (the side peek) takes another id, or
+  // the two would register the same region and the later mount would steal
+  // the earlier one's arrows — and keep them after it unmounts.
+  regionId?: string;
+  // Which editor answers focus-free shortcuts ('c' for comments) when the
+  // focus sits outside every editor. The main view keeps the historic
+  // behaviour; the peek answers only with the focus inside itself.
+  primary?: boolean;
 }
 
 export default function Editor(props: EditorProps) {
@@ -76,6 +85,8 @@ export default function Editor(props: EditorProps) {
   const [offlineCopy, setOfflineCopy] = useState(false);
   const online = useOnline();
   const [nonce, setNonce] = useState(0);
+  const regionId = props.regionId ?? 'content';
+  const primary = props.primary ?? true;
   // The panel is a reading preference, not a property of the page: it stays
   // put while you move through the workspace, like the comment column's.
   const [structureOpen, setStructureOpen] = useState(structurePanelOpen);
@@ -106,20 +117,6 @@ export default function Editor(props: EditorProps) {
   };
   const toggleStructure = () => showStructure(!structureOpen);
 
-  // Same rule as the other single letters (see App.tsx): only while nothing is
-  // being typed. A collection has no comment panel, so there it stays a letter.
-  useShortcut({
-    id: 'comments.toggle',
-    keys: ['c'],
-    when: () => !!page && page.type !== 'collection',
-    label: () => t('Comments'),
-    group: () => t('Page'),
-    run: () => {
-      if (modalOpen()) return false;
-      showComments(!commentsOpen);
-    },
-  });
-
   // A panel the reader just opened slides in. One that is simply still open
   // when the next page loads does not, or every click in the tree would set
   // it moving again, so the flag lives here, above the page that remounts.
@@ -139,6 +136,30 @@ export default function Editor(props: EditorProps) {
   // that still reads as text.
   const [pageEl, setPageEl] = useState<HTMLDivElement | null>(null);
   const [narrow, setNarrow] = useState(false);
+
+  // Same rule as the other single letters (see App.tsx): only while nothing is
+  // being typed. A collection has no comment panel, so there it stays a letter.
+  //
+  // With two editors mounted (main + side peek) a focus-free shortcut must know
+  // whose it is: the editor holding the focus answers, and with the focus
+  // outside every editor the primary one keeps the historic behaviour.
+  const ownsFocus = () => {
+    const ae = document.activeElement as Element | null;
+    if (pageEl && ae && pageEl.contains(ae)) return true;
+    if (ae && ae.closest('.editor-page')) return false;
+    return primary;
+  };
+  useShortcut({
+    id: 'comments.toggle',
+    keys: ['c'],
+    when: () => !!page && page.type !== 'collection' && ownsFocus(),
+    label: () => t('Comments'),
+    group: () => t('Page'),
+    run: () => {
+      if (modalOpen()) return false;
+      showComments(!commentsOpen);
+    },
+  });
   useEffect(() => {
     if (!pageEl) return;
     const ro = new ResizeObserver(([entry]) => {
@@ -217,6 +238,7 @@ export default function Editor(props: EditorProps) {
       <PageHeader
         page={page}
         {...props}
+        regionId={regionId}
         structureOpen={structureOpen}
         onToggleStructure={toggleStructure}
         commentsOpen={commentsOpen}
@@ -236,6 +258,7 @@ export default function Editor(props: EditorProps) {
         ) : (
           <CollabEditor
             key={page.id}
+            regionId={regionId}
             structureOpen={structureOpen}
             page={page}
             user={props.user}
@@ -526,6 +549,7 @@ function PageHeader({
   onLocalMeta,
   onPagesChanged,
   pagesById,
+  regionId,
   structureOpen,
   onToggleStructure,
   commentsOpen,
@@ -534,6 +558,7 @@ function PageHeader({
 }: EditorProps & {
   page: Page;
   onLocalMeta: (patch: Partial<PageMeta>) => void;
+  regionId: string;
   structureOpen: boolean;
   onToggleStructure: () => void;
   commentsOpen: boolean;
@@ -645,10 +670,10 @@ function PageHeader({
   // keystroke goes back to the browser unless the caret sits at the very edge
   // it is trying to cross.
   useNavRegion({
-    id: 'content',
+    id: regionId,
     ref: bodyRef,
     scope: 'editor',
-    prev: 'sidebar.tree',
+    prev: regionId === 'content' ? 'sidebar.tree' : undefined,
     whileTyping: true,
     canLeave: (el, dir) => {
       if (el === titleRef.current) {
@@ -1573,7 +1598,7 @@ function PageHeader({
               e.preventDefault();
               // The region knows how to focus its own items, including the one
               // that wraps a ProseMirror rather than being an input.
-              focusKey('content', 'body');
+              focusKey(regionId, 'body');
             }
           }}
         />
@@ -1803,6 +1828,9 @@ interface CollabProps {
    *  while it is closed, so the information is never in two places at once and
    *  never in none. */
   structureOpen: boolean;
+  /** Keyboard-navigation region of the owning editor ('content', or 'peek' in
+   *  the side panel). Flows through ...rest to BlockContent. */
+  regionId: string;
 }
 
 function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabProps) {
@@ -1950,12 +1978,14 @@ function BlockContent({
   onCreatePage,
   onPagesChanged,
   structureOpen,
+  regionId,
 }: {
   provider: SaltProvider;
   pageId: string;
   seed: unknown[] | null;
   hadContent: boolean;
   structureOpen: boolean;
+  regionId: string;
   user: User;
   theme: 'light' | 'dark';
   canEdit: boolean;
@@ -2000,7 +2030,7 @@ function BlockContent({
     keys: ['ctrl+enter'],
     scope: 'editor',
     whileTyping: true,
-    when: () => canEdit && focusedKey('content') === 'body',
+    when: () => canEdit && focusedKey(regionId) === 'body',
     label: () => t('Tick/untick the checkbox'),
     group: () => t('Page'),
     run: () => {
@@ -2025,7 +2055,7 @@ function BlockContent({
     keys: ['alt+arrowup'],
     scope: 'editor',
     whileTyping: true,
-    when: () => canEdit && focusedKey('content') === 'body',
+    when: () => canEdit && focusedKey(regionId) === 'body',
     label: () => t('Move block up'),
     group: () => t('Page'),
     run: () => editor.moveBlocksUp(),
@@ -2035,7 +2065,7 @@ function BlockContent({
     keys: ['alt+arrowdown'],
     scope: 'editor',
     whileTyping: true,
-    when: () => canEdit && focusedKey('content') === 'body',
+    when: () => canEdit && focusedKey(regionId) === 'body',
     label: () => t('Move block down'),
     group: () => t('Page'),
     run: () => editor.moveBlocksDown(),
