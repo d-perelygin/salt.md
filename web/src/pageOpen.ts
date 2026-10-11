@@ -3,6 +3,8 @@
 // place so no view can spell it differently: a plain click navigates the tab
 // you are in (the way a browser tab works), while ⌘-click (Ctrl-click on
 // Windows and Linux) and the middle button add a tab beside the active one.
+// Alt (Option on a Mac) always stays in the current tab — the one modifier
+// that means the same everywhere, whatever the plain click would do.
 //
 // `onOpenInNewTab` is optional because a view can be rendered without one — an
 // embedded collection reaches it through the editor's context, but a bare
@@ -17,43 +19,50 @@ export type PageOpeners = {
 
 const open = (id: string, o: PageOpeners) => (o.onOpenInNewTab ?? o.onNavigate)(id);
 
-/** A click, with or without ⌘/Ctrl. */
-export function openPage(
-  e: { metaKey?: boolean; ctrlKey?: boolean },
-  id: string,
-  o: PageOpeners,
-): void {
+export type ClickMods = { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean };
+
+/** A click, with modifiers. Alt stays in place, ⌘/Ctrl opens a new tab. */
+export function openPage(e: ClickMods, id: string, o: PageOpeners): void {
+  if (e.altKey) {
+    o.onNavigate(id);
+    return;
+  }
   if (e.metaKey || e.ctrlKey) open(id, o);
   else o.onNavigate(id);
 }
 
 /** The middle button, which a browser reports on `auxclick` — as every button
- *  but the left one — rather than as a `click`. */
+ *  but the left one — rather than as a `click`. Alt with it stays in place,
+ *  like Alt with a plain click. */
 export function openPageAux(
-  e: { button?: number; preventDefault: () => void },
+  e: { button?: number; altKey?: boolean; preventDefault: () => void },
   id: string,
   o: PageOpeners,
 ): void {
   if (e.button !== 1) return;
   e.preventDefault();
-  open(id, o);
+  if (e.altKey) o.onNavigate(id);
+  else open(id, o);
 }
 
 // ---- collection rows ----
 
 // Rows of a collection open in a NEW tab on a plain click — the account's
 // choice (server prefs, default on), not the sidebar's in-place rule above.
-// The modifier inverts: with the setting on, ⌘/Ctrl-click navigates the
-// current tab instead; with it off, everything reads exactly as openPage.
+// The modifiers are absolute and never inverted: Alt (Option) stays in the
+// current tab, ⌘/Ctrl opens a new one — whatever the plain click would do.
 export const collectionRowNewTab = (): boolean => getPrefs().openRowsNewTab ?? true;
 
-/** A click on a collection row, with or without ⌘/Ctrl. */
-export function openCollectionRow(
-  e: { metaKey?: boolean; ctrlKey?: boolean },
-  id: string,
-  o: PageOpeners,
-): void {
-  const mod = !!(e.metaKey || e.ctrlKey);
-  if (collectionRowNewTab() ? !mod : mod) open(id, o);
+/** A click on a collection row, with modifiers. */
+export function openCollectionRow(e: ClickMods, id: string, o: PageOpeners): void {
+  if (e.altKey) {
+    o.onNavigate(id);
+    return;
+  }
+  if (e.metaKey || e.ctrlKey) {
+    open(id, o);
+    return;
+  }
+  if (collectionRowNewTab()) open(id, o);
   else o.onNavigate(id);
 }

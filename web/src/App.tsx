@@ -400,16 +400,26 @@ export default function App() {
     };
     // Clicking an inline @-mention (rendered by BlockNote) dispatches this.
     // Inlined (not via `navigate`) so the listener needs no deps and can't
-    // hit a temporal-dead-zone on the later useCallback; navigates the active
-    // tab in place, matching a normal link click.
+    // hit a temporal-dead-zone on the later useCallback. A plain click
+    // navigates the active tab in place, matching a normal link click;
+    // ⌘/Ctrl-click (or the middle button) opens beside it instead.
     const onLinkNav = (e: Event) => {
-      const id = (e as CustomEvent<string>).detail;
+      const detail = (e as CustomEvent<string | { id: string; newTab?: boolean }>).detail;
+      const id = typeof detail === 'string' ? detail : detail?.id;
+      const newTab = typeof detail === 'object' && !!detail?.newTab;
       if (!id) return;
       history.pushState(null, '', pagePath(id, pagesByIdRef.current.get(id)?.title));
       setCurrentId(id);
       setSidebarOpen(false);
       setOpenTabs((prev) => {
+        // Open in a tab already: land on it, the way a browser focuses the
+        // tab a link is already open in.
         if (prev.includes(id)) return prev;
+        // A new tab slides in right after the active one (see openInNewTab).
+        if (newTab) {
+          const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
+          return i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+        }
         const active = activeRef.current;
         if (active && prev.includes(active)) return prev.map((t) => (t === active ? id : t));
         return [...prev, id];
@@ -1387,6 +1397,10 @@ export default function App() {
               setIndexOpen(false);
               navigate(id);
             }}
+            onOpenInNewTab={(id) => {
+              setIndexOpen(false);
+              openInNewTab(id);
+            }}
             onClose={() => setIndexOpen(false)}
           />
         ) : currentId ? (
@@ -1505,6 +1519,10 @@ export default function App() {
           onNavigate={(id) => {
             setSearchOpen(false);
             navigate(id);
+          }}
+          onOpenInNewTab={(id) => {
+            setSearchOpen(false);
+            openInNewTab(id);
           }}
         />
       )}

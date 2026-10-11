@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createReactBlockSpec } from '@blocknote/react';
 import { Table2 } from 'lucide-react';
 import { useBlockCtx } from './blockContext';
+import { openPage, openPageAux } from './pageOpen';
 import { MERMAID_REV, renderMermaid } from './mermaidLoader';
 import { PageIcon } from './pageIcon';
 import CollectionView, { type EmbedState } from './components/CollectionView';
@@ -159,7 +160,7 @@ export const subpagesSpec = createReactBlockSpec(
   } as const,
   {
     render: () => {
-      const { pagesById, pageId, onNavigate } = useBlockCtx();
+      const { pagesById, pageId, onNavigate, onOpenInNewTab } = useBlockCtx();
       if (!pageId) return null;
       const kids = [...pagesById.values()]
         .filter((p) => p.parentId === pageId && !p.trashed)
@@ -173,7 +174,8 @@ export const subpagesSpec = createReactBlockSpec(
               key={p.id}
               type="button"
               className="bn-toc-entry"
-              onClick={() => onNavigate(p.id)}
+              onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
+              onAuxClick={(e) => openPageAux(e, p.id, { onNavigate, onOpenInNewTab })}
               title={p.title || t('Untitled')}
             >
               <PageIcon icon={p.icon} size={14} /> {p.title || t('Untitled')}

@@ -5,6 +5,8 @@ import { bookmarkSpec, databaseSpec, calloutSpec, tocSpec, subpagesSpec, columns
 // A "pageLink" is an inline mention of another salt.md page. It stores the target
 // page id and a display label. Clicking it dispatches a navigation event that
 // App listens for (keeps BlockNote's render decoupled from React routing).
+// The modifiers travel in the event: ⌘/Ctrl-click opens beside the current
+// tab, Alt-click stays — the same rule as every other page link.
 export const pageLinkSpec = createReactInlineContentSpec(
   {
     type: 'pageLink',
@@ -20,11 +22,22 @@ export const pageLinkSpec = createReactInlineContentSpec(
         type="button"
         className="page-link"
         contentEditable={false}
-        onClick={() =>
+        onClick={(e) =>
           window.dispatchEvent(
-            new CustomEvent('salt:navigate', { detail: props.inlineContent.props.pageId }),
+            new CustomEvent('salt:navigate', {
+              detail: { id: props.inlineContent.props.pageId, newTab: e.metaKey || e.ctrlKey },
+            }),
           )
         }
+        onAuxClick={(e) => {
+          if (e.button !== 1) return;
+          e.preventDefault();
+          window.dispatchEvent(
+            new CustomEvent('salt:navigate', {
+              detail: { id: props.inlineContent.props.pageId, newTab: !e.altKey },
+            }),
+          );
+        }}
       >
         <span className="page-link-icon">🔗</span>
         {props.inlineContent.props.label || 'Untitled'}

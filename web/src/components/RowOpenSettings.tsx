@@ -46,9 +46,12 @@ export function RowOpenModal({ onClose }: { onClose: () => void }) {
         <div className="dialog" role="dialog" aria-modal="true" aria-label={t('Open rows in new tab')}>
           <h2>{t('Open rows in new tab')}</h2>
           <p className="dialog-hint">
-            {t(
-              'A click on a row in any collection view opens it in a new tab. Hold ⌘ or Ctrl to open in the current tab instead.',
-            )}
+            {checked
+              ? t('Rows open in a new tab. Hold Alt to open in the current tab instead.')
+              : t('Rows open in the current tab. Hold Ctrl or ⌘ to open in a new tab instead.')}
+          </p>
+          <p className="dialog-hint">
+            {t('Alt always stays in the current tab, Ctrl or ⌘ always opens a new one — everywhere, not just in collections.')}
           </p>
           <label className="check-label">
             <input

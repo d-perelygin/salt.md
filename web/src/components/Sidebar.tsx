@@ -667,7 +667,7 @@ function TreeItem({
         onDragLeave={() => ctx.dragLeave(p.id)}
         onDrop={(e) => ctx.drop(p, e)}
         onDragEnd={ctx.dragEnd}
-        onClick={(e) => (e.metaKey || e.ctrlKey ? ctx.onOpenInNewTab(p.id) : ctx.onNavigate(p.id))}
+        onClick={(e) => openPage(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
         // The whole row answers a right-click with the same menu the ⋯ offers.
         // Hunting for a three-dot button that only appears on hover is the
         // slowest way to reach an action everybody knows is there.
@@ -676,12 +676,7 @@ function TreeItem({
           ctx.setAddFor(null);
           ctx.setMenuFor(p.id);
         }}
-        onAuxClick={(e) => {
-          if (e.button === 1) {
-            e.preventDefault();
-            ctx.onOpenInNewTab(p.id);
-          }
-        }}
+        onAuxClick={(e) => openPageAux(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
       >
         {hasExpand ? (
           <button

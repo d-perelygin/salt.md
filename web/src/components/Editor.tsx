@@ -22,6 +22,7 @@ import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
 import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, navItem, nothingBefore, useNavRegion } from '../nav';
+import { openPage, openPageAux } from '../pageOpen';
 import { readPageScroll, writePageScroll } from '../pageUiState';
 import { useShortcut } from '../keys';
 import CollectionView from './CollectionView';
@@ -270,6 +271,7 @@ export default function Editor(props: EditorProps) {
           isCollection={page.type === 'collection'}
           pagesById={props.pagesById}
           onNavigate={props.onNavigate}
+          onOpenInNewTab={props.onOpenInNewTab}
           onClose={toggleStructure}
         />
       )}
@@ -1116,7 +1118,11 @@ function PageHeader({
           {breadcrumbs.map((b, i) => (
             <span key={b.id} className="crumb-wrap">
               {i > 0 && <span className="crumb-sep">/</span>}
-              <button className="crumb" onClick={() => onNavigate(b.id)}>
+              <button
+                className="crumb"
+                onClick={(e) => openPage(e, b.id, { onNavigate, onOpenInNewTab })}
+                onAuxClick={(e) => openPageAux(e, b.id, { onNavigate, onOpenInNewTab })}
+              >
                 {(() => {
                   const ic = b.id === pageId ? icon : b.icon;
                   const tt = (b.id === pageId ? title : b.title) || 'Untitled';
@@ -2456,7 +2462,7 @@ function BlockContent({
         </BlockNoteView>
         </BlockContext.Provider>
         {!structureOpen && (
-          <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} />
+          <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}
       </div>
       {preview && (
@@ -2471,10 +2477,12 @@ function Backlinks({
   pageId,
   pagesById,
   onNavigate,
+  onOpenInNewTab,
 }: {
   pageId: string;
   pagesById: Map<string, PageMeta>;
   onNavigate: (id: string | null) => void;
+  onOpenInNewTab?: (id: string) => void;
 }) {
   const [links, setLinks] = useState<Backlink[]>([]);
   // Refetch when the page changes or the page list updates — App rebuilds the
@@ -2501,7 +2509,12 @@ function Backlinks({
         <Link2 size={14} /> {t('Linked from')} · {links.length}
       </div>
       {links.map((l) => (
-        <button key={l.id} className="backlink-item" onClick={() => onNavigate(l.id)}>
+        <button
+          key={l.id}
+          className="backlink-item"
+          onClick={(e) => openPage(e, l.id, { onNavigate, onOpenInNewTab })}
+          onAuxClick={(e) => openPageAux(e, l.id, { onNavigate, onOpenInNewTab })}
+        >
           <span className="tree-icon"><PageIcon icon={l.icon} size={14} fallback={<FileText size={14} />} /></span>
           {l.title || 'Untitled'}
         </button>
