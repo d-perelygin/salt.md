@@ -2788,9 +2788,25 @@ function TimelineView({
   // Edge-resize drag: which row, which edge, which day it is over right now.
   // Persisted on pointer-up only; until then the bar is drawn from this.
   const [drag, setDrag] = useState<{ id: string; edge: 'start' | 'end'; day: number } | null>(null);
-  // A drag ends in a click. Without this guard every resize would also open
-  // the row it just changed.
-  const navGuard = useRef(false);
+  // A resize ends in a click: the browser sends one after the gesture even when
+  // the finger barely moved, and cancelling the pointerdown does not reliably
+  // stop it on touch. That click must not open the row whose edge was held. A
+  // timestamp rather than a flag, because on touch the click may never arrive at
+  // all — a flag left armed would then swallow the NEXT honest tap, which is a
+  // bug of its own. The window is short and re-armed when the gesture ends, so
+  // it covers a press of any length and expires on its own.
+  const navGuard = useRef(0);
+  const swallowClick = () => Date.now() - navGuard.current < 700;
+  // While an edge is held, nothing on the page may start a text selection: the
+  // browser would take the gesture over (see finish below) and, on iOS, leave a
+  // callout sitting on top of the interface that swallows taps. The class goes
+  // on the body rather than the bar so a drag that wanders off the bar is
+  // covered, and the cleanup takes it off on unmount too — a stuck
+  // `user-select: none` is exactly the bug it prevents.
+  useEffect(() => {
+    document.body.classList.toggle('is-tl-resizing', !!drag);
+    return () => document.body.classList.remove('is-tl-resizing');
+  }, [drag]);
 
   if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
     return (
@@ -2846,10 +2862,8 @@ function TimelineView({
     if (!track || !it) return;
     const rect = track.getBoundingClientRect();
     const fixed = edge === 'start' ? it.end : it.start;
-    const x0 = e.clientX;
     setDrag({ id, edge, day: edge === 'start' ? it.start : it.end });
     const move = (ev: PointerEvent) => {
-      if (Math.abs(ev.clientX - x0) > 4) navGuard.current = true;
       const n = Math.min(
         dayCols[dayCols.length - 1],
         Math.max(dayCols[0], dayCols[0] + Math.floor(((ev.clientX - rect.left) / rect.width) * dayCols.length)),
@@ -2864,10 +2878,18 @@ function TimelineView({
     // bar stuck mid-drag with its badge hanging over the timeline, and the next
     // stray touch keeps moving it. Where the drag got to is what the user saw,
     // so a cancelled drag stores the day it had reached, exactly like a lift.
+    //
+    // `blur` and a hidden document are the same story one level down: the gesture
+    // is over the moment the app stops being what the finger is on.
     const finish = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);
+      window.removeEventListener('blur', finish);
+      document.removeEventListener('visibilitychange', onHide);
+      // Re-armed here rather than at the press, so the click the browser sends
+      // after a long hold is inside the window however long the hold was.
+      navGuard.current = Date.now();
       setDrag((d) => {
         if (d && d.id === id) {
           void onSetDate(id, edge === 'start' ? startProp : endProp, isoDay(d.day));
@@ -2875,9 +2897,14 @@ function TimelineView({
         return null;
       });
     };
+    const onHide = () => {
+      if (document.hidden) finish();
+    };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', finish);
     window.addEventListener('pointercancel', finish);
+    window.addEventListener('blur', finish);
+    document.addEventListener('visibilitychange', onHide);
   };
 
   // Month header segments across the visible range, in percent of the grid.
@@ -3089,10 +3116,7 @@ function TimelineView({
                       className={'tl-bar' + (drag && drag.id === row.id ? ' is-dragging' : '')}
                       style={{ left: geom.left, width: geom.width }}
                       onClick={(e) => {
-                        if (navGuard.current) {
-                          navGuard.current = false;
-                          return;
-                        }
+                        if (swallowClick()) return;
                         openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab });
                       }}
                       onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
@@ -3103,13 +3127,18 @@ function TimelineView({
                       <span className="tl-bar-label">{row.title || 'Untitled'}</span>
                       {resizable && (
                         <>
+                          {/* The browser's own long-press menu is what takes the
+                              drag away in the first place; on a handle it has
+                              nothing useful to offer, so it is never shown. */}
                           <span
                             className="tl-resize tl-resize-l"
                             onPointerDown={(e) => beginResize(e, row.id, 'start')}
+                            onContextMenu={(e) => e.preventDefault()}
                           />
                           <span
                             className="tl-resize tl-resize-r"
                             onPointerDown={(e) => beginResize(e, row.id, 'end')}
+                            onContextMenu={(e) => e.preventDefault()}
                           />
                         </>
                       )}
