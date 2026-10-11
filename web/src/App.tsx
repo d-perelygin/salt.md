@@ -819,14 +819,6 @@ export default function App() {
     const onRemap = (e: Event) => {
       const { tempId, realId } = (e as CustomEvent<{ tempId: string; realId: string }>).detail;
       setPages((prev) => prev?.map((p) => (p.id === tempId ? { ...p, id: realId } : p)) ?? prev);
-      setExtraPages((prev) => {
-        if (!prev.has(tempId)) return prev;
-        const next = new Map(prev);
-        const meta = next.get(tempId);
-        next.delete(tempId);
-        if (meta) next.set(realId, { ...meta, id: realId });
-        return next;
-      });
       setOpenTabs((prev) => prev.map((id) => (id === tempId ? realId : id)));
       if (activeRef.current === tempId) navigate(realId, true);
       void loadPages();
@@ -951,7 +943,7 @@ export default function App() {
         // id for the real one (REMAP_EVENT below) once the server answers.
         const tempId = newTempId();
         const now = new Date().toISOString();
-        const wsId = parentId ? (pagesByIdRef.current.get(parentId)?.workspaceId ?? currentWs) : currentWs;
+        const wsId = parentId ? (pages?.find((p) => p.id === parentId)?.workspaceId ?? currentWs) : currentWs;
         p = {
           id: tempId,
           parentId,
