@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"net/http"
 	"regexp"
 	"strings"
@@ -45,6 +46,11 @@ type userPrefs struct {
 	Clock string `json:"clock"`
 	// "" | "mon" | "sun" | "sat". "" lets the region decide.
 	WeekStart string `json:"weekStart"`
+	// Whether a plain click on a collection row opens it in a NEW tab.
+	// A pointer rather than a bool: absent (nil) means the new default, a new
+	// tab, so accounts from before the setting behave as if it were on without
+	// a migration rewriting every row. Explicit true/false is the choice.
+	OpenRowsNewTab *bool `json:"openRowsNewTab,omitempty"`
 }
 
 var (
@@ -75,11 +81,12 @@ var (
 // it.
 func normalizePrefs(p userPrefs) userPrefs {
 	out := userPrefs{
-		Language:  strings.ToLower(strings.TrimSpace(p.Language)),
-		Region:    strings.TrimSpace(p.Region),
-		TimeZone:  strings.TrimSpace(p.TimeZone),
-		Clock:     strings.TrimSpace(p.Clock),
-		WeekStart: strings.ToLower(strings.TrimSpace(p.WeekStart)),
+		Language:       strings.ToLower(strings.TrimSpace(p.Language)),
+		Region:         strings.TrimSpace(p.Region),
+		TimeZone:       strings.TrimSpace(p.TimeZone),
+		Clock:          strings.TrimSpace(p.Clock),
+		WeekStart:      strings.ToLower(strings.TrimSpace(p.WeekStart)),
+		OpenRowsNewTab: p.OpenRowsNewTab,
 	}
 	if !rxLanguage.MatchString(out.Language) {
 		out.Language = ""
@@ -105,16 +112,30 @@ func normalizePrefs(p userPrefs) userPrefs {
 // value, which IS automatic — so a caller never has to check.
 func (s *Server) loadPrefs(userID string) userPrefs {
 	var p userPrefs
-	s.db.QueryRow(`SELECT pref_language, pref_region, pref_timezone, pref_clock, pref_week_start
-		FROM users WHERE id = ?`, userID).
-		Scan(&p.Language, &p.Region, &p.TimeZone, &p.Clock, &p.WeekStart)
+	var openRows sql.NullInt64
+	s.db.QueryRow(`SELECT pref_language, pref_region, pref_timezone, pref_clock, pref_week_start,
+		pref_open_rows_new_tab FROM users WHERE id = ?`, userID).
+		Scan(&p.Language, &p.Region, &p.TimeZone, &p.Clock, &p.WeekStart, &openRows)
+	// A NULL column is "never decided", which reads as the new default (a new
+	// tab) without storing anything — see the field comment.
+	if openRows.Valid {
+		v := openRows.Int64 != 0
+		p.OpenRowsNewTab = &v
+	}
 	return p
 }
 
 func (s *Server) savePrefs(userID string, p userPrefs) error {
+	var openRows any
+	if p.OpenRowsNewTab != nil {
+		openRows = 0
+		if *p.OpenRowsNewTab {
+			openRows = 1
+		}
+	}
 	_, err := s.db.Exec(`UPDATE users SET pref_language = ?, pref_region = ?,
-		pref_timezone = ?, pref_clock = ?, pref_week_start = ? WHERE id = ?`,
-		p.Language, p.Region, p.TimeZone, p.Clock, p.WeekStart, userID)
+		pref_timezone = ?, pref_clock = ?, pref_week_start = ?, pref_open_rows_new_tab = ? WHERE id = ?`,
+		p.Language, p.Region, p.TimeZone, p.Clock, p.WeekStart, openRows, userID)
 	return err
 }
 

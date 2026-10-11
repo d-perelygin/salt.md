@@ -25,7 +25,8 @@ import type {
   ViewDef,
 } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
-import { openPage, openPageAux } from '../pageOpen';
+import { openCollectionRow, openPageAux } from '../pageOpen';
+import { readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
 import { AgentDot } from './AgentBadge';
 import { planCard, isBlank, zoneOf, contactKind, needsLabel } from '../cardLayout';
 import SchemaEditor from './SchemaEditor';
@@ -262,9 +263,16 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const [rows, setRows] = useState<Row[]>([]);
   const [offlineSnapshot, setOfflineSnapshot] = useState(false);
   const online = useOnline();
-  const [viewId, setViewId] = useState<string>(embed?.viewId ?? '');
+  // A full page remembers its view across tab switches and reloads (see
+  // pageUiState). An embed never touches that store: its view lives in the
+  // block itself, and borrowing the page's would couple every embed of the
+  // collection to the last visited page.
+  const [viewId, setViewId] = useState<string>(() => embed?.viewId ?? (embed ? '' : (readViewId(collectionId) ?? '')));
   const pickView = (id: string) => {
     setViewId(id);
+    // An embed keeps its view to itself; a full page remembers it across tab
+    // switches and reloads (see pageUiState).
+    if (!embed) writeViewId(collectionId, id);
     embed?.onViewId(id);
   };
   const [schemaOpen, setSchemaOpen] = useState(false);
@@ -289,13 +297,25 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // every change and would set off an endless loop here.
   }, [workspaceId]);
 
+  // Mirror for the callback below: `embed` is an inline object at some call
+  // sites, so depending on it would refetch the config on every render.
+  const embedRef = useRef(embed);
+  embedRef.current = embed;
+
   const loadConfig = useCallback(() => {
     void api
       .getCollection(collectionId)
       .then((c) => {
         setConfig(c);
         setOfflineSnapshot(false);
-        setViewId((v) => v || c.views[0]?.id || '');
+        setViewId((v) => {
+          // The open view survives tab switches and reloads; it only falls
+          // back when it is gone (a removed view) or was never chosen.
+          if (v && c.views.some((x) => x.id === v)) return v;
+          const stored = embedRef.current ? null : readViewId(collectionId);
+          if (stored && c.views.some((x) => x.id === stored)) return stored;
+          return c.views[0]?.id || '';
+        });
       })
       .catch(() => {
         // Offline: keep the last seen schema so the frozen rows still render
@@ -445,6 +465,46 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
 
   const view = view0;
   const schema = config?.schema ?? [];
+
+  // The inner horizontal scroller (the board's columns, the wide table) keeps
+  // its position per view, across tab switches and reloads. The vertical
+  // scroll belongs to `.page-body` and is remembered beside it (see Editor).
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !viewId) return;
+    // The view's scroller mounts a render behind the state: retry until it is
+    // there and wide enough to take the position, then stop touching it.
+    let tries = 30;
+    let raf = 0;
+    const restore = () => {
+      const left = readViewScroll(collectionId, viewId);
+      if (!left) return;
+      const sc = root.querySelector<HTMLElement>('.board, .table-wrap, .tl-scroll');
+      if (sc && sc.scrollWidth > sc.clientWidth) {
+        sc.scrollLeft = left;
+        return;
+      }
+      if (--tries > 0) raf = requestAnimationFrame(restore);
+    };
+    raf = requestAnimationFrame(restore);
+    // Scroll events do not bubble, but a capture listener on the root still
+    // sees the inner scrollers' — and nothing else scrolls down here.
+    const onScroll = (e: Event) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t instanceof HTMLElement &&
+        (t.classList.contains('board') || t.classList.contains('table-wrap') || t.classList.contains('tl-scroll'))
+      ) {
+        writeViewScroll(collectionId, viewId, t.scrollLeft);
+      }
+    };
+    root.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      root.removeEventListener('scroll', onScroll, { capture: true });
+    };
+  }, [collectionId, viewId]);
 
   const saveConfig = async (next: CollectionConfig) => {
     setConfig(next);
@@ -602,7 +662,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     if (config.views.length <= 1) return;
     const rest = config.views.filter((x) => x.id !== v.id);
     void saveConfig({ ...config, views: rest });
-    if (v.id === viewId) setViewId(rest[0].id);
+    if (v.id === viewId) {
+      setViewId(rest[0].id);
+      if (!embed) writeViewId(collectionId, rest[0].id);
+    }
   };
 
   // Moving a view along the strip. The ＋ appends and nothing ever moved, so
@@ -642,6 +705,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     }
     void saveConfig({ ...config, views: [...config.views, nv] });
     setViewId(nv.id);
+    if (!embed) writeViewId(collectionId, nv.id);
     setAddViewOpen(false);
   };
 
@@ -898,6 +962,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
 
   return (
     <div
+      ref={rootRef}
       className={
         'collection-scroll' +
         (view.type === 'board' ? ' is-board' : '') +
@@ -2104,7 +2169,7 @@ function BoardView({
                   // Do NOT open after a drag — otherwise every move jumps
                   // straight into the card.
                   if (consumeClick()) return;
-                  openPage(e, r.id, { onNavigate, onOpenInNewTab });
+                  openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab });
                 }}
                 onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                 // Right-click opens the card's own menu, the same one behind
@@ -2161,7 +2226,7 @@ function BoardView({
                         <button
                           onClick={() => {
                             setMoveMenu(null);
-                            onNavigate(r.id);
+                            openCollectionRow({}, r.id, { onNavigate, onOpenInNewTab });
                           }}
                         >
                           <SquareArrowOutUpRight size={15} /> {t('Open')}
@@ -2471,7 +2536,7 @@ function TableView({
                   ) : null}
                   <button
                     className="db-title-link"
-                    onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+                    onClick={(e) => openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab })}
                     onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                   >
                     {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
@@ -2966,7 +3031,7 @@ function TimelineView({
                   <div
                     className="tl-label"
                     style={{ width: LABELW }}
-                    onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
+                    onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
                     onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
                     title={tipFor(row, it)}
                   >
@@ -2987,7 +3052,7 @@ function TimelineView({
                           navGuard.current = false;
                           return;
                         }
-                        openPage(e, row.id, { onNavigate, onOpenInNewTab });
+                        openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab });
                       }}
                       onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
                       onMouseEnter={() => setHovered(row.id)}
@@ -3187,7 +3252,7 @@ function CalendarView({
     <button
       key={r.id}
       className="calendar-event"
-      onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+      onClick={(e) => openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab })}
       onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
       title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
     >
