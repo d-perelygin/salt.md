@@ -2105,6 +2105,17 @@ body:has(.icon-picker) .bn-side-menu {
   top: 0;
   background: var(--bg);
   z-index: 5;
+  /* Tabs plus Filter/Sort/Columns can outgrow the row (image-3); the bar
+     scrolls horizontally instead of cutting them off. Same treatment the
+     narrow layout already had — children must not shrink. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: none;
+}
+
+.collection-toolbar > * {
+  flex-shrink: 0;
 }
 
 .view-tabs {
@@ -3422,6 +3433,31 @@ body.is-col-resizing {
   font-weight: 600;
   min-width: 160px;
   text-transform: capitalize;
+}
+
+/* Month-count picker in the calendar head, and the grids it switches. */
+.cal-range-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.cal-range-wrap .btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cal-grids {
+  display: flex;
+  gap: 24px 32px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.cal-grids .calendar-grid {
+  flex: 1 1 340px;
+  min-width: 0;
 }
 
 .calendar-grid {
@@ -5142,16 +5178,19 @@ body.is-col-resizing {
 .share-menu select,
 .index-controls .prop-select,
 .settings-grid .prop-select,
+.subitems-select,
 .form-view select,
 .access-menu select:hover,
 .share-menu select:hover,
 .index-controls .prop-select:hover,
 .settings-grid .prop-select:hover,
+.subitems-select:hover,
 .form-view select:hover,
 .access-menu select:focus,
 .share-menu select:focus,
 .index-controls .prop-select:focus,
 .settings-grid .prop-select:focus,
+.subitems-select:focus,
 .form-view select:focus {
   appearance: none;
   -webkit-appearance: none;

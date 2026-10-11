@@ -272,6 +272,7 @@ export default function PublicCollection({ token }: { token: string }) {
               dateProp={view.dateProp ?? ''}
               allowDetail={cfg.allowDetail}
               onOpen={openRow}
+              range={view.calRange === 2 ? 2 : 1}
             />
           ) : view.type === 'timeline' ? (
             <PublicTimeline
@@ -513,12 +514,14 @@ function PublicCalendar({
   dateProp,
   allowDetail,
   onOpen,
+  range,
 }: {
   rows: Row[];
   schema: PropDef[];
   dateProp: string;
   allowDetail: boolean;
   onOpen: (id: string) => void;
+  range: 1 | 2;
 }) {
   const [month, setMonth] = useState(() => {
     const n = new Date();
@@ -542,50 +545,67 @@ function PublicCalendar({
   }
 
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const startWeekday = (first.getDay() - firstWeekday() + 7) % 7;
-  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  const cells: (Date | null)[] = [];
-  for (let i = 0; i < startWeekday; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(month.getFullYear(), month.getMonth(), d));
-  while (cells.length % 7 !== 0) cells.push(null);
-
+  const monthStarts: Date[] = [];
+  for (let k = 0; k < range; k++) {
+    monthStarts.push(new Date(month.getFullYear(), month.getMonth() + k, 1));
+  }
+  const monthCells = (first: Date) => {
+    const startWeekday = (first.getDay() - firstWeekday() + 7) % 7;
+    const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    const cells: (Date | null)[] = [];
+    for (let i = 0; i < startWeekday; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(first.getFullYear(), first.getMonth(), d));
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  };
   const today = toDayString(new Date());
-  const step = (delta: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + delta, 1));
+  const second = monthStarts[1];
+  const monthLabel =
+    range === 1 || !second
+      ? formatMonth(month.getFullYear(), month.getMonth(), 'long')
+      : formatMonth(month.getFullYear(), month.getMonth(), 'long') +
+        ' — ' +
+        formatMonth(second.getFullYear(), second.getMonth(), 'long');
+  const step = (delta: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + delta * range, 1));
 
   return (
     <div className="calendar">
       <div className="calendar-head">
         <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
-        <span className="calendar-title">{formatMonth(month.getFullYear(), month.getMonth(), 'long')}</span>
+        <span className="calendar-title">{monthLabel}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
         <button className="btn-sm" onClick={() => setMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>{t('Today')}</button>
       </div>
-      <div className="calendar-grid">
-        {weekdayNames().map((d) => (
-          <div key={d} className="calendar-dow">{d}</div>
+      <div className="cal-grids">
+        {monthStarts.map((first, mi) => (
+          <div key={mi} className="calendar-grid">
+            {weekdayNames().map((d) => (
+              <div key={d} className="calendar-dow">{d}</div>
+            ))}
+            {monthCells(first).map((d, i) => {
+              const key = d ? toDayString(d) : '';
+              const dayRows = d ? byDate.get(key) ?? [] : [];
+              return (
+                <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
+                  {d && <div className="calendar-daynum">{d.getDate()}</div>}
+                  {dayRows.map((r) =>
+                    allowDetail ? (
+                      <button key={r.id} className="calendar-event" onClick={() => void onOpen(r.id)} title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
+                        {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+                        {r.title || t('Untitled')}
+                      </button>
+                    ) : (
+                      <span key={r.id} className="calendar-event is-static" title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
+                        {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+                        {r.title || t('Untitled')}
+                      </span>
+                    ),
+                  )}
+                </div>
+              );
+            })}
+          </div>
         ))}
-        {cells.map((d, i) => {
-          const key = d ? toDayString(d) : '';
-          const dayRows = d ? byDate.get(key) ?? [] : [];
-          return (
-            <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
-              {d && <div className="calendar-daynum">{d.getDate()}</div>}
-              {dayRows.map((r) =>
-                allowDetail ? (
-                  <button key={r.id} className="calendar-event" onClick={() => void onOpen(r.id)} title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
-                    {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                    {r.title || t('Untitled')}
-                  </button>
-                ) : (
-                  <span key={r.id} className="calendar-event is-static" title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}>
-                    {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                    {r.title || t('Untitled')}
-                  </span>
-                ),
-              )}
-            </div>
-          );
-        })}
       </div>
     </div>
   );

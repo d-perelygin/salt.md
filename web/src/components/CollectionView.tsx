@@ -70,7 +70,7 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
-  ArrowRight, History} from 'lucide-react';
+  ArrowRight, ChevronDown, History} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
 function propTypeIcon(t: PropDef['type']) {
@@ -956,6 +956,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           tagColors={tagColors}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
+          range={view.calRange === 2 ? 2 : 1}
+          onRangeChange={(n) => updateView({ calRange: n })}
         />
       ) : view.type === 'list' ? (
         <ListView
@@ -2775,6 +2777,8 @@ function CalendarView({
   tagColors,
   onNavigate,
   onOpenInNewTab,
+  range,
+  onRangeChange,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -2782,11 +2786,14 @@ function CalendarView({
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
+  range: 1 | 2;
+  onRangeChange: (n: 1 | 2) => void;
 }) {
   const [month, setMonth] = useState(() => {
     const n = new Date();
     return new Date(n.getFullYear(), n.getMonth(), 1);
   });
+  const [rangeOpen, setRangeOpen] = useState(false);
 
   if (!dateProp || !schema.some((p) => p.id === dateProp && p.type === 'date')) {
     return (
@@ -2806,19 +2813,38 @@ function CalendarView({
   }
 
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  // Where the week starts is a property of the language, not of the code:
-  // Monday across most of Europe, Sunday in the US and Japan, Saturday in much
-  // of the Arab world. This used to be hardcoded to Monday.
-  const startWeekday = (first.getDay() - firstWeekday() + 7) % 7;
-  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  const cells: (Date | null)[] = [];
-  for (let i = 0; i < startWeekday; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(month.getFullYear(), month.getMonth(), d));
-  while (cells.length % 7 !== 0) cells.push(null);
+  // One cell grid per shown month; two sit side by side on wide screens and
+  // stack on narrow ones (.cal-grids).
+  const monthStarts: Date[] = [];
+  for (let k = 0; k < range; k++) {
+    monthStarts.push(new Date(month.getFullYear(), month.getMonth() + k, 1));
+  }
+  const monthCells = (first: Date) => {
+    // Where the week starts is a property of the language, not of the code:
+    // Monday across most of Europe, Sunday in the US and Japan, Saturday in much
+    // of the Arab world. This used to be hardcoded to Monday.
+    const startWeekday = (first.getDay() - firstWeekday() + 7) % 7;
+    const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    const cells: (Date | null)[] = [];
+    for (let i = 0; i < startWeekday; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(first.getFullYear(), first.getMonth(), d));
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  };
 
   const today = ymd(new Date());
-  const monthLabel = formatMonth(month.getFullYear(), month.getMonth(), 'long');
-  const step = (delta: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + delta, 1));
+  const second = monthStarts[1];
+  const monthLabel =
+    range === 1 || !second
+      ? formatMonth(month.getFullYear(), month.getMonth(), 'long')
+      : formatMonth(month.getFullYear(), month.getMonth(), 'long') +
+        ' — ' +
+        formatMonth(second.getFullYear(), second.getMonth(), 'long');
+  const step = (delta: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + delta * range, 1));
+  const pickRange = (n: 1 | 2) => {
+    setRangeOpen(false);
+    if (n !== range) onRangeChange(n);
+  };
 
   return (
     <div className="calendar">
@@ -2827,39 +2853,61 @@ function CalendarView({
         <span className="calendar-title">{monthLabel}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
         <button className="btn-sm" onClick={() => setMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>{t('Today')}</button>
-      </div>
-      <div className="calendar-grid">
-        {weekdayNames().map((d) => (
-          <div key={d} className="calendar-dow">{d}</div>
-        ))}
-        {cells.map((d, i) => {
-          const key = d ? ymd(d) : '';
-          const dayRows = d ? byDate.get(key) ?? [] : [];
-          return (
-            <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
-              {d && <div className="calendar-daynum">{d.getDate()}</div>}
-              {dayRows.map((r) => (
-                <button
-                  key={r.id}
-                  className="calendar-event"
-                  onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
-                  onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
-                  title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
-                >
-                  {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                  {r.title || 'Untitled'}
-                  {!!r.tags?.length && (
-                    <span className="cal-event-tags">
-                      {r.tags.map((t) => (
-                        <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
-                      ))}
-                    </span>
-                  )}
+        <div className="cal-range-wrap">
+          <button className="btn-sm" onClick={() => setRangeOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={rangeOpen}>
+            {range === 2 ? t('2 months') : t('Month')} <ChevronDown size={14} />
+          </button>
+          {rangeOpen && (
+            <>
+              <div className="fs-backdrop" onClick={() => setRangeOpen(false)} />
+              <div className="menu view-tab-menu" role="listbox">
+                <button role="option" aria-selected={range === 1} onClick={() => pickRange(1)}>
+                  {t('Month')}
                 </button>
-              ))}
-            </div>
-          );
-        })}
+                <button role="option" aria-selected={range === 2} onClick={() => pickRange(2)}>
+                  {t('2 months')}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="cal-grids">
+        {monthStarts.map((first, mi) => (
+          <div key={mi} className="calendar-grid">
+            {weekdayNames().map((d) => (
+              <div key={d} className="calendar-dow">{d}</div>
+            ))}
+            {monthCells(first).map((d, i) => {
+              const key = d ? ymd(d) : '';
+              const dayRows = d ? byDate.get(key) ?? [] : [];
+              return (
+                <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
+                  {d && <div className="calendar-daynum">{d.getDate()}</div>}
+                  {dayRows.map((r) => (
+                    <button
+                      key={r.id}
+                      className="calendar-event"
+                      onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+                      onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+                      title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
+                    >
+                      {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+                      {r.title || 'Untitled'}
+                      {!!r.tags?.length && (
+                        <span className="cal-event-tags">
+                          {r.tags.map((t) => (
+                            <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
+                          ))}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
