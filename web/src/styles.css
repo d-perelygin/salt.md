@@ -3459,6 +3459,13 @@ body.is-col-resizing {
   min-width: 0;
 }
 
+.cal-grid-title {
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: capitalize;
+  margin: 2px 2px 8px;
+}
+
 /* One day's rows as a plain vertical list. */
 .cal-day-list {
   display: flex;

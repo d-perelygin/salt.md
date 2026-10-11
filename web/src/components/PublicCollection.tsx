@@ -665,12 +665,17 @@ function PublicCalendar({
         </div>
       ) : (
         <div className="cal-grids">
-          {monthStarts.map((first, mi) => (
-            <div key={mi} className="calendar-grid">
+          {(mode === '2months' ? monthStarts : [new Date(cursor.getFullYear(), cursor.getMonth(), 1)]).map((first, mi) => (
+            <div key={mi} className="calendar-grid-wrap">
+              {mode === '2months' && (
+                <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
+              )}
+              <div className="calendar-grid">
               {weekdayNames().map((d) => (
                 <div key={d} className="calendar-dow">{d}</div>
               ))}
               {monthCells(first).map((d, i) => dayCell(d, `${mi}-${i}`))}
+              </div>
             </div>
           ))}
         </div>
