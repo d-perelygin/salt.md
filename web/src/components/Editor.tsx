@@ -22,6 +22,7 @@ import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
 import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, navItem, nothingBefore, useNavRegion } from '../nav';
+import { readPageScroll, writePageScroll } from '../pageUiState';
 import { useShortcut } from '../keys';
 import CollectionView from './CollectionView';
 import PageShares from './PageShares';
@@ -704,10 +705,15 @@ function PageHeader({
   // Toggle a `scrolled` class on the page body (with hysteresis so it never
   // flaps) — CSS uses it to shrink the docked page icon once the collapsed
   // cover strip is pinned.
+  //
+  // The same listener remembers the scroll position per page (see
+  // pageUiState): the Editor remounts on every document-tab switch, so without
+  // this every return lands at the top.
   useEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
     let scrolled = false;
+    let saveRaf = 0;
     const onScroll = () => {
       const s = el.scrollTop;
       if (!scrolled && s > 110) {
@@ -717,11 +723,34 @@ function PageHeader({
         scrolled = false;
         el.classList.remove('scrolled');
       }
+      cancelAnimationFrame(saveRaf);
+      saveRaf = requestAnimationFrame(() => writePageScroll(pageId, el.scrollTop));
     };
     onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+    return () => {
+      cancelAnimationFrame(saveRaf);
+      el.removeEventListener('scroll', onScroll);
+    };
+  }, [pageId]);
+
+  // Back where you were: restore the remembered scroll position. The content
+  // (document blocks, collection rows) grows over several frames after the
+  // mount, and setting scrollTop early clamps — so retry until the value
+  // sticks or the budget runs out.
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    const saved = el && readPageScroll(pageId);
+    if (!el || !saved) return;
+    let tries = 60;
+    let raf = 0;
+    const restore = () => {
+      el.scrollTop = saved.top;
+      if (el.scrollTop < saved.top - 2 && --tries > 0) raf = requestAnimationFrame(restore);
+    };
+    raf = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(raf);
+  }, [pageId]);
 
   const togglePrivate = () => {
     const next = visibility === 'private' ? 'workspace' : 'private';
