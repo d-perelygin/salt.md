@@ -498,19 +498,35 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     raf = requestAnimationFrame(restore);
     // Scroll events do not bubble, but a capture listener on the root still
     // sees the inner scrollers' — and nothing else scrolls down here.
+    //
+    // Only user moves are remembered (same anchoring ratchet as the vertical
+    // scroll in Editor: late content growth shifts scrollLeft without a
+    // gesture, and that shift must not become the remembered position).
+    let lastGesture = 0;
+    const markGesture = () => {
+      lastGesture = Date.now();
+    };
     const onScroll = (e: Event) => {
       const t = e.target as HTMLElement | null;
       if (
         t instanceof HTMLElement &&
         (t.classList.contains('board') || t.classList.contains('table-wrap') || t.classList.contains('tl-scroll'))
       ) {
-        writeViewScroll(collectionId, viewId, t.scrollLeft);
+        if (Date.now() - lastGesture < 2000) writeViewScroll(collectionId, viewId, t.scrollLeft);
       }
     };
     root.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    root.addEventListener('wheel', markGesture, { passive: true });
+    root.addEventListener('touchmove', markGesture, { passive: true });
+    root.addEventListener('pointerdown', markGesture);
+    root.addEventListener('keydown', markGesture);
     return () => {
       cancelAnimationFrame(raf);
       root.removeEventListener('scroll', onScroll, { capture: true });
+      root.removeEventListener('wheel', markGesture);
+      root.removeEventListener('touchmove', markGesture);
+      root.removeEventListener('pointerdown', markGesture);
+      root.removeEventListener('keydown', markGesture);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId, viewId, viewReady, rowsArrived]);
@@ -3054,7 +3070,7 @@ function TimelineView({
                   <div className="tl-track">
                     {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
                     <div
-                      className="tl-bar"
+                      className={'tl-bar' + (drag && drag.id === row.id ? ' is-dragging' : '')}
                       style={{ left: geom.left, width: geom.width }}
                       onClick={(e) => {
                         if (navGuard.current) {

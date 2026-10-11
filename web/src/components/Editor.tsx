@@ -709,11 +709,23 @@ function PageHeader({
   // The same listener remembers the scroll position per page (see
   // pageUiState): the Editor remounts on every document-tab switch, so without
   // this every return lands at the top.
+  //
+  // Only USER moves are remembered. After a restore the content keeps growing
+  // (images, embeds, fonts), and the browser's scroll anchoring shifts scrollTop
+  // to hold the text still — persisting that shift ratchets the position a
+  // little lower on every reload. A gesture timestamp separates the two: wheel,
+  // touch, keys and scrollbar drags count; restores, anchoring and content
+  // growth do not.
   useEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
     let scrolled = false;
     let saveRaf = 0;
+    let lastGesture = 0;
+    const markGesture = () => {
+      lastGesture = Date.now();
+    };
+    const maySave = () => Date.now() - lastGesture < 2000;
     const onScroll = () => {
       const s = el.scrollTop;
       if (!scrolled && s > 110) {
@@ -723,14 +735,28 @@ function PageHeader({
         scrolled = false;
         el.classList.remove('scrolled');
       }
+      if (!maySave()) return;
       cancelAnimationFrame(saveRaf);
-      saveRaf = requestAnimationFrame(() => writePageScroll(pageId, el.scrollTop));
+      saveRaf = requestAnimationFrame(() => {
+        if (maySave()) writePageScroll(pageId, el.scrollTop);
+      });
     };
     onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
+    el.addEventListener('wheel', markGesture, { passive: true });
+    el.addEventListener('touchmove', markGesture, { passive: true });
+    el.addEventListener('pointerdown', markGesture);
+    el.addEventListener('keydown', markGesture);
     return () => {
       cancelAnimationFrame(saveRaf);
+      // A switch made mid-glide keeps the last user position rather than the
+      // one before it — but never an anchoring shift (no gesture, no save).
+      if (maySave()) writePageScroll(pageId, el.scrollTop);
       el.removeEventListener('scroll', onScroll);
+      el.removeEventListener('wheel', markGesture);
+      el.removeEventListener('touchmove', markGesture);
+      el.removeEventListener('pointerdown', markGesture);
+      el.removeEventListener('keydown', markGesture);
     };
   }, [pageId]);
 

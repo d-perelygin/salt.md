@@ -7586,9 +7586,14 @@ a.btn {
 }
 .tl-bar:hover { filter: brightness(1.07); }
 
-/* Edge-resize handles: a slim grip at each bar end, visible on hover (always
-   on touch). Dragging one stretches that edge day by day; the live date hangs
-   off the edge being pulled. */
+/* Edge-resize handles: a slim grip at each bar end. Only where there IS a
+   pointer does hovering reveal it — a touch screen has no hover to read, and
+   would otherwise leave both grips stuck on the bar it last touched. There the
+   grips show while a drag is actually in progress and no longer, which is also
+   what a desktop does once the pointer leaves the bar mid-drag. The band is the
+   same width either way, so where a touch lands does not change. Dragging a
+   grip stretches that edge day by day; the live date hangs off the edge being
+   pulled. */
 .tl-resize {
   position: absolute;
   top: 0;
@@ -7601,7 +7606,12 @@ a.btn {
   touch-action: none;
   opacity: 0;
 }
-.tl-bar:hover .tl-resize {
+@media (hover: hover) {
+  .tl-bar:hover .tl-resize {
+    opacity: 1;
+  }
+}
+.tl-bar.is-dragging .tl-resize {
   opacity: 1;
 }
 .tl-resize::after {
@@ -7616,11 +7626,6 @@ a.btn {
 }
 .tl-resize-r {
   right: 1px;
-}
-@media (hover: none) {
-  .tl-resize {
-    opacity: 1;
-  }
 }
 .tl-drag-tip {
   position: absolute;
