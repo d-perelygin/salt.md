@@ -544,6 +544,48 @@ func openDB(path string) (*sql.DB, error) {
 			return nil, fmt.Errorf("migrate users.%s: %w", c[0], err)
 		}
 	}
+	// Restricted pages with direct user grants (fork): per-page access narrowing
+	// inside a workspace. A page with visibility='restricted' is readable only
+	// by its owner, the workspace admins, and explicitly granted members; the
+	// grant covers the whole subtree until a nested 'restricted' narrows it.
+	// subject_type is carried from the start so groups can reuse the table
+	// later — today only 'user' rows are ever written or read.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS page_grants (
+		page_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		subject_type TEXT NOT NULL DEFAULT 'user',
+		access TEXT NOT NULL DEFAULT 'view',
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (page_id, user_id, subject_type)
+	)`); err != nil {
+		return nil, fmt.Errorf("create page_grants: %w", err)
+	}
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_page_grants_user ON page_grants(user_id)`)
+	// Existing 'private' pages become 'restricted' with an edit grant for
+	// their owner: the same people see them as before, under the new rule.
+	// Idempotent — after the first run no 'private' row is left to convert.
+	rows, err := db.Query(`SELECT id, owner_id FROM pages WHERE visibility = 'private' AND owner_id != ''`)
+	if err != nil {
+		return nil, fmt.Errorf("list private pages: %w", err)
+	}
+	type privPage struct{ id, owner string }
+	var privs []privPage
+	for rows.Next() {
+		var p privPage
+		if rows.Scan(&p.id, &p.owner) == nil {
+			privs = append(privs, p)
+		}
+	}
+	rows.Close()
+	for _, p := range privs {
+		if _, err := db.Exec(`INSERT INTO page_grants (page_id, user_id, subject_type, access, created_at)
+			VALUES (?, ?, 'user', 'edit', ?) ON CONFLICT DO NOTHING`, p.id, p.owner, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			return nil, fmt.Errorf("grant private page %s: %w", p.id, err)
+		}
+	}
+	if _, err := db.Exec(`UPDATE pages SET visibility = 'restricted' WHERE visibility = 'private'`); err != nil {
+		return nil, fmt.Errorf("migrate private pages: %w", err)
+	}
 	// Record the schema/app version so an operator (and future migrations) can
 	// see what a data dir was last written by. Additive, idempotent.
 	db.Exec(`INSERT INTO schema_meta (key, value) VALUES ('version', ?)
