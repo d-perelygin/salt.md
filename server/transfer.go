@@ -444,7 +444,7 @@ func (s *Server) importWorkspaceFS(u *user, fsys fs.FS, opt importOptions) (*imp
 				typ = "doc"
 			}
 			vis := p.Visibility
-			if vis != "private" {
+			if vis != "private" && vis != "restricted" {
 				vis = "workspace"
 			}
 			created := p.CreatedAt
