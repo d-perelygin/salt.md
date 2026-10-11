@@ -991,8 +991,10 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
               <p className="dialog-hint">
                 {t('Changes reach your calendar within about half an hour.')}
               </p>
-              {/* New subscription: scope, name, create. */}
-              <label style={sectionTitle}>{t('What should the new subscription contain?')}</label>
+              {/* New subscription: scope, name, create — boxed, so the
+                  creator reads as one thing rather than loose rows. */}
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginTop: 12 }}>
+              <label style={{ ...sectionTitle, marginTop: 0 }}>{t('What should the new subscription contain?')}</label>
               <select
                 className="prop-select"
                 value={newPick}
@@ -1060,10 +1062,11 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                   {t('Create subscription')}
                 </button>
               </div>
+              </div>
               {/* Named subscriptions: one link per scope, each with its own
                   token, window and buttons, so sharing or revoking one
                   touches nothing else. */}
-              <label style={{ ...sectionTitle, marginTop: 28, borderTop: '1px solid var(--border)', paddingTop: 20 }}>{t('Named links')}</label>
+              <label style={{ ...sectionTitle, marginTop: 28, borderTop: '1px solid var(--border)', paddingTop: 20, fontSize: 16 }}>{t('Named links')}</label>
               <p className="dialog-hint">
                 {t('Each subscription below is a separate link with its own token: share one with somebody, revoke one, the rest keep working.')}
               </p>
