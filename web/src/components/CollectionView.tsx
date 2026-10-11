@@ -2788,6 +2788,14 @@ function TimelineView({
   // Edge-resize drag: which row, which edge, which day it is over right now.
   // Persisted on pointer-up only; until then the bar is drawn from this.
   const [drag, setDrag] = useState<{ id: string; edge: 'start' | 'end'; day: number } | null>(null);
+  // Mirrored in a ref, so the end of a gesture reads the day it had reached from
+  // here rather than from React state — see finish, which must not read a day
+  // the NEXT gesture has already put into the state.
+  const dragRef = useRef<typeof drag>(null);
+  const setDragBoth = (v: typeof drag) => {
+    dragRef.current = v;
+    setDrag(v);
+  };
   // A resize ends in a click: the browser sends one after the gesture even when
   // the finger barely moved, and cancelling the pointerdown does not reliably
   // stop it on touch. That click must not open the row whose edge was held. A
@@ -2797,6 +2805,12 @@ function TimelineView({
   // it covers a press of any length and expires on its own.
   const navGuard = useRef(0);
   const swallowClick = () => Date.now() - navGuard.current < 700;
+  // The live gesture's own way out. A browser that takes a gesture over without
+  // saying so leaves the previous drag running: its window listeners stay
+  // attached, so it keeps following the NEXT finger and its finish can fire
+  // during the next gesture. Starting one drag therefore ends any other first,
+  // which is also why the handle below can promise "one at a time".
+  const dragCleanup = useRef<(() => void) | null>(null);
   // While an edge is held, nothing on the page may start a text selection: the
   // browser would take the gesture over (see finish below) and, on iOS, leave a
   // callout sitting on top of the interface that swallows taps. The class goes
@@ -2857,18 +2871,25 @@ function TimelineView({
   const beginResize = (e: React.PointerEvent, id: string, edge: 'start' | 'end') => {
     e.stopPropagation();
     e.preventDefault();
+    // Whatever was dragging stops here (see dragCleanup): one gesture at a time,
+    // so a leaked one cannot ride along with this one.
+    dragCleanup.current?.();
+    // Armed at the press as well as at the end: a click this gesture produces is
+    // never an honest click, however long the press lasted and even if the end
+    // of the gesture never gets reported at all.
+    navGuard.current = Date.now();
     const track = (e.currentTarget as HTMLElement).closest('.tl-track') as HTMLElement | null;
     const it = items.find((i) => i.row.id === id);
     if (!track || !it) return;
     const rect = track.getBoundingClientRect();
     const fixed = edge === 'start' ? it.end : it.start;
-    setDrag({ id, edge, day: edge === 'start' ? it.start : it.end });
+    setDragBoth({ id, edge, day: edge === 'start' ? it.start : it.end });
     const move = (ev: PointerEvent) => {
       const n = Math.min(
         dayCols[dayCols.length - 1],
         Math.max(dayCols[0], dayCols[0] + Math.floor(((ev.clientX - rect.left) / rect.width) * dayCols.length)),
       );
-      setDrag({ id, edge, day: edge === 'start' ? Math.min(n, fixed) : Math.max(n, fixed) });
+      setDragBoth({ id, edge, day: edge === 'start' ? Math.min(n, fixed) : Math.max(n, fixed) });
     };
     // The stretched bar and the date badge are drawn from `drag` alone, so every
     // way this gesture can end has to clear it. A finger lifting is `pointerup`;
@@ -2887,19 +2908,24 @@ function TimelineView({
       window.removeEventListener('pointercancel', finish);
       window.removeEventListener('blur', finish);
       document.removeEventListener('visibilitychange', onHide);
+      if (dragCleanup.current === finish) dragCleanup.current = null;
       // Re-armed here rather than at the press, so the click the browser sends
       // after a long hold is inside the window however long the hold was.
       navGuard.current = Date.now();
-      setDrag((d) => {
-        if (d && d.id === id) {
-          void onSetDate(id, edge === 'start' ? startProp : endProp, isoDay(d.day));
-        }
-        return null;
-      });
+      // Read from the ref, not from the state updater: React may run an updater
+      // more than once and this one writes to the server, and — the reason this
+      // is a ref at all — a gesture that ends late must not commit whatever the
+      // NEXT gesture has put in the state in the meantime.
+      const reached = dragRef.current && dragRef.current.id === id ? dragRef.current.day : null;
+      setDragBoth(null);
+      if (reached !== null) {
+        void onSetDate(id, edge === 'start' ? startProp : endProp, isoDay(reached));
+      }
     };
     const onHide = () => {
       if (document.hidden) finish();
     };
+    dragCleanup.current = finish;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', finish);
     window.addEventListener('pointercancel', finish);
