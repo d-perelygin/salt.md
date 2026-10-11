@@ -78,11 +78,12 @@ export default function GalleryView({
                         value={v}
                         onChange={(nv) => onSetProp(r.id, p.id, nv)}
                         onOptionsChange={(opts) => onSetOptions(p.id, opts)}
+                        onOpen={onNavigate}
                       />
                     </div>
                   );
                 }
-                return <PropertyValue key={p.id} def={p} value={v} readOnly compact />;
+                return <PropertyValue key={p.id} def={p} value={v} readOnly compact onOpen={onNavigate} />;
               })}
             </div>
           </div>
