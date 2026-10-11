@@ -35,7 +35,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow} from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList} from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -451,6 +451,26 @@ function RowProperties({
   );
 }
 
+// The expiry select offers fixed buckets; map a stored expires_at back onto
+// the nearest one so the menu reflects the live link. Anything custom reads
+// as the closest bucket — picking it again keeps roughly the same expiry.
+function expiryToDays(expiresAt?: string): number {
+  if (!expiresAt) return 0;
+  const ms = Date.parse(expiresAt) - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
+  const days = ms / 86400000;
+  let best = 0;
+  let bestDiff = Infinity;
+  for (const b of [0, 1, 7, 30]) {
+    const d = Math.abs(days - b);
+    if (d < bestDiff) {
+      bestDiff = d;
+      best = b;
+    }
+  }
+  return best;
+}
+
 function PageHeader({
   page,
   pageId,
@@ -663,7 +683,11 @@ function PageHeader({
       setShareUrl(res.url.startsWith('http') ? res.url : location.origin + res.url);
       setMadeWith({ days: shareExpiry, password: sharePassword });
       setShareOff(false);
-      onPagesChanged();
+      setReadShared(true);
+      setSharePassword('');
+      setShareHasPassword(password !== '');
+      setLastPassword(password);
+      if (rotated) toast(t('A new link was created — the old one no longer works'));
     } catch {
       toast(t('Sharing failed'));
     } finally {

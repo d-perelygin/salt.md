@@ -41,8 +41,11 @@ Four things follow from how the link is served:
   index the page. Engines that honour the header will leave it alone. It is a
   request, not a wall: treat the link itself as the secret.
 
-There is exactly **one public link per page**. Publishing again mints a new
-token and the previous one stops working immediately.
+There is exactly **one public read link per page**. Publishing again mints a
+new token and the previous one stops working immediately. A collection's
+form link is separate, with its own switch — see [Forms](forms.md). Opening
+the globe menu while only the form is shared still offers the read share,
+with a note that the form is already shared.
 
 ## Publishing from the editor
 
@@ -60,6 +63,9 @@ token and the previous one stops working immediately.
    "Anyone with this link can view this page (read-only)."
 6. **Copy** puts the address on the clipboard. Clicking into the field selects
    the whole address, for a browser where the clipboard button is blocked.
+   The address is also remembered in this browser, so reopening the menu
+   later still shows it. A different browser never saw it: it shows the link
+   as active and offers **Create a new link**, which replaces the old one.
 
 ![Publishing a page: the link, an optional password and an optional expiry.](img/share-dialog.png)
 
@@ -90,10 +96,6 @@ breaking it.
 the open menu, never on the page. Open another page, or reload the browser,
 and the menu starts again at `Never` with an empty password box. If protection
 matters, set it before pressing **Create link** or **New link**.
-
-Taking protection off works the same way: clear the password or set
-**Expires:** back to `Never`, then press **New link**. There is no separate
-"remove password": the removal is a new link without one, at a new address.
 
 ### Who can publish
 
@@ -157,15 +159,21 @@ the menu offers.
 A password is optional and independent of the expiry: a link can have both,
 either or neither.
 
-A visitor who opens a protected link gets a small form instead of the page:
+A visitor who opens a protected link gets a password prompt instead of the
+page. A protected document shows a standalone card:
 
-> 🔒 **Protected page**
+> **Protected page**
 > This page is protected by a password.
 > `Password` [ **Open** ]
 
-A wrong password redisplays the form with **Wrong password.** in red. The
-password is sent in the form body, so it never appears in the address bar or in
-a browser history entry.
+A protected collection opens the same prompt inside the app, with the same
+wording. A wrong password redisplays the prompt with **Wrong password.** in
+red. A document sends the password in the form body, so it never appears in
+the address bar or in a browser history entry; both kinds of links also take
+it as `?pw=` in the address, which opens a correct one directly and is
+consumed (scrubbed from the bar) on load. The share menu has
+**Copy link with password** for exactly that address — it shows while the
+password is at hand, typed but not yet applied, or just applied.
 
 Guessing is limited per link and per address: after five attempts in quick
 succession the form answers **Too many attempts. Wait a minute and try again.**,
@@ -175,11 +183,14 @@ from another address is not affected.
 
 Three properties of this that surprise people:
 
-- **There is no session.** Nothing is remembered after the page is shown, so
-  every fresh visit, including a reload, asks again.
-- **The password cannot be read back or changed in place.** It is stored
-  scrambled together with the token, and neither you nor an administrator can
-  recover it. Setting a different one re-mints the link.
+- **There is no session — almost.** The server remembers nothing, so a new
+  tab, a closed browser or a cleared tab always asks again. But a password
+  that worked is kept in that tab's own session storage, so a reload reopens
+  the page straight away without asking twice.
+- **The password cannot be read back, but it can be changed in place.** It is
+  stored as a salted hash beside the token, and neither you nor an
+  administrator can recover it. Setting a different one — or clearing it —
+  keeps the same link.
 - **It is a second lock on an already unguessable door.** The link is the real
   secret; the password stops a forwarded link from being casually opened by
   whoever it was forwarded to. It is not an account, and it identifies nobody.
@@ -193,7 +204,7 @@ prompt.
 
 There is no salt.md branding **on the document**. The two gates in front of it
 are the exception, and both name the product in the browser tab: the password
-form's tab reads "salt.md: protected page", the "Not found" page's tab reads
+prompt's tab reads "salt.md — protected page", the "Not found" page's tab reads
 "salt.md".
 
 Content survives with its structure: headings, bullet and numbered lists,
