@@ -142,7 +142,12 @@ travels with the feed — everything upcoming plus a window into the past you
 choose yourself (30, 90 or 365 days, or the whole history), 90 days to begin
 with — so years of done rows do not clog the calendar on a phone.
 
-The dialog offers a **scope** under *What should the calendar contain?*:
+The dialog holds **named links** and nothing else: one link per project or
+person, each with its own token, scope and history window. Creating one takes
+a **scope** (*What should the new subscription contain?*), a name ("For the
+client", "Releases on the phone") and nothing more. The dialog remembers your
+last scope on the server, so the creator reopens where you left it on any
+device; a scope that is gone falls back to Everything.
 
 | Scope | What lands in the feed |
 | --- | --- |
@@ -153,58 +158,39 @@ The dialog offers a **scope** under *What should the calendar contain?*:
 
 Only collections that actually have a date property are listed, with each of
 their saved views beneath them; otherwise the dialog would hand out a
-permanently empty feed. The dialog remembers your last scope on the server,
-so it reopens where you left it on any device; a scope that is gone falls
-back to Everything. Every scope shows its event count and the nearest
-upcoming event, so a scope holding nothing says so before anything is
-subscribed. A view feed says which view it came from: the calendar
+permanently empty feed. Every scope shows its event count and the nearest
+upcoming event, so a scope holding nothing says so before anything is created.
+A view feed says which view it came from: the calendar
 name is "salt.md · Collection · View", and the event description is
-"Collection / View". If the list is empty you will
+"Collection / View". If the scope list is empty you will
 see *"A collection appears here once it has a date property."* A view that is
 deleted later leaves an empty calendar rather than an error, so a stale
 subscription does not sit there flashing red.
 
-Below the scope, *How far back should it reach?* sets that window. Then the
-field **Subscription link (webcal):** shows the feed
-itself, read-only; clicking it selects the whole address so you can copy it by
-hand. The first row connects: one **Add to calendar** button subscribes through
-the calendar of your choice — **This device** and **Apple Calendar** hand a
-`webcal://` link to the local calendar app (**Apple Calendar** is preselected
-on Apple hardware), **Google Calendar** and **Outlook**
-open the web import of the plain `https://` address. The second row manages the link: **Copy URL**
-copies the same feed as an ordinary web address for a calendar that wants one;
-and **Reset the link**, which asks for confirmation and then reports *"New
-calendar link created (the old one no longer works)"*. Resetting touches only
-this main link; named subscriptions below keep working.
-
-**Named links** is the list of named links: one per project or per
-person, each with its own token. Creating one takes a scope and a name —
-"For the client", "Releases on the phone" — and hands over a link that sees
-exactly that scope and nothing wider. Each entry shows its event count and can
-be copied or **revoked** on its own; revoking stops that link at once and
-touches nothing else. A link whose scope becomes unreadable simply goes empty,
-like any other stale subscription.
+Every entry carries its own block: its history window (30, 90 or 365 days, or
+the whole history — everything upcoming is always included), its
+**Subscription link (webcal):**, read-only, and two rows of buttons. The first
+row connects: one **Add to calendar** button subscribes through the calendar
+of your choice — **This device** and **Apple Calendar** hand a `webcal://`
+link to the local calendar app (**Apple Calendar** is preselected on Apple
+hardware), **Google Calendar** and **Outlook** open the web import of the
+plain `https://` address. The second row manages the link: **Copy URL** copies
+the same feed as an ordinary web address for a calendar that wants one, and
+**Revoke** stops that link at once and touches nothing else. A link whose
+scope becomes unreadable simply goes empty, like any other stale subscription.
 
 ```
 https://salt.example.com/ics/<token>.ics
-https://salt.example.com/ics/<token>.ics?workspace=<id>
-https://salt.example.com/ics/<token>.ics?collection=<id>
-https://salt.example.com/ics/<token>.ics?collection=<id>&view=<viewId>
 ```
 
-Five things worth knowing before you paste that link anywhere:
+Four things worth knowing before you paste a link anywhere:
 
-- **The token is the credential.** No login, like a share link. Anybody holding
-  the URL sees what that link's scope sees — the main link sees everything
-  you see, a named link sees only its own scope. Do not share a link that sees
-  more than its reader should.
-- **There is one token per person for the main link**, behind every scope.
-  Narrowing the feed is a view on what you may read, never a way to see more.
-  Named subscriptions each carry their own token instead.
-- **Reset the link invalidates the main link only**, because the named links
-  sit behind their own tokens. Each of those is revoked on its own, in
-  **Named links**. Afterwards you re-subscribe the main link in each
-  calendar app.
+- **The token is the credential.** No login, like a share link. Anybody
+  holding the URL sees what that link's scope sees, and nothing wider. Do not
+  share a link that sees more than its reader should.
+- **There is one token per link.** Narrowing the feed is a view on what you
+  may read, never a way to see more: a link cannot show anything its owner
+  could not open.
 - **Permissions are checked on every fetch, not at subscription time.** A
   collection that is moved, made private or trashed simply stops producing
   events. A scope you can no longer read yields an **empty calendar rather than
