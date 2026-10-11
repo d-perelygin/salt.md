@@ -7,7 +7,7 @@ import { useOnline } from '../useOnline';
 import Portal from './Portal';
 import { useBoardDrag } from '../boardDrag';
 import { tagColorClass } from '../tags';
-import { compare, firstWeekday, formatDay, formatMonth, toDayString, weekdayNames } from '../format';
+import { compare, firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, weekdayNames } from '../format';
 import { resolveSmartDate } from '../smartdate';
 import { plural, t } from '../i18n';
 import { confirm, promptText } from '../dialog';
@@ -2788,7 +2788,7 @@ function TimelineView({
       const nextMonthDay = Math.floor(Date.UTC(y, mo + 1, 1) / 86400000);
       const segEnd = Math.min(nextMonthDay - 1, max);
       months.push({
-        label: formatMonth(y, mo, 'short'),
+        label: formatMonthYear(y, mo),
         left: `${((c - min) / n) * 100}%`,
         width: `${((segEnd - c + 1) / n) * 100}%`,
         from: c,
@@ -2801,7 +2801,7 @@ function TimelineView({
       const from = Math.floor(Date.UTC(m.y, m.mo, 1) / 86400000);
       const to = Math.floor(Date.UTC(m.y, m.mo + 1, 1) / 86400000) - 1;
       months.push({
-        label: formatMonth(m.y, m.mo, 'short'),
+        label: formatMonthYear(m.y, m.mo),
         left: `${(i / monthCols.length) * 100}%`,
         width: `${(1 / monthCols.length) * 100}%`,
         from,
@@ -2809,8 +2809,6 @@ function TimelineView({
       });
     });
   }
-  const inWindow = (n: number) =>
-    isYear ? yearOf(n) === yearOf(cursor) : n >= dayCols[0] && n <= dayCols[dayCols.length - 1];
   const todayLeft = ((): string | null => {
     if (!isYear) {
       if (today < dayCols[0] || today > dayCols[dayCols.length - 1]) return null;
@@ -2876,6 +2874,19 @@ function TimelineView({
         yearOf(n) * 12 + monthOf(n) <= yearOf(it.end) * 12 + monthOf(it.end)
       : n >= it.start && n <= it.end;
   const hoveredItem = hovered ? items.find((i) => i.row.id === hovered) ?? null : null;
+  // While resizing, the highlight follows the dragged edge rather than the
+  // stored span.
+  const spanItem = drag
+    ? (() => {
+        const base = items.find((i) => i.row.id === drag.id);
+        if (!base) return hoveredItem;
+        return {
+          ...base,
+          start: drag.edge === 'start' ? drag.day : base.start,
+          end: drag.edge === 'end' ? drag.day : base.end,
+        };
+      })()
+    : hoveredItem;
   const tipFor = (row: Row, it: Item) => {
     const sv = typeof row.props[startProp] === 'string' ? (row.props[startProp] as string) : '';
     const ev = endProp && typeof row.props[endProp] === 'string' ? (row.props[endProp] as string) : '';
@@ -2922,9 +2933,9 @@ function TimelineView({
                       className={
                         'tl-day' +
                         (n === today ? ' is-today' : '') +
-                        (hoveredItem && covers(hoveredItem, n) ? ' is-span' : '') +
-                        (hoveredItem && covers(hoveredItem, n) && !covers(hoveredItem, n - 1) ? ' is-span-first' : '') +
-                        (hoveredItem && covers(hoveredItem, n) && !covers(hoveredItem, n + 1) ? ' is-span-last' : '')
+                        (spanItem && covers(spanItem, n) ? ' is-span' : '') +
+                        (spanItem && covers(spanItem, n) && !covers(spanItem, n - 1) ? ' is-span-first' : '') +
+                        (spanItem && covers(spanItem, n) && !covers(spanItem, n + 1) ? ' is-span-last' : '')
                       }
                     >
                       {new Date(n * 86400000).getUTCDate()}
@@ -3007,7 +3018,7 @@ function TimelineView({
                               : `calc(${geom.left} + ${geom.width})`,
                         }}
                       >
-                        {formatDay(isoDay(drag.day))}
+                        {formatDay(isoDay(drag.day), 'dayMonth')}
                       </span>
                     )}
                   </div>

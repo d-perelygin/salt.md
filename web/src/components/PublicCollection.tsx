@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Columns3, LayoutGrid, List, Lock, Table2 } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { plural, t } from '../i18n';
-import { firstWeekday, formatDay, formatMonth, toDayString, weekdayNames } from '../format';
+import { firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, weekdayNames } from '../format';
 import { PageIcon } from '../pageIcon';
 import { tagColorClass } from '../tags';
 import PropertyValue from './PropertyValue';
@@ -790,7 +790,7 @@ function PublicTimeline({
       const nextMonthDay = Math.floor(Date.UTC(y, mo + 1, 1) / 86400000);
       const segEnd = Math.min(nextMonthDay - 1, max);
       months.push({
-        label: formatMonth(y, mo, 'short'),
+        label: formatMonthYear(y, mo),
         left: `${((c - min) / n) * 100}%`,
         width: `${((segEnd - c + 1) / n) * 100}%`,
         from: c,
@@ -803,7 +803,7 @@ function PublicTimeline({
       const from = Math.floor(Date.UTC(m.y, m.mo, 1) / 86400000);
       const to = Math.floor(Date.UTC(m.y, m.mo + 1, 1) / 86400000) - 1;
       months.push({
-        label: formatMonth(m.y, m.mo, 'short'),
+        label: formatMonthYear(m.y, m.mo),
         left: `${(i / monthCols.length) * 100}%`,
         width: `${(1 / monthCols.length) * 100}%`,
         from,
@@ -811,8 +811,6 @@ function PublicTimeline({
       });
     });
   }
-  const inWindow = (n: number) =>
-    isYear ? yearOf(n) === yearOf(cursor) : n >= dayCols[0] && n <= dayCols[dayCols.length - 1];
   const todayLeft = ((): string | null => {
     if (!isYear) {
       if (today < dayCols[0] || today > dayCols[dayCols.length - 1]) return null;
