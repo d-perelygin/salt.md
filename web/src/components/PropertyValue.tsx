@@ -7,7 +7,7 @@ import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
 import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
 import { showActivityFor } from './ActivityLogHost';
 import { initials, nameColor } from './CommentsPanel';
-import { Check, Link2 as LinkIcon, Plus, Trash2 } from 'lucide-react';
+import { Check, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import { t } from '../i18n';
 
@@ -1020,7 +1020,7 @@ export default function PropertyValue({
       // — on a board that is pure noise. The host is what is shown, the full
       // address is what is opened.
       const href = String(value ?? '').trim();
-      if (!href) return compact ? null : <span className="prop-empty">—</span>;
+      const full = href.includes('://') ? href : 'https://' + href;
       let label = href;
       try {
         const u = new URL(href.includes('://') ? href : 'https://' + href);
@@ -1028,10 +1028,10 @@ export default function PropertyValue({
       } catch {
         /* not a valid URL — then leave it unshortened */
       }
-      return (
+      const chip = href ? (
         <a
           className="prop-url-chip"
-          href={href.includes('://') ? href : 'https://' + href}
+          href={full}
           target="_blank"
           rel="noopener noreferrer"
           title={href}
@@ -1040,6 +1040,66 @@ export default function PropertyValue({
           <LinkIcon size={11} />
           {label}
         </a>
+      ) : compact ? null : (
+        <span className="prop-empty">—</span>
+      );
+      if (ro) return chip;
+      if (compact) return chip;
+      if (!editing) {
+        // A filled chip is a real link, so a plain click on it opens the URL
+        // and can never mean "edit". Editing is entered through the pencil
+        // (revealed on hover), a double-click, or a click on an empty value.
+        return (
+          <span
+            className="prop-url-editable"
+            title={href || t('Click to edit')}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setEditing(true);
+            }}
+          >
+            <span
+              onClick={
+                href
+                  ? undefined
+                  : (e) => {
+                      e.stopPropagation();
+                      setEditing(true);
+                    }
+              }
+            >
+              {chip}
+            </span>
+            <button
+              type="button"
+              className="prop-url-edit-btn"
+              title={t('Edit link')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditing(true);
+              }}
+            >
+              <Pencil size={12} />
+            </button>
+          </span>
+        );
+      }
+      return (
+        <input
+          className="prop-input"
+          autoFocus
+          defaultValue={href}
+          placeholder="https://…"
+          onClick={(e) => e.stopPropagation()}
+          onBlur={(e) => {
+            setEditing(false);
+            if (e.target.value.trim() !== href) onChange!(e.target.value.trim());
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+        />
       );
     }
     case 'person':
