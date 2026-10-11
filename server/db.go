@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS ics_feeds (
 	ref_id TEXT NOT NULL DEFAULT '',
 	view_id TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
+	past_days INTEGER NOT NULL DEFAULT 90,
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ics_feeds_user ON ics_feeds(user_id);
@@ -608,6 +609,11 @@ func openDB(path string) (*sql.DB, error) {
 	// a re-shared collection does not suddenly expose notes inside rows).
 	if err := ensureColumn(db, "share_links", "options", `options TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate share_links.options: %w", err)
+	}
+	// Named calendar subscriptions carry their own history window, so one
+	// link can stay quiet while another keeps the archive.
+	if err := ensureColumn(db, "ics_feeds", "past_days", `past_days INTEGER NOT NULL DEFAULT 90`); err != nil {
+		return nil, fmt.Errorf("migrate ics_feeds.past_days: %w", err)
 	}
 	// Record the schema/app version so an operator (and future migrations) can
 	// see what a data dir was last written by. Additive, idempotent.

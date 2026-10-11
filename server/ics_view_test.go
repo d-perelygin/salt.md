@@ -471,3 +471,58 @@ func TestICSNamedFeedValidation(t *testing.T) {
 		}
 	}
 }
+
+// Each named subscription carries its own history window: narrowing it drops
+// older rows from that link only, and the link can be renamed.
+func TestICSNamedFeedWindow(t *testing.T) {
+	s, uid, col, _ := icsViewFixture(t)
+	var ws string
+	if err := s.db.QueryRow(`SELECT workspace_id FROM pages WHERE id = ?`, col).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().AddDate(0, 0, -60).Format("2006-01-02")
+	props, _ := json.Marshal(map[string]any{"status": "doing", "due": old})
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+		VALUES (?, ?, ?, 'Oldie', 'row', ?, 9, ?, ?)`, newID(), col, ws, string(props), now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	rec := icsAPI(t, s, uid, "POST", "/api/ics/feeds",
+		`{"kind":"collection","refId":"`+col+`","name":"Team","pastDays":30}`)
+	if rec.Code != 200 {
+		t.Fatalf("POST /api/ics/feeds: status %d: %s", rec.Code, rec.Body.String())
+	}
+	var feed struct {
+		ID       string `json:"id"`
+		URL      string `json:"url"`
+		PastDays int    `json:"pastDays"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &feed); err != nil {
+		t.Fatal(err)
+	}
+	if feed.PastDays != 30 {
+		t.Errorf("feed pastDays = %d, want 30", feed.PastDays)
+	}
+	if body := icsGet(t, s, icsFeedPath(t, feed.URL)); strings.Contains(body, "Oldie") {
+		t.Errorf("30-day feed contains the 60-day-old row")
+	}
+	up := icsAPI(t, s, uid, "PATCH", "/api/ics/feeds/"+feed.ID, `{"pastDays":365,"name":"Team Q"}`)
+	if up.Code != 200 {
+		t.Fatalf("PATCH feed: status %d: %s", up.Code, up.Body.String())
+	}
+	var updated struct {
+		Name     string `json:"name"`
+		PastDays int    `json:"pastDays"`
+	}
+	if err := json.Unmarshal(up.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "Team Q" || updated.PastDays != 365 {
+		t.Errorf("updated feed = %+v, want Team Q / 365", updated)
+	}
+	if body := icsGet(t, s, icsFeedPath(t, feed.URL)); !strings.Contains(body, "Oldie") {
+		t.Errorf("365-day feed lost the 60-day-old row")
+	}
+	if rec := icsAPI(t, s, uid, "PATCH", "/api/ics/feeds/"+feed.ID, `{"pastDays":45}`); rec.Code != 400 {
+		t.Errorf("unknown window: status %d, want 400", rec.Code)
+	}
+}

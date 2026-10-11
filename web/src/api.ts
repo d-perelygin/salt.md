@@ -235,6 +235,7 @@ export const api = {
         count: number;
         nextTitle?: string;
         nextDay?: string;
+        pastDays: number;
       }[];
       pastDays: number;
       scope: string;
@@ -262,6 +263,11 @@ export const api = {
     }),
   icsFeedDelete: (id: string) =>
     req<{ ok: boolean }>(`/api/ics/feeds/${id}`, { method: 'DELETE' }),
+  icsFeedUpdate: (id: string, patch: { name?: string; pastDays?: number }) =>
+    req<{ ok?: boolean }>(`/api/ics/feeds/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
   twoFAStatus: () => req<{ enabled: boolean }>('/api/2fa'),
   twoFASetup: () =>
     req<{ secret: string; otpauthUrl: string; qr: string }>('/api/2fa/setup', { method: 'POST' }),

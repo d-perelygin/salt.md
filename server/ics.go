@@ -98,14 +98,7 @@ func (s *Server) handleICSPrefs(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string]any{}
 	if body.PastDays != nil {
-		ok := false
-		for _, allowed := range icsPastDaysOptions {
-			if *body.PastDays == allowed {
-				ok = true
-				break
-			}
-		}
-		if !ok {
+		if !icsValidDays(*body.PastDays) {
 			httpError(w, 400, "unknown history window")
 			return
 		}
@@ -139,6 +132,18 @@ func (s *Server) handleICSPrefs(w http.ResponseWriter, r *http.Request) {
 // icsFeed is one named subscription row.
 type icsFeed struct {
 	id, kind, refID, viewID, name, token, created string
+	pastDays                                     int
+}
+
+// icsValidDays reports whether n is an offerable history window (0 keeps
+// everything).
+func icsValidDays(n int) bool {
+	for _, allowed := range icsPastDaysOptions {
+		if n == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 // icsScopeQuery renders the feed query string for a scope triple.
@@ -202,7 +207,7 @@ func (s *Server) icsValidateScope(uid, kind, refID, viewID string) (string, bool
 // icsFeedJSON renders one subscription for the dialog, with its links and a
 // live preview of what it currently holds.
 func (s *Server) icsFeedJSON(r *http.Request, uid string, f icsFeed) map[string]any {
-	events, _ := s.icsEventsFor(uid, wsOf(f.kind, f.refID), colOf(f.kind, f.refID), viewOf(f.kind, f.viewID))
+	events, _ := s.icsEventsFor(uid, wsOf(f.kind, f.refID), colOf(f.kind, f.refID), viewOf(f.kind, f.viewID), f.pastDays)
 	n, nt, nd := icsPreview(events)
 	if len(nd) == 8 {
 		nd = nd[0:4] + "-" + nd[4:6] + "-" + nd[6:8]
@@ -211,7 +216,7 @@ func (s *Server) icsFeedJSON(r *http.Request, uid string, f icsFeed) map[string]
 	return map[string]any{
 		"id": f.id, "kind": f.kind, "refId": f.refID, "viewId": f.viewID,
 		"name": f.name, "url": u, "webcal": w, "createdAt": f.created,
-		"count": n, "nextTitle": nt, "nextDay": nd,
+		"count": n, "nextTitle": nt, "nextDay": nd, "pastDays": f.pastDays,
 	}
 }
 
@@ -221,10 +226,11 @@ func (s *Server) icsFeedJSON(r *http.Request, uid string, f icsFeed) map[string]
 func (s *Server) handleICSFeedsCreate(w http.ResponseWriter, r *http.Request) {
 	uid := requestUser(r).ID
 	var body struct {
-		Kind   string `json:"kind"`
-		RefID  string `json:"refId"`
-		ViewID string `json:"viewId"`
-		Name   string `json:"name"`
+		Kind     string `json:"kind"`
+		RefID    string `json:"refId"`
+		ViewID   string `json:"viewId"`
+		Name     string `json:"name"`
+		PastDays *int   `json:"pastDays"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		return
@@ -236,6 +242,14 @@ func (s *Server) handleICSFeedsCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		httpError(w, 400, "that scope cannot be subscribed to")
 		return
+	}
+	pastDays := s.icsPastDaysOf(uid)
+	if body.PastDays != nil {
+		if !icsValidDays(*body.PastDays) {
+			httpError(w, 400, "unknown history window")
+			return
+		}
+		pastDays = *body.PastDays
 	}
 	var existing int
 	s.db.QueryRow(`SELECT COUNT(*) FROM ics_feeds WHERE user_id = ?`, uid).Scan(&existing)
@@ -250,10 +264,54 @@ func (s *Server) handleICSFeedsCreate(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Everything"
 	}
-	f := icsFeed{id: newID(), kind: body.Kind, refID: body.RefID, viewID: body.ViewID, name: name, token: icsNewToken(), created: now()}
-	if _, err := s.db.Exec(`INSERT INTO ics_feeds (id, user_id, token, kind, ref_id, view_id, name, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, f.id, uid, f.token, f.kind, f.refID, f.viewID, f.name, f.created); err != nil {
+	f := icsFeed{id: newID(), kind: body.Kind, refID: body.RefID, viewID: body.ViewID, name: name, token: icsNewToken(), created: now(), pastDays: pastDays}
+	if _, err := s.db.Exec(`INSERT INTO ics_feeds (id, user_id, token, kind, ref_id, view_id, name, past_days, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, f.id, uid, f.token, f.kind, f.refID, f.viewID, f.name, f.pastDays, f.created); err != nil {
 		httpError(w, 500, "cannot create subscription")
+		return
+	}
+	writeJSON(w, s.icsFeedJSON(r, uid, f))
+}
+
+// handleICSFeedUpdate renames a subscription and/or changes its history
+// window. Scope and token never change: a link that widens after sharing
+// would not be a boundary.
+func (s *Server) handleICSFeedUpdate(w http.ResponseWriter, r *http.Request) {
+	uid := requestUser(r).ID
+	var body struct {
+		Name     *string `json:"name"`
+		PastDays *int    `json:"pastDays"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		return
+	}
+	if body.Name == nil && body.PastDays == nil {
+		httpError(w, 400, "nothing to change")
+		return
+	}
+	var f icsFeed
+	if err := s.db.QueryRow(`SELECT id, kind, ref_id, view_id, name, token, past_days, created_at FROM ics_feeds WHERE id = ? AND user_id = ?`,
+		r.PathValue("id"), uid).Scan(&f.id, &f.kind, &f.refID, &f.viewID, &f.name, &f.token, &f.pastDays, &f.created); err != nil {
+		httpError(w, 404, "not found")
+		return
+	}
+	if body.Name != nil {
+		if strings.TrimSpace(*body.Name) == "" {
+			httpError(w, 400, "name is required")
+			return
+		}
+		f.name = strings.TrimSpace(*body.Name)
+	}
+	if body.PastDays != nil {
+		if !icsValidDays(*body.PastDays) {
+			httpError(w, 400, "unknown history window")
+			return
+		}
+		f.pastDays = *body.PastDays
+	}
+	if _, err := s.db.Exec(`UPDATE ics_feeds SET name = ?, past_days = ? WHERE id = ? AND user_id = ?`,
+		f.name, f.pastDays, f.id, uid); err != nil {
+		httpError(w, 500, "cannot update subscription")
 		return
 	}
 	writeJSON(w, s.icsFeedJSON(r, uid, f))
@@ -277,7 +335,7 @@ func (s *Server) handleICSFeedDelete(w http.ResponseWriter, r *http.Request) {
 
 // icsListFeeds returns the caller's named subscriptions, oldest first.
 func (s *Server) icsListFeeds(uid string) []icsFeed {
-	rows, err := s.db.Query(`SELECT id, kind, ref_id, view_id, name, token, created_at FROM ics_feeds WHERE user_id = ? ORDER BY created_at`, uid)
+	rows, err := s.db.Query(`SELECT id, kind, ref_id, view_id, name, token, past_days, created_at FROM ics_feeds WHERE user_id = ? ORDER BY created_at`, uid)
 	if err != nil {
 		return nil
 	}
@@ -285,7 +343,7 @@ func (s *Server) icsListFeeds(uid string) []icsFeed {
 	var out []icsFeed
 	for rows.Next() {
 		var f icsFeed
-		if rows.Scan(&f.id, &f.kind, &f.refID, &f.viewID, &f.name, &f.token, &f.created) == nil {
+		if rows.Scan(&f.id, &f.kind, &f.refID, &f.viewID, &f.name, &f.token, &f.pastDays, &f.created) == nil {
 			out = append(out, f)
 		}
 	}
@@ -351,7 +409,7 @@ func (s *Server) handleICSInfo(w http.ResponseWriter, r *http.Request) {
 		NextDay   string `json:"nextDay,omitempty"` // YYYY-MM-DD
 	}
 	newScope := func(kind, id, viewID, name, query string) scope {
-		events, _ := s.icsEventsFor(uid, wsOf(kind, id), colOf(kind, id), viewOf(kind, viewID))
+		events, _ := s.icsEventsFor(uid, wsOf(kind, id), colOf(kind, id), viewOf(kind, viewID), s.icsPastDaysOf(uid))
 		n, nt, nd := icsPreview(events)
 		if len(nd) == 8 {
 			nd = nd[0:4] + "-" + nd[4:6] + "-" + nd[6:8]
@@ -551,12 +609,10 @@ func (s *Server) icsPastDaysOf(userID string) int {
 	if _, err := fmt.Sscanf(s.setting("ics_past_days_"+userID, ""), "%d", &days); err != nil {
 		return icsDefaultPastDays
 	}
-	for _, allowed := range icsPastDaysOptions {
-		if days == allowed {
-			return days
-		}
+	if !icsValidDays(days) {
+		return icsDefaultPastDays
 	}
-	return icsDefaultPastDays
+	return days
 }
 
 // icsCutoffDay is the oldest YYYYMMDD day a feed still carries ("" keeps
@@ -699,7 +755,7 @@ type icsEvent struct {
 // onward (everything upcoming is always included), at most icsMaxEvents. A
 // view scope follows the view's filters and date property; an unknown view
 // or an unreadable scope yields no events rather than an error.
-func (s *Server) icsEventsFor(userID, scopeWS, scopeCol, scopeView string) ([]icsEvent, string) {
+func (s *Server) icsEventsFor(userID, scopeWS, scopeCol, scopeView string, pastDays int) ([]icsEvent, string) {
 	ws := s.visibleWorkspaces(userID)
 	if scopeWS != "" {
 		only := ws[:0]
@@ -741,7 +797,7 @@ func (s *Server) icsEventsFor(userID, scopeWS, scopeCol, scopeView string) ([]ic
 	if len(ws) == 0 {
 		return out, name
 	}
-	cutoff := icsCutoffDay(s.icsPastDaysOf(userID))
+	cutoff := icsCutoffDay(pastDays)
 	feedUser := s.userByID(userID)
 
 	wargs := make([]any, len(ws))
@@ -945,10 +1001,13 @@ func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
 	// parameters cannot widen it — holding one link never grants more than
 	// that link was made for.
 	var userID, feedKind, feedRef, feedView string
+	var feedWindow int
 	var f icsFeed
-	if err := s.db.QueryRow(`SELECT user_id, kind, ref_id, view_id FROM ics_feeds WHERE token = ?`, token).
-		Scan(&userID, &feedKind, &feedRef, &feedView); err == nil {
-		f = icsFeed{kind: feedKind, refID: feedRef, viewID: feedView}
+	haveWindow := false
+	if err := s.db.QueryRow(`SELECT user_id, kind, ref_id, view_id, past_days FROM ics_feeds WHERE token = ?`, token).
+		Scan(&userID, &feedKind, &feedRef, &feedView, &feedWindow); err == nil {
+		f = icsFeed{kind: feedKind, refID: feedRef, viewID: feedView, pastDays: feedWindow}
+		haveWindow = true
 	} else {
 		// Reverse-lookup the owning user (small instance; linear scan of the
 		// few ics_token_* settings rows).
@@ -966,6 +1025,10 @@ func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "not found")
 		return
 	}
+	if !haveWindow {
+		// Legacy links predate per-feed windows and follow the account one.
+		feedWindow = s.icsPastDaysOf(userID)
+	}
 
 	scopeWS := r.URL.Query().Get("workspace")
 	scopeCol := r.URL.Query().Get("collection")
@@ -976,7 +1039,7 @@ func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
 		scopeWS, scopeCol, scopeView = wsOf(f.kind, f.refID), colOf(f.kind, f.refID), viewOf(f.kind, f.viewID)
 	}
 
-	events, name := s.icsEventsFor(userID, scopeWS, scopeCol, scopeView)
+	events, name := s.icsEventsFor(userID, scopeWS, scopeCol, scopeView, feedWindow)
 	base := s.publicShareBase(r)
 
 	var b strings.Builder
