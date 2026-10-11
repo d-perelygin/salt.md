@@ -209,7 +209,10 @@ dated at what the timeline is showing.
 
 The head carries the same Day / Week / Month / 2 months / Year switch as the
 calendar, stored on the view the same way; a public link shows what its owner
-set, without the switch and without the add button.
+set, without the switch and without the add button. Dragging a bar by either
+edge stretches that end day by day, with the live date hanging off the edge;
+it persists on release. That needs an end property — without one the bars have
+no handles.
 
 The settings bar carries two pickers for this view:
 

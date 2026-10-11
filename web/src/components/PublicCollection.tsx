@@ -897,19 +897,15 @@ function PublicTimeline({
             <div className="tl-corner" style={{ width: LABELW }} />
             <div className="tl-head-right">
               <div className="tl-months">
-                {months.map((m, i) => {
-                  const span =
-                    hoveredItem && hoveredItem.start <= m.to && hoveredItem.end >= m.from;
-                  return (
-                    <div
-                      key={i}
-                      className={'tl-month' + (span ? ' is-span' : '')}
-                      style={{ left: m.left, width: m.width }}
-                    >
-                      {m.label}
-                    </div>
-                  );
-                })}
+                {months.map((m, i) => (
+                  <div
+                    key={i}
+                    className="tl-month"
+                    style={{ left: m.left, width: m.width }}
+                  >
+                    {m.label}
+                  </div>
+                ))}
                 {todayLeft && <div className="tl-today-tick" style={{ left: todayLeft }} title={t('Today')} />}
               </div>
               {!isYear && (

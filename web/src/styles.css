@@ -7529,8 +7529,7 @@ a.btn {
 .tl-day.is-span-last {
   border-radius: 0 8px 8px 0;
 }
-.tl-month.is-span {
-  background: var(--accent-soft);
+.tl-day.is-span-first.is-span-last {
   border-radius: 8px;
 }
 .tl-label.tl-add {
@@ -7538,6 +7537,13 @@ a.btn {
 }
 .tl-label.tl-add:hover {
   background: none;
+}
+.tl-add .btn-sm {
+  width: 100%;
+  justify-content: center;
+}
+.timeline {
+  padding: 8px 12px 24px;
 }
 .tl-row { display: flex; align-items: stretch; height: 40px; }
 .tl-label {
@@ -7579,6 +7585,56 @@ a.btn {
   transition: filter 0.12s;
 }
 .tl-bar:hover { filter: brightness(1.07); }
+
+/* Edge-resize handles: a slim grip at each bar end, visible on hover (always
+   on touch). Dragging one stretches that edge day by day; the live date hangs
+   off the edge being pulled. */
+.tl-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ew-resize;
+  touch-action: none;
+  opacity: 0;
+}
+.tl-bar:hover .tl-resize {
+  opacity: 1;
+}
+.tl-resize::after {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.85);
+}
+.tl-resize-l {
+  left: 1px;
+}
+.tl-resize-r {
+  right: 1px;
+}
+@media (hover: none) {
+  .tl-resize {
+    opacity: 1;
+  }
+}
+.tl-drag-tip {
+  position: absolute;
+  top: -30px;
+  transform: translateX(-50%);
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  z-index: 5;
+  pointer-events: none;
+}
 .tl-bar-label {
   font-size: 12px;
   font-weight: 500;

@@ -983,6 +983,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           mode={view.tlMode ?? 'month'}
           onModeChange={(m) => updateView({ tlMode: m })}
           onAddRow={(preset) => addRow(preset)}
+          onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
         />
       ) : (
         <TableView
@@ -2644,6 +2645,7 @@ function TimelineView({
   mode,
   onModeChange,
   onAddRow,
+  onSetDate,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -2655,6 +2657,7 @@ function TimelineView({
   mode: SpanMode;
   onModeChange: (m: SpanMode) => void;
   onAddRow: (presetProps?: Record<string, unknown>) => void;
+  onSetDate: (rowId: string, propId: string, iso: string) => void;
 }) {
   const DAY = 26; // px per day
   const YEARW = 140; // px per month in year mode
@@ -2686,6 +2689,12 @@ function TimelineView({
     today < dataMin - 3 ? dataMin : today > dataMax + 4 ? dataMax : today,
   );
   const [hovered, setHovered] = useState<string | null>(null);
+  // Edge-resize drag: which row, which edge, which day it is over right now.
+  // Persisted on pointer-up only; until then the bar is drawn from this.
+  const [drag, setDrag] = useState<{ id: string; edge: 'start' | 'end'; day: number } | null>(null);
+  // A drag ends in a click. Without this guard every resize would also open
+  // the row it just changed.
+  const navGuard = useRef(false);
 
   if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
     return (
@@ -2729,6 +2738,41 @@ function TimelineView({
   // the full width: day columns share the track equally (never narrower than
   // 26px — below that the track scrolls), year columns split it in twelve.
   const gridMin = isYear ? monthCols.length * YEARW : dayCols.length * DAY;
+  // Handles live only on day-granular spans of a ranged timeline: without an
+  // end property there is nothing to stretch to, and month columns are too
+  // coarse for day precision.
+  const resizable = !!endProp && !isYear;
+  const beginResize = (e: React.PointerEvent, id: string, edge: 'start' | 'end') => {
+    e.stopPropagation();
+    e.preventDefault();
+    const track = (e.currentTarget as HTMLElement).closest('.tl-track') as HTMLElement | null;
+    const it = items.find((i) => i.row.id === id);
+    if (!track || !it) return;
+    const rect = track.getBoundingClientRect();
+    const fixed = edge === 'start' ? it.end : it.start;
+    const x0 = e.clientX;
+    setDrag({ id, edge, day: edge === 'start' ? it.start : it.end });
+    const move = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - x0) > 4) navGuard.current = true;
+      const n = Math.min(
+        dayCols[dayCols.length - 1],
+        Math.max(dayCols[0], dayCols[0] + Math.floor(((ev.clientX - rect.left) / rect.width) * dayCols.length)),
+      );
+      setDrag({ id, edge, day: edge === 'start' ? Math.min(n, fixed) : Math.max(n, fixed) });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setDrag((d) => {
+        if (d && d.id === id) {
+          void onSetDate(id, edge === 'start' ? startProp : endProp, isoDay(d.day));
+        }
+        return null;
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
 
   // Month header segments across the visible range, in percent of the grid.
   const months: { label: string; left: string; width: string; from: number; to: number }[] = [];
@@ -2856,19 +2900,15 @@ function TimelineView({
             <div className="tl-corner" style={{ width: LABELW }} />
             <div className="tl-head-right">
               <div className="tl-months">
-                {months.map((m, i) => {
-                  const span =
-                    hoveredItem && hoveredItem.start <= m.to && hoveredItem.end >= m.from;
-                  return (
-                    <div
-                      key={i}
-                      className={'tl-month' + (span ? ' is-span' : '')}
-                      style={{ left: m.left, width: m.width }}
-                    >
-                      {m.label}
-                    </div>
-                  );
-                })}
+                {months.map((m, i) => (
+                  <div
+                    key={i}
+                    className="tl-month"
+                    style={{ left: m.left, width: m.width }}
+                  >
+                    {m.label}
+                  </div>
+                ))}
                 {todayLeft && <div className="tl-today-tick" style={{ left: todayLeft }} title={t('Today')} />}
               </div>
               {!isYear && (
@@ -2899,6 +2939,17 @@ function TimelineView({
               const { row } = it;
               const g = barGeom(it);
               if (!g) return null;
+              // While dragging, the bar follows the pointer; the dates persist
+              // on release only.
+              const dg =
+                drag && drag.id === row.id
+                  ? barGeom({
+                      ...it,
+                      start: drag.edge === 'start' ? drag.day : it.start,
+                      end: drag.edge === 'end' ? drag.day : it.end,
+                    })
+                  : null;
+              const geom = dg ?? g;
               return (
                 <div key={row.id} className="tl-row">
                   <div
@@ -2919,15 +2970,46 @@ function TimelineView({
                     {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
                     <div
                       className="tl-bar"
-                      style={{ left: g.left, width: g.width }}
-                      onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
+                      style={{ left: geom.left, width: geom.width }}
+                      onClick={(e) => {
+                        if (navGuard.current) {
+                          navGuard.current = false;
+                          return;
+                        }
+                        openPage(e, row.id, { onNavigate, onOpenInNewTab });
+                      }}
                       onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
                       onMouseEnter={() => setHovered(row.id)}
                       onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
                       title={tipFor(row, it)}
                     >
                       <span className="tl-bar-label">{row.title || 'Untitled'}</span>
+                      {resizable && (
+                        <>
+                          <span
+                            className="tl-resize tl-resize-l"
+                            onPointerDown={(e) => beginResize(e, row.id, 'start')}
+                          />
+                          <span
+                            className="tl-resize tl-resize-r"
+                            onPointerDown={(e) => beginResize(e, row.id, 'end')}
+                          />
+                        </>
+                      )}
                     </div>
+                    {drag && drag.id === row.id && (
+                      <span
+                        className="tl-drag-tip"
+                        style={{
+                          left:
+                            drag.edge === 'start'
+                              ? geom.left
+                              : `calc(${geom.left} + ${geom.width})`,
+                        }}
+                      >
+                        {formatDay(isoDay(drag.day))}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
