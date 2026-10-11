@@ -2439,9 +2439,14 @@ function TableView({
     const widthAt = (clientX: number) => Math.max(64, Math.round(from + clientX - x0));
     document.body.classList.add('is-col-resizing');
     const move = (ev: PointerEvent) => setDrag({ key, px: widthAt(ev.clientX) });
-    const up = (ev: PointerEvent) => {
+    // `pointercancel` as well as `pointerup`: on touch the browser can take the
+    // gesture over (a long press, an OS swipe) and sends the cancel instead of
+    // the up. Without it the body would keep `is-col-resizing` — no text
+    // selectable anywhere — until a reload.
+    const end = (ev: PointerEvent) => {
       document.removeEventListener('pointermove', move);
-      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointerup', end);
+      document.removeEventListener('pointercancel', end);
       document.body.classList.remove('is-col-resizing');
       const px = widthAt(ev.clientX);
       setDrag(null);
@@ -2453,7 +2458,8 @@ function TableView({
       }
     };
     document.addEventListener('pointermove', move);
-    document.addEventListener('pointerup', up);
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
   };
 
   // Double-click gives a column back to the content: the entry is REMOVED
@@ -2850,9 +2856,18 @@ function TimelineView({
       );
       setDrag({ id, edge, day: edge === 'start' ? Math.min(n, fixed) : Math.max(n, fixed) });
     };
-    const up = () => {
+    // The stretched bar and the date badge are drawn from `drag` alone, so every
+    // way this gesture can end has to clear it. A finger lifting is `pointerup`;
+    // the browser taking the gesture over — a long press that turns into a text
+    // selection, a phone call, an OS swipe — is `pointercancel`, and on touch it
+    // arrives INSTEAD of the up. Listening for one and not the other leaves the
+    // bar stuck mid-drag with its badge hanging over the timeline, and the next
+    // stray touch keeps moving it. Where the drag got to is what the user saw,
+    // so a cancelled drag stores the day it had reached, exactly like a lift.
+    const finish = () => {
       window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
       setDrag((d) => {
         if (d && d.id === id) {
           void onSetDate(id, edge === 'start' ? startProp : endProp, isoDay(d.day));
@@ -2861,7 +2876,8 @@ function TimelineView({
       });
     };
     window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
   };
 
   // Month header segments across the visible range, in percent of the grid.

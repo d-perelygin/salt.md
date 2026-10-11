@@ -7583,6 +7583,11 @@ a.btn {
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
   transition: filter 0.12s;
+  /* A bar is a control, not prose: a long press on its own text would start a
+     selection, and the browser then takes the gesture over — cancelling the
+     drag and, on iOS, leaving a callout that swallows taps. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .tl-bar:hover { filter: brightness(1.07); }
 
