@@ -470,6 +470,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // its position per view, across tab switches and reloads. The vertical
   // scroll belongs to `.page-body` and is remembered beside it (see Editor).
   const rootRef = useRef<HTMLDivElement>(null);
+  // Booleans, not the objects: re-run when the view becomes renderable (the
+  // config arrives after the mount, and the first rows after that) — but not
+  // on every config save or row page, which would yank a scrolled view back.
+  // Without this the effect below fires once while the loader is still up
+  // (rootRef is empty) and never again, so returning to a tab restores
+  // nothing — the position it was asked to remember is still in the store.
+  const viewReady = config !== null;
+  const rowsArrived = rows.length > 0;
   useEffect(() => {
     const root = rootRef.current;
     if (!root || !viewId) return;
@@ -504,7 +512,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       cancelAnimationFrame(raf);
       root.removeEventListener('scroll', onScroll, { capture: true });
     };
-  }, [collectionId, viewId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectionId, viewId, viewReady, rowsArrived]);
 
   const saveConfig = async (next: CollectionConfig) => {
     setConfig(next);
