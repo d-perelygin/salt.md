@@ -4929,9 +4929,13 @@ button.cal-mini-day:hover {
  * .menu sits UNDER the sheet meant to catch clicks outside it: every click on
  * an item lands on the backdrop, which closes the menu and does nothing else.
  * It reads as a dead menu, not as a stacking bug. .fs-popover already had the
- * higher value; these two were missed and were dead from the day they shipped. */
+ * higher value; these two were missed and were dead from the day they shipped,
+ * and the timeline's blocker menus were missed in the same way later: the
+ * conflict list and the dependency popover answered every click with a close. */
 .view-tab-menu,
-.view-add-menu {
+.view-add-menu,
+.tl-conflicts-menu,
+.tl-dep-menu {
   z-index: 320;
 }
 
@@ -8067,7 +8071,9 @@ g.is-bad > .tl-dep-head { stroke: var(--danger); }
   left: 0;
   width: 360px;
   max-width: calc(100vw - 16px);
-  z-index: 30;
+  /* No z-index here on purpose: it must clear .fs-backdrop, and a value set
+     here would win over the one in the "menus behind the backdrop" block
+     further up the file (same specificity, later wins). */
   padding: 8px;
 }
 .tl-menu-head { font-weight: 600; font-size: 13px; padding: 4px 6px 8px; }
