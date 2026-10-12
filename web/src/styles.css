@@ -7861,7 +7861,11 @@ a.btn {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 12px;
+  /* A twelfth of the bar, so the two grips never eat a short one: on a one-day
+     bar (26px) two 12px bands left a 2px middle, and neither the resize nor the
+     click on the row could be aimed at. */
+  width: min(12px, 30%);
+  max-width: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
