@@ -5,6 +5,7 @@ import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
 import { useOnline } from '../useOnline';
 import Portal from './Portal';
+import AnchoredMenu from './AnchoredMenu';
 import { useBoardDrag } from '../boardDrag';
 import { tagColorClass } from '../tags';
 import { compare, firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, weekdayNames } from '../format';
@@ -25,6 +26,7 @@ import type {
   ViewDef,
 } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
+import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
 import { openCollectionRow, openPageAux, type PageOpeners } from '../pageOpen';
 import { readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
 import { AgentDot } from './AgentBadge';
@@ -710,6 +712,44 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     void saveConfig({ ...config, views: next });
   };
 
+  // One-click blocker columns for the timeline: a self-relation naming the
+  // tasks this row blocks ("Blocking") plus its backrelation ("Blocked by",
+  // the incoming side), with this view pointed at the former. The same shape
+  // as adding both by hand in Properties, minus the walkthrough. Property
+  // names stay English: they are data, not UI.
+  const ensureDepProps = () => {
+    if (!config || !view) return;
+    const schema = [...config.schema];
+    let depId = view.depProp && schema.some((p) => p.id === view.depProp) ? view.depProp : '';
+    if (!depId) {
+      const self = schema.find((p) => p.type === 'relation' && p.relationCollection === collectionId);
+      if (self) {
+        depId = self.id;
+      } else {
+        let relId = 'blocking';
+        while (schema.some((p) => p.id === relId)) relId += '-x';
+        let backId = 'blocked-by';
+        while (schema.some((p) => p.id === backId) || backId === relId) backId += '-x';
+        schema.push(
+          { id: relId, name: 'Blocking', type: 'relation', relationCollection: collectionId },
+          {
+            id: backId,
+            name: 'Blocked by',
+            type: 'backrelation',
+            backrelationCollection: collectionId,
+            backrelationProp: relId,
+          },
+        );
+        depId = relId;
+      }
+    }
+    void saveConfig({
+      ...config,
+      schema,
+      views: config.views.map((v) => (v.id === view.id ? { ...v, depProp: depId } : v)),
+    });
+  };
+
   const addView = (type: ViewDef['type']) => {
     const labels: Record<ViewDef['type'], string> = {
       table: t('Table'),
@@ -858,36 +898,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         </Portal>
       )}
       <div className="collection-actions">
-        {view.type === 'timeline' && (
-          <>
-            <select
-              className="subitems-select"
-              title={t('Start date for the bars')}
-              value={view.dateProp ?? ''}
-              onChange={(e) => updateView({ dateProp: e.target.value || undefined })}
-            >
-              <option value="">{t('Start: —')}</option>
-              {dateProps.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {t('Start:')} {p.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="subitems-select"
-              title={t('End date for the bars (blank = one-day bars)')}
-              value={view.endDateProp ?? ''}
-              onChange={(e) => updateView({ endDateProp: e.target.value || undefined })}
-            >
-              <option value="">{t('End: (none)')}</option>
-              {dateProps.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {t('End:')} {p.name}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
         {view.type === 'calendar' && (
           <select
             className="subitems-select"
@@ -1065,15 +1075,20 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         <TimelineView
           rows={viewRows}
           schema={visibleSchema}
+          collectionId={collectionId}
           startProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
           endProp={view.endDateProp || ''}
+          depProp={view.depProp && selfRelProps.some((p) => p.id === view.depProp) ? view.depProp : ''}
           tagColors={tagColors}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
           mode={view.tlMode ?? 'month'}
           onModeChange={(m) => updateView({ tlMode: m })}
+          onViewChange={updateView}
+          onEnsureDepProps={ensureDepProps}
           onAddRow={(preset) => addRow(preset)}
           onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
+          onSetDep={(rowId, propId, ids) => void setRowProp(rowId, propId, ids)}
         />
       ) : (
         <TableView
@@ -2739,26 +2754,36 @@ const ymd = toDayString;
 function TimelineView({
   rows,
   schema,
+  collectionId,
   startProp,
   endProp,
+  depProp,
   onNavigate,
   onOpenInNewTab,
   mode,
   onModeChange,
+  onViewChange,
+  onEnsureDepProps,
   onAddRow,
   onSetDate,
+  onSetDep,
 }: {
   rows: Row[];
   schema: PropDef[];
+  collectionId: string;
   startProp: string;
   endProp: string;
+  depProp: string;
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   mode: SpanMode;
   onModeChange: (m: SpanMode) => void;
+  onViewChange: (patch: Partial<ViewDef>) => void;
+  onEnsureDepProps: () => void;
   onAddRow: (presetProps?: Record<string, unknown>) => void;
   onSetDate: (rowId: string, propId: string, iso: string) => void;
+  onSetDep: (rowId: string, propId: string, ids: string[]) => void;
 }) {
   const DAY = 26; // px per day
   const YEARW = 140; // px per month in year mode
@@ -2783,6 +2808,15 @@ function TimelineView({
     items.push({ row: r, start, end });
   }
 
+  // Blockers, OUTGOING: a row lists the tasks IT blocks, read from a
+  // self-relation prop. blockedBy is derived by reversing those edges: a row
+  // is blocked when it starts on or before a blocker's end.
+  // When no dep prop is picked but exactly one self-relation exists, it is the
+  // blocker list — nothing else could be meant, and forcing a pick for the
+  // single-candidate case would be pure friction.
+  const selfRels = schema.filter((p) => p.type === 'relation' && p.relationCollection === collectionId);
+  const effDep = depProp || (selfRels.length === 1 ? selfRels[0].id : '');
+
   const today = dayNum(ymd(new Date()));
   const dataMin = items.length ? Math.min(...items.map((i) => i.start)) : today;
   const dataMax = items.length ? Math.max(...items.map((i) => i.end)) : today;
@@ -2790,6 +2824,61 @@ function TimelineView({
     today < dataMin - 3 ? dataMin : today > dataMax + 4 ? dataMax : today,
   );
   const [hovered, setHovered] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [conflictsOpen, setConflictsOpen] = useState(false);
+  // Row whose blocker popover is open, with the click point for positioning.
+  const [depPop, setDepPop] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [addBlockerFor, setAddBlockerFor] = useState<string | null>(null);
+  // Drag-to-link: which row the handle was pulled from. The lasso line and
+  // the target highlight are driven imperatively (refs + classList) during
+  // the drag — a React render per mousemove janks, the line jumps.
+  const [linkFrom, setLinkFrom] = useState<string | null>(null);
+  const linkActiveRef = useRef<string | null>(null);
+  const prevOverRef = useRef<string | null>(null);
+  // Arrow whose ✕ (unlink) button is showing, else null.
+  const [hoverArrow, setHoverArrow] = useState<string | null>(null);
+  // Lasso line endpoints in client pixels while linking, else null.
+  const [linkLine, setLinkLine] = useState<{ x: number; y: number; x2: number; y2: number } | null>(null);
+  // Pixel width of the arrow overlay (the track area). Arrows are drawn in
+  // pixels like Notion's, so a resize re-measures via this observer.
+  const [trackW, setTrackW] = useState(0);
+  const roRef = useRef<ResizeObserver | null>(null);
+  const arrowsRefCb = useCallback((el: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (!el) return;
+    setTrackW(el.clientWidth);
+    const ro = new ResizeObserver(() => setTrackW(el.clientWidth));
+    ro.observe(el);
+    roRef.current = ro;
+  }, []);
+  useEffect(() => () => roRef.current?.disconnect(), []);
+  const linkOverRef = useRef<string | null>(null);
+  const lassoPathRef = useRef<SVGPathElement | null>(null);
+  const lassoDotRef = useRef<SVGCircleElement | null>(null);
+  // Clear the imperative drag paint (line + target highlight) without a render.
+  const clearLinkPaint = () => {
+    if (prevOverRef.current) {
+      document
+        .querySelector(`[data-tl-row="${prevOverRef.current}"]`)
+        ?.classList.remove('is-link-target');
+      prevOverRef.current = null;
+    }
+    linkOverRef.current = null;
+  };
+  useEffect(() => {
+    if (!linkFrom && !depPop) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      linkActiveRef.current = null;
+      clearLinkPaint();
+      setLinkFrom(null);
+      setLinkLine(null);
+      setDepPop(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [linkFrom, depPop]);
   // Edge-resize drag: which row, which edge, which day it is over right now.
   // Persisted on pointer-up only; until then the bar is drawn from this.
   const [drag, setDrag] = useState<{ id: string; edge: 'start' | 'end'; day: number } | null>(null);
@@ -2826,6 +2915,62 @@ function TimelineView({
     document.body.classList.toggle('is-tl-resizing', !!drag);
     return () => document.body.classList.remove('is-tl-resizing');
   }, [drag]);
+
+  // Live dependency graph: while an edge resize drags, the dragged row keeps
+  // its stored dates only on release — but bars, arrows, conflicts and fixes
+  // all follow the pointer NOW, or the arrows hang behind the gesture.
+  const liveFor = (it: Item): Item =>
+    drag && drag.id === it.row.id
+      ? { ...it, start: drag.edge === 'start' ? drag.day : it.start, end: drag.edge === 'end' ? drag.day : it.end }
+      : it;
+  const liveItems = items.map(liveFor);
+  const byId = new Map(liveItems.map((i) => [i.row.id, i]));
+  const knownIds = new Set(byId.keys());
+  // Tasks this row blocks (outgoing edges).
+  const depIdsOf = (rowId: string): string[] => {
+    const it = byId.get(rowId);
+    if (!it) return [];
+    return depListOf(it.row.props, effDep, rowId, knownIds);
+  };
+  const nodes: DepNode[] = liveItems.map((i) => ({
+    id: i.row.id,
+    start: i.start,
+    end: i.end,
+    deps: depIdsOf(i.row.id),
+  }));
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const blockedBy = blockedByMap(nodes);
+  // A row is blocked when a blocker ends on or after its start: the blocker
+  // must finish first, so start <= pred.end is the conflict.
+  const violationsOf = (rowId: string): { pred: Item; self: Item }[] => {
+    const self = byId.get(rowId);
+    if (!self) return [];
+    const out: { pred: Item; self: Item }[] = [];
+    for (const pid of blockedBy.get(rowId) ?? []) {
+      const pred = byId.get(pid);
+      if (pred && self.start <= pred.end) out.push({ pred, self });
+    }
+    return out;
+  };
+  const allViolations = liveItems.flatMap((i) => violationsOf(i.row.id));
+  // Linking must not close a loop: does `to` already (transitively) block
+  // `from`? Depth-first over the small in-memory graph.
+  const wouldCycle = (from: string, to: string): boolean => wouldCreateCycle(from, to, depIdsOf);
+  // Shift a row so it starts the day after its latest blocker, keeping its
+  // duration. One explicit user action, never automatic.
+  const shiftAfterBlockers = (rowId: string) => {
+    const self = byId.get(rowId);
+    if (!self) return;
+    const preds = (blockedBy.get(rowId) ?? []).map((id) => byId.get(id)!).filter(Boolean);
+    if (!preds.length) return;
+    const node = nodeById.get(rowId)!;
+    const predNodes = preds.map((p) => nodeById.get(p.row.id)!).filter(Boolean);
+    const after = shiftTarget(node, predNodes);
+    if (after === null) return;
+    const dur = self.end - self.start;
+    void onSetDate(rowId, startProp, isoDay(after));
+    if (endProp) void onSetDate(rowId, endProp, isoDay(after + dur));
+  };
 
   if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
     return (
@@ -2959,6 +3104,124 @@ function TimelineView({
     document.addEventListener('visibilitychange', onHide);
   };
 
+  // Drag-to-link: pull the handle on a bar and drop it on another bar for
+  // this row to block that one. One gesture at a time, same as resize — a new
+  // link drag ends a running resize first.
+  const beginLink = (e: React.PointerEvent, id: string) => {
+    if (!effDep) return;
+    e.stopPropagation();
+    e.preventDefault();
+    dragCleanup.current?.(false);
+    navGuard.current = Date.now();
+    // Anchor the lasso at the grabbed handle; the free end follows the
+    // pointer and snaps to the hovered bar, Notion-style. Everything below
+    // paints imperatively: a render per mousemove janks and the line jumps.
+    const hr = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const anchor = { x: hr.left + hr.width / 2, y: hr.top + hr.height / 2 };
+    linkActiveRef.current = id;
+    setLinkFrom(id);
+    setLinkLine({ ...anchor, x2: e.clientX, y2: e.clientY });
+    linkOverRef.current = null;
+    prevOverRef.current = null;
+    // Smooth Notion-like curve: horizontal out of the handle, bend, into
+    // the pointer. Painted straight onto the SVG node, no render involved.
+    const paint = (x2: number, y2: number) => {
+      const dx = Math.max(30, Math.abs(x2 - anchor.x) * 0.5);
+      const d =
+        `M ${anchor.x} ${anchor.y} ` +
+        `C ${anchor.x + dx} ${anchor.y}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+      lassoPathRef.current?.setAttribute('d', d);
+      lassoDotRef.current?.setAttribute('cx', String(x2));
+      lassoDotRef.current?.setAttribute('cy', String(y2));
+    };
+    const markTarget = (over: string | null) => {
+      if (over === prevOverRef.current) return;
+      if (prevOverRef.current) {
+        document
+          .querySelector(`[data-tl-row="${prevOverRef.current}"]`)
+          ?.classList.remove('is-link-target');
+      }
+      if (over) {
+        document.querySelector(`[data-tl-row="${over}"]`)?.classList.add('is-link-target');
+      }
+      prevOverRef.current = over;
+    };
+    const overAt = (x: number, y: number): string | null => {
+      // elementsFromPoint, not elementFromPoint: a fat invisible arrow hit
+      // path (or the link line) can lie on top of a bar — the topmost node
+      // then has no row ancestor, so walk the stack down to the row.
+      const els = document.elementsFromPoint(x, y);
+      for (const el of els) {
+        const row = (el as Element).closest?.('[data-tl-row]');
+        if (row) {
+          const over = row.getAttribute('data-tl-row') ?? null;
+          if (over && over !== id) return over;
+          return null;
+        }
+      }
+      return null;
+    };
+    let lastX = e.clientX;
+    let lastY = e.clientY;
+    // Snap radius around the whole bar: the line (and the drop) engage
+    // when brought close to any part of it, with the end sliding to the
+    // nearest point on the bar. Touch has no hover precision, so a finger
+    // over the row counts.
+    const SNAP_PX = 48;
+    const move = (ev: PointerEvent) => {
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      const over = overAt(ev.clientX, ev.clientY);
+      let snapped: string | null = null;
+      let end = { x: ev.clientX, y: ev.clientY };
+      if (over) {
+        const bar = document.querySelector(`[data-tl-row="${over}"] .tl-bar`);
+        if (bar) {
+          const r = bar.getBoundingClientRect();
+          const cx = Math.max(r.left, Math.min(ev.clientX, r.right));
+          const cy = Math.max(r.top, Math.min(ev.clientY, r.bottom));
+          const near =
+            ev.pointerType !== 'mouse' || Math.hypot(ev.clientX - cx, ev.clientY - cy) < SNAP_PX;
+          if (near) {
+            snapped = over;
+            end = { x: cx, y: cy };
+          }
+        }
+      }
+      linkOverRef.current = snapped;
+      markTarget(snapped);
+      paint(end.x, end.y);
+    };
+    const done = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      linkActiveRef.current = null;
+      clearLinkPaint();
+      setLinkFrom(null);
+      setLinkLine(null);
+    };
+    const onUp = () => {
+      // Forgiving drop: the row under the pointer counts even outside the
+      // snap radius — the snap only drives the preview, never vetoes.
+      const target = overAt(lastX, lastY) ?? linkOverRef.current;
+      done();
+      if (target && !wouldCycle(id, target)) {
+        const cur = depIdsOf(id);
+        if (!cur.includes(target)) void onSetDep(id, effDep, [...cur, target]);
+      }
+    };
+    const onCancel = () => done();
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+  };
+  // Drop one outgoing edge: `rowId` no longer blocks `succId`.
+  const unlink = (rowId: string, succId: string) => {
+    if (!effDep) return;
+    void onSetDep(rowId, effDep, depIdsOf(rowId).filter((id) => id !== succId));
+  };
+
   // Month header segments across the visible range, in percent of the grid.
   const months: { label: string; left: string; width: string; from: number; to: number }[] = [];
   if (!isYear) {
@@ -3037,21 +3300,27 @@ function TimelineView({
   const goToday = () => setCursor(today);
 
   // Bar geometry in percent of the grid, clamped to the window. Null when
-  // the item is fully outside.
-  const barGeom = (it: Item) => {
+  // the item is fully outside. fracGeom is the same in fractions (for the
+  // dependency arrows); barGeom formats it for CSS.
+  const fracGeom = (it: Item): { l: number; r: number } | null => {
     if (!isYear) {
       const n = dayCols.length;
       const s = Math.max(it.start, dayCols[0]);
       const e = Math.min(it.end, dayCols[n - 1]);
       if (e < s) return null;
-      return { left: `${((s - dayCols[0]) / n) * 100}%`, width: `calc(${(((e - s + 1) / n) * 100).toFixed(4)}% - 4px)` };
+      return { l: (s - dayCols[0]) / n, r: (e - dayCols[0] + 1) / n };
     }
     const ser = (n: number) => yearOf(n) * 12 + monthOf(n);
     const base = yearOf(cursor) * 12;
     const a = Math.max(0, ser(it.start) - base);
     const b = Math.min(11, ser(it.end) - base);
     if (b < a) return null;
-    return { left: `${(a / 12) * 100}%`, width: `calc(${(((b - a + 1) / 12) * 100).toFixed(4)}% - 4px)` };
+    return { l: a / 12, r: (b + 1) / 12 };
+  };
+  const barGeom = (it: Item) => {
+    const f = fracGeom(it);
+    if (!f) return null;
+    return { left: `${f.l * 100}%`, width: `calc(${((f.r - f.l) * 100).toFixed(4)}% - 4px)` };
   };
   const covers = (it: Item, n: number) =>
     isYear
@@ -3080,6 +3349,50 @@ function TimelineView({
       (sv ? ' — ' + formatDay(sv) + (it.end !== it.start && ev ? ' → ' + formatDay(ev) : '') : '')
     );
   };
+  const dateProps = schema.filter((p) => p.type === 'date');
+  // Dependency arrows: predecessor's end to successor's start. Each arrow gets
+  // its own small SVG box from x1 to x2 so no global measuring is needed —
+  // x is in track percent, y in row pixels (ROW_H per row, bar center at 20).
+  const ROW_H = 40;
+  type Arrow = { key: string; from: number; to: number; pred: string; succ: string; x1: number; x2: number; bad: boolean };
+  // Only rows inside the window take up vertical space: arrow Y comes from
+  // the RENDERED order, not the data order. Using data indices puts every
+  // arrow too low as soon as one dated row falls outside the window.
+  const rendered: { it: Item; geom: { left: string; width: string }; fx: { l: number; r: number } }[] = [];
+  for (const it of liveItems) {
+    const g = barGeom(it);
+    const f = g ? fracGeom(it) : null;
+    if (g && f) rendered.push({ it, geom: g, fx: f });
+  }
+  const renderIndex = new Map(rendered.map((r, k) => [r.it.row.id, k]));
+  // Fractions of the track width here; pixels at render time (trackW), so
+  // curves and heads never distort the way a stretched viewBox would.
+  const arrows: Arrow[] = [];
+  if (effDep) {
+    for (const r of rendered) {
+      const it = r.it;
+      for (const sid of depIdsOf(it.row.id)) {
+        const succ = byId.get(sid);
+        const si = renderIndex.get(sid);
+        if (!succ || si === undefined) continue;
+        const pf = fracGeom(it);
+        const sf = fracGeom(succ);
+        if (!pf || !sf) continue;
+        arrows.push({
+          key: it.row.id + '→' + sid,
+          from: renderIndex.get(it.row.id)!,
+          to: si,
+          pred: it.row.id,
+          succ: sid,
+          x1: Math.min(0.99, Math.max(0, pf.r)),
+          x2: Math.min(0.99, Math.max(0, sf.l)),
+          bad: succ.start <= it.end,
+        });
+      }
+    }
+  }
+  const depPopItem = depPop ? byId.get(depPop.id) : undefined;
+  const depPopViolations = depPop ? violationsOf(depPop.id) : [];
 
   return (
     <div className="timeline">
@@ -3088,7 +3401,149 @@ function TimelineView({
         <span className="tl-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
         <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
-        <ModePicker mode={mode} onChange={onModeChange} />
+        {allViolations.length > 0 && (
+          <div className="tl-conflicts-wrap">
+            <button
+              className="btn-sm tl-conflicts-btn"
+              onClick={() => {
+                setConflictsOpen((o) => !o);
+                setSettingsOpen(false);
+              }}
+              aria-expanded={conflictsOpen}
+              title={plural(
+                allViolations.length,
+                '{n} task starts before its blocker ends',
+                '{n} tasks start before their blockers end',
+              )}
+            >
+              ⚠ {plural(allViolations.length, '{n} conflict', '{n} conflicts')}
+            </button>
+            {conflictsOpen && (
+              <>
+                <div
+                  className="fs-backdrop"
+                  onClick={() => setConflictsOpen(false)}
+                />
+                <div className="menu tl-conflicts-menu" role="listbox">
+                  <div className="tl-menu-head">{t('Blocked tasks overlap their blockers')}</div>
+                  {allViolations.slice(0, 20).map((v) => (
+                    <div key={v.self.row.id + v.pred.row.id} className="tl-conflict-row">
+                      <button
+                        className="tl-conflict-name"
+                        onClick={() => {
+                          setConflictsOpen(false);
+                          openCollectionRow(
+                            { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
+                            v.self.row.id,
+                            { onNavigate, onOpenInNewTab },
+                          );
+                        }}
+                      >
+                        {v.self.row.title || t('Untitled')}
+                        <span className="tl-conflict-sub">
+                          {t('starts {a}, blocked by {b} until {c}', {
+                            a: formatDay(isoDay(v.self.start), 'dayMonth'),
+                            b: v.pred.row.title || t('Untitled'),
+                            c: formatDay(isoDay(v.pred.end), 'dayMonth'),
+                          })}
+                        </span>
+                      </button>
+                      <button
+                        className="btn-sm primary"
+                        onClick={() => {
+                          shiftAfterBlockers(v.self.row.id);
+                          setConflictsOpen(false);
+                        }}
+                      >
+                        {t('Shift to {d}', { d: formatDay(isoDay(v.pred.end + 1), 'dayMonth') })}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        <div className="tl-right">
+          <div className="tl-settings-wrap">
+            <button
+              className="btn-sm"
+              title={t('Timeline settings: start, end and blockers')}
+              onClick={() => {
+                setSettingsOpen((o) => !o);
+                setConflictsOpen(false);
+              }}
+              aria-expanded={settingsOpen}
+            >
+              <Settings2 size={14} />
+            </button>
+            {settingsOpen && (
+              <AnchoredMenu className="menu tl-settings-menu">
+                <div className="tl-menu-head">{t('Timeline settings')}</div>
+                <label className="tl-settings-row">
+                  <span>{t('Start')}</span>
+                  <select
+                    className="subitems-select"
+                    value={startProp}
+                    onChange={(e) => onViewChange({ dateProp: e.target.value || undefined })}
+                  >
+                    <option value="">{t('Start: —')}</option>
+                    {dateProps.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="tl-settings-row">
+                  <span>{t('End')}</span>
+                  <select
+                    className="subitems-select"
+                    value={endProp}
+                    onChange={(e) => onViewChange({ endDateProp: e.target.value || undefined })}
+                  >
+                    <option value="">{t('End: (none)')}</option>
+                    {dateProps.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="tl-settings-row">
+                  <span>{t('Blockers')}</span>
+                  <select
+                    className="subitems-select"
+                    value={depProp}
+                    onChange={(e) => onViewChange({ depProp: e.target.value || undefined })}
+                  >
+                    <option value="">{t('Blockers: (none)')}</option>
+                    {selfRels.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {selfRels.length === 0 && (
+                  <button
+                    className="btn-sm"
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      onEnsureDepProps();
+                    }}
+                  >
+                    <Plus size={14} /> {t('Create blocker columns')}
+                  </button>
+                )}
+                {!effDep && selfRels.length > 0 && (
+                  <div className="tl-menu-hint">{t('Pick which relation blocks tasks to draw arrows.')}</div>
+                )}
+              </AnchoredMenu>
+            )}
+          </div>
+          <ModePicker mode={mode} onChange={onModeChange} />
+        </div>
       </div>
       <div className="tl-scroll">
         <div className="tl-inner" style={{ minWidth: LABELW + gridMin }}>
@@ -3131,10 +3586,8 @@ function TimelineView({
             </div>
           </div>
           <div className="tl-body">
-            {items.map((it) => {
+            {rendered.map(({ it, geom: g0, fx }) => {
               const { row } = it;
-              const g = barGeom(it);
-              if (!g) return null;
               // While dragging, the bar follows the pointer; the dates persist
               // on release only.
               const dg =
@@ -3145,9 +3598,17 @@ function TimelineView({
                       end: drag.edge === 'end' ? drag.day : it.end,
                     })
                   : null;
-              const geom = dg ?? g;
+              const geom = dg ?? g0;
+              const blocked = effDep ? violationsOf(row.id) : [];
               return (
-                <div key={row.id} className="tl-row">
+                <div
+                  key={row.id}
+                  className={
+                    'tl-row' +
+                    (linkFrom === row.id ? ' is-link-source' : '')
+                  }
+                  data-tl-row={row.id}
+                >
                   <div
                     className="tl-label"
                     style={{ width: LABELW }}
@@ -3161,22 +3622,62 @@ function TimelineView({
                       </span>
                     )}
                     <span className="tl-label-text">{row.title || 'Untitled'}</span>
+                    {blocked.length > 0 && (
+                      <button
+                        className="tl-warn"
+                        title={plural(
+                          blocked.length,
+                          'Blocked: starts before {n} blocker ends',
+                          'Blocked: starts before {n} blockers end',
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                          setAddBlockerFor(null);
+                        }}
+                      >
+                        ⚠{blocked.length > 1 ? blocked.length : ''}
+                      </button>
+                    )}
                   </div>
                   <div className="tl-track">
                     {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
                     <div
-                      className={'tl-bar' + (drag && drag.id === row.id ? ' is-dragging' : '')}
+                      className={
+                        'tl-bar' +
+                        (drag && drag.id === row.id ? ' is-dragging' : '') +
+                        (blocked.length > 0 ? ' is-blocked' : '')
+                      }
                       style={{ left: geom.left, width: geom.width }}
                       onClick={(e) => {
                         if (swallowClick()) return;
                         openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab });
                       }}
                       onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                      onMouseEnter={() => setHovered(row.id)}
+                      onMouseEnter={() => {
+                        // While linking, the pointer sweeps other bars: that
+                        // must not re-render (it would reset the lasso paint).
+                        if (!linkActiveRef.current) setHovered(row.id);
+                      }}
                       onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
-                      title={tipFor(row, it)}
+                      title={tipFor(row, it) + (blocked.length > 0 ? ' — ' + t('blocked') : '')}
                     >
                       <span className="tl-bar-label">{row.title || 'Untitled'}</span>
+                      {blocked.length > 0 && (
+                        <button
+                          className="tl-warn on-bar"
+                          title={t('Show blockers and fixes')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                            setAddBlockerFor(null);
+                          }}
+                        >
+                          ⚠
+                        </button>
+                      )}
                       {resizable && (
                         <>
                           {/* The browser's own long-press menu is what takes the
@@ -3195,6 +3696,32 @@ function TimelineView({
                         </>
                       )}
                     </div>
+                    {/* Link handle just past the bar's right edge, Notion-style:
+                        a short stub and a white dot with an accent ring. It
+                        appears on bar hover (or while linking from here) and
+                        pulls onto another bar for this row to block that one.
+                        It lives on the track: inside the bar the overflow
+                        would cut it off. */}
+                    {effDep && (
+                      <span
+                        className={
+                          'tl-dep-handle' + (linkFrom === row.id ? ' is-active' : '')
+                        }
+                        style={{ left: `calc(${((fx.r) * 100).toFixed(3)}% - 3px)` }}
+                        title={t('Drag onto a task to block it')}
+                        onPointerDown={(e) => beginLink(e, row.id)}
+                        onContextMenu={(e) => e.preventDefault()}
+                      >
+                        <svg viewBox="0 0 26 30" aria-hidden>
+                          <path
+                            d="M 1 15 C 7 15, 9 15, 14 15"
+                            fill="transparent"
+                            className="tl-dep-stub"
+                          />
+                          <circle cx="19" cy="15" r="4.5" className="tl-dep-dot" />
+                        </svg>
+                      </span>
+                    )}
                     {drag && drag.id === row.id && (
                       <span
                         className="tl-drag-tip"
@@ -3212,6 +3739,72 @@ function TimelineView({
                 </div>
               );
             })}
+            {/* Dependency arrows: one overlay SVG in track pixels, Notion-style.
+                Short horizontal stub out of the blocker, straight diagonal,
+                horizontal entry into the target with a chevron head that stops
+                just before the bar. A fat invisible twin of each path takes
+                clicks and opens the successor's popover. Bad (overlapping)
+                arrows are red. */}
+            {effDep && (
+              <div className="tl-arrows" ref={arrowsRefCb} style={{ left: LABELW }}>
+                <svg
+                  width={trackW}
+                  height={rendered.length * ROW_H}
+                  style={{ display: 'block', overflow: 'visible' }}
+                >
+                  {arrows.length > 0 &&
+                    trackW > 0 &&
+                    arrows.map((a) => {
+                    const x1 = a.x1 * trackW;
+                    // The head stops just before the bar instead of climbing it.
+                    const x2 = a.x2 * trackW - 5;
+                    const y1 = a.from * ROW_H + 20;
+                    const y2 = a.to * ROW_H + 20;
+                    const d = arrowPathD(x1, y1, x2, y2);
+                    return (
+                      <g key={a.key} className={a.bad ? 'is-bad' : undefined}>
+                        <path d={d} className="tl-dep-path" />
+                        <polyline points={arrowHeadPoints(x2, y2)} className="tl-dep-head" />
+                        <path
+                          d={d}
+                          className="tl-dep-hit"
+                          onMouseEnter={() => setHoverArrow(a.key)}
+                          onMouseLeave={() => setHoverArrow((h) => (h === a.key ? null : h))}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDepPop({ id: a.succ, x: e.clientX, y: e.clientY + 4 });
+                            setAddBlockerFor(null);
+                          }}
+                        />
+                      </g>
+                    );
+                    })}
+                </svg>
+                {arrows.length > 0 &&
+                  trackW > 0 &&
+                  arrows.map((a) => {
+                    if (hoverArrow !== a.key) return null;
+                    const x2 = a.x2 * trackW - 5;
+                    const y2 = a.to * ROW_H + 20;
+                    return (
+                      <button
+                        key={'x-' + a.key}
+                        className="tl-arrow-x"
+                        style={{ left: `${x2 - 12}px`, top: `${y2}px` }}
+                        title={t('Remove link')}
+                        onMouseEnter={() => setHoverArrow(a.key)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setHoverArrow(null);
+                          unlink(a.pred, a.succ);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
             <div className="tl-row">
               <div className="tl-label tl-add" style={{ width: LABELW }}>
                 <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
@@ -3223,6 +3816,174 @@ function TimelineView({
           </div>
         </div>
       </div>
+      {linkFrom && (
+        <div className="tl-link-hint" role="status">
+          {t('Drop on a task to block it — Esc cancels')}
+        </div>
+      )}
+      {linkFrom && linkLine && (
+        <Portal>
+          <svg
+            className="tl-lasso"
+            width={window.innerWidth}
+            height={window.innerHeight}
+            aria-hidden
+          >
+            <path
+              ref={lassoPathRef}
+              d={`M ${linkLine.x} ${linkLine.y} C ${linkLine.x + 30} ${linkLine.y}, ${linkLine.x2 - 30} ${linkLine.y2}, ${linkLine.x2} ${linkLine.y2}`}
+            />
+            <circle
+              ref={lassoDotRef}
+              cx={linkLine.x2}
+              cy={linkLine.y2}
+              r={6}
+              className="tl-lasso-dot"
+            />
+          </svg>
+        </Portal>
+      )}
+      {depPop && depPopItem && (
+        <Portal>
+          <div className="fs-backdrop" onClick={() => setDepPop(null)} />
+          <div
+            className="menu tl-dep-menu"
+            style={{
+              position: 'fixed',
+              left: Math.max(8, Math.min(depPop.x, window.innerWidth - 320)),
+              top: Math.max(8, Math.min(depPop.y, window.innerHeight - 300)),
+              width: 300,
+              zIndex: 320,
+            }}
+            role="dialog"
+            aria-label={t('Blockers')}
+          >
+            <div className="tl-menu-head">{depPopItem.row.title || t('Untitled')}</div>
+            {(blockedBy.get(depPop.id) ?? []).length > 0 && (
+              <div className="tl-dep-section">{t('Blocked by')}</div>
+            )}
+            {(blockedBy.get(depPop.id) ?? []).map((pid) => {
+              const pred = byId.get(pid);
+              if (!pred) return null;
+              const bad = depPopItem.start <= pred.end;
+              return (
+                <div key={'in-' + pid} className={'tl-dep-row' + (bad ? ' is-bad' : '')}>
+                  <button
+                    className="tl-dep-name"
+                    onClick={() => {
+                      setDepPop(null);
+                      openCollectionRow(
+                        { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
+                        pid,
+                        { onNavigate, onOpenInNewTab },
+                      );
+                    }}
+                    title={tipFor(pred.row, pred)}
+                  >
+                    {pred.row.title || t('Untitled')}
+                    <span className="tl-conflict-sub">
+                      {t('ends {d}', { d: formatDay(isoDay(pred.end), 'dayMonth') })}
+                      {bad ? ' — ' + t('overlaps') : ''}
+                    </span>
+                  </button>
+                  <button
+                    className="btn-sm"
+                    title={t('Remove block')}
+                    onClick={() => {
+                      void onSetDep(pid, effDep, depIdsOf(pid).filter((id) => id !== depPop.id));
+                      setDepPop(null);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+            {depPopViolations.length > 0 && (
+              <button
+                className="btn-sm primary tl-dep-fix"
+                onClick={() => {
+                  shiftAfterBlockers(depPop.id);
+                  setDepPop(null);
+                }}
+              >
+                {t('Shift to {d}, keep duration', {
+                  d: formatDay(isoDay(Math.max(...depPopViolations.map((v) => v.pred.end)) + 1), 'dayMonth'),
+                })}
+              </button>
+            )}
+            <div className="tl-dep-section">{t('Blocks')}</div>
+            {depIdsOf(depPop.id).length === 0 && (blockedBy.get(depPop.id) ?? []).length === 0 && (
+              <div className="tl-menu-hint">{t('No links yet.')}</div>
+            )}
+            {depIdsOf(depPop.id).map((sid) => {
+              const succ = byId.get(sid);
+              if (!succ) return null;
+              return (
+                <div key={'out-' + sid} className="tl-dep-row">
+                  <button
+                    className="tl-dep-name"
+                    onClick={() => {
+                      setDepPop(null);
+                      openCollectionRow(
+                        { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
+                        sid,
+                        { onNavigate, onOpenInNewTab },
+                      );
+                    }}
+                    title={tipFor(succ.row, succ)}
+                  >
+                    {succ.row.title || t('Untitled')}
+                    <span className="tl-conflict-sub">
+                      {t('starts {d}', { d: formatDay(isoDay(succ.start), 'dayMonth') })}
+                    </span>
+                  </button>
+                  <button
+                    className="btn-sm"
+                    title={t('Stop blocking')}
+                    onClick={() => {
+                      unlink(depPop.id, sid);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+            {addBlockerFor === depPop.id ? (
+              <select
+                className="subitems-select tl-dep-add"
+                autoFocus
+                value=""
+                onChange={(e) => {
+                  const target = e.target.value;
+                  setAddBlockerFor(null);
+                  if (target && !wouldCycle(depPop.id, target)) {
+                    const cur = depIdsOf(depPop.id);
+                    if (!cur.includes(target)) void onSetDep(depPop.id, effDep, [...cur, target]);
+                  } else if (target) {
+                    toast(t('That would create a loop'));
+                  }
+                }}
+              >
+                <option value="">{t('Pick a task to block…')}</option>
+                {items
+                  .filter((i) => i.row.id !== depPop.id && !depIdsOf(depPop.id).includes(i.row.id))
+                  .slice(0, 50)
+                  .map((i) => (
+                    <option key={i.row.id} value={i.row.id}>
+                      {i.row.title || t('Untitled')}
+                    </option>
+                  ))}
+              </select>
+            ) : (
+              <button className="btn-sm" onClick={() => setAddBlockerFor(depPop.id)}>
+                <Plus size={14} /> {t('Block a task')}
+              </button>
+            )}
+          </div>
+        </Portal>
+      )}
     </div>
   );
 }

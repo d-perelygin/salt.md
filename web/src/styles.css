@@ -7733,6 +7733,291 @@ body.is-tl-resizing {
   text-overflow: ellipsis;
 }
 
+/* ---- Timeline dependencies (blockers) ---- */
+.tl-body { position: relative; }
+.tl-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tl-right .cal-range-wrap { margin-left: 0; }
+.tl-bar.is-blocked {
+  outline: 2px solid var(--danger);
+  outline-offset: -1px;
+}
+.tl-warn {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.tl-warn:hover { background: var(--hover); }
+.tl-warn.on-bar {
+  color: #fff;
+  background: var(--danger);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  padding: 0;
+  margin-left: auto;
+}
+/* Dependency link handle just past the bar's right edge, Notion-style: a
+   short stub and a white dot with an accent ring. Hidden until the bar (or
+   the edge zone itself) is hovered, with Notion's quick scale-in; while a
+   link drag runs from here it stays on. It lives on the track: inside the
+   bar the overflow would cut it off. */
+.tl-dep-handle {
+  position: absolute;
+  top: 20px;
+  width: 26px;
+  height: 30px;
+  transform: translate(-4px, -50%);
+  cursor: grab;
+  touch-action: none;
+  z-index: 3;
+  opacity: 0;
+  transition:
+    opacity 160ms ease-in-out,
+    transform 160ms ease-in-out;
+}
+.tl-dep-handle svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: scale(0.4);
+  transform-origin: 8px 15px;
+  transition: transform 160ms ease-in-out;
+}
+.tl-bar:hover + .tl-dep-handle,
+.tl-dep-handle:hover,
+.tl-dep-handle.is-active {
+  opacity: 1;
+}
+.tl-bar:hover + .tl-dep-handle svg,
+.tl-dep-handle:hover svg,
+.tl-dep-handle.is-active svg {
+  transform: scale(1);
+}
+.tl-dep-stub {
+  stroke: #d9a13b;
+  stroke-width: 2;
+}
+.tl-dep-dot {
+  fill: var(--bg);
+  stroke: #d9a13b;
+  stroke-width: 2;
+}
+.tl-dep-handle:hover .tl-dep-dot,
+.tl-dep-handle.is-active .tl-dep-dot {
+  fill: #d9a13b;
+}
+@media (hover: none) {
+  .tl-dep-handle {
+    opacity: 1;
+  }
+  .tl-dep-handle svg {
+    transform: scale(1);
+  }
+}
+.tl-row.is-link-target .tl-track { background: var(--accent-soft); }
+.tl-row.is-link-source .tl-bar { outline: 2px dashed var(--accent); }
+.tl-arrows {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+/* Notion-style dependency paths: thin line, chevron head, and a fat
+   invisible twin that takes clicks. */
+.tl-dep-path {
+  fill: none;
+  stroke: #d9a13b;
+  stroke-width: 2;
+  pointer-events: none;
+}
+g.is-bad > .tl-dep-path { stroke: var(--danger); }
+.tl-dep-head {
+  fill: none;
+  stroke: #d9a13b;
+  stroke-width: 2;
+  pointer-events: none;
+}
+g.is-bad > .tl-dep-head { stroke: var(--danger); }
+.tl-dep-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+/* Unlink button on the hovered arrow, Notion-style. The overlay ignores
+   pointer events; the button opts back in. */
+.tl-arrow-x {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 2;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  padding: 0;
+}
+.tl-arrow-x:hover { filter: brightness(1.12); }
+.tl-link-hint {
+  position: sticky;
+  bottom: 8px;
+  margin: 8px auto 0;
+  width: max-content;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  z-index: 6;
+}
+/* Lasso line while dragging a dependency handle: from the grabbed handle
+   to the pointer, snapping to the hovered bar. */
+.tl-lasso {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  pointer-events: none;
+}
+.tl-lasso path {
+  fill: none;
+  stroke: #d9a13b;
+  stroke-width: 2.5;
+}
+.tl-lasso-dot {
+  fill: none;
+  stroke: #d9a13b;
+  stroke-width: 2.5;
+}
+.tl-conflicts-wrap { position: relative; }
+.tl-conflicts-btn { border-color: var(--danger); color: var(--danger); }
+.tl-conflicts-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  z-index: 30;
+  padding: 8px;
+}
+.tl-menu-head { font-weight: 600; font-size: 13px; padding: 4px 6px 8px; }
+.tl-menu-sub { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.tl-menu-hint { font-size: 12px; color: var(--muted); padding: 4px 6px; }
+.tl-conflict-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 6px;
+  border-radius: 8px;
+}
+.tl-conflict-row:hover { background: var(--hover); }
+.tl-conflict-row .btn-sm { align-self: flex-start; }
+.tl-conflict-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.tl-conflict-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.tl-settings-wrap { position: relative; }
+.tl-settings-menu { min-width: 260px; padding: 8px; }
+.tl-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  font-size: 13px;
+}
+.tl-settings-row > span { flex: none; width: 64px; color: var(--muted); }
+.tl-settings-row .subitems-select { flex: 1 1 auto; min-width: 0; }
+.tl-dep-menu { padding: 8px; }
+.tl-dep-section {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 8px 6px 2px;
+}
+.tl-dep-section:first-of-type { padding-top: 2px; }
+.tl-dep-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+.tl-dep-row:hover { background: var(--hover); }
+.tl-dep-row.is-bad .tl-dep-name { color: var(--danger); }
+.tl-dep-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  padding: 0;
+}
+.tl-dep-fix { width: 100%; justify-content: center; margin: 8px 0; }
+.tl-dep-add { width: 100%; margin-top: 4px; }
+
+/* ---- Blocked-row banner in the record editor ---- */
+.dep-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.dep-banner-ic { color: var(--danger); font-size: 15px; flex: none; }
+.dep-banner-text { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.dep-banner .btn-sm { flex: none; }
+
 /* ---- Sub-task tree (table hierarchy) ---- */
 .db-title-inner { display: inline-flex; align-items: center; gap: 2px; }
 .db-tree-toggle {

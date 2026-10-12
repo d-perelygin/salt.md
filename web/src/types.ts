@@ -283,6 +283,7 @@ export interface ViewDef {  id: string;
   tlMode?: SpanMode;
   calRange?: 1 | 2; // deprecated: superseded by calMode, still read as a fallback
   endDateProp?: string; // timeline view: optional end-date property (else 1-day bar)
+  depProp?: string; // timeline view: self-relation property whose ids block this row
   hidden?: string[]; // property ids hidden in this view
   filters?: Filter[];
   /** OR groups: conditions inside one group are ANDed, groups are ORed. When

@@ -16,6 +16,8 @@ import { toast } from '../toast';
 import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User } from '../types';
 import { SaltProvider } from '../collab';
 import { plural, t } from '../i18n';
+import { formatDay } from '../format';
+import { blockedByMap, dayNum, depListOf, isoDay, shiftTarget, type DepNode } from '../depUtils';
 import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import IconPicker from './IconPicker';
@@ -437,6 +439,123 @@ function TagChip({
 // RowProperties renders a database row's typed properties as a Notion-style
 // panel under the title (label · value), so a row's page shows its Status,
 // Priority, etc. as real fields — not as text dumped into the body. Shown only
+// A blocked-row banner for the record editor: when sibling rows block this
+// one and the dates overlap, say so and offer the same one-click shift as the
+// timeline popover. Best-effort over the first 500 rows — a banner that misses
+// on a giant database is better than a full-table scan on every open.
+function BlockedBanner({
+  pageId,
+  parentId,
+  liveProps,
+  config,
+  canEdit,
+  onShift,
+}: {
+  pageId: string;
+  parentId: string;
+  liveProps: Record<string, unknown>;
+  config: CollectionConfig;
+  canEdit: boolean;
+  onShift: (startProp: string, endProp: string, startIso: string, endIso: string | null) => void;
+}) {
+  const [rows, setRows] = useState<{ id: string; title: string; props: Record<string, unknown> }[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setRows(null);
+    api
+      .collectionRows(parentId, { limit: 500 })
+      .then((r) => alive && setRows(r.rows))
+      .catch(() => alive && setRows([]));
+    return () => {
+      alive = false;
+    };
+  }, [parentId, pageId]);
+
+  const schema = config.schema;
+  const selfRels = schema.filter((p) => p.type === 'relation' && p.relationCollection === parentId);
+  if (selfRels.length === 0 || rows === null) return null;
+  const tlView = config.views.find((v) => v.type === 'timeline');
+  const picked = tlView?.depProp && selfRels.some((p) => p.id === tlView.depProp) ? tlView.depProp : '';
+  const effDep = picked || (selfRels.length === 1 ? selfRels[0].id : '');
+  if (!effDep) return null;
+  const dateIds = schema.filter((p) => p.type === 'date').map((p) => p.id);
+  const startProp =
+    tlView?.dateProp && dateIds.includes(tlView.dateProp) ? tlView.dateProp : (dateIds[0] ?? '');
+  if (!startProp) return null;
+  const endProp = tlView?.endDateProp && dateIds.includes(tlView.endDateProp) ? tlView.endDateProp : '';
+
+  const toNode = (id: string, props: Record<string, unknown>, known: Set<string>): DepNode | null => {
+    const sv = props[startProp];
+    if (typeof sv !== 'string' || !sv) return null;
+    const start = dayNum(sv);
+    let end = start;
+    if (endProp) {
+      const ev = props[endProp];
+      if (typeof ev === 'string' && ev) end = Math.max(start, dayNum(ev));
+    }
+    return { id, start, end, deps: depListOf(props, effDep, id, known) };
+  };
+  // Two passes: ids first (links only resolve against dated rows), then edges.
+  const known = new Set<string>();
+  const dated = new Map<string, { title: string; props: Record<string, unknown> }>();
+  for (const r of rows) {
+    const sv = r.props[startProp];
+    if (typeof sv === 'string' && sv) {
+      known.add(r.id);
+      dated.set(r.id, r);
+    }
+  }
+  const selfSv = liveProps[startProp];
+  const selfDated = typeof selfSv === 'string' && !!selfSv;
+  if (selfDated) known.add(pageId);
+  const nodes: DepNode[] = [];
+  for (const [id, r] of dated) {
+    const n = toNode(id, r.props, known);
+    if (n) nodes.push(n);
+  }
+  if (selfDated) {
+    const n = toNode(pageId, liveProps, known);
+    if (n) {
+      const at = nodes.findIndex((x) => x.id === pageId);
+      if (at >= 0) nodes[at] = n;
+      else nodes.push(n);
+    }
+  }
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const titles = new Map<string, string>();
+  for (const r of rows) titles.set(r.id, r.title);
+  const self = byId.get(pageId);
+  if (!self) return null;
+  const blockers = (blockedByMap(nodes).get(pageId) ?? [])
+    .map((id) => byId.get(id)!)
+    .filter((p) => p && self.start <= p.end);
+  if (!blockers.length) return null;
+  const latest = Math.max(...blockers.map((p) => p.end));
+  const target = shiftTarget(self, blockers);
+
+  return (
+    <div className="dep-banner" role="status">
+      <span className="dep-banner-ic">⚠</span>
+      <div className="dep-banner-text">
+        {t('Blocked by {names} until {d}', {
+          names: blockers.map((p) => titles.get(p.id) ?? t('Untitled')).join(', '),
+          d: formatDay(isoDay(latest), 'dayMonth'),
+        })}
+      </div>
+      {target !== null && canEdit && (
+        <button
+          className="btn-sm primary"
+          onClick={() =>
+            onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null)
+          }
+        >
+          {t('Shift to {d}, keep duration', { d: formatDay(isoDay(target), 'dayMonth') })}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // when the page is a child of a collection. Reuses the same PropertyValue cells
 // (and inline option editing) as the table/board.
 function RowProperties({
@@ -498,7 +617,19 @@ function RowProperties({
   };
 
   return (
-    <div className="row-props">
+    <>
+      <BlockedBanner
+        pageId={pageId}
+        parentId={parentId}
+        liveProps={props}
+        config={config}
+        canEdit={canEdit}
+        onShift={(sp, ep, sIso, eIso) => {
+          void setProp(sp, sIso);
+          if (ep && eIso) void setProp(ep, eIso);
+        }}
+      />
+      <div className="row-props">
       {config.schema.map((p) => (
         <div key={p.id} className="row-prop">
           <div className="row-prop-label" title={p.name}>
@@ -517,7 +648,8 @@ function RowProperties({
           </div>
         </div>
       ))}
-    </div>
+      </div>
+    </>
   );
 }
 
