@@ -283,6 +283,9 @@ export interface ViewDef {  id: string;
   tlMode?: SpanMode;
   /** Timeline view: the sticky title column is collapsed, leaving the axis. */
   tlHideLabels?: boolean;
+  /** Timeline view: shifting a row out of its blockers' way lands on a working
+   *  day rather than on a Saturday. */
+  tlSkipWeekends?: boolean;
   calRange?: 1 | 2; // deprecated: superseded by calMode, still read as a fallback
   endDateProp?: string; // timeline view: optional end-date property (else 1-day bar)
   depProp?: string; // timeline view: self-relation property whose ids block this row

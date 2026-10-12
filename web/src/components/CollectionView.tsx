@@ -26,7 +26,7 @@ import type {
   ViewDef,
 } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
-import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
+import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
 import { openCollectionRow, openPageAux, peekPanel, type PageOpeners } from '../pageOpen';
 import { hintSeen, markHintSeen, readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
 import { AgentDot } from './AgentBadge';
@@ -1082,6 +1082,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onSetDep={(rowId, propId, ids) => void setRowProp(rowId, propId, ids)}
           hideLabels={view.tlHideLabels ?? false}
           onToggleLabels={() => updateView({ tlHideLabels: !view.tlHideLabels })}
+          skipWeekends={view.tlSkipWeekends ?? false}
         />
       ) : (
         <TableView
@@ -2765,6 +2766,7 @@ function TimelineView({
   onSetDep,
   hideLabels,
   onToggleLabels,
+  skipWeekends,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -2784,6 +2786,7 @@ function TimelineView({
   onSetDep: (rowId: string, propId: string, ids: string[]) => void;
   hideLabels?: boolean;
   onToggleLabels?: () => void;
+  skipWeekends?: boolean;
 }) {
   const DAY = 26; // px per day
   const YEARW = 140; // px per month in year mode
@@ -2964,6 +2967,9 @@ function TimelineView({
   const wouldCycle = (from: string, to: string): boolean => wouldCreateCycle(from, to, depIdsOf);
   // Shift a row so it starts the day after its latest blocker, keeping its
   // duration. One explicit user action, never automatic.
+  // Where a row lands when it is pushed out of its blockers' way: the day after
+  // the last blocker, or the Monday after it when the view skips weekends.
+  const shiftDay = (day: number) => (skipWeekends ? nextWorkday(day) : day);
   const shiftAfterBlockers = (rowId: string) => {
     const self = byId.get(rowId);
     if (!self) return;
@@ -2971,8 +2977,9 @@ function TimelineView({
     if (!preds.length) return;
     const node = nodeById.get(rowId)!;
     const predNodes = preds.map((p) => nodeById.get(p.row.id)!).filter(Boolean);
-    const after = shiftTarget(node, predNodes);
-    if (after === null) return;
+    const target = shiftTarget(node, predNodes);
+    if (target === null) return;
+    const after = shiftDay(target);
     const dur = self.end - self.start;
     void onSetDate(rowId, startProp, isoDay(after));
     if (endProp) void onSetDate(rowId, endProp, isoDay(after + dur));
@@ -3496,7 +3503,7 @@ function TimelineView({
                           setConflictsOpen(false);
                         }}
                       >
-                        {t('Shift to {d}', { d: formatDay(isoDay(v.pred.end + 1), 'dayMonth') })}
+                        {t('Shift to {d}', { d: formatDay(isoDay(shiftDay(v.pred.end + 1)), 'dayMonth') })}
                       </button>
                     </div>
                   ))}
@@ -3580,6 +3587,21 @@ function TimelineView({
                 )}
                 {!effDep && selfRels.length > 0 && (
                   <div className="tl-menu-hint">{t('Pick which relation blocks tasks to draw arrows.')}</div>
+                )}
+                {effDep && (
+                  <>
+                    <label className="tl-settings-row">
+                      <span>{t('Skip weekends')}</span>
+                      <input
+                        type="checkbox"
+                        checked={!!skipWeekends}
+                        onChange={(e) => onViewChange({ tlSkipWeekends: e.target.checked })}
+                      />
+                    </label>
+                    <div className="tl-menu-hint">
+                      {t("Shifting a task out of its blockers' way lands on a working day.")}
+                    </div>
+                  </>
                 )}
               </AnchoredMenu>
             )}
@@ -3958,7 +3980,10 @@ function TimelineView({
                 }}
               >
                 {t('Shift to {d}, keep duration', {
-                  d: formatDay(isoDay(Math.max(...depPopViolations.map((v) => v.pred.end)) + 1), 'dayMonth'),
+                  d: formatDay(
+                    isoDay(shiftDay(Math.max(...depPopViolations.map((v) => v.pred.end)) + 1)),
+                    'dayMonth',
+                  ),
                 })}
               </button>
             )}

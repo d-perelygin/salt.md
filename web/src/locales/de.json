@@ -1194,6 +1194,8 @@
   "Pick which relation blocks tasks to draw arrows.": "Wählen, welche Relation Aufgaben blockiert, um Pfeile zu zeichnen.",
   "Shift to {d}": "Verschieben auf {d}",
   "Shift to {d}, keep duration": "Verschieben auf {d}, Dauer behalten",
+  "Skip weekends": "Wochenenden überspringen",
+  "Shifting a task out of its blockers' way lands on a working day.": "Das Verschieben einer Aufgabe aus dem Weg ihrer Blocker landet auf einem Arbeitstag.",
   "Show blockers and fixes": "Blocker und Lösungen zeigen",
   "Start": "Start",
   "That would create a loop": "Das würde eine Schleife erzeugen",

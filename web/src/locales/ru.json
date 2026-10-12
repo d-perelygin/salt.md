@@ -1267,6 +1267,8 @@
   "Pick which relation blocks tasks to draw arrows.": "Выберите, какая связь блокирует задачи, чтобы рисовать стрелки.",
   "Shift to {d}": "Сдвинуть на {d}",
   "Shift to {d}, keep duration": "Сдвинуть на {d}, сохранить длительность",
+  "Skip weekends": "Пропускать выходные",
+  "Shifting a task out of its blockers' way lands on a working day.": "Сдвиг задачи из-под блокеров попадает на рабочий день.",
   "Show blockers and fixes": "Показать блокеры и исправления",
   "Start": "Начало",
   "That would create a loop": "Это создаст цикл",

@@ -79,6 +79,14 @@ export function wouldCreateCycle(from: string, to: string, depOf: (id: string) =
 }
 
 /** First start day that clears every blocker, keeping duration out of it. */
+/** The same day, or the Monday after it when it lands on a weekend. Day numbers
+ *  here are UTC days, like every date in the timeline. */
+export function nextWorkday(day: number): number {
+  let n = day;
+  while (new Date(n * 86400000).getUTCDay() === 0 || new Date(n * 86400000).getUTCDay() === 6) n++;
+  return n;
+}
+
 export function shiftTarget(self: DepNode, preds: DepNode[]): number | null {
   if (!preds.length) return null;
   const after = Math.max(...preds.map((p) => p.end)) + 1;
