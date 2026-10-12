@@ -9,7 +9,7 @@ import { showActivityFor } from './ActivityLogHost';
 import { initials, nameColor } from './CommentsPanel';
 import { Check, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
-import { peekPage } from '../pageOpen';
+import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
 
 interface Props {
@@ -28,6 +28,10 @@ interface Props {
    *  in place. Absent, chips stay static text (unknown rows always do: there
    *  is nothing readable to open). */
   onOpen?: (id: string) => void;
+  /** Where the full modifier rule lives (Option peeks, the row setting
+   *  decides the plain click). Preferred over onOpen wherever both openers
+   *  are in scope; onOpen stays as the fallback for public views. */
+  openers?: PageOpeners;
 }
 
 // idList reads a list-shaped value (relation, multiselect). A single id stored
@@ -707,7 +711,7 @@ export function loadRelationOptions(colId: string, force = false): Promise<RelOp
   return relCache.get(colId)!;
 }
 
-function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen }: Props) {
+function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen, openers }: Props) {
   const targetId = def.relationCollection;
   const ids = idList(value);
   const [options, setOptions] = useState<RelOption[]>([]);
@@ -809,7 +813,8 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
                 style={chipStyle}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!peekPage(e, id)) onOpen(id);
+                  if (openers) openCollectionRow(e, id, openers);
+                  else if (onOpen && !peekPage(e, id)) onOpen(id);
                 }}
               >
                 {inner}
@@ -824,7 +829,8 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
               style={chipStyle}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!peekPage(e, id)) onOpen(id);
+                if (openers) openCollectionRow(e, id, openers);
+                else if (onOpen && !peekPage(e, id)) onOpen(id);
               }}
             >
               {inner}
@@ -921,6 +927,7 @@ export default function PropertyValue({
   compact,
   maxChips,
   onOpen,
+  openers,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const ro = readOnly || !onChange;
@@ -936,6 +943,7 @@ export default function PropertyValue({
           compact={compact}
           maxChips={maxChips}
           onOpen={onOpen}
+          openers={openers}
         />
       );
     // A backrelation IS a relation to read — same ids, same titles, same
@@ -951,6 +959,7 @@ export default function PropertyValue({
           compact={compact}
           maxChips={maxChips}
           onOpen={onOpen}
+          openers={openers}
         />
       );
     case 'lastActivity': {

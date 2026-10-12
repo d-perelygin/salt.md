@@ -22,7 +22,7 @@ import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
 import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, navItem, nothingBefore, useNavRegion } from '../nav';
-import { openPage, openPageAux } from '../pageOpen';
+import { openPage, openPageAux, type PageOpeners } from '../pageOpen';
 import { readPageScroll, writePageScroll } from '../pageUiState';
 import { useShortcut } from '../keys';
 import CollectionView from './CollectionView';
@@ -445,12 +445,14 @@ function RowProperties({
   initialProps,
   canEdit,
   onOpen,
+  openers,
 }: {
   pageId: string;
   parentId: string;
   initialProps: Record<string, unknown>;
   canEdit: boolean;
   onOpen?: (id: string) => void;
+  openers?: PageOpeners;
 }) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [props, setProps] = useState<Record<string, unknown>>(initialProps ?? {});
@@ -510,6 +512,7 @@ function RowProperties({
               onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
               readOnly={!canEdit}
               onOpen={onOpen}
+              openers={openers}
             />
           </div>
         </div>
@@ -1803,6 +1806,7 @@ function PageHeader({
             initialProps={page.props}
             canEdit={canEdit}
             onOpen={onOpenInNewTab ?? onNavigate}
+            openers={{ onNavigate, onOpenInNewTab }}
           />
         )}
       </div>

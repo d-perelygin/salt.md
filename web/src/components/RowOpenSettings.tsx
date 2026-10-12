@@ -46,7 +46,7 @@ export function RowOpenModal({ onClose }: { onClose: () => void }) {
         <div className="dialog" role="dialog" aria-modal="true" aria-label={t('Open rows in new tab')}>
           <h2>{t('Open rows in new tab')}</h2>
           <p className="dialog-hint">
-            {checked ? t('Rows open in a new tab.') : t('Rows open in the current tab.')}
+            {checked ? t('Rows open in a new tab.') : t('Rows open in a side peek.')}
           </p>
           <p className="dialog-hint">
             {t('Option opens a side peek. Ctrl or ⌘ opens a new tab; together with Alt it stays in the current tab.')}

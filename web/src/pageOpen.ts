@@ -34,6 +34,13 @@ export function peekPage(
   id: string,
 ): boolean {
   if (!e.altKey || e.ctrlKey || e.metaKey || typeof window === 'undefined') return false;
+  return peekPanel(id);
+}
+
+/** Open in the side peek when one exists to answer, else false. The plain
+ *  click of a collection row with the row setting off lands here. */
+export function peekPanel(id: string): boolean {
+  if (typeof window === 'undefined') return false;
   return !window.dispatchEvent(
     new CustomEvent('salt:peek', { detail: { id }, cancelable: true }),
   );
@@ -70,7 +77,9 @@ export function openPageAux(
 
 // Rows of a collection open in a NEW tab on a plain click — the account's
 // choice (server prefs, default on), not the sidebar's in-place rule above.
-// The modifiers are the same absolute ones as everywhere else.
+// With the choice off the plain click peeks instead, falling back to the
+// current tab where no peek answers. The modifiers are the same absolute
+// ones as everywhere else.
 export const collectionRowNewTab = (): boolean => getPrefs().openRowsNewTab ?? true;
 
 /** A click on a collection row, with modifiers. */
@@ -85,5 +94,5 @@ export function openCollectionRow(e: ClickMods, id: string, o: PageOpeners): voi
     return;
   }
   if (collectionRowNewTab()) open(id, o);
-  else o.onNavigate(id);
+  else if (!peekPanel(id)) o.onNavigate(id);
 }
