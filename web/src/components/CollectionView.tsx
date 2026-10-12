@@ -803,25 +803,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Relation props that point back at this same collection — candidates for the
   // sub-item (task hierarchy) relation that the table can render as a tree.
   const selfRelProps = schema.filter((p) => p.type === 'relation' && p.relationCollection === collectionId);
-  // Date props — the timeline's and the calendar's Start/End pickers choose
-  // from these, and each view's settings popover is where they live.
-  const dateProps = schema.filter((p) => p.type === 'date');
-  // Dragging an entry to another day: the day under the pointer, and the click
-  // the gesture ends in (which must not open the row it just moved).
-  const [dropDay, setDropDay] = useState<string | null>(null);
-  const dragGuard = useRef(0);
-  // Swiping the calendar pages it, like the arrows: a trackpad's sideways scroll
-  // and a finger's sideways drag both step one span. The timeline is left alone
-  // — there the same gesture scrolls the axis, which is what it is for.
-  const swipe = useRef<{ x: number; y: number; done: boolean } | null>(null);
-  const swipeLock = useRef(0);
-  const pageBy = (forward: boolean) => {
-    const now = Date.now();
-    if (now - swipeLock.current < 320) return;
-    swipeLock.current = now;
-    dragGuard.current = now; // a swipe is not a click on what it started over
-    step(forward ? 1 : -1);
-  };
 
   const viewSwitcher = (
     <div className="collection-toolbar">
@@ -3450,22 +3431,6 @@ function TimelineView({
     );
   };
   const dateProps = schema.filter((p) => p.type === 'date');
-  // Dragging an entry to another day: the day under the pointer, and the click
-  // the gesture ends in (which must not open the row it just moved).
-  const [dropDay, setDropDay] = useState<string | null>(null);
-  const dragGuard = useRef(0);
-  // Swiping the calendar pages it, like the arrows: a trackpad's sideways scroll
-  // and a finger's sideways drag both step one span. The timeline is left alone
-  // — there the same gesture scrolls the axis, which is what it is for.
-  const swipe = useRef<{ x: number; y: number; done: boolean } | null>(null);
-  const swipeLock = useRef(0);
-  const pageBy = (forward: boolean) => {
-    const now = Date.now();
-    if (now - swipeLock.current < 320) return;
-    swipeLock.current = now;
-    dragGuard.current = now; // a swipe is not a click on what it started over
-    step(forward ? 1 : -1);
-  };
   // Dependency arrows: predecessor's end to successor's start. Each arrow gets
   // its own small SVG box from x1 to x2 so no global measuring is needed —
   // x is in track percent, y in row pixels (ROW_H per row, bar center at 20).
