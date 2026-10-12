@@ -74,7 +74,12 @@ parent is filtered out is not lost (it simply becomes a top-level row).
 Which branches are folded is yours alone and is not stored on the view. Leave
 the collection and come back and everything is open again.
 
-The table scrolls sideways when there are more columns than screen.
+The table scrolls sideways when there are more columns than screen. Its row of
+headings is fixed: scroll the table down and the column names stay at the top.
+
+A column can be **pinned** from its header. A pinned column keeps its place as
+you scroll sideways: when it reaches the left edge it stops there and stays
+while the columns after it move on. More than one can be pinned at a time.
 
 ### `board`
 
@@ -108,7 +113,8 @@ a finger you hold the card for about a third of a second first (a short vibratio
 where the device does one), because otherwise every attempt to scroll the board
 would pick a card up instead. A floating copy follows the pointer, the target
 column lights up, and a column scrolls by itself when you hold a card near its
-top or bottom edge.
+top or bottom edge. A checkbox on a card can still be ticked: a click on the box
+is not taken as the start of a drag.
 
 Note what a drag onto a multi-select or relation board does: it **replaces** the
 value with that one option. It does not add to what is there. And dragging a card
@@ -125,8 +131,9 @@ menu:
 | **Move to trash** | Asks *Move “…” to the trash?* with the row's title first, then moves the row to the trash. Reversible from [Trash](trash-and-recovery.md). |
 
 At the bottom of every column is **＋ New**, which creates a row with that
-column's value already set and opens it. Under the catch-all column it creates a
-plain row with nothing set.
+column's value already set and opens it in the side peek — a page that slides
+over the right of the screen rather than taking a tab. Under the catch-all
+column it creates a plain row with nothing set.
 
 **What a card shows** is decided by role, not by schema order, so cards look
 alike no matter how the schema grew: coloured chips first (select, multi-select,
@@ -136,7 +143,7 @@ values that only need to say "this exists" (email, phone, postal address, link).
 People from every person property collapse into one stack of faces in the corner.
 The field name is left off a fact only when the card has a single fact and the
 property is called Date, Datum, Number or Zahl, where repeating it would say
-nothing.
+nothing. Hovering a value on a card shows the name of its property in a tooltip.
 
 A card prints at most **eight** lines of facts and text together, and only ever
 one text: a second one goes below the line however few facts there are. What is
@@ -186,17 +193,33 @@ The head of the calendar has `‹`, the span, `›`, **Today**, which jumps back
 today, and a ⚙ button with this view's own settings: which date property the
 calendar reads (**Start**) and what ends a row (**End**, optional). With no end
 every entry stays what it was — an entry on a single day. An agent can change
-the same with `set_view`, `date_prop` and `end_date_prop`.
+the same with `set_view`, `date_prop` and `end_date_prop`. The button wears a
+dot until you have opened this kind of view's settings once, as the timeline's
+does.
 
 A mode picker beside it switches between **Day**, **Week**,
 **Month**, **2 months** and **Year**; two months stack one under the other, and
 the year is twelve small grids whose month names jump straight there. `‹`/`›`
 always slide by one step of the shown span — one day, week, month or year — so
 no month is ever skipped over in the two-month view. The choice
-is stored on the view, and a public link shows what its owner set. Which day the week starts on follows your
-Saturday in much of the Arab world) and the column headings are rotated to
-agree with it. You can override it under **Week starts on** in your
+is stored on the view, and a public link shows what its owner set. Which day the
+week starts on follows your language and region (Monday across most of Europe,
+Sunday in the US and Japan, Saturday in much of the Arab world) and the column
+headings are rotated to agree with it. You can override it under **Week starts
+on** in your
 [account settings](account.md).
+
+An entry or a bar can be **dragged** onto another day: it moves as a whole and
+keeps its length, and the new dates are written when you let go. A click that
+does not move still opens the row.
+
+Clicking the **number** of a day switches the calendar to **Day** on that date;
+the number itself is not highlighted. In the corner of every day's cell sits a
+**＋**, which creates a row dated that day and opens it in the side peek. It
+appears when you hover the cell on a computer and is always there on a phone. A
+swipe across the body of the calendar, with a finger or a trackpad, pages the
+period back or forward exactly as `‹` and `›` do. On a narrow screen the head
+wraps onto two lines.
 
 A date property is a calendar date and is never shifted by a time zone: a row
 dated the 18th sits on the 18th for everyone.
@@ -214,7 +237,8 @@ Clicking either the label or the bar opens the row. Hovering a bar highlights th
 days it spans; a bar's tooltip names the row and its span. Bars wear the
 calendar's own colours — the accent on a wash of it — and are a little taller on
 a phone, where a finger is what aims at them. The last row of the label column
-holds **+ New**, which adds a row dated at what the timeline is showing.
+holds **+ New**, which adds a row dated at what the timeline is showing and
+opens it in the side peek.
 
 The head carries the same Day / Week / Month / 2 months / Year switch as the
 calendar, stored on the view the same way, and a button that collapses the sticky
@@ -222,9 +246,14 @@ title column, leaving the axis alone; both live on the view, and a public link
 shows what its owner set, without the switch, the button and the add button. The
 add button goes with the column it sits at the foot of: collapsed, the timeline
 is read, not added to.
-Dragging a bar by either edge stretches that end day by day, with the live date
-hanging off the edge; it persists on release. That needs an end property —
-without one the bars have no handles.
+
+A bar can also be **dragged as a whole**, which moves it without changing its
+length; the new dates are written when you let go, and a click that does not move
+still opens the row. Dragging by either edge stretches that end day by day
+instead, with the live date hanging off the edge; it persists on release. The
+edges need an end property — without one the bars have no handles. A row that
+has no end is a single day; drag it and both dates are written, the day you drop
+it on as the start and the day it was on as the end, so one day becomes a range.
 
 The view's own ⚙ button — in the head, beside the mode picker — carries two
 pickers, and so do the timeline's settings:
@@ -234,12 +263,18 @@ pickers, and so do the timeline's settings:
 | **Start:** | **Start: (none)**, or any date property | Where the bar begins. Choosing (none) clears the choice, and the timeline falls back to the first date property in the schema. |
 | **End:** | **End: (none)**, or any date property | Where the bar ends. With none, every bar is one day wide. |
 
+Beside them sits one checkbox, **Skip weekends**: a row shifted clear of the
+tasks blocking it then lands on the nearest working day, so a Saturday or Sunday
+becomes the Monday. Dragging a bar is not affected.
+
 That button wears a dot until you have opened this kind of view's settings once:
 a view reads a date property and spans a range, and nothing on screen says so.
 
-When you create a timeline it takes the first date property as its start and the
-second as its end, if there is one. A row without a start date is left out. If no
-row has one, the view says *No entries with a date yet. Set a start date so they
+Creating a timeline opens its own settings straight away: it takes the first date
+property as its start and the second, if there is one, as its end. A row without
+a start date is left out, and a row without an end is drawn as a single day — a
+timeline where no row has an end still shows every bar, one day wide. If no row
+has a start, the view says *No entries with a date yet. Set a start date so they
 appear on the timeline.* With no start property at all it says *This timeline
 needs a Date property as its start. Open ⚙ Properties to add one.*
 
@@ -334,7 +369,13 @@ configures the current view sits on the right, in this order:
 | **Columns** | Which properties this view shows. Shows `Columns (4/7)` when anything is hidden. |
 | **Properties** | The schema editor: add a property, change a type, edit select options. It edits the collection, not the view, so it changes every view at once. This is the **⚙ Properties** the empty-state messages point at. |
 | **⋯** (*View options*) | Rename, move and remove this view. |
-| **＋ New** | Creates an *Untitled* row and opens it. Every view except a form has it. |
+| **＋ New** | Creates an *Untitled* row and opens it in the side peek. Every view except a form has it. |
+
+The side peek closes on Escape, on a click outside it, and when you change
+document tab: it is a preview of the row you were looking at, and each of those
+gestures says you have moved on. A new row, and a page made from a template,
+open in it; a screen too narrow for a peek has none, so both open as a tab
+there instead.
 
 **Filter**, **Sort**, **Group** and **Columns** light up in the accent colour as
 soon as anything is set, so you can see that a view is filtered without opening
@@ -388,6 +429,10 @@ Where the values come from a fixed list (a select, a multi-select, a relation),
 none of*. That is one condition with two boxes ticked, not two conditions that
 happen to be about the same column: "class is none of A, H" is a single thing to
 read and a single thing to change.
+
+One condition is not about a property at all. **Is a template** and **is not a
+template** filter by whether the row is a template, a fact about the page rather
+than about any column.
 
 **A condition with nothing filled in does not filter.** It waits, and says so.
 It used to compare against the empty string and therefore match nothing, so the
