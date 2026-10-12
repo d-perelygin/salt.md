@@ -773,6 +773,8 @@ export default function App() {
     pushTabHistory(nextTabs, id, replace);
     setOpenTabs(nextTabs);
     setCurrentId(id);
+    // A peek belongs to what you were looking at: changing tab is leaving it.
+    setPeekId(null);
     setSidebarOpen(false); // close the mobile drawer after picking a page
     if (id && !replace) rememberRecent(id);
   }, []);
@@ -1212,6 +1214,20 @@ export default function App() {
   // opened with Shift-click wherever a page link opens one. It lives outside
   // the URL and the history — closing it changes nothing about the tabs.
   const [peekId, setPeekId] = useState<string | null>(null);
+  // The peek closes when the pointer goes down outside it. It is a preview of
+  // the row you were looking at, and clicking into the page beside it means you
+  // have moved on. A click on another row is not a contradiction: the row opens
+  // the peek itself, so the panel simply changes what it shows.
+  useEffect(() => {
+    if (!peekId) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (t?.closest?.('.peek-panel')) return;
+      setPeekId(null);
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [peekId]);
   const canEditPeek = useMemo(() => {
     if (!peekId) return true;
     const page = pagesById.get(peekId);
