@@ -7791,6 +7791,9 @@ a.btn {
   cursor: pointer;
   overflow: hidden;
   transition: filter 0.12s;
+  /* The bar is a thing you carry: on a phone a drag on it moves the event
+     rather than scrolling the axis under it. The track still scrolls. */
+  touch-action: none;
   /* A bar is a control, not prose: a long press on its own text would start a
      selection, and the browser then takes the gesture over — cancelling the
      drag and, on iOS, leaving a callout that swallows taps. */

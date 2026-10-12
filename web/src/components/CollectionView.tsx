@@ -2890,7 +2890,7 @@ function TimelineView({
   }, [linkFrom, depPop]);
   // Edge-resize drag: which row, which edge, which day it is over right now.
   // Persisted on pointer-up only; until then the bar is drawn from this.
-  const [drag, setDrag] = useState<{ id: string; edge: 'start' | 'end'; day: number } | null>(null);
+  const [drag, setDrag] = useState<{ id: string; edge: 'start' | 'end' | 'move'; day: number } | null>(null);
   // Mirrored in a ref, so the end of a gesture reads the day it had reached from
   // here rather than from React state — see finish, which must not read a day
   // the NEXT gesture has already put into the state.
@@ -2928,10 +2928,16 @@ function TimelineView({
   // Live dependency graph: while an edge resize drags, the dragged row keeps
   // its stored dates only on release — but bars, arrows, conflicts and fixes
   // all follow the pointer NOW, or the arrows hang behind the gesture.
-  const liveFor = (it: Item): Item =>
-    drag && drag.id === it.row.id
-      ? { ...it, start: drag.edge === 'start' ? drag.day : it.start, end: drag.edge === 'end' ? drag.day : it.end }
-      : it;
+  const liveFor = (it: Item): Item => {
+    if (!drag || drag.id !== it.row.id) return it;
+    // A move carries the whole span by the day delta it has reached.
+    if (drag.edge === 'move') return { ...it, start: it.start + drag.day, end: it.end + drag.day };
+    return {
+      ...it,
+      start: drag.edge === 'start' ? drag.day : it.start,
+      end: drag.edge === 'end' ? drag.day : it.end,
+    };
+  };
   const liveItems = items.map(liveFor);
   const byId = new Map(liveItems.map((i) => [i.row.id, i]));
   const knownIds = new Set(byId.keys());
@@ -3038,7 +3044,10 @@ function TimelineView({
   // end property there is nothing to stretch to, and month columns are too
   // coarse for day precision.
   const resizable = !!endProp && !isYear;
-  const beginResize = (e: React.PointerEvent, id: string, edge: 'start' | 'end') => {
+  // One gesture, three meanings: pulling the left edge, pulling the right edge,
+  // or carrying the whole bar. `move` is the delta in days, the other two are
+  // the day the edge has reached.
+  const beginBarDrag = (e: React.PointerEvent, id: string, edge: 'start' | 'end' | 'move') => {
     e.stopPropagation();
     // Deliberately NOT preventDefault, for the same reason the table's column
     // resize does not: cancelling a pointerdown cancels the compatibility events
@@ -3059,9 +3068,17 @@ function TimelineView({
     const it = items.find((i) => i.row.id === id);
     if (!track || !it) return;
     const rect = track.getBoundingClientRect();
+    const rawEnd = endProp ? it.row.props[endProp] : undefined;
+    const rowHasEnd = typeof rawEnd === 'string' && !!rawEnd;
     const fixed = edge === 'start' ? it.end : it.start;
-    setDragBoth({ id, edge, day: edge === 'start' ? it.start : it.end });
+    const x0 = e.clientX;
+    setDragBoth({ id, edge, day: edge === 'move' ? 0 : edge === 'start' ? it.start : it.end });
     const move = (ev: PointerEvent) => {
+      if (edge === 'move') {
+        const perDay = rect.width / dayCols.length;
+        setDragBoth({ id, edge, day: Math.round((ev.clientX - x0) / perDay) });
+        return;
+      }
       const n = Math.min(
         dayCols[dayCols.length - 1],
         Math.max(dayCols[0], dayCols[0] + Math.floor(((ev.clientX - rect.left) / rect.width) * dayCols.length)),
@@ -3096,10 +3113,22 @@ function TimelineView({
       // more than once and this one writes to the server, and — the reason this
       // is a ref at all — a gesture that ends late must not commit whatever the
       // NEXT gesture has put in the state in the meantime.
-      const reached = dragRef.current && dragRef.current.id === id ? dragRef.current.day : null;
+      const reached = dragRef.current && dragRef.current.id === id ? dragRef.current : null;
       setDragBoth(null);
-      if (reached !== null) {
-        void onSetDate(id, edge === 'start' ? startProp : endProp, isoDay(reached));
+      if (!reached) return;
+      if (reached.edge === 'move') {
+        if (reached.day === 0) return;
+        void onSetDate(id, startProp, isoDay(it.start + reached.day));
+        // A move keeps whatever the row already had: a one-day row stays one
+        // day instead of growing an end nobody asked for.
+        if (endProp && rowHasEnd) void onSetDate(id, endProp, isoDay(it.end + reached.day));
+        return;
+      }
+      void onSetDate(id, reached.edge === 'start' ? startProp : endProp, isoDay(reached.day));
+      // Pulling the start of a one-day row makes it a range: the end keeps the
+      // day the row started on, so the bar grows rather than slides.
+      if (reached.edge === 'start' && endProp && !rowHasEnd) {
+        void onSetDate(id, endProp, isoDay(it.start));
       }
     };
     const onEnd = () => finish(true);
@@ -3755,12 +3784,12 @@ function TimelineView({
                               nothing useful to offer, so it is never shown. */}
                           <span
                             className="tl-resize tl-resize-l"
-                            onPointerDown={(e) => beginResize(e, row.id, 'start')}
+                            onPointerDown={(e) => beginBarDrag(e, row.id, 'start')}
                             onContextMenu={(e) => e.preventDefault()}
                           />
                           <span
                             className="tl-resize tl-resize-r"
-                            onPointerDown={(e) => beginResize(e, row.id, 'end')}
+                            onPointerDown={(e) => beginBarDrag(e, row.id, 'end')}
                             onContextMenu={(e) => e.preventDefault()}
                           />
                         </>
@@ -3802,7 +3831,14 @@ function TimelineView({
                               : `calc(${geom.left} + ${geom.width})`,
                         }}
                       >
-                        {formatDay(isoDay(drag.day), 'dayMonth')}
+                        {formatDay(
+                          isoDay(
+                            drag.edge === 'move'
+                              ? (items.find((i) => i.row.id === drag.id)?.start ?? drag.day) + drag.day
+                              : drag.day,
+                          ),
+                          'dayMonth',
+                        )}
                       </span>
                     )}
                   </div>
