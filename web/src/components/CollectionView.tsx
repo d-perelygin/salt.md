@@ -2810,7 +2810,7 @@ function TimelineView({
   // attached, so it keeps following the NEXT finger and its finish can fire
   // during the next gesture. Starting one drag therefore ends any other first,
   // which is also why the handle below can promise "one at a time".
-  const dragCleanup = useRef<(() => void) | null>(null);
+  const dragCleanup = useRef<((armGuard: boolean) => void) | null>(null);
   // While an edge is held, nothing on the page may start a text selection: the
   // browser would take the gesture over (see finish below) and, on iOS, leave a
   // callout sitting on top of the interface that swallows taps. The class goes
@@ -2870,10 +2870,17 @@ function TimelineView({
   const resizable = !!endProp && !isYear;
   const beginResize = (e: React.PointerEvent, id: string, edge: 'start' | 'end') => {
     e.stopPropagation();
-    e.preventDefault();
+    // Deliberately NOT preventDefault, for the same reason the table's column
+    // resize does not: cancelling a pointerdown cancels the compatibility events
+    // behind it, and on a phone it is one more thing between the finger and the
+    // browser's own gesture handling. What it used to hold off is held off
+    // elsewhere — `touch-action: none` on the handle stops the page scrolling
+    // under the finger, `user-select: none` stops the selection, and the click
+    // guard below stops the click.
     // Whatever was dragging stops here (see dragCleanup): one gesture at a time,
-    // so a leaked one cannot ride along with this one.
-    dragCleanup.current?.();
+    // so a leaked one cannot ride along with this one. No click guard from that
+    // end — the click that follows belongs to this press.
+    dragCleanup.current?.(false);
     // Armed at the press as well as at the end: a click this gesture produces is
     // never an honest click, however long the press lasted and even if the end
     // of the gesture never gets reported at all.
@@ -2902,16 +2909,19 @@ function TimelineView({
     //
     // `blur` and a hidden document are the same story one level down: the gesture
     // is over the moment the app stops being what the finger is on.
-    const finish = () => {
+    const finish = (armGuard: boolean) => {
       window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', finish);
-      window.removeEventListener('pointercancel', finish);
-      window.removeEventListener('blur', finish);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('blur', onEnd);
+      window.removeEventListener('pointerdown', onOtherDown, true);
       document.removeEventListener('visibilitychange', onHide);
       if (dragCleanup.current === finish) dragCleanup.current = null;
-      // Re-armed here rather than at the press, so the click the browser sends
-      // after a long hold is inside the window however long the hold was.
-      navGuard.current = Date.now();
+      // The click that follows a gesture belongs to it and must not open the row
+      // whose edge was held — so the guard is armed here as well as at the press,
+      // which covers a press of any length. Not when the gesture was ended by a
+      // NEW press though: the click that follows that one is that press's own.
+      if (armGuard) navGuard.current = Date.now();
       // Read from the ref, not from the state updater: React may run an updater
       // more than once and this one writes to the server, and — the reason this
       // is a ref at all — a gesture that ends late must not commit whatever the
@@ -2922,14 +2932,25 @@ function TimelineView({
         void onSetDate(id, edge === 'start' ? startProp : endProp, isoDay(reached));
       }
     };
+    const onEnd = () => finish(true);
     const onHide = () => {
-      if (document.hidden) finish();
+      if (document.hidden) finish(true);
     };
+    // A gesture can also end without the browser ever saying so — a phone that
+    // takes the touch over for a system swipe, a lost pointerup — and then the
+    // badge hangs over the timeline and the bar follows the next finger, which
+    // reads as "nothing on the page answers any more" until a reload. A finger
+    // that is gone cannot press again, so ANY press that starts after this one
+    // proves the old gesture is over: it ends here, and that press goes on to do
+    // whatever it was meant to do. (No pointer-id comparison: a press is a press,
+    // and the ids of a finger and a mouse are not comparable anyway.)
+    const onOtherDown = () => finish(false);
     dragCleanup.current = finish;
     window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', finish);
-    window.addEventListener('pointercancel', finish);
-    window.addEventListener('blur', finish);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    window.addEventListener('blur', onEnd);
+    window.addEventListener('pointerdown', onOtherDown, true);
     document.addEventListener('visibilitychange', onHide);
   };
 
