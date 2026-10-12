@@ -2664,6 +2664,40 @@ body.is-col-resizing {
 /* The identity column earns more room than the generic floor above gives it, and
    needs the same specificity to say so — as a plain `.db-title-col` it lost to
    `.db-table th, .db-table td` and titles started wrapping over two lines. */
+/* A pinned column: it stays at the left edge while the table scrolls sideways.
+   The offset comes from the layout effect that measures the columns before it;
+   the shadow is what separates it from the columns sliding underneath. */
+.db-table th.is-stuck,
+.db-table td.is-stuck {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg);
+  box-shadow: inset -1px 0 0 var(--border);
+}
+.db-table thead th.is-stuck {
+  z-index: 4;
+  background: var(--sidebar-bg);
+}
+.col-stick {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  padding: 1px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.th-inner:hover .col-stick,
+.col-stick.is-on {
+  display: inline-flex;
+}
+.col-stick.is-on {
+  color: var(--accent);
+}
 .db-table .db-title-col {
   min-width: 200px;
   max-width: 420px;
