@@ -278,6 +278,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     embed?.onViewId(id);
   };
   const [schemaOpen, setSchemaOpen] = useState(false);
+  // A timeline made from the + menu opens its own settings: which dates it reads
+  // is the first thing it needs, and an empty diagram says nothing about it.
+  const [settingsFor, setSettingsFor] = useState<string | null>(null);
 
   // Open comments per row. Trello shows on every card whether anything was
   // discussed there — on a sales board the course of the conversation sits
@@ -773,6 +776,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     }
     void saveConfig({ ...config, views: [...config.views, nv] });
     setViewId(nv.id);
+    if (type === 'timeline') setSettingsFor(nv.id);
     if (!embed) writeViewId(collectionId, nv.id);
     setAddViewOpen(false);
   };
@@ -1088,6 +1092,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           hideLabels={view.tlHideLabels ?? false}
           onToggleLabels={() => updateView({ tlHideLabels: !view.tlHideLabels })}
           skipWeekends={view.tlSkipWeekends ?? false}
+          startWithSettings={settingsFor === view.id}
+          onSettingsShown={() => setSettingsFor(null)}
         />
       ) : (
         <TableView
@@ -2772,6 +2778,8 @@ function TimelineView({
   hideLabels,
   onToggleLabels,
   skipWeekends,
+  startWithSettings,
+  onSettingsShown,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -2792,6 +2800,8 @@ function TimelineView({
   hideLabels?: boolean;
   onToggleLabels?: () => void;
   skipWeekends?: boolean;
+  startWithSettings?: boolean;
+  onSettingsShown?: () => void;
 }) {
   const DAY = 26; // px per day
   const YEARW = 140; // px per month in year mode
@@ -2837,8 +2847,14 @@ function TimelineView({
     today < dataMin - 3 ? dataMin : today > dataMax + 4 ? dataMax : today,
   );
   const [hovered, setHovered] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(!!startWithSettings);
   const [settingsHint, settingsSeen] = useSettingsHint('timeline-settings');
+  // The flag belongs to the moment the view was made, not to the view: once the
+  // popover has been open, a later remount must not open it again.
+  useEffect(() => {
+    if (startWithSettings) onSettingsShown?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startWithSettings]);
   const [conflictsOpen, setConflictsOpen] = useState(false);
   // Row whose blocker popover is open, with the click point for positioning.
   const [depPop, setDepPop] = useState<{ id: string; x: number; y: number } | null>(null);
