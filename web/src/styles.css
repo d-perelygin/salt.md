@@ -3506,6 +3506,24 @@ body.is-col-resizing {
   gap: 8px;
   margin-bottom: 10px;
 }
+/* A phone cannot fit ‹ title › Today ⚙ and the span picker on one line — the
+   picker used to be pushed off the screen entirely. The head takes two lines
+   there, and the picker keeps the right edge to itself. */
+@media (max-width: 700px) {
+  .calendar-head,
+  .tl-controls {
+    flex-wrap: wrap;
+  }
+  .calendar-head .cal-range-wrap,
+  .tl-controls .cal-range-wrap {
+    margin-left: auto;
+  }
+  .calendar-title,
+  .tl-title {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+}
 
 .calendar-title {
   font-weight: 600;
