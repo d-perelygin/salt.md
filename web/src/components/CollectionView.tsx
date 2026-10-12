@@ -1980,8 +1980,10 @@ function BoardCardProps({
     (p) => (p.type === 'select' || p.type === 'multiselect') && isBlank(row.props[p.id]),
   );
 
+  // A card shows values without their names (the compact layout has no room for
+  // labels), so hovering one names the property it belongs to.
   const factRow = (p: PropDef) => (
-    <span key={p.id} className="card-fact">
+    <span key={p.id} className="card-fact" title={p.name}>
       {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
       <PropertyValue def={p} value={row.props[p.id]} readOnly compact onOpen={onOpen} openers={openers} />
     </span>
@@ -2006,6 +2008,7 @@ function BoardCardProps({
             <div
               key={p.id}
               className={'card-prop-edit' + (isBlank(row.props[p.id]) ? ' is-empty' : '')}
+              title={p.name}
               onClick={(e) => e.stopPropagation()}
             >
               <PropertyValue
