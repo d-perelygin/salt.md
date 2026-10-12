@@ -109,3 +109,20 @@ export function forgetViewScrolls(collectionId: string) {
     /* best-effort */
   }
 }
+
+// ---- first-look hints ----
+
+const HINT_PREFIX = 'salt:hint:';
+
+/** Has this hint been shown and dismissed already?
+ *
+ *  Keyed by what the hint is about rather than by a page or a view id: the
+ *  point of "there are settings on this button" is made once per kind of view,
+ *  not once per view somebody happens to create. */
+export function hintSeen(name: string): boolean {
+  return read(HINT_PREFIX + name) === '1';
+}
+
+export function markHintSeen(name: string) {
+  write(HINT_PREFIX + name, '1');
+}

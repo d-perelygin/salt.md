@@ -28,7 +28,7 @@ import type {
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
 import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
 import { openCollectionRow, openPageAux, type PageOpeners } from '../pageOpen';
-import { readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
+import { hintSeen, markHintSeen, readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
 import { AgentDot } from './AgentBadge';
 import { planCard, isBlank, zoneOf, contactKind, needsLabel } from '../cardLayout';
 import SchemaEditor from './SchemaEditor';
@@ -796,8 +796,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Relation props that point back at this same collection — candidates for the
   // sub-item (task hierarchy) relation that the table can render as a tree.
   const selfRelProps = schema.filter((p) => p.type === 'relation' && p.relationCollection === collectionId);
-  // Date props — the timeline's Start/End pickers and the calendar's Date
-  // picker choose from these.
+  // Date props — the timeline's and the calendar's Start/End pickers choose
+  // from these, and each view's settings popover is where they live.
   const dateProps = schema.filter((p) => p.type === 'date');
 
   const viewSwitcher = (
@@ -898,21 +898,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         </Portal>
       )}
       <div className="collection-actions">
-        {view.type === 'calendar' && (
-          <select
-            className="subitems-select"
-            title={t('Date property shown on the calendar')}
-            value={view.dateProp ?? ''}
-            onChange={(e) => updateView({ dateProp: e.target.value || undefined })}
-          >
-            <option value="">{t('Date: —')}</option>
-            {dateProps.map((p) => (
-              <option key={p.id} value={p.id}>
-                {t('Date:')} {p.name}
-              </option>
-            ))}
-          </select>
-        )}
         {view.type === 'table' && selfRelProps.length > 0 && (
           <select
             className="subitems-select"
@@ -1054,11 +1039,13 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           rows={viewRows}
           schema={visibleSchema}
           dateProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
+          endDateProp={view.endDateProp || ''}
           tagColors={tagColors}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
           mode={view.calMode ?? (view.calRange === 2 ? '2months' : 'month')}
           onModeChange={(m) => updateView({ calMode: m, calRange: m === '2months' ? 2 : 1 })}
+          onViewChange={updateView}
         />
       ) : view.type === 'list' ? (
         <ListView
@@ -2836,6 +2823,7 @@ function TimelineView({
   );
   const [hovered, setHovered] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsHint, settingsSeen] = useSettingsHint('timeline-settings');
   const [conflictsOpen, setConflictsOpen] = useState(false);
   // Row whose blocker popover is open, with the click point for positioning.
   const [depPop, setDepPop] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -3513,11 +3501,12 @@ function TimelineView({
         <div className="tl-right">
           <div className="tl-settings-wrap">
             <button
-              className="btn-sm"
+              className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
               title={t('Timeline settings: start, end and blockers')}
               onClick={() => {
                 setSettingsOpen((o) => !o);
                 setConflictsOpen(false);
+                settingsSeen();
               }}
               aria-expanded={settingsOpen}
             >
@@ -4042,6 +4031,22 @@ function TimelineView({
   );
 }
 
+/** The dot on a view's settings button.
+ *
+ *  A view has settings — which date it reads, what it spans — and nothing says
+ *  so. The button wears a dot until that kind of view's settings have been
+ *  opened once, and the memory is keyed by the kind: the point is made once per
+ *  kind of view, not once per view somebody creates. */
+function useSettingsHint(name: string): [boolean, () => void] {
+  const [show, setShow] = useState(() => !hintSeen(name));
+  const seen = () => {
+    if (!show) return;
+    markHintSeen(name);
+    setShow(false);
+  };
+  return [show, seen];
+}
+
 // Day/Week/Month/2-months/Year switch shared by the calendar and the
 // timeline headers: same control, same place, same labels.
 function ModePicker({ mode, onChange }: { mode: SpanMode; onChange: (m: SpanMode) => void }) {
@@ -4098,25 +4103,33 @@ function CalendarView({
   rows,
   schema,
   dateProp,
+  endDateProp,
   tagColors,
   onNavigate,
   onOpenInNewTab,
   mode,
   onModeChange,
+  onViewChange,
 }: {
   rows: Row[];
   schema: PropDef[];
   dateProp: string;
+  endDateProp: string;
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   mode: SpanMode;
   onModeChange: (m: SpanMode) => void;
+  onViewChange: (patch: Partial<ViewDef>) => void;
 }) {
   const [cursor, setCursor] = useState(() => {
     const n = new Date();
     return new Date(n.getFullYear(), n.getMonth(), n.getDate());
   });
+  // The view's own settings: which date it reads, and what a range is.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsHint, settingsSeen] = useSettingsHint('calendar-settings');
+  const dateProps = schema.filter((p) => p.type === 'date');
 
   if (!dateProp || !schema.some((p) => p.id === dateProp && p.type === 'date')) {
     return (
@@ -4134,6 +4147,51 @@ function CalendarView({
     const key = v.slice(0, 10);
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(r);
   }
+
+  // A row with an end date covers days, and is drawn as ONE bar across them
+  // rather than a chip in each cell — see the settings for the end property.
+  // A range that ends where it starts is not a range, and stays a chip.
+  type Span = { row: Row; from: string; to: string };
+  const spans: Span[] = [];
+  for (const r of rows) {
+    const v = r.props[dateProp];
+    if (typeof v !== 'string' || !v) continue;
+    const from = v.slice(0, 10);
+    let to = from;
+    if (endDateProp) {
+      const e = r.props[endDateProp];
+      if (typeof e === 'string' && e) {
+        const end = e.slice(0, 10);
+        if (end > from) to = end;
+      }
+    }
+    if (to > from) spans.push({ row: r, from, to });
+  }
+  const spanIds = new Set(spans.map((s) => s.row.id));
+  // Every day a bar touches, for the year's mini grids (a range lights all of
+  // its days, not only the first).
+  const covered = new Set<string>();
+  for (const s of spans) {
+    const d = new Date(s.from + 'T00:00:00');
+    const end = new Date(s.to + 'T00:00:00');
+    // A runaway range cannot flood the set: a year of days is already absurd.
+    for (let i = 0; d <= end && i < 400; i++, d.setDate(d.getDate() + 1)) covered.add(ymd(d));
+  }
+  /** The bars a week shows, in a fixed order — so a bar's segment sits at the
+   *  same height in every cell of the row it crosses. */
+  const lanesFor = (days: (Date | null)[]): Span[] => {
+    const keys = days.filter((d): d is Date => !!d).map((d) => ymd(d));
+    if (keys.length === 0) return [];
+    const lo = keys[0];
+    const hi = keys[keys.length - 1];
+    return spans
+      .filter((s) => s.from <= hi && s.to >= lo)
+      .sort((a, b) =>
+        a.from !== b.from ? (a.from < b.from ? -1 : 1) : a.row.id < b.row.id ? -1 : 1,
+      );
+  };
+  const spanTitle = (s: Span) =>
+    (s.row.title || t('Untitled')) + ' — ' + formatDay(s.from, 'dayMonth') + ' → ' + formatDay(s.to, 'dayMonth');
 
   const today = ymd(new Date());
   const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
@@ -4158,6 +4216,14 @@ function CalendarView({
     for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(first.getFullYear(), first.getMonth(), d));
     while (cells.length % 7 !== 0) cells.push(null);
     return cells;
+  };
+  // One lane list per week row of a month grid, so a bar keeps its height
+  // across the row it crosses.
+  const monthRowLanes = (first: Date): Span[][] => {
+    const cells = monthCells(first);
+    const rows: Span[][] = [];
+    for (let r = 0; r * 7 < cells.length; r++) rows.push(lanesFor(cells.slice(r * 7, r * 7 + 7)));
+    return rows;
   };
 
   const second = monthStarts[1];
@@ -4204,12 +4270,41 @@ function CalendarView({
       )}
     </button>
   );
-  const dayCell = (d: Date | null, i: number | string) => {
+  const dayCell = (d: Date | null, i: number | string, lanes: Span[] = []) => {
     const key = d ? ymd(d) : '';
-    const dayRows = d ? byDate.get(key) ?? [] : [];
+    const dayRows = (d ? byDate.get(key) ?? [] : []).filter((r) => !spanIds.has(r.id));
+    // A lane the bar does not cross today still takes its place, so the bars
+    // stay in line across the row.
+    const laneSlot = (s: Span) => {
+      const covers = !!d && s.from <= key && s.to >= key;
+      if (!covers) return <div key={'l' + s.row.id} className="cal-lane" />;
+      const isStart = s.from === key;
+      const isEnd = s.to === key;
+      return (
+        <button
+          key={'sp' + s.row.id}
+          className={'cal-span' + (isStart ? ' is-start' : '') + (isEnd ? ' is-end' : '')}
+          onClick={(e) => openCollectionRow(e, s.row.id, { onNavigate, onOpenInNewTab })}
+          onAuxClick={(e) => openPageAux(e, s.row.id, { onNavigate, onOpenInNewTab })}
+          title={spanTitle(s)}
+        >
+          {isStart && (
+            <>
+              {s.row.icon && (
+                <span className="inline-icon">
+                  <PageIcon icon={s.row.icon} size={14} />{' '}
+                </span>
+              )}
+              {s.row.title || t('Untitled')}
+            </>
+          )}
+        </button>
+      );
+    };
     return (
       <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
         {d && <div className="calendar-daynum">{d.getDate()}</div>}
+        {lanes.map(laneSlot)}
         {dayRows.map((r) => eventButton(r, d))}
       </div>
     );
@@ -4224,6 +4319,57 @@ function CalendarView({
         <span className="calendar-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
         <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
+        <div className="cal-settings-wrap">
+          <button
+            className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
+            title={t('Calendar settings: start and end')}
+            onClick={() => {
+              setSettingsOpen((o) => !o);
+              settingsSeen();
+            }}
+            aria-expanded={settingsOpen}
+          >
+            <Settings2 size={14} />
+          </button>
+          {settingsOpen && (
+            <AnchoredMenu className="menu tl-settings-menu">
+              <div className="tl-menu-head">{t('Calendar settings')}</div>
+              <label className="tl-settings-row">
+                <span>{t('Start')}</span>
+                <select
+                  className="subitems-select"
+                  value={dateProp}
+                  onChange={(e) => onViewChange({ dateProp: e.target.value || undefined })}
+                >
+                  <option value="">{t('Start: —')}</option>
+                  {dateProps.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="tl-settings-row">
+                <span>{t('End')}</span>
+                <select
+                  className="subitems-select"
+                  value={endDateProp}
+                  onChange={(e) => onViewChange({ endDateProp: e.target.value || undefined })}
+                >
+                  <option value="">{t('End: (none)')}</option>
+                  {dateProps.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="tl-menu-hint">
+                {t('A range is drawn as one bar; with no end it stays an entry on a single day.')}
+              </div>
+            </AnchoredMenu>
+          )}
+        </div>
         <ModePicker mode={mode} onChange={onModeChange} />
       </div>
       {mode === 'day' ? (
@@ -4238,7 +4384,7 @@ function CalendarView({
           {weekdayNames().map((d) => (
             <div key={d} className="calendar-dow">{d}</div>
           ))}
-          {weekDays.map((d, i) => dayCell(d, i))}
+          {weekDays.map((d, i) => dayCell(d, i, lanesFor(weekDays)))}
         </div>
       ) : mode === 'year' ? (
         <div className="cal-year">
@@ -4256,7 +4402,7 @@ function CalendarView({
               <div className="cal-mini-grid">
                 {monthCells(first).map((d, i) => {
                   const key = d ? ymd(d) : '';
-                  const has = d && (byDate.get(key) ?? []).length > 0;
+                  const has = d && ((byDate.get(key) ?? []).length > 0 || covered.has(key));
                   const dim = d && d.getMonth() !== first.getMonth();
                   return (
                     <button
@@ -4286,19 +4432,22 @@ function CalendarView({
         </div>
       ) : (
         <div className="cal-grids">
-          {monthStarts.map((first, mi) => (
-            <div key={mi} className="calendar-grid-wrap">
-              {mode === '2months' && (
-                <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
-              )}
-              <div className="calendar-grid">
-              {weekdayNames().map((d) => (
-                <div key={d} className="calendar-dow">{d}</div>
-              ))}
-              {monthCells(first).map((d, i) => dayCell(d, `${mi}-${i}`))}
+          {monthStarts.map((first, mi) => {
+            const rowLanes = monthRowLanes(first);
+            return (
+              <div key={mi} className="calendar-grid-wrap">
+                {mode === '2months' && (
+                  <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
+                )}
+                <div className="calendar-grid">
+                  {weekdayNames().map((d) => (
+                    <div key={d} className="calendar-dow">{d}</div>
+                  ))}
+                  {monthCells(first).map((d, i) => dayCell(d, `${mi}-${i}`, rowLanes[Math.floor(i / 7)]))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

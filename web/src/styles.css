@@ -3546,6 +3546,63 @@ body.is-col-resizing {
 .cal-day-list .calendar-event {
   text-align: left;
 }
+/* A row with an end date is drawn as one bar across the days it covers: a
+   segment in each cell it touches, bleeding over the cell's own padding and
+   over the 1px grid line so the pieces read as one bar, rounded only at the
+   real start and end. Lanes give a week's bars the same order in every cell,
+   so the segments line up instead of jumping between rows. */
+.cal-lane {
+  height: 21px;
+  flex: none;
+}
+.cal-span {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  /* A fixed height, not one grown from the text: the segments that carry no
+     label (everything but the first day of a range) would otherwise collapse to
+     their padding and the bar would look like a hairline. */
+  height: 21px;
+  box-sizing: border-box;
+  line-height: 17px;
+  padding: 2px 6px;
+  margin: 0 -4.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  cursor: pointer;
+}
+.cal-span.is-start {
+  margin-left: 0;
+  border-radius: 5px 0 0 5px;
+}
+.cal-span.is-end {
+  margin-right: 0;
+  border-radius: 0 5px 5px 0;
+}
+.cal-span.is-start.is-end {
+  border-radius: 5px;
+}
+.cal-span:hover {
+  filter: brightness(1.07);
+}
+/* A dot on a button with something behind it — the view settings, once per kind
+   of view, cleared the moment it is opened. The same mark the workspace menu
+   grows for a waiting proposal. */
+.btn-sm.has-dot {
+  position: relative;
+}
+.btn-sm.has-dot::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 
 /* Year overview: twelve compact month grids. Days with rows read bolder;
    today keeps its marker; the mini title drills into that month. */

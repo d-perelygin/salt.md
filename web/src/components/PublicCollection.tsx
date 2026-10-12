@@ -270,6 +270,7 @@ export default function PublicCollection({ token }: { token: string }) {
               rows={rows}
               schema={visibleSchema}
               dateProp={view.dateProp ?? ''}
+              endDateProp={view.endDateProp ?? ''}
               allowDetail={cfg.allowDetail}
               onOpen={openRow}
               mode={view.calMode ?? (view.calRange === 2 ? '2months' : 'month')}
@@ -514,6 +515,7 @@ function PublicCalendar({
   rows,
   schema,
   dateProp,
+  endDateProp,
   allowDetail,
   onOpen,
   mode,
@@ -521,6 +523,7 @@ function PublicCalendar({
   rows: Row[];
   schema: PropDef[];
   dateProp: string;
+  endDateProp: string;
   allowDetail: boolean;
   onOpen: (id: string) => void;
   mode: 'day' | 'week' | 'month' | '2months' | 'year';
@@ -545,6 +548,43 @@ function PublicCalendar({
     const key = v.slice(0, 10);
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(r);
   }
+
+  // Ranges, exactly as inside: a row with an end date is one bar across the
+  // days it covers, and only its first day stays a chip in `byDate`.
+  type Span = { row: Row; from: string; to: string };
+  const spans: Span[] = [];
+  for (const r of rows) {
+    const v = r.props[dateProp];
+    if (typeof v !== 'string' || !v) continue;
+    const from = v.slice(0, 10);
+    let to = from;
+    if (endDateProp) {
+      const e = r.props[endDateProp];
+      if (typeof e === 'string' && e) {
+        const end = e.slice(0, 10);
+        if (end > from) to = end;
+      }
+    }
+    if (to > from) spans.push({ row: r, from, to });
+  }
+  const spanIds = new Set(spans.map((s) => s.row.id));
+  const covered = new Set<string>();
+  for (const s of spans) {
+    const d = new Date(s.from + 'T00:00:00');
+    const end = new Date(s.to + 'T00:00:00');
+    for (let i = 0; d <= end && i < 400; i++, d.setDate(d.getDate() + 1)) covered.add(toDayString(d));
+  }
+  const lanesFor = (days: (Date | null)[]): Span[] => {
+    const keys = days.filter((d): d is Date => !!d).map((d) => toDayString(d));
+    if (keys.length === 0) return [];
+    const lo = keys[0];
+    const hi = keys[keys.length - 1];
+    return spans
+      .filter((s) => s.from <= hi && s.to >= lo)
+      .sort((a, b) => (a.from !== b.from ? (a.from < b.from ? -1 : 1) : a.row.id < b.row.id ? -1 : 1));
+  };
+  const spanTitle = (s: Span) =>
+    (s.row.title || t('Untitled')) + ' — ' + formatDay(s.from, 'dayMonth') + ' → ' + formatDay(s.to, 'dayMonth');
 
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
@@ -604,12 +644,38 @@ function PublicCalendar({
         {r.title || t('Untitled')}
       </span>
     );
-  const dayCell = (d: Date | null, i: number | string) => {
+  const dayCell = (d: Date | null, i: number | string, lanes: Span[] = []) => {
     const key = d ? toDayString(d) : '';
-    const dayRows = d ? byDate.get(key) ?? [] : [];
+    const dayRows = (d ? byDate.get(key) ?? [] : []).filter((r) => !spanIds.has(r.id));
+    const laneSlot = (s: Span) => {
+      const covers = !!d && s.from <= key && s.to >= key;
+      if (!covers) return <div key={'l' + s.row.id} className="cal-lane" />;
+      const isStart = s.from === key;
+      const isEnd = s.to === key;
+      return (
+        <button
+          key={'sp' + s.row.id}
+          className={'cal-span' + (isStart ? ' is-start' : '') + (isEnd ? ' is-end' : '')}
+          onClick={allowDetail ? () => void onOpen(s.row.id) : undefined}
+          title={spanTitle(s)}
+        >
+          {isStart && (
+            <>
+              {s.row.icon && (
+                <span className="inline-icon">
+                  <PageIcon icon={s.row.icon} size={14} />{' '}
+                </span>
+              )}
+              {s.row.title || t('Untitled')}
+            </>
+          )}
+        </button>
+      );
+    };
     return (
       <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
         {d && <div className="calendar-daynum">{d.getDate()}</div>}
+        {lanes.map(laneSlot)}
         {dayRows.map((r) => eventButton(r, d))}
       </div>
     );
@@ -635,7 +701,7 @@ function PublicCalendar({
           {weekdayNames().map((d) => (
             <div key={d} className="calendar-dow">{d}</div>
           ))}
-          {weekDays.map((d, i) => dayCell(d, i))}
+          {weekDays.map((d, i) => dayCell(d, i, lanesFor(weekDays)))}
         </div>
       ) : mode === 'year' ? (
         <div className="cal-year">
@@ -645,7 +711,7 @@ function PublicCalendar({
               <div className="cal-mini-grid">
                 {monthCells(first).map((d, i) => {
                   const key = d ? toDayString(d) : '';
-                  const has = d && (byDate.get(key) ?? []).length > 0;
+                  const has = d && ((byDate.get(key) ?? []).length > 0 || covered.has(key));
                   const dim = d && d.getMonth() !== first.getMonth();
                   return (
                     <span
@@ -669,19 +735,24 @@ function PublicCalendar({
         </div>
       ) : (
         <div className="cal-grids">
-          {(mode === '2months' ? monthStarts : [new Date(cursor.getFullYear(), cursor.getMonth(), 1)]).map((first, mi) => (
-            <div key={mi} className="calendar-grid-wrap">
-              {mode === '2months' && (
-                <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
-              )}
-              <div className="calendar-grid">
-              {weekdayNames().map((d) => (
-                <div key={d} className="calendar-dow">{d}</div>
-              ))}
-              {monthCells(first).map((d, i) => dayCell(d, `${mi}-${i}`))}
+          {(mode === '2months' ? monthStarts : [new Date(cursor.getFullYear(), cursor.getMonth(), 1)]).map((first, mi) => {
+            const cells = monthCells(first);
+            const rowLanes: Span[][] = [];
+            for (let r = 0; r * 7 < cells.length; r++) rowLanes.push(lanesFor(cells.slice(r * 7, r * 7 + 7)));
+            return (
+              <div key={mi} className="calendar-grid-wrap">
+                {mode === '2months' && (
+                  <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
+                )}
+                <div className="calendar-grid">
+                  {weekdayNames().map((d) => (
+                    <div key={d} className="calendar-dow">{d}</div>
+                  ))}
+                  {cells.map((d, i) => dayCell(d, `${mi}-${i}`, rowLanes[Math.floor(i / 7)]))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
