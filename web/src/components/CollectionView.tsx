@@ -4303,7 +4303,18 @@ function CalendarView({
     };
     return (
       <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
-        {d && <div className="calendar-daynum">{d.getDate()}</div>}
+        {d && (
+          <button
+            className="calendar-daynum"
+            onClick={() => {
+              setCursor(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+              onModeChange('day');
+            }}
+            title={t('Open this day')}
+          >
+            {d.getDate()}
+          </button>
+        )}
         {lanes.map(laneSlot)}
         {dayRows.map((r) => eventButton(r, d))}
       </div>

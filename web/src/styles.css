@@ -3703,10 +3703,18 @@ button.cal-mini-day:hover {
   background: var(--accent-soft);
 }
 
+/* The day number is a button — clicking it opens that day in the day view —
+   but it must not look like one: same size, same colour, no underline. */
 .calendar-daynum {
   font-size: 11.5px;
   color: var(--muted);
   align-self: flex-end;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
 }
 
 .calendar-event {
