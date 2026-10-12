@@ -27,7 +27,7 @@ import type {
 } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
 import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
-import { openCollectionRow, openPageAux, type PageOpeners } from '../pageOpen';
+import { openCollectionRow, openPageAux, peekPanel, type PageOpeners } from '../pageOpen';
 import { hintSeen, markHintSeen, readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
 import { AgentDot } from './AgentBadge';
 import { planCard, isBlank, zoneOf, contactKind, needsLabel } from '../cardLayout';
@@ -539,11 +539,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   };
 
   const addRow = async (presetProps?: Record<string, unknown>) => {
-    // Deliberately does NOT onNavigate() into the new row: creating an item
-    // from a collection view should keep you looking at the collection, same
-    // as Notion. Opening it is the same click as any other existing row.
+    // A new row opens in the side peek right away: pressing + means "I want to
+    // write one", so the writing surface should be there. On a screen too
+    // narrow for a peek it opens as a tab, which is what rows do there anyway.
     try {
-      await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
+      const created = await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
+      if (created?.id) {
+        if (!peekPanel(created.id)) onNavigate(created.id);
+      }
     } catch (e) {
       // Offline: show a temp row at once and journal the create. The flush
       // remaps its id (REMAP_EVENT below); prop edits meanwhile journal
