@@ -8035,7 +8035,11 @@ g.is-bad > .tl-dep-head { stroke: var(--danger); }
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.tl-settings-wrap { position: relative; }
+/* The wrapper is what AnchoredMenu measures: without a positioned box the
+   settings menu lands wherever the nearest positioned ancestor happens to be
+   rather than under its own button. */
+.tl-settings-wrap,
+.cal-settings-wrap { position: relative; }
 .tl-settings-menu { min-width: 260px; padding: 8px; }
 .tl-settings-row {
   display: flex;
