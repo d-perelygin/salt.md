@@ -36,12 +36,52 @@ COPY --from=web /src/web/dist ./web/dist
 RUN go mod tidy && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w -X salt/server.Version=${VERSION}" -o /salt .
 
+# --- Litestream (continuous replication of the database) ---
+# Downloaded rather than built: it is somebody else's project with its own
+# release cadence, and it is pinned here so that nothing upstream can quietly
+# change what this instance replicates, or where. The checksum is fetched from
+# the same release, so a truncated or substituted download fails the build
+# instead of shipping.
+FROM --platform=$BUILDPLATFORM alpine:3.20 AS litestream
+ARG LITESTREAM_VERSION=0.5.17
+ARG TARGETARCH
+WORKDIR /tmp
+# litestream calls 64-bit x86 "x86_64" where Go calls the same architecture
+# "amd64". This mapping is the only place the two vocabularies meet, and without
+# it the amd64 build asks the release for an asset that is not there.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) lsarch=x86_64 ;; \
+      arm64) lsarch=arm64 ;; \
+      *) echo "litestream publishes no build for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    apk add --no-cache curl; \
+    base="https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}"; \
+    asset="litestream-${LITESTREAM_VERSION}-linux-${lsarch}.tar.gz"; \
+    curl -fsSL -o "${asset}" "${base}/${asset}"; \
+    curl -fsSL -o checksums.txt "${base}/checksums.txt"; \
+    grep "  ${asset}\$" checksums.txt | sha256sum -c -; \
+    tar -xzf "${asset}" litestream; \
+    ./litestream version
+
 # --- Runtime ---
 FROM alpine:3.20
 RUN adduser -D -H salt && mkdir -p /data && chown salt /data
-USER salt
 ENV SALT_ADDR=:8420 SALT_DATA=/data
 VOLUME /data
 EXPOSE 8420
 COPY --from=build /salt /usr/local/bin/salt
-ENTRYPOINT ["salt"]
+# Litestream runs in THIS container rather than beside it, because only the
+# parent process can restore the database before the server opens it — the
+# ordering that matters on a fresh host. It stays completely out of the way
+# unless the LITESTREAM_* variables are set, so the image still runs bare; see
+# deploy/docker-entrypoint.sh for the switch and deploy/litestream.yml for what
+# is replicated and for how long it is kept.
+COPY --from=litestream /tmp/litestream /usr/local/bin/litestream
+COPY deploy/litestream.yml /etc/litestream.yml
+COPY deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+# Before USER salt, not after: chmod as the unprivileged user cannot touch a
+# file that COPY left owned by root.
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
+USER salt
+ENTRYPOINT ["docker-entrypoint.sh"]

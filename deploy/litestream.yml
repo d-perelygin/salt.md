@@ -1,0 +1,71 @@
+# Replication of the SQLite database to an S3-compatible bucket.
+#
+# Baked into the image at /etc/litestream.yml and read only when the LITESTREAM_*
+# variables are set — deploy/docker-entrypoint.sh runs the server bare otherwise.
+# The bucket, endpoint, region and prefix come from the environment, so this one
+# file serves every instance, and two instances sharing a bucket are kept apart
+# by their prefix alone.
+#
+# Credentials are deliberately NOT here. They arrive as LITESTREAM_ACCESS_KEY_ID
+# and LITESTREAM_SECRET_ACCESS_KEY, which Litestream maps onto the AWS variables
+# at startup, so this file holds nothing secret and can be read by anybody.
+
+# A full snapshot is what makes a restore possible in the first place; the
+# levels below it only cover the recent tail at finer granularity. So how far
+# back a restore can reach is snapshot retention and nothing else: everything
+# older than the oldest snapshot still kept is deleted at every level.
+#
+# The defaults are interval 24h and retention 24h, which means roughly ONE
+# snapshot — a day of history, and then nothing. That is too short for the way
+# data is actually lost here: a bulk import or an agent that mangled a collection
+# is usually noticed days later, and a restore to "the latest state" would
+# faithfully reproduce the damage. 720h is thirty daily snapshots.
+snapshot:
+  interval: 24h
+  retention: 720h
+
+dbs:
+  - path: ${SALT_DATA}/salt.db
+
+    # On a host whose volume is empty — a rebuilt server, a lost disk — restore
+    # the newest replica before the server starts. On an empty bucket this logs
+    # "no backup found, starting fresh" and is not an error, so a brand-new
+    # instance needs no special case and no manual step.
+    restore-if-db-not-exists: true
+
+    # The checkpoint knobs are named rather than left to the defaults they happen
+    # to equal, because one of them can block the application:
+    #
+    #   * truncate-page-n is the emergency brake — the only operation here that
+    #     takes a write lock and waits for readers. At ~500 MB of WAL salt.md
+    #     would be far past its normal footprint (its WAL sits around 4 MB), and
+    #     its own single connection already carries a 5s busy timeout, so this
+    #     stays a runaway guard rather than a routine pause.
+    #   * the other two are PASSIVE and non-blocking: they return SQLITE_BUSY and
+    #     log "passive checkpoint skipped" rather than ever waiting.
+    min-checkpoint-page-count: 1000
+    checkpoint-interval: 1m
+    truncate-page-n: 121359
+
+    replica:
+      type: s3
+      bucket: ${LITESTREAM_BUCKET}
+      # Objects land under this prefix, one folder per level: 0000 is the raw
+      # stream, 0001 to 0003 the compaction levels, 0009 the snapshots. Set the
+      # prefix to something recognisable — it is the least you will have to read
+      # about a bucket when two instances share one.
+      path: ${LITESTREAM_PREFIX}
+      endpoint: ${LITESTREAM_ENDPOINT}
+      region: ${LITESTREAM_REGION}
+      # Providers other than AWS are reached path-style; when this is wrong the
+      # symptom is a signature error that looks like a wrong key.
+      force-path-style: true
+      # How stale the newest recoverable point may be, and therefore how much
+      # writing a disaster can cost. Ten seconds of a personal or small-team
+      # workspace is already a very short tail, and a tighter interval buys
+      # nothing but requests: every sync that follows a change is another PUT.
+      sync-interval: 10s
+
+# Expired replicas are pruned by Litestream itself (retention.enabled defaults to
+# true), so no bucket lifecycle rule is needed to keep the bill bounded. Set it
+# to false instead of adding one if a provider already expires objects for you.

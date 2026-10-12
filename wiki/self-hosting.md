@@ -251,6 +251,7 @@ than an absolute path.
 | --- | --- |
 | `salt.db` | the database: pages, workspaces, accounts, the search index |
 | `salt.db-wal`, `salt.db-shm` | SQLite's write-ahead log and its shared index |
+| `.salt.db-litestream/` | Litestream's own working files, only while replication is on (see [Backing up](#backing-up)); a local cache of work already uploaded, not part of the database |
 | `files/` | every upload, one file each under a generated id, served under `/files/` |
 | `bin/` | `cloudflared`, downloaded on demand when you start a tunnel |
 | `certs/` | Let's Encrypt cache, only when the built-in HTTPS is active |
@@ -510,6 +511,80 @@ instead: `/api/export/{id}` for one page, `/api/workspaces/{id}/export` for a
 whole workspace, `/api/export` for everything. [Import and
 export](import-export.md) covers them.
 
+### Continuous replication
+
+The archive above is a photograph: it is as old as the last time somebody ran it.
+The Docker image also carries
+[Litestream](https://github.com/benbjohnson/litestream), which follows the
+database continuously and copies every change to an S3-compatible bucket, so the
+newest recoverable state is at most a few seconds old.
+
+It replicates **the database only**. Uploads in `files/` are not included, so a
+restore from Litestream brings back your pages, accounts and collections with the
+images and attachments missing. Keep an archive on a schedule — or replicate
+`files/` some other way — for those; the two answer different questions and are
+worth having together.
+
+It is **off until you ask for it.** Unset, the image behaves exactly as it always
+did. Six variables turn it on, and all of them are required:
+
+| Variable | Example | What it does |
+| --- | --- | --- |
+| `LITESTREAM_BUCKET` | `my-bucket` | the bucket to replicate into; **this is the switch** |
+| `LITESTREAM_ENDPOINT` | `s3.example.com` | the provider's endpoint, without a scheme |
+| `LITESTREAM_REGION` | `us-east-1` | the bucket's region; providers that ignore it still want one |
+| `LITESTREAM_PREFIX` | `salt/instance-one` | the folder inside the bucket, so one bucket holds several instances |
+| `LITESTREAM_ACCESS_KEY_ID` | | access key |
+| `LITESTREAM_SECRET_ACCESS_KEY` | | its secret |
+
+With `docker compose`, they go under `environment:` (the file ships the block,
+commented out). With `docker run`, `--env-file` keeps them out of your shell
+history, and it is the better habit: a key typed into a command line is a key in
+`ps` and in every log that records it.
+
+Give each instance **its own prefix**. Two servers pointed at one prefix do not
+merge politely: each sees the other's replica as its own history, and the one
+that starts with an empty volume restores the other's database. The bucket can
+be shared; the prefix cannot.
+
+Set `LITESTREAM_BUCKET` and leave one of the others empty and the container says
+which one is missing and stops, rather than restarting forever with an error from
+the storage library.
+
+It also adds two bookkeeping tables to the database itself — `_litestream_lock`
+and `_litestream_seq`, both normally empty. That is how Litestream coordinates
+with SQLite while it reads the write-ahead log; they are harmless, they travel in
+your archives, and there is nothing to clean up.
+
+**How far back you can go is a separate question from how fresh it is.** Every
+change is copied within ten seconds — that is the freshness. The *history* is
+bounded by the snapshot retention in `deploy/litestream.yml`, which is set to
+thirty days. The stock default would be one day, and one day is short for the way
+data is usually lost here: a bulk import or an agent that rewrote a collection
+tends to be noticed days later, and a restore to "the latest state" would
+reproduce the damage rather than undo it. Thirty daily snapshots of a database
+this size come to well under a gigabyte, and Litestream prunes the expired ones
+itself, so no bucket lifecycle rule is needed.
+
+There is a third setting worth knowing about: `sync-interval`, also in that file.
+It is how much writing a disaster can cost you, and it is the only one of the
+three that trades money for anything — every sync that follows a change is
+another upload, so the ceiling is thousands of requests a day on a busy instance,
+and a quiet one sits far below it.
+
+To check that it is working, look at the container's log. Startup says
+`replicating to` with the bucket and how often it syncs, and then a
+`snapshot complete` line once the first full snapshot has been written. After
+that a busy instance adds `compaction complete` lines as the older levels are
+folded together, and nothing at all when it is idle. A wrong credential, an
+unreachable endpoint or a mistyped bucket shows up there instead — as a
+signature or access error, on a loop.
+
+The other line worth recognising is the one that says which of the two startup
+paths was taken: `database exists, skipping restore` on a host that already has
+its database, and `attempting restore before replication` followed by
+`restore completed` on one that does not.
+
 ## Restoring
 
 ```sh
@@ -535,6 +610,57 @@ It does **not** empty the directory, though: files that the archive does not
 contain stay where they are. For a clean restore, restore into an empty
 directory. Uploads that no page references any more are harmless: they show up
 in the count of unreferenced files and nowhere else.
+
+### From a replica
+
+If the database is replicated (above), there are two ways back, and only one of
+them is something you do by hand.
+
+**A lost volume restores itself.** With an empty `salt.db` and the replica
+variables set, the container restores the newest state before the server starts.
+Nothing to run: start it, and watch for `attempting restore before replication`
+followed by `restore completed` in the log. This is the case that matters after
+a disk failure, and it is why turning replication on is worth doing even if you
+never touch it again.
+
+**Going back in time is a decision, so it is a command.** First look at what is
+actually available — the transaction ranges and when each was written:
+
+```sh
+docker compose exec salt litestream ltx -config /etc/litestream.yml /data/salt.db
+```
+
+That is read-only and safe against a running instance, as is adding `-dry-run`
+to either of the commands below to see the plan without writing anything.
+
+Restoring means replacing `salt.db`, so the server has to be stopped first — it
+holds the file open, exactly as with `salt restore`. Restore beside the live
+database rather than over it, so you can look at the result before it is the only
+copy left:
+
+```sh
+docker compose stop salt
+docker compose run --rm --entrypoint litestream salt restore \
+  -config /etc/litestream.yml \
+  -timestamp 2026-08-07T14:00:00Z \
+  -integrity-check quick \
+  -o /data/restored.db /data/salt.db
+docker compose up -d
+```
+
+The timestamp is ISO 8601 in UTC and is where the value of the whole exercise is:
+it is the difference between "the import that ruined the collection" and "the
+collections as they were". It may be left off, and then the newest state comes
+back. Look at `/data/restored.db`, and when you are satisfied, stop the server,
+move it over `salt.db`, and delete `salt.db-wal` and `salt.db-shm` beside it —
+a restored database must not be mixed with journal state from the one it
+replaced, which is the same reason `salt restore` drops them.
+
+With `docker run` instead of Compose, the same command needs the volume and the
+`--env-file` that the container was started with, and `--entrypoint litestream`
+so that the server does not start. For a binary install there is no wrapper at
+all: the repository ships the configuration as `deploy/litestream.yml`, and
+`litestream` has to be installed and configured as its own service.
 
 ## Updating
 
