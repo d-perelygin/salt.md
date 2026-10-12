@@ -286,6 +286,9 @@ export interface ViewDef {  id: string;
   /** Timeline view: shifting a row out of its blockers' way lands on a working
    *  day rather than on a Saturday. */
   tlSkipWeekends?: boolean;
+  /** Table view: columns pinned to the left edge, so they stay on screen while
+   *  the rest of the table scrolls sideways. Column keys, in pin order. */
+  stuckCols?: string[];
   calRange?: 1 | 2; // deprecated: superseded by calMode, still read as a fallback
   endDateProp?: string; // timeline view: optional end-date property (else 1-day bar)
   depProp?: string; // timeline view: self-relation property whose ids block this row
