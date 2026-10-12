@@ -202,17 +202,21 @@ to add one.*
 
 A horizontal day grid with a sticky title column on the left, one bar per row,
 month headings across the top with every single day numbered underneath, and a
-line marking today. Clicking either the label or the bar opens the row.
-Hovering a bar highlights the days it spans; a bar's tooltip names the row and
-its span. The last row of the label column holds **+ New**, which adds a row
-dated at what the timeline is showing.
+line marking today. Weekends are tinted a shade greyer, across the whole column
+rather than just the numbers, because a weekend is what a plan is read against.
+Clicking either the label or the bar opens the row. Hovering a bar highlights the
+days it spans; a bar's tooltip names the row and its span. Bars wear the
+calendar's own colours — the accent on a wash of it — and are a little taller on
+a phone, where a finger is what aims at them. The last row of the label column
+holds **+ New**, which adds a row dated at what the timeline is showing.
 
 The head carries the same Day / Week / Month / 2 months / Year switch as the
-calendar, stored on the view the same way; a public link shows what its owner
-set, without the switch and without the add button. Dragging a bar by either
-edge stretches that end day by day, with the live date hanging off the edge;
-it persists on release. That needs an end property — without one the bars have
-no handles.
+calendar, stored on the view the same way, and a button that collapses the sticky
+title column, leaving the axis alone; both live on the view, and a public link
+shows what its owner set, without the switch, the button and the add button.
+Dragging a bar by either edge stretches that end day by day, with the live date
+hanging off the edge; it persists on release. That needs an end property —
+without one the bars have no handles.
 
 The settings bar carries two pickers for this view:
 

@@ -283,6 +283,7 @@ export default function PublicCollection({ token }: { token: string }) {
               allowDetail={cfg.allowDetail}
               onOpen={openRow}
               mode={view.tlMode ?? 'month'}
+              hideLabels={view.tlHideLabels ?? false}
             />
           ) : (
             <PublicTable
@@ -697,6 +698,7 @@ function PublicTimeline({
   allowDetail,
   onOpen,
   mode,
+  hideLabels,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -705,10 +707,13 @@ function PublicTimeline({
   allowDetail: boolean;
   onOpen: (id: string) => void;
   mode: 'day' | 'week' | 'month' | '2months' | 'year';
+  hideLabels?: boolean;
 }) {
   const DAY = 26; // px per day, same as inside
   const YEARW = 140; // px per month in year mode, same as inside
   const LABELW = 190;
+  // The owner's choice of a collapsed title column, honoured here too.
+  const labelW = hideLabels ? 0 : LABELW;
   const dayNum = (iso: string) => {
     const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
     return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
@@ -776,6 +781,10 @@ function PublicTimeline({
   // Same proportional geometry as inside: spans narrower than a month fill
   // the width, wider ones keep 26px days and scroll.
   const gridMin = isYear ? monthCols.length * YEARW : dayCols.length * DAY;
+  const isWeekend = (n: number) => {
+    const wd = new Date(n * 86400000).getUTCDay();
+    return wd === 0 || wd === 6;
+  };
 
   const months: { label: string; left: string; width: string; from: number; to: number }[] = [];
   if (!isYear) {
@@ -810,6 +819,22 @@ function PublicTimeline({
         to,
       });
     });
+  }
+  // The weekends of the visible range, as runs — see the timeline inside.
+  const weekends: { left: string; width: string }[] = [];
+  if (!isYear) {
+    const n = dayCols.length;
+    let i = 0;
+    while (i < n) {
+      if (!isWeekend(dayCols[i])) {
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j + 1 < n && isWeekend(dayCols[j + 1])) j++;
+      weekends.push({ left: `${(i / n) * 100}%`, width: `${((j - i + 1) / n) * 100}%` });
+      i = j + 1;
+    }
   }
   const todayLeft = ((): string | null => {
     if (!isYear) {
@@ -890,9 +915,9 @@ function PublicTimeline({
         <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
       </div>
       <div className="tl-scroll">
-        <div className="tl-inner" style={{ minWidth: LABELW + gridMin }}>
+        <div className="tl-inner" style={{ minWidth: labelW + gridMin }}>
           <div className="tl-header">
-            <div className="tl-corner" style={{ width: LABELW }} />
+            <div className="tl-corner" style={{ width: labelW }} />
             <div className="tl-head-right">
               <div className="tl-months">
                 {months.map((m, i) => (
@@ -916,6 +941,7 @@ function PublicTimeline({
                       key={n}
                       className={
                         'tl-day' +
+                        (isWeekend(n) ? ' is-weekend' : '') +
                         (n === today ? ' is-today' : '') +
                         (hoveredItem && covers(hoveredItem, n) ? ' is-span' : '') +
                         (hoveredItem && covers(hoveredItem, n) && !covers(hoveredItem, n - 1) ? ' is-span-first' : '') +
@@ -936,22 +962,27 @@ function PublicTimeline({
               if (!g) return null;
               return (
                 <div key={row.id} className="tl-row">
-                  <div
-                    className={'tl-label' + (allowDetail ? '' : ' is-static')}
-                    style={{ width: LABELW }}
-                    onClick={allowDetail ? () => void onOpen(row.id) : undefined}
-                    onMouseEnter={() => setHovered(row.id)}
-                    onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
-                    title={tipFor(row, it)}
-                  >
-                    {row.icon && (
-                      <span className="inline-icon">
-                        <PageIcon icon={row.icon} size={14} />
-                      </span>
-                    )}
-                    <span className="tl-label-text">{row.title || t('Untitled')}</span>
-                  </div>
+                  {!hideLabels && (
+                    <div
+                      className={'tl-label' + (allowDetail ? '' : ' is-static')}
+                      style={{ width: LABELW }}
+                      onClick={allowDetail ? () => void onOpen(row.id) : undefined}
+                      onMouseEnter={() => setHovered(row.id)}
+                      onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
+                      title={tipFor(row, it)}
+                    >
+                      {row.icon && (
+                        <span className="inline-icon">
+                          <PageIcon icon={row.icon} size={14} />
+                        </span>
+                      )}
+                      <span className="tl-label-text">{row.title || t('Untitled')}</span>
+                    </div>
+                  )}
                   <div className="tl-track">
+                    {weekends.map((w, k) => (
+                      <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
+                    ))}
                     {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
                     <div
                       className={'tl-bar' + (allowDetail ? '' : ' is-static')}

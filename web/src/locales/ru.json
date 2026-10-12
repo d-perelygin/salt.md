@@ -335,6 +335,7 @@
   "Hide all": "Скрыть всё",
   "Hide comments": "Скрыть комментарии",
   "Hide structure": "Скрыть структуру",
+  "Hide the title column": "Скрыть колонку названий",
   "Host": "Хост",
   "House rules": "Правила дома",
   "How the sidebar is arranged": "Как устроена боковая панель",
@@ -733,6 +734,7 @@
   "Show resolved": "Показать решённые",
   "Show structure": "Показать структуру",
   "Show the document's icon": "Показывать значок документа",
+  "Show the title column": "Показать колонку названий",
   "Show what happened to this row": "Показать, что произошло с этой строкой",
   "Show where pages are filed": "Показать, где хранятся страницы",
   "Show {n} resolved": {

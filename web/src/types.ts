@@ -281,6 +281,8 @@ export interface ViewDef {  id: string;
   calMode?: SpanMode;
   /** Timeline view: which window it shows. Defaults to a month. */
   tlMode?: SpanMode;
+  /** Timeline view: the sticky title column is collapsed, leaving the axis. */
+  tlHideLabels?: boolean;
   calRange?: 1 | 2; // deprecated: superseded by calMode, still read as a fallback
   endDateProp?: string; // timeline view: optional end-date property (else 1-day bar)
   hidden?: string[]; // property ids hidden in this view
