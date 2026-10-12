@@ -861,7 +861,7 @@ button {
 
 /* ---------- Side peek ---------- */
 
-/* A second document over the right side (Shift-click a page link), below the
+/* A second document over the right side (Option-click a page link), below the
    modals (100) but above everything else, so its own dropdowns (310+) and
    dialogs still open over it. No backdrop: the page behind stays usable, and
    Escape or ≫ closes the panel. */
@@ -885,12 +885,37 @@ button {
   height: auto;
 }
 
+/* In the peek the header is denser: the panel controls travel as one pair
+   with almost no gap inside it, the pair keeps its usual distance to the
+   text, and the text runs up to the right icons with barely a gap — the
+   trail fade (below) handles the overflow instead of empty space. */
+.peek-panel .topbar {
+  gap: 2px;
+}
+
+.peek-pair {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 10px;
+}
+
+.peek-panel .topbar-menu {
+  margin-right: 10px;
+}
+
+.peek-panel .topbar-right {
+  margin-left: 0;
+  gap: 2px;
+}
+
 /* A long trail fades instead of cutting mid-word. The mask only touches the
    trailing edge, so a trail that fits shows no change at all; the last crumb
-   is uncapped so the fade — not a per-crumb ellipsis — decides where it ends. */
+   is uncapped so the fade — not a per-crumb ellipsis — decides where it ends.
+   Kept narrow so as much of the title stays readable as possible. */
 .peek-panel .breadcrumbs {
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent 100%);
-  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
 }
 
 .peek-panel .crumb-wrap:last-child .crumb {

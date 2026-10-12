@@ -1147,7 +1147,7 @@ function PageHeader({
     <>
       <header className="topbar">
         {onPeekClose && (
-          <>
+          <span className="peek-pair">
             <button className="icon-btn" title={t('Close preview')} onClick={onPeekClose}>
               <ChevronsRight size={17} />
             </button>
@@ -1158,7 +1158,7 @@ function PageHeader({
             >
               <Maximize2 size={16} />
             </button>
-          </>
+          </span>
         )}
         <button className="menu-btn topbar-menu" title={t('Menu')} onClick={onMenu}>
           <Menu size={18} />
