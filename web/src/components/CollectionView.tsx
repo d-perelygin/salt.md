@@ -802,6 +802,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Date props — the timeline's and the calendar's Start/End pickers choose
   // from these, and each view's settings popover is where they live.
   const dateProps = schema.filter((p) => p.type === 'date');
+  // Dragging an entry to another day: the day under the pointer, and the click
+  // the gesture ends in (which must not open the row it just moved).
+  const [dropDay, setDropDay] = useState<string | null>(null);
+  const dragGuard = useRef(0);
 
   const viewSwitcher = (
     <div className="collection-toolbar">
@@ -1050,6 +1054,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onModeChange={(m) => updateView({ calMode: m, calRange: m === '2months' ? 2 : 1 })}
           onViewChange={updateView}
           onAddRow={(preset) => addRow(preset)}
+          onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
         />
       ) : view.type === 'list' ? (
         <ListView
@@ -3417,6 +3422,10 @@ function TimelineView({
     );
   };
   const dateProps = schema.filter((p) => p.type === 'date');
+  // Dragging an entry to another day: the day under the pointer, and the click
+  // the gesture ends in (which must not open the row it just moved).
+  const [dropDay, setDropDay] = useState<string | null>(null);
+  const dragGuard = useRef(0);
   // Dependency arrows: predecessor's end to successor's start. Each arrow gets
   // its own small SVG box from x1 to x2 so no global measuring is needed —
   // x is in track percent, y in row pixels (ROW_H per row, bar center at 20).
@@ -4179,6 +4188,7 @@ function CalendarView({
   onModeChange,
   onViewChange,
   onAddRow,
+  onSetDate,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -4191,6 +4201,7 @@ function CalendarView({
   onModeChange: (m: SpanMode) => void;
   onViewChange: (patch: Partial<ViewDef>) => void;
   onAddRow: (presetProps?: Record<string, unknown>) => void;
+  onSetDate: (rowId: string, propId: string, iso: string) => void;
 }) {
   const [cursor, setCursor] = useState(() => {
     const n = new Date();
@@ -4200,6 +4211,10 @@ function CalendarView({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsHint, settingsSeen] = useSettingsHint('calendar-settings');
   const dateProps = schema.filter((p) => p.type === 'date');
+  // Dragging an entry to another day: the day under the pointer, and the click
+  // the gesture ends in (which must not open the row it just moved).
+  const [dropDay, setDropDay] = useState<string | null>(null);
+  const dragGuard = useRef(0);
 
   if (!dateProp || !schema.some((p) => p.id === dateProp && p.type === 'date')) {
     return (
@@ -4238,6 +4253,69 @@ function CalendarView({
     if (to > from) spans.push({ row: r, from, to });
   }
   const spanIds = new Set(spans.map((s) => s.row.id));
+  // Every row's own span, whatever it looks like on screen: a move needs the
+  // dates it started from, not the segment under the finger.
+  const rangeOf = new Map<string, { from: string; to: string }>();
+  for (const r of rows) {
+    const v = r.props[dateProp];
+    if (typeof v !== 'string' || !v) continue;
+    const from = v.slice(0, 10);
+    let to = from;
+    if (endDateProp) {
+      const e = r.props[endDateProp];
+      if (typeof e === 'string' && e && e.slice(0, 10) > from) to = e.slice(0, 10);
+    }
+    rangeOf.set(r.id, { from, to });
+  }
+  const addDaysTo = (key: string, n: number) => {
+    const d = new Date(key + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return toDayString(d);
+  };
+  const dayAtPoint = (x: number, y: number): string | null => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const cell = el?.closest('.calendar-cell') as HTMLElement | null;
+    return cell?.dataset.day ?? null;
+  };
+  // Carrying an entry to another day: it keeps its length and moves by the days
+  // the pointer travelled, exactly like a bar on the timeline.
+  const beginEntryDrag = (e: React.PointerEvent, rowId: string) => {
+    const r = rangeOf.get(rowId);
+    if (!r) return;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let moved = false;
+    let target: string | null = null;
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - y0) < 4) return;
+      moved = true;
+      target = dayAtPoint(ev.clientX, ev.clientY);
+      setDropDay(target);
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      setDropDay(null);
+      if (!moved || !target || target === r.from) return;
+      dragGuard.current = Date.now();
+      const delta = Math.round(
+        (new Date(target + 'T00:00:00').getTime() - new Date(r.from + 'T00:00:00').getTime()) / 86400000,
+      );
+      void onSetDate(rowId, dateProp, addDaysTo(r.from, delta));
+      // Only a row that already ended somewhere gets an end: moving a one-day
+      // entry keeps it one day.
+      if (endDateProp && r.to > r.from) void onSetDate(rowId, endDateProp, addDaysTo(r.to, delta));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
+  const entryClick = (e: React.MouseEvent, rowId: string) => {
+    if (Date.now() - dragGuard.current < 700) return;
+    openCollectionRow(e, rowId, { onNavigate, onOpenInNewTab });
+  };
+
   // Every day a bar touches, for the year's mini grids (a range lights all of
   // its days, not only the first).
   const covered = new Set<string>();
@@ -4325,7 +4403,8 @@ function CalendarView({
     <button
       key={r.id}
       className="calendar-event"
-      onClick={(e) => openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab })}
+      onPointerDown={(e) => beginEntryDrag(e, r.id)}
+      onClick={(e) => entryClick(e, r.id)}
       onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
       title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
     >
@@ -4354,7 +4433,8 @@ function CalendarView({
         <button
           key={'sp' + s.row.id}
           className={'cal-span' + (isStart ? ' is-start' : '') + (isEnd ? ' is-end' : '')}
-          onClick={(e) => openCollectionRow(e, s.row.id, { onNavigate, onOpenInNewTab })}
+          onPointerDown={(e) => beginEntryDrag(e, s.row.id)}
+          onClick={(e) => entryClick(e, s.row.id)}
           onAuxClick={(e) => openPageAux(e, s.row.id, { onNavigate, onOpenInNewTab })}
           title={spanTitle(s)}
         >
@@ -4372,7 +4452,16 @@ function CalendarView({
       );
     };
     return (
-      <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
+      <div
+        key={i}
+        data-day={key || undefined}
+        className={
+          'calendar-cell' +
+          (d ? '' : ' empty') +
+          (key === today ? ' today' : '') +
+          (key && key === dropDay ? ' is-drop' : '')
+        }
+      >
         {d && (
           <button
             className="calendar-daynum"

@@ -3776,6 +3776,18 @@ button.cal-mini-day:hover {
   cursor: pointer;
 }
 
+/* An entry is a thing you carry: no text selection while dragging it, and on a
+   phone the gesture belongs to the drag rather than to the page scrolling. */
+.calendar-event,
+.cal-span {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* The day an entry would land on. */
+.calendar-cell.is-drop {
+  background: var(--accent-soft);
+}
 .calendar-event {
   border: none;
   background: var(--accent-soft);
