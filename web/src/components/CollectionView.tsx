@@ -810,6 +810,18 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // the gesture ends in (which must not open the row it just moved).
   const [dropDay, setDropDay] = useState<string | null>(null);
   const dragGuard = useRef(0);
+  // Swiping the calendar pages it, like the arrows: a trackpad's sideways scroll
+  // and a finger's sideways drag both step one span. The timeline is left alone
+  // — there the same gesture scrolls the axis, which is what it is for.
+  const swipe = useRef<{ x: number; y: number; done: boolean } | null>(null);
+  const swipeLock = useRef(0);
+  const pageBy = (forward: boolean) => {
+    const now = Date.now();
+    if (now - swipeLock.current < 320) return;
+    swipeLock.current = now;
+    dragGuard.current = now; // a swipe is not a click on what it started over
+    step(forward ? 1 : -1);
+  };
 
   const viewSwitcher = (
     <div className="collection-toolbar">
@@ -3442,6 +3454,18 @@ function TimelineView({
   // the gesture ends in (which must not open the row it just moved).
   const [dropDay, setDropDay] = useState<string | null>(null);
   const dragGuard = useRef(0);
+  // Swiping the calendar pages it, like the arrows: a trackpad's sideways scroll
+  // and a finger's sideways drag both step one span. The timeline is left alone
+  // — there the same gesture scrolls the axis, which is what it is for.
+  const swipe = useRef<{ x: number; y: number; done: boolean } | null>(null);
+  const swipeLock = useRef(0);
+  const pageBy = (forward: boolean) => {
+    const now = Date.now();
+    if (now - swipeLock.current < 320) return;
+    swipeLock.current = now;
+    dragGuard.current = now; // a swipe is not a click on what it started over
+    step(forward ? 1 : -1);
+  };
   // Dependency arrows: predecessor's end to successor's start. Each arrow gets
   // its own small SVG box from x1 to x2 so no global measuring is needed —
   // x is in track percent, y in row pixels (ROW_H per row, bar center at 20).
@@ -4231,6 +4255,18 @@ function CalendarView({
   // the gesture ends in (which must not open the row it just moved).
   const [dropDay, setDropDay] = useState<string | null>(null);
   const dragGuard = useRef(0);
+  // Swiping the calendar pages it, like the arrows: a trackpad's sideways scroll
+  // and a finger's sideways drag both step one span. The timeline is left alone
+  // — there the same gesture scrolls the axis, which is what it is for.
+  const swipe = useRef<{ x: number; y: number; done: boolean } | null>(null);
+  const swipeLock = useRef(0);
+  const pageBy = (forward: boolean) => {
+    const now = Date.now();
+    if (now - swipeLock.current < 320) return;
+    swipeLock.current = now;
+    dragGuard.current = now; // a swipe is not a click on what it started over
+    step(forward ? 1 : -1);
+  };
 
   if (!dateProp || !schema.some((p) => p.id === dateProp && p.type === 'date')) {
     return (
@@ -4514,7 +4550,30 @@ function CalendarView({
   for (let m = 0; m < 12; m++) yearMonths.push(new Date(cursor.getFullYear(), m, 1));
 
   return (
-    <div className="calendar">
+    <div
+      className="calendar"
+      onWheel={(e) => {
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 16) pageBy(e.deltaX > 0);
+      }}
+      onPointerDown={(e) => {
+        swipe.current = { x: e.clientX, y: e.clientY, done: false };
+      }}
+      onPointerMove={(e) => {
+        const s = swipe.current;
+        if (!s || s.done) return;
+        const dx = e.clientX - s.x;
+        const dy = e.clientY - s.y;
+        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        s.done = true;
+        pageBy(dx < 0);
+      }}
+      onPointerUp={() => {
+        swipe.current = null;
+      }}
+      onPointerCancel={() => {
+        swipe.current = null;
+      }}
+    >
       <div className="calendar-head">
         <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
         <span className="calendar-title">{title}</span>
