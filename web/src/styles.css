@@ -2750,6 +2750,15 @@ body:has(.icon-picker) .bn-side-menu {
   font-size: 12.5px;
   position: relative;
 }
+/* The heading row stays put while the table scrolls: with a dozen columns it is
+   the only thing that says which column you are looking at. A sticky row cannot
+   keep a collapsed border, so the line under it is a shadow instead. */
+.db-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
 
 /* The heading's own box, which is what the grip is positioned against — see
    ColHead for why it cannot hang off the <th>. */
