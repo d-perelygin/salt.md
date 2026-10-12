@@ -17,6 +17,17 @@ services:
     environment:
       SALT_ADDR: ":8420"
       SALT_DATA: "/data"
+      # Continuous replication of salt.db to an S3-compatible bucket, handled by
+      # Litestream inside this container. Uncomment and fill these in to turn it
+      # on; leaving LITESTREAM_BUCKET unset keeps the image running exactly as it
+      # did before. See the Backing up section of wiki/self-hosting.md.
+      #
+      # LITESTREAM_BUCKET: "my-bucket"
+      # LITESTREAM_ENDPOINT: "s3.example.com"
+      # LITESTREAM_REGION: "us-east-1"
+      # LITESTREAM_PREFIX: "salt/instance-one"
+      # LITESTREAM_ACCESS_KEY_ID: "..."
+      # LITESTREAM_SECRET_ACCESS_KEY: "..."
       # SALT_MEMORY_MB: "4096"
       # For HTTPS, mount certs and point these at them:
       # SALT_TLS_CERT: "/certs/fullchain.pem"

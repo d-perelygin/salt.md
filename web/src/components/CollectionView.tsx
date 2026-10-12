@@ -74,7 +74,7 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
-  ArrowRight, ChevronDown, History} from 'lucide-react';
+  ArrowRight, ChevronDown, History, PanelLeftClose, PanelLeftOpen} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
 function propTypeIcon(t: PropDef['type']) {
@@ -1089,6 +1089,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onAddRow={(preset) => addRow(preset)}
           onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
           onSetDep={(rowId, propId, ids) => void setRowProp(rowId, propId, ids)}
+          hideLabels={view.tlHideLabels ?? false}
+          onToggleLabels={() => updateView({ tlHideLabels: !view.tlHideLabels })}
         />
       ) : (
         <TableView
@@ -2767,6 +2769,8 @@ function TimelineView({
   onAddRow,
   onSetDate,
   onSetDep,
+  hideLabels,
+  onToggleLabels,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -2784,10 +2788,17 @@ function TimelineView({
   onAddRow: (presetProps?: Record<string, unknown>) => void;
   onSetDate: (rowId: string, propId: string, iso: string) => void;
   onSetDep: (rowId: string, propId: string, ids: string[]) => void;
+  hideLabels?: boolean;
+  onToggleLabels?: () => void;
 }) {
   const DAY = 26; // px per day
   const YEARW = 140; // px per month in year mode
   const LABELW = 190; // sticky title column width
+  // Collapsed, the title column takes no room at all and the grid keeps the
+  // width: the bars carry their own titles, so the axis is what is left to look
+  // at. `onToggleLabels` is absent where nothing may be collapsed (a public
+  // link shows the owner's choice).
+  const labelW = hideLabels ? 0 : LABELW;
   const dayNum = (iso: string) => {
     const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
     return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
@@ -2992,6 +3003,13 @@ function TimelineView({
   // fixed-width months.
   const yearOf = (n: number) => new Date(n * 86400000).getUTCFullYear();
   const monthOf = (n: number) => new Date(n * 86400000).getUTCMonth();
+  // Saturday and Sunday, in the same UTC day-number space as everything else
+  // here: the weekend a Gantt is read against, whatever a region calls the start
+  // of its week.
+  const isWeekend = (n: number) => {
+    const wd = new Date(n * 86400000).getUTCDay();
+    return wd === 0 || wd === 6;
+  };
   let dayCols: number[] = [];
   let monthCols: { y: number; mo: number }[] = [];
   if (mode === 'day') {
@@ -3257,6 +3275,24 @@ function TimelineView({
       });
     });
   }
+  // The weekends of the visible range, as runs, so the body draws one band per
+  // weekend instead of one per day. Percent of the grid, like every other
+  // position here — the day columns share the track equally.
+  const weekends: { left: string; width: string }[] = [];
+  if (!isYear) {
+    const n = dayCols.length;
+    let i = 0;
+    while (i < n) {
+      if (!isWeekend(dayCols[i])) {
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j + 1 < n && isWeekend(dayCols[j + 1])) j++;
+      weekends.push({ left: `${(i / n) * 100}%`, width: `${((j - i + 1) / n) * 100}%` });
+      i = j + 1;
+    }
+  }
   const todayLeft = ((): string | null => {
     if (!isYear) {
       if (today < dayCols[0] || today > dayCols[dayCols.length - 1]) return null;
@@ -3397,6 +3433,16 @@ function TimelineView({
   return (
     <div className="timeline">
       <div className="tl-controls">
+        {onToggleLabels && (
+          <button
+            className="btn-sm tl-collapse"
+            onClick={onToggleLabels}
+            aria-label={hideLabels ? t('Show the title column') : t('Hide the title column')}
+            title={hideLabels ? t('Show the title column') : t('Hide the title column')}
+          >
+            {hideLabels ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          </button>
+        )}
         <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
         <span className="tl-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
@@ -3546,9 +3592,9 @@ function TimelineView({
         </div>
       </div>
       <div className="tl-scroll">
-        <div className="tl-inner" style={{ minWidth: LABELW + gridMin }}>
+        <div className="tl-inner" style={{ minWidth: labelW + gridMin }}>
           <div className="tl-header">
-            <div className="tl-corner" style={{ width: LABELW }} />
+            <div className="tl-corner" style={{ width: labelW }} />
             <div className="tl-head-right">
               <div className="tl-months">
                 {months.map((m, i) => (
@@ -3572,6 +3618,7 @@ function TimelineView({
                       key={n}
                       className={
                         'tl-day' +
+                        (isWeekend(n) ? ' is-weekend' : '') +
                         (n === today ? ' is-today' : '') +
                         (spanItem && covers(spanItem, n) ? ' is-span' : '') +
                         (spanItem && covers(spanItem, n) && !covers(spanItem, n - 1) ? ' is-span-first' : '') +
@@ -3609,39 +3656,44 @@ function TimelineView({
                   }
                   data-tl-row={row.id}
                 >
-                  <div
-                    className="tl-label"
-                    style={{ width: LABELW }}
-                    onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
-                    onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                    title={tipFor(row, it)}
-                  >
-                    {row.icon && (
-                      <span className="inline-icon">
-                        <PageIcon icon={row.icon} size={14} />
-                      </span>
-                    )}
-                    <span className="tl-label-text">{row.title || 'Untitled'}</span>
-                    {blocked.length > 0 && (
-                      <button
-                        className="tl-warn"
-                        title={plural(
-                          blocked.length,
-                          'Blocked: starts before {n} blocker ends',
-                          'Blocked: starts before {n} blockers end',
-                        )}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                          setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
-                          setAddBlockerFor(null);
-                        }}
-                      >
-                        ⚠{blocked.length > 1 ? blocked.length : ''}
-                      </button>
-                    )}
-                  </div>
+                  {!hideLabels && (
+                    <div
+                      className="tl-label"
+                      style={{ width: LABELW }}
+                      onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
+                      onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
+                      title={tipFor(row, it)}
+                    >
+                      {row.icon && (
+                        <span className="inline-icon">
+                          <PageIcon icon={row.icon} size={14} />
+                        </span>
+                      )}
+                      <span className="tl-label-text">{row.title || 'Untitled'}</span>
+                      {blocked.length > 0 && (
+                        <button
+                          className="tl-warn"
+                          title={plural(
+                            blocked.length,
+                            'Blocked: starts before {n} blocker ends',
+                            'Blocked: starts before {n} blockers end',
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                            setAddBlockerFor(null);
+                          }}
+                        >
+                          ⚠{blocked.length > 1 ? blocked.length : ''}
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <div className="tl-track">
+                    {weekends.map((w, k) => (
+                      <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
+                    ))}
                     {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
                     <div
                       className={
@@ -3746,7 +3798,7 @@ function TimelineView({
                 clicks and opens the successor's popover. Bad (overlapping)
                 arrows are red. */}
             {effDep && (
-              <div className="tl-arrows" ref={arrowsRefCb} style={{ left: LABELW }}>
+              <div className="tl-arrows" ref={arrowsRefCb} style={{ left: labelW }}>
                 <svg
                   width={trackW}
                   height={rendered.length * ROW_H}
@@ -3805,14 +3857,16 @@ function TimelineView({
                   })}
               </div>
             )}
-            <div className="tl-row">
-              <div className="tl-label tl-add" style={{ width: LABELW }}>
-                <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
-                  <Plus size={14} /> {t('New')}
-                </button>
+            {!hideLabels && (
+              <div className="tl-row">
+                <div className="tl-label tl-add" style={{ width: LABELW }}>
+                  <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
+                    <Plus size={14} /> {t('New')}
+                  </button>
+                </div>
+                <div className="tl-track" />
               </div>
-              <div className="tl-track" />
-            </div>
+            )}
           </div>
         </div>
       </div>
