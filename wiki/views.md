@@ -213,7 +213,9 @@ holds **+ New**, which adds a row dated at what the timeline is showing.
 The head carries the same Day / Week / Month / 2 months / Year switch as the
 calendar, stored on the view the same way, and a button that collapses the sticky
 title column, leaving the axis alone; both live on the view, and a public link
-shows what its owner set, without the switch, the button and the add button.
+shows what its owner set, without the switch, the button and the add button. The
+add button goes with the column it sits at the foot of: collapsed, the timeline
+is read, not added to.
 Dragging a bar by either edge stretches that end day by day, with the live date
 hanging off the edge; it persists on release. That needs an end property —
 without one the bars have no handles.

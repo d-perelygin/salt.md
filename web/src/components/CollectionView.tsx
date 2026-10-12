@@ -3134,13 +3134,6 @@ function TimelineView({
         <span className="tl-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
         <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
-        {/* The add button lives at the foot of the title column, which is not
-            there when the column is collapsed — so it moves up here. */}
-        {hideLabels && (
-          <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
-            <Plus size={14} /> {t('New')}
-          </button>
-        )}
         <ModePicker mode={mode} onChange={onModeChange} />
       </div>
       <div className="tl-scroll">
