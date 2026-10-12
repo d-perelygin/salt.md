@@ -139,6 +139,9 @@ interface Row {
   props: Record<string, unknown>;
   position: number;
   tags?: string[];
+  /** Whether this row is a template: the one filter condition that is not a
+   *  column (see TEMPLATE_FILTER). */
+  isTemplate?: boolean;
 }
 
 const UNSET = '__unset__';
@@ -180,6 +183,12 @@ export function filterIsArmed(f: Filter): boolean {
 }
 
 function matchesFilter(row: Row, f: Filter): boolean {
+  // The one condition that is not about a column (see TEMPLATE_FILTER). The
+  // server filters on it too; this is the same answer for the rows it sent.
+  if (f.property === TEMPLATE_FILTER) {
+    if (!filterIsArmed(f)) return true;
+    return String(!!row.isTemplate) === f.value;
+  }
   const v = row.props[f.property];
   const op = f.op ?? (f.value === '' ? 'is_not_empty' : 'is');
   if (!filterIsArmed(f)) return true;
@@ -400,6 +409,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           props: r.props || {},
           position: r.position,
           tags: r.tags ?? [],
+          isTemplate: r.isTemplate === true,
         }));
         acc = [...acc, ...mapped];
         setTotal(res.total);
@@ -3179,10 +3189,11 @@ function TimelineView({
     // so a leaked one cannot ride along with this one. No click guard from that
     // end — the click that follows belongs to this press.
     dragCleanup.current?.(false);
-    // Armed at the press as well as at the end: a click this gesture produces is
-    // never an honest click, however long the press lasted and even if the end
-    // of the gesture never gets reported at all.
-    navGuard.current = Date.now();
+    // An edge press is never a click, so the guard goes up at the press — even
+    // if the end of the gesture is never reported. A press in the middle of a
+    // bar is a move, and a move that goes nowhere is just a click: the guard
+    // for that one is armed at the end, and only if the bar actually moved.
+    if (edge !== 'move') navGuard.current = Date.now();
     const track = (e.currentTarget as HTMLElement).closest('.tl-track') as HTMLElement | null;
     const it = items.find((i) => i.row.id === id);
     if (!track || !it) return;
@@ -3227,7 +3238,8 @@ function TimelineView({
       // whose edge was held — so the guard is armed here as well as at the press,
       // which covers a press of any length. Not when the gesture was ended by a
       // NEW press though: the click that follows that one is that press's own.
-      if (armGuard) navGuard.current = Date.now();
+      // The move decides for itself, above.
+      if (armGuard && edge !== 'move') navGuard.current = Date.now();
       // Read from the ref, not from the state updater: React may run an updater
       // more than once and this one writes to the server, and — the reason this
       // is a ref at all — a gesture that ends late must not commit whatever the
@@ -3236,7 +3248,12 @@ function TimelineView({
       setDragBoth(null);
       if (!reached) return;
       if (reached.edge === 'move') {
-        if (reached.day === 0) return;
+        // Nothing moved: the click that follows is an honest one.
+        if (reached.day === 0) {
+          navGuard.current = 0;
+          return;
+        }
+        navGuard.current = Date.now();
         void onSetDate(id, startProp, isoDay(it.start + reached.day));
         // A move keeps whatever the row already had: a one-day row stays one
         // day instead of growing an end nobody asked for.

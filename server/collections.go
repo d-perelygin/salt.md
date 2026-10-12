@@ -330,7 +330,10 @@ func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter
 
 	s.db.QueryRow(`SELECT COUNT(*) FROM pages AS row WHERE `+whereSQL, args...).Scan(&total)
 
-	rows, err := s.db.Query(`SELECT id, title, icon, cover, position, props, tags FROM pages AS row WHERE `+whereSQL+` ORDER BY `+orderSQL+` LIMIT ? OFFSET ?`, append(args, limit, offset)...)
+	// is_template travels with the row because a view can filter on it (see
+	// templateFilterProp): the client re-checks the conditions it was sent, and
+	// it cannot re-check one whose answer is not in the payload.
+	rows, err := s.db.Query(`SELECT id, title, icon, cover, position, props, tags, is_template FROM pages AS row WHERE `+whereSQL+` ORDER BY `+orderSQL+` LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -339,7 +342,8 @@ func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter
 	for rows.Next() {
 		var id, title, icon, cover, props, tags string
 		var position float64
-		if rows.Scan(&id, &title, &icon, &cover, &position, &props, &tags) != nil {
+		var isTemplate int
+		if rows.Scan(&id, &title, &icon, &cover, &position, &props, &tags, &isTemplate) != nil {
 			continue
 		}
 		var pm map[string]any
@@ -352,6 +356,7 @@ func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter
 		}
 		list = append(list, map[string]any{
 			"id": id, "title": title, "icon": icon, "cover": cover, "position": position, "props": pm, "tags": tagList,
+			"isTemplate": isTemplate != 0,
 		})
 	}
 

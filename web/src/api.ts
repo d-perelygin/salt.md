@@ -463,6 +463,7 @@ export const api = {
         position: number;
         props: Record<string, unknown>;
         tags?: string[];
+        isTemplate?: boolean;
       }[];
       total: number;
       offset: number;
