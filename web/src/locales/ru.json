@@ -1311,4 +1311,6 @@
   "Stop blocking": "Перестать блокировать",
   "starts {d}": "начинается {d}",
   "Remove link": "Убрать связь"
+  "Is a template": "Это шаблон",
+  "Is not a template": "Это не шаблон",
 }

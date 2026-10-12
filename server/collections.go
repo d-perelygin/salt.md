@@ -161,7 +161,26 @@ func isNumeric(s string) bool {
 // it. An empty condition means "does not filter": an unsafe property id, a
 // comparison with nothing to compare against, or a half-built range. The
 // caller skips those, so an unfinished condition never blanks the answer.
+// templateFilterProp is the one condition that is not about a column: whether
+// the row is a template. A pseudo-property, so it travels in the same shape as
+// every other condition and a view can save it like any other (the client has
+// the same id — see TEMPLATE_FILTER).
+const templateFilterProp = "@template"
+
 func (f rowFilter) where() (string, []any) {
+	if f.Prop == templateFilterProp {
+		// "is a template" is the checked value; anything else — and "is not a
+		// template" with it — asks for the other half.
+		want := 1
+		no := f.Value == "false" || f.Value == "0"
+		if f.Op == "is_not" {
+			no = !no
+		}
+		if no {
+			want = 0
+		}
+		return "is_template = ?", []any{want}
+	}
 	if !safePropID(f.Prop) {
 		return "", nil
 	}

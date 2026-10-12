@@ -196,3 +196,29 @@ func TestParseFilterGroups(t *testing.T) {
 		t.Errorf("second group is %#v, want the datum range", groups[1])
 	}
 }
+
+func TestTemplateFilter(t *testing.T) {
+	// The one condition that is not about a column: whether the row is a
+	// template. It must answer for all four spellings a view can carry, and for
+	// the empty one a half-built row leaves behind.
+	cases := []struct {
+		op, value string
+		want      int
+	}{
+		{"is", "true", 1},
+		{"is", "false", 0},
+		{"is_not", "true", 0},
+		{"is_not", "false", 1},
+		{"", "", 1},
+	}
+	for _, c := range cases {
+		sql, args := (rowFilter{Prop: templateFilterProp, Op: c.op, Value: c.value}).where()
+		if sql != "is_template = ?" {
+			t.Errorf("%q %q: sql = %q", c.op, c.value, sql)
+			continue
+		}
+		if len(args) != 1 || args[0] != c.want {
+			t.Errorf("%q %q: args = %v, want %d", c.op, c.value, args, c.want)
+		}
+	}
+}

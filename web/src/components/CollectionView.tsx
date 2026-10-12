@@ -156,6 +156,11 @@ function isEmptyVal(v: unknown): boolean {
   return v === undefined || v === '' || v === null || v === false;
 }
 
+/** The one condition that is not about a column: whether the row is a template.
+ *  A pseudo-property, so it travels in the same Filter shape as everything else
+ *  and needs no second code path in the interface. The server knows this id. */
+export const TEMPLATE_FILTER = '@template';
+
 /** What a condition compares against: the set if there is one, else the single
  *  value. Never both — the same rule the server applies (rowFilter.vals). */
 export function filterValues(f: Filter): string[] {
@@ -1600,9 +1605,16 @@ function FilterSortControls({
   // readers that only know the old shape still see something honest.
   const setGroups = (next: Filter[][]) => onChange({ filters: next[0] ?? [], filterGroups: next });
   const sort = view.sort ?? null;
-  const propName = (id: string) => schema.find((p) => p.id === id)?.name ?? id;
+  const propName = (id: string) =>
+    id === TEMPLATE_FILTER ? t('Template') : schema.find((p) => p.id === id)?.name ?? id;
 
   const valuesFor = (propId: string): { value: string; label: string }[] => {
+    if (propId === TEMPLATE_FILTER) {
+      return [
+        { value: 'true', label: t('Is a template') },
+        { value: 'false', label: t('Is not a template') },
+      ];
+    }
     const prop = schema.find((p) => p.id === propId);
     if (!prop) return [];
     if (prop.type === 'select' || prop.type === 'multiselect') {
@@ -1626,7 +1638,8 @@ function FilterSortControls({
     return [];
   };
 
-  // Operators offered per property type. Built during render, never as a module
+  // Operators offered per property type. The template condition is a checkbox
+  // in this respect: is / is not, and nothing else. Built during render, never as a module
   // constant: a list of labels resolved once at import keeps its language for
   // the life of the tab. These read `is` / `is not` in a German interface for
   // exactly that reason — they were plain strings, which the checks cannot see
@@ -1851,6 +1864,7 @@ function FilterSortControls({
                     {p.name}
                   </option>
                 ))}
+                <option value={TEMPLATE_FILTER}>{t('Template')}</option>
               </select>
               {groups.length > 1 && (
                 <button
