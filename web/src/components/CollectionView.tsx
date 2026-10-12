@@ -1046,6 +1046,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           mode={view.calMode ?? (view.calRange === 2 ? '2months' : 'month')}
           onModeChange={(m) => updateView({ calMode: m, calRange: m === '2months' ? 2 : 1 })}
           onViewChange={updateView}
+          onAddRow={(preset) => addRow(preset)}
         />
       ) : view.type === 'list' ? (
         <ListView
@@ -4110,6 +4111,7 @@ function CalendarView({
   mode,
   onModeChange,
   onViewChange,
+  onAddRow,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -4121,6 +4123,7 @@ function CalendarView({
   mode: SpanMode;
   onModeChange: (m: SpanMode) => void;
   onViewChange: (patch: Partial<ViewDef>) => void;
+  onAddRow: (presetProps?: Record<string, unknown>) => void;
 }) {
   const [cursor, setCursor] = useState(() => {
     const n = new Date();
@@ -4317,6 +4320,21 @@ function CalendarView({
         )}
         {lanes.map(laneSlot)}
         {dayRows.map((r) => eventButton(r, d))}
+        {/* Adding from the day itself: the corner of the cell, always there on
+            a touch screen and on hover where there is a pointer. */}
+        {d && (
+          <button
+            className="cal-add"
+            title={t('Add an entry on this day')}
+            aria-label={t('Add an entry on this day')}
+            onClick={(e) => {
+              e.stopPropagation();
+              void onAddRow({ [dateProp]: ymd(d) });
+            }}
+          >
+            <Plus size={13} />
+          </button>
+        )}
       </div>
     );
   };
