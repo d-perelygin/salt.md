@@ -16,7 +16,7 @@ import { PageIcon } from '../pageIcon';
 import TrashSection from './TrashSection';
 import { compare } from '../format';
 import { plural, t } from '../i18n';
-import { openPage, openPageAux } from '../pageOpen';
+import { openPage, openPageAux, peekPanel } from '../pageOpen';
 import AgentConnectModal from './AgentConnect';
 import BreakGlassLog from './BreakGlassLog';
 import TemplateGallery from './TemplateGallery';
@@ -872,7 +872,10 @@ export default function Sidebar({
   const instantiateTemplate = async (id: string) => {
     try {
       const r = await api.duplicatePage(id, true);
-      onNavigate(r.id);
+      // A page made from a template is a page you are about to write in, so it
+      // opens in the side peek; on a screen too narrow for one it opens as a
+      // tab, which is what pages do there anyway.
+      if (!peekPanel(r.id)) onNavigate(r.id);
     } catch {
       toast(t('The template could not be used'));
     }
