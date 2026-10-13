@@ -779,13 +779,51 @@ export default function Sidebar({
   collapsed = false,
   onExpand,
 }: Props) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    // An open tree stays open: which branches were expanded is part of the
+    // workspace's open state, like the tabs, and survives a reload the same way.
+    try {
+      const s = JSON.parse(localStorage.getItem('salt-tree') ?? '[]');
+      if (Array.isArray(s)) return new Set(s.filter((x): x is string => typeof x === 'string'));
+    } catch {
+      /* localStorage unavailable — the tree starts collapsed */
+    }
+    return new Set<string>();
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('salt-tree', JSON.stringify([...expanded]));
+    } catch {
+      /* best-effort persistence */
+    }
+  }, [expanded]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [addFor, setAddFor] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const dragId = useRef<string | null>(null);
   const favSet = useMemo(() => new Set(favorites), [favorites]);
   const byIdAll = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages]);
+  // The open page stays visible in the tree: its ancestors expand so the
+  // active row is never buried inside a collapsed branch after a reload or a
+  // navigation. Collapsing stays manual — this only ever adds.
+  const byIdAllRef = useRef(byIdAll);
+  byIdAllRef.current = byIdAll;
+  useEffect(() => {
+    if (!currentId) return;
+    const chain: string[] = [];
+    let id = byIdAllRef.current.get(currentId)?.parentId ?? null;
+    while (id) {
+      chain.push(id);
+      id = byIdAllRef.current.get(id)?.parentId ?? null;
+    }
+    if (chain.length === 0) return;
+    setExpanded((prev) => {
+      if (chain.every((c) => prev.has(c))) return prev;
+      const next = new Set(prev);
+      chain.forEach((c) => next.add(c));
+      return next;
+    });
+  }, [currentId]);
   const favPages = useMemo(
     () =>
       favorites
