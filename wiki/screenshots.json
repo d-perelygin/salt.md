@@ -79,9 +79,15 @@
         }
       ],
       "takenAt": {
+<<<<<<< HEAD
         "web/src/components/Sidebar.tsx": "7d75823681d0",
         "web/src/components/Editor.tsx": "a82f85a01bf3",
         "web/src/App.tsx": "c5104863af1e",
+=======
+        "web/src/components/Sidebar.tsx": "9fd46b80ecc7",
+        "web/src/components/Editor.tsx": "dd27a4d9accd",
+        "web/src/App.tsx": "9b16ad2005ce",
+>>>>>>> 6ecbd5e (Public shares: close the anonymous read surface)
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -141,7 +147,11 @@
         }
       ],
       "takenAt": {
+<<<<<<< HEAD
         "web/src/components/Editor.tsx": "a82f85a01bf3",
+=======
+        "web/src/components/Editor.tsx": "dd27a4d9accd",
+>>>>>>> 6ecbd5e (Public shares: close the anonymous read surface)
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -299,7 +309,11 @@
         }
       ],
       "takenAt": {
+<<<<<<< HEAD
         "web/src/components/CollectionView.tsx": "d44cff82757c",
+=======
+        "web/src/components/CollectionView.tsx": "b253bc3713da",
+>>>>>>> 6ecbd5e (Public shares: close the anonymous read surface)
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -333,7 +347,11 @@
         }
       ],
       "takenAt": {
+<<<<<<< HEAD
         "web/src/components/CollectionView.tsx": "d44cff82757c",
+=======
+        "web/src/components/CollectionView.tsx": "b253bc3713da",
+>>>>>>> 6ecbd5e (Public shares: close the anonymous read surface)
         "web/src/cardLayout.ts": "eb7f92584275",
         "web/src/theme.css": "b1c3dece61ce"
       }
@@ -367,7 +385,11 @@
         }
       ],
       "takenAt": {
+<<<<<<< HEAD
         "web/src/components/CollectionView.tsx": "d44cff82757c",
+=======
+        "web/src/components/CollectionView.tsx": "b253bc3713da",
+>>>>>>> 6ecbd5e (Public shares: close the anonymous read surface)
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -458,8 +480,13 @@
         }
       ],
       "takenAt": {
+<<<<<<< HEAD
         "server/public.go": "ec29068c71bb",
         "web/src/components/Editor.tsx": "a82f85a01bf3",
+=======
+        "server/public.go": "db2174a9455b",
+        "web/src/components/Editor.tsx": "dd27a4d9accd",
+>>>>>>> 6ecbd5e (Public shares: close the anonymous read surface)
         "web/src/theme.css": "b1c3dece61ce"
       }
     },

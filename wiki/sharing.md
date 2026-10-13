@@ -74,6 +74,7 @@ Three behaviours of this menu are worth knowing before you use it a second time.
 **You can see sharing without opening the menu.** A published page carries a
 small globe: in the sidebar tree, in the sub-pages list, and on the topbar
 globe button itself, which is highlighted while the link is live. An expired
+<<<<<<< HEAD
 link drops the marker on its own. So to check whether a page is shared, look
 at the marker.
 
@@ -96,6 +97,30 @@ breaking it.
 the open menu, never on the page. Open another page, or reload the browser,
 and the menu starts again at `Never` with an empty password box. If protection
 matters, set it before pressing **Create link** or **New link**.
+=======
+link drops the marker on its own.
+
+**The menu reads, it never publishes by itself.** Opening it only loads the
+live settings; a fresh link comes solely from the explicit **Share publicly**
+button. Reopening the menu later cannot weaken the link: the expiry, the
+views and the password indicator reflect what is live.
+
+**Settings change in place, the address stays.** Expiry, collection views, row
+detail and the password all apply to the current link — none of them mints a
+new one. So a link that has been passed around can be given a password
+afterwards without breaking it. Only **Create a new link** and sharing the
+page again replace the token and kill the old address.
+
+Taking protection off is one press: **Remove password** beside the **Apply**
+button, and the same link opens freely. Typing nothing and pressing **Apply**
+leaves the password unchanged, so it cannot be wiped by accident.
+
+A fresh collection link snapshots the views that exist right now: views added
+later stay unshared until the owner ticks them in. Row detail is off unless
+explicitly allowed, and anonymous row reads go through the shared view's
+filters: private rows and filtered-out rows answer 404, as do hidden
+columns, which the server prunes before sending.
+>>>>>>> 6ecbd5e (Public shares: close the anonymous read surface)
 
 ### Who can publish
 

@@ -47,7 +47,7 @@ type Server struct {
 	// in every real build; set only by tests, whose receiver lives on an address
 	// safeDial refuses by design (see webhooks.go).
 	webhookTransport http.RoundTripper
-	dist fs.FS
+	dist             fs.FS
 }
 
 // Close stops background maintenance and releases the database. Call on

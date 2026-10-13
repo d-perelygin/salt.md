@@ -1392,7 +1392,7 @@ function FilterSortControls({
               patch({ values: next, value: '' });
             };
             return (
-              <div key={ci} className="fs-filter">
+              <div key={i} className="fs-filter">
                 <div className="fs-filter-head">
                   <span className="fs-label">{propName(f.property)}</span>
                   <select

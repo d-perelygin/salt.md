@@ -520,6 +520,13 @@ function PageHeader({
   const [shareOff, setShareOff] = useState(false);
   const [shareExpiry, setShareExpiry] = useState(0); // days; 0 = never
   const [sharePassword, setSharePassword] = useState('');
+  const [shareHasPassword, setShareHasPassword] = useState(false);
+  const [lastPassword, setLastPassword] = useState('');
+  // Collection shares: which views a link opens, and whether rows open.
+  // null = every view (including later ones); a list snapshots this moment.
+  const [shareAllowed, setShareAllowed] = useState<string[] | null>(null);
+  const [shareViewsList, setShareViewsList] = useState<{ id: string; name: string }[]>([]);
+  const [shareAllowDetail, setShareAllowDetail] = useState(false);
   // What the link on screen was made with. A changed expiry or password then
   // offers a new link instead of quietly replacing the one just copied.
   const [madeWith, setMadeWith] = useState<{ days: number; password: string } | null>(null);
@@ -678,22 +685,61 @@ function PageHeader({
     if (shareBusy) return;
     setShareBusy(true);
     try {
-      const res = await api.sharePage(pageId, shareExpiry, sharePassword);
+      // An explicit view list, never empty: an empty list would publish every
+      // view including later ones, so a fresh link snapshots the views that
+      // exist right now.
+      const views = isCollection
+        ? (shareAllowed ?? shareViewsList.map((v) => v.id))
+        : [];
+      const res = await api.sharePage(
+        pageId,
+        shareExpiry,
+        sharePassword,
+        views,
+        isCollection ? shareAllowDetail : false,
+      );
+      if (isCollection && views.length > 0) setShareAllowed(views);
       // Absolute URL on the external domain when configured; else current origin.
-      setShareUrl(res.url.startsWith('http') ? res.url : location.origin + res.url);
+      const url = res.url.startsWith('http') ? res.url : location.origin + res.url;
+      setShareUrl(url);
+      rememberUrl(url);
       setMadeWith({ days: shareExpiry, password: sharePassword });
       setShareOff(false);
       setReadShared(true);
       setSharePassword('');
       setShareHasPassword(password !== '');
       setLastPassword(password);
-      if (rotated) toast(t('A new link was created — the old one no longer works'));
+      onPagesChanged();
     } catch {
       toast(t('Sharing failed'));
     } finally {
       setShareBusy(false);
     }
   };
+
+  const shareUrlKey = `salt:share-url:${pageId}`;
+  const readStoredUrl = (): string | null => {
+    try {
+      return localStorage.getItem(shareUrlKey);
+    } catch {
+      return null;
+    }
+  };
+  const rememberUrl = (url: string) => {
+    try {
+      localStorage.setItem(shareUrlKey, url);
+    } catch {
+      // Private mode — the link simply will not survive a reload here.
+    }
+  };
+  const forgetUrl = () => {
+    try {
+      localStorage.removeItem(shareUrlKey);
+    } catch {
+      // Nothing stored, nothing to forget.
+    }
+  };
+  const displayUrl = shareUrl ?? readStoredUrl();
 
   // The globe only opens the menu. It used to publish an unshared page on the
   // spot, so looking at a page's sharing state shared it, and checking whether
@@ -709,6 +755,130 @@ function PageHeader({
     const clip = navigator.clipboard;
     if (!clip) return;
     clip.writeText(url).then(() => toast(t('Copied')), () => {});
+  const loadShareSettings = async (): Promise<{ shared: boolean; allowed: string[] | null; detail: boolean }> => {
+    let out = { shared: false, allowed: null as string[] | null, detail: false };
+    try {
+      const st = await api.shareStatus(pageId);
+      if (st.shared) {
+        out = {
+          shared: true,
+          allowed: st.allowedViews && st.allowedViews.length > 0 ? st.allowedViews : null,
+          detail: !!st.allowDetail,
+        };
+        setReadShared(true);
+        setShareAllowed(out.allowed);
+        setShareAllowDetail(out.detail);
+        setShareHasPassword(!!st.hasPassword);
+        setShareExpiry(expiryToDays(st.expiresAt));
+      } else {
+        setReadShared(false);
+      }
+    } catch {
+      // No live share yet — defaults stand.
+    }
+    if (isCollection) {
+      try {
+        const fs = await api.formShareStatus(pageId);
+        setFormShared(fs.shared);
+      } catch {
+        // Form state unknown — the note below simply stays hidden.
+      }
+    }
+    if (!isCollection) return out;
+    try {
+      const c = await api.getCollection(pageId);
+      setShareViewsList(c.views.filter((v) => v.type !== 'form').map((v) => ({ id: v.id, name: v.name })));
+    } catch {
+      // Not a collection (any more) — the section stays hidden.
+    }
+    return out;
+  };
+
+  const toggleShareView = async (viewId: string) => {
+    const next = shareAllowed === null
+      ? shareViewsList.filter((v) => v.id !== viewId).map((v) => v.id)
+      : shareAllowed.includes(viewId)
+        ? shareAllowed.filter((id) => id !== viewId)
+        : [...shareAllowed, viewId];
+    // Unchecking the last view would publish an empty collection — keep one.
+    if (next.length === 0) {
+      toast(t('Keep at least one view shared'));
+      return;
+    }
+    setShareAllowed(next.length >= shareViewsList.length ? null : next);
+    try {
+      await api.patchShare(pageId, { allowedViews: next });
+    } catch {
+      toast(t('Sharing failed'));
+    }
+  };
+
+  const toggleShareDetail = async () => {
+    const next = !shareAllowDetail;
+    setShareAllowDetail(next);
+    try {
+      await api.patchShare(pageId, { allowDetail: next });
+    } catch {
+      toast(t('Sharing failed'));
+    }
+  };
+
+  const changeExpiry = async (days: number) => {
+    setShareExpiry(days);
+    // In place: expiry is a column update, the token stays.
+    try {
+      await api.patchShare(pageId, { expiresInDays: days });
+    } catch {
+      toast(t('Sharing failed'));
+    }
+  };
+
+  // The password lives in its own salted hash beside the token, so setting
+  // one keeps the link: PATCH in place, never a re-mint — and skipped when
+  // there is nothing to change. An empty field never clears: Apply with
+  // nothing typed is a no-op, so a password cannot be wiped by accident.
+  const applyPassword = async () => {
+    if (sharePassword === '') return;
+    try {
+      const res = await api.patchShare(pageId, { password: sharePassword });
+      setSharePassword('');
+      setShareHasPassword(!!res.hasPassword);
+      setLastPassword(sharePassword);
+    } catch {
+      toast(t('Sharing failed'));
+    }
+  };
+
+  // A direct-open link for a passworded share: the raw password exists only
+  // in this sitting (it is stored hashed), so the button shows exactly while
+  // there is one to embed — typed-but-unapplied, or just applied. Copying
+  // applies a still-unapplied value first, so the copied address always
+  // matches the live link instead of racing it.
+  const pwForLink = sharePassword !== '' ? sharePassword : lastPassword;
+  const copyPwLink = async () => {
+    const url = displayUrl;
+    if (!url) return;
+    let pw = lastPassword;
+    if (sharePassword !== '') {
+      try {
+        const res = await api.patchShare(pageId, { password: sharePassword });
+        setShareHasPassword(!!res.hasPassword);
+        setLastPassword(sharePassword);
+        pw = sharePassword;
+        setSharePassword('');
+      } catch {
+        toast(t('Sharing failed'));
+        return;
+      }
+    }
+    if (!pw) return;
+    const full = url + (url.includes('?') ? '&' : '?') + 'pw=' + encodeURIComponent(pw);
+    try {
+      await navigator.clipboard.writeText(full);
+      toast(t('Public link copied'));
+    } catch {
+      toast(t('Sharing failed'));
+    }
   };
 
   const stopShare = async () => {
@@ -958,24 +1128,40 @@ function PageHeader({
                         <option value={30}>{t('In 30 days')}</option>
                       </select>
                     </label>
-                    {/* new-password: a browser must not fill the account's own
-                        password in here. */}
-                    <input
-                      className="share-input"
-                      type="password"
-                      autoComplete="new-password"
-                      placeholder={t('Password (optional)')}
-                      value={sharePassword}
-                      onChange={(e) => setSharePassword(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && (!shareUrl || shareSettingsChanged)) {
-                          e.preventDefault();
-                          void createShare();
-                        }
-                      }}
-                    />
-                    {isShared && (!shareUrl || shareSettingsChanged) && (
-                      <div className="share-hint">{t('A new link stops the old one from working.')}</div>
+                    <div className="share-pw-row">
+                      <input
+                        className="share-input"
+                        type="password"
+                        placeholder={shareHasPassword ? '••••••' : t('Password (optional)')}
+                        value={sharePassword}
+                        onChange={(e) => setSharePassword(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void applyPassword();
+                        }}
+                      />
+                      <button className="btn-sm" onClick={() => void applyPassword()}>
+                        {t('Apply')}
+                      </button>
+                      {shareHasPassword && sharePassword === '' && (
+                        <button
+                          className="btn-sm danger"
+                          onClick={() => void (async () => {
+                            try {
+                              await api.patchShare(pageId, { removePassword: true });
+                              setShareHasPassword(false);
+                            } catch {
+                              toast(t('Sharing failed'));
+                            }
+                          })()}
+                        >
+                          {t('Remove password')}
+                        </button>
+                      )}
+                    </div>
+                    {displayUrl && pwForLink && (
+                      <button className="btn-sm" onClick={() => void copyPwLink()}>
+                        {t('Copy link with password')}
+                      </button>
                     )}
                     <div className="share-actions">
                       {!isShared && (
