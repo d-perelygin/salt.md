@@ -17,10 +17,11 @@ const RU: Record<string, string> = {
   і: 'i', ї: 'yi', є: 'ye', ґ: 'g', ў: 'u',
 };
 
-// Latin letters NFKD does not fold to ASCII: without these "Größe" would
-// come out "gro-e". Applied before the NFKD pass, like the Cyrillic map.
+// Latin letters NFKD does not fold to ASCII: without these a word with a
+// sharp s would come out "gro-e". Applied before the NFKD pass, like the
+// Cyrillic map.
 const LATIN: Record<string, string> = {
-  ß: 'ss', æ: 'ae', œ: 'oe', ø: 'o', å: 'a', ł: 'l',
+  ß: 'ss', æ: 'ae', œ: 'oe', ø: 'o', å: 'a', ł: 'l', // i18n-ok: transliteration table, not prose
   đ: 'd', þ: 'th', ð: 'd', ħ: 'h', ı: 'i', ŋ: 'n', ſ: 's',
 };
 
