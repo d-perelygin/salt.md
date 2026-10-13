@@ -50,11 +50,64 @@ interface CachedYDoc {
   savedAt: number;
 }
 
+interface JournalEntry {
+  id: string; // page id
+  updates: ArrayBuffer[];
+  savedAt: number;
+}
+
+// Offline data belongs to the account, not the browser: the database name
+// carries the account id, so a second person signing in on the same browser
+// never sees the first person's pages, rows or queued writes. Null while
+// signed out: nothing is stored then.
+let accountId: string | null = null;
+
+/** Whose offline data to keep. Call on sign-in, switch and sign-out. */
+export function setOfflineAccount(id: string | null): void {
+  if (id !== accountId) {
+    accountId = id;
+    if (dbPromise) {
+      void dbPromise.then((d) => {
+        try {
+          d?.close();
+        } catch {
+          /* best-effort */
+        }
+      });
+      dbPromise = null;
+    }
+  }
+  sweepLegacy();
+}
+
+export async function clearOfflineData(): Promise<void> {
+  const name = DB_NAME + (accountId ? `-${accountId}` : '');
+  setOfflineAccount(null);
+  try {
+    indexedDB.deleteDatabase('salt-offline-v1');
+    indexedDB.deleteDatabase(name);
+  } catch {
+    /* best-effort */
+  }
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => k.startsWith('salt-data')).map((k) => caches.delete(k)));
+  } catch {
+    /* best-effort */
+  }
+}
+
 const DB_NAME = 'salt-offline-v1';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const MAX_PAGES = 100;
 const MAX_COLLECTIONS = 50;
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function dbName(): string {
+  // Legacy unscoped database: left in place for the one-time sweep below,
+  // never written anymore.
+  return accountId ? `${DB_NAME}-${accountId}` : DB_NAME;
+}
 
 function idb(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
@@ -63,7 +116,7 @@ function idb(): Promise<IDBDatabase | null> {
         resolve(null);
         return;
       }
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      const req = indexedDB.open(dbName(), DB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains('pages')) db.createObjectStore('pages', { keyPath: 'id' });
@@ -72,6 +125,7 @@ function idb(): Promise<IDBDatabase | null> {
         }
         if (!db.objectStoreNames.contains('ydocs')) db.createObjectStore('ydocs', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'key' });
+        if (!db.objectStoreNames.contains('yjournal')) db.createObjectStore('yjournal', { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -86,6 +140,20 @@ let dbPromise: Promise<IDBDatabase | null> | null = null;
 function db(): Promise<IDBDatabase | null> {
   if (!dbPromise) dbPromise = idb();
   return dbPromise;
+}
+
+// One-time sweep of the legacy unscoped database: entries written before
+// account scoping belong to whoever used the browser first and must not sit
+// around for the next account to trip over.
+let sweptLegacy = false;
+function sweepLegacy(): void {
+  if (sweptLegacy) return;
+  sweptLegacy = true;
+  try {
+    indexedDB.deleteDatabase(DB_NAME);
+  } catch {
+    /* best-effort */
+  }
 }
 
 function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
@@ -206,6 +274,43 @@ export async function getYDoc(pageId: string): Promise<Uint8Array | null> {
 export async function dropYDoc(pageId: string): Promise<void> {
   try {
     await tx('ydocs', 'readwrite', (s) => s.delete(pageId));
+  } catch {
+    /* best-effort */
+  }
+}
+
+// The offline journal: incremental Yjs updates typed while the channel was
+// down, in order. The first sync replays exactly these, never a full state
+// push, which would resurrect whatever the server rewrote meanwhile. Capped:
+// an unbounded journal is a leak with a trench coat.
+const MAX_JOURNAL = 1000;
+
+export async function appendJournal(pageId: string, update: Uint8Array): Promise<void> {
+  try {
+    const copy = new Uint8Array(update.length);
+    copy.set(update);
+    const entry = await tx<JournalEntry | undefined>('yjournal', 'readonly', (s) => s.get(pageId));
+    const updates = entry?.updates ?? [];
+    updates.push(copy.buffer);
+    while (updates.length > MAX_JOURNAL) updates.shift();
+    await tx('yjournal', 'readwrite', (s) => s.put({ id: pageId, updates, savedAt: Date.now() } satisfies JournalEntry));
+  } catch {
+    /* best-effort */
+  }
+}
+
+export async function readJournal(pageId: string): Promise<Uint8Array[]> {
+  try {
+    const entry = await tx<JournalEntry | undefined>('yjournal', 'readonly', (s) => s.get(pageId));
+    return (entry?.updates ?? []).map((b) => new Uint8Array(b));
+  } catch {
+    return [];
+  }
+}
+
+export async function clearJournal(pageId: string): Promise<void> {
+  try {
+    await tx('yjournal', 'readwrite', (s) => s.delete(pageId));
   } catch {
     /* best-effort */
   }

@@ -20,7 +20,7 @@ import { DialogHost, confirm, promptText } from './dialog';
 import { announceModal, modalOpen } from './modal';
 import { toast } from './toast';
 import { onRefresh } from './pwa';
-import { putPage as putCachedPage } from './offlineCache';
+import { clearOfflineData, putPage as putCachedPage, setOfflineAccount } from './offlineCache';
 import {
   REMAP_EVENT,
   enqueue,
@@ -355,6 +355,10 @@ export default function App() {
       .me()
       .then((m) => {
         setMe(m);
+        // Offline data belongs to the account, not the browser: scope the
+        // snapshot and outbox stores to whoever just signed in, so a second
+        // person on the same browser never sees the first person's.
+        setOfflineAccount(m.authenticated && m.user ? m.user.id : null);
         // The account decides the language and time settings; initLocale only
         // had the localStorage cache to go on, which is a copy and may be
         // stale — somebody who changed the language on their phone gets it
@@ -1295,6 +1299,10 @@ export default function App() {
         themePref={themePref}
         onSetTheme={setThemePref}
         onLogout={async () => {
+          // Sign-out wipes the offline stores (snapshots, outbox, cached API
+          // responses): they belong to this account, and the next person on
+          // this browser must not inherit them. Best-effort, before leaving.
+          await clearOfflineData().catch(() => {});
           await api.logout();
           // Inside the marketing site's demo frame, '/' is the marketing home
           // page — loaded into the frame, with no way back to the application.

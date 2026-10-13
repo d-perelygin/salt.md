@@ -30,8 +30,6 @@ export type { OutboxOp };
 export const OUTBOX_EVENT = 'salt:outbox';
 export const REMAP_EVENT = 'salt:page-mapped';
 
-const MAX_ATTEMPTS = 5;
-
 export function newTempId(): string {
   const uuid =
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -93,7 +91,9 @@ let flushing = false;
 
 /** Replay queued ops in creation order. Stops at the first op that still
  *  cannot reach the server; drops ops the server refuses (gone, forbidden)
- *  with a toast so nothing waits forever. */
+ *  with a toast so nothing waits forever. Anything else stays queued no
+ *  matter how long it takes: silently dropping writes after five tries loses
+ *  user data, and the pending list (see SyncButton) says what still waits. */
 export async function flush(): Promise<FlushResult> {
   if (flushing) return { synced: 0, dropped: 0, kept: await pendingCount() };
   flushing = true;
@@ -122,14 +122,12 @@ export async function flush(): Promise<FlushResult> {
           toast(t('Could not sync “{label}”: {reason}', { label: op.label, reason: e.message }));
           continue;
         }
+        // A maybe: the request may or may not have landed (a timeout after
+        // the server committed, a 500 mid-write). Creates carry the op key
+        // as the idempotency key, so replaying is safe; content and meta
+        // patches converge by construction. The attempts count is display
+        // only (see SyncButton): the op itself is never dropped here.
         op.attempts++;
-        if (op.attempts >= MAX_ATTEMPTS) {
-          // eslint-disable-next-line no-await-in-loop
-          await deleteOp(op.key);
-          res.dropped++;
-          toast(t('Could not sync “{label}”: giving up', { label: op.label }));
-          continue;
-        }
         // eslint-disable-next-line no-await-in-loop
         await putOp(op);
         break;
@@ -157,7 +155,9 @@ async function replay(
         workspaceId?: string;
       };
       const parentId = op.parentId == null ? null : resolve(op.parentId);
-      const created = await api.createPage(parentId, p.title, p.type, p.props, p.workspaceId);
+      // The op key doubles as the idempotency key: two tabs flushing the
+      // same queue (or one tab retrying) create the page exactly once.
+      const created = await api.createPage(parentId, p.title, p.type, p.props, p.workspaceId, op.key);
       remap.set(op.pageId, created.id);
       // Migrate the offline state onto the real id: snapshot, CRDT edits,
       // then tell the UI to swap tabs and tree entries.

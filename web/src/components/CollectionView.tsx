@@ -383,7 +383,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         setOfflineSnapshot(true);
       }
     }
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId, fsKey]);
 
