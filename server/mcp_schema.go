@@ -482,6 +482,18 @@ func applyViewSpec(view map[string]any, spec viewSpec, schema []map[string]any) 
 		}
 		return false
 	}
+	typeOf := func(id string) string {
+		for _, p := range schema {
+			if pid, _ := p["id"].(string); pid == id {
+				t, _ := p["type"].(string)
+				if t == "" {
+					t = "text"
+				}
+				return t
+			}
+		}
+		return ""
+	}
 	set := func(key string, val *string) error {
 		if val == nil {
 			return nil
@@ -511,8 +523,20 @@ func applyViewSpec(view map[string]any, spec viewSpec, schema []map[string]any) 
 	// mistake in the data instead of in the call.
 	viewType, _ := view["type"].(string)
 	if viewType == "board" {
-		if g, _ := view["groupBy"].(string); g == "" {
+		g, _ := view["groupBy"].(string)
+		if g == "" {
 			return fmt.Errorf("a board needs group_by (the property to make columns from)")
+		}
+		// The property has to be one that HAS values: a column per value is the
+		// whole board. Grouping by a text column does not error on its own — it
+		// makes a single "no category" column with every row in it, which reads
+		// as data that is wrong rather than a view that cannot work. A
+		// multiselect belongs here: a row with three tags shows up under all
+		// three.
+		switch t := typeOf(g); t {
+		case "select", "multiselect", "relation":
+		default:
+			return fmt.Errorf("board group_by: %q is a %s property — a board groups by a select, a multiselect or a relation", g, t)
 		}
 	}
 	if viewType == "calendar" || viewType == "timeline" {
