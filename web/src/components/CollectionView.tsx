@@ -4673,6 +4673,44 @@ function CalendarView({
   const beginEntryDrag = (e: React.PointerEvent, rowId: string) => {
     const r = rangeOf.get(rowId);
     if (!r) return;
+    // On a finger the carry starts with a hold, like a timeline bar or a board
+    // card: a swipe that starts on an entry scrolls the calendar, and fingers
+    // that scroll must never feel an entry stick to them.
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      const x0 = e.clientX;
+      const y0 = e.clientY;
+      let settled = false;
+      const disarm = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        window.removeEventListener('pointermove', watch);
+        window.removeEventListener('pointerup', giveUp);
+        window.removeEventListener('pointercancel', giveUp);
+      };
+      const watch = (ev: PointerEvent) => {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 10) disarm();
+      };
+      const giveUp = () => disarm();
+      const timer = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('pointermove', watch);
+        window.removeEventListener('pointerup', giveUp);
+        window.removeEventListener('pointercancel', giveUp);
+        beginEntryArmed(e, rowId);
+      }, 320);
+      window.addEventListener('pointermove', watch);
+      window.addEventListener('pointerup', giveUp);
+      window.addEventListener('pointercancel', giveUp);
+      return;
+    }
+    beginEntryArmed(e, rowId);
+  };
+  // What a mouse starts at once and a finger starts after the hold above.
+  const beginEntryArmed = (e: React.PointerEvent, rowId: string) => {
+    const r = rangeOf.get(rowId);
+    if (!r) return;
     // While an entry is being carried, swiping must not page the calendar: the
     // same gesture cannot mean "move this entry" and "show another month".
     carryingEntry.current = true;
@@ -4688,7 +4726,16 @@ function CalendarView({
       setDropDay(target);
       setGhost({ x: ev.clientX, y: ev.clientY, title: label });
     };
+    // An armed finger carry owns the finger: hold off the scroll, the hard
+    // way — `touch-action` was read when the gesture began, so changing it now
+    // does nothing to the running gesture.
+    const touchArmed = e.pointerType === 'touch' || e.pointerType === 'pen';
+    const onTouchMove = (ev: TouchEvent) => {
+      ev.preventDefault();
+    };
+    if (touchArmed) window.addEventListener('touchmove', onTouchMove, { passive: false });
     const finish = () => {
+      window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);

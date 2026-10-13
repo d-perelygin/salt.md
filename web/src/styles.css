@@ -3901,11 +3901,12 @@ button.cal-mini-day:hover {
   cursor: pointer;
 }
 
-/* An entry is a thing you carry: no text selection while dragging it, and on a
-   phone the gesture belongs to the drag rather than to the page scrolling. */
+/* An entry is carried only after a hold (see beginEntryDrag): until then a
+   finger starting here scrolls, like everywhere else. No text selection while
+   dragging it. */
 .calendar-event,
 .cal-span {
-  touch-action: none;
+  touch-action: pan-x pan-y;
   user-select: none;
   -webkit-user-select: none;
 }
