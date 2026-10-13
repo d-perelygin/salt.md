@@ -2505,8 +2505,20 @@ body:has(.icon-picker) .bn-side-menu {
 /* Table */
 
 .table-wrap {
-  padding: 12px 48px 40px;
-  overflow-x: auto;
+  /* Spacing as MARGIN, never padding: a sticky heading (top) or a pinned
+     column (left) stops at the content edge of a padded scroller, leaving a
+     strip of the padding where the rows sliding underneath stay visible —
+     above the heading and to the side of the pinned columns. A margin sits
+     outside the scrollport, so the stuck elements cover the box edge to edge.
+     Keep the phone rule below in step: same values, same property. */
+  padding: 0;
+  margin: 12px 48px 40px;
+  /* The table scrolls inside its own box rather than with the page, because a
+     heading row can only stay put within the scroller it lives in: an
+     `overflow-x: auto` box is a scroll container in BOTH axes, so the sticky
+     heading stuck to a box that was itself sliding up the page and appeared
+     not to stick at all. */
+  overflow: auto;
   flex: 1;
   overscroll-behavior-x: contain;
 }
@@ -2632,6 +2644,9 @@ body:has(.icon-picker) .bn-side-menu {
 .th-inner {
   position: relative;
   display: block;
+  /* The pin lives here on hover: this reserves its seat up front, so appearing
+     never shoves the label or lands on top of its last word. */
+  padding-right: 22px;
 }
 
 /* The grip on a column's right edge. -10px is the cell's own horizontal padding,
@@ -4843,7 +4858,8 @@ body.is-col-resizing {
   }
 
   .table-wrap {
-    padding: 12px 14px calc(40px + env(safe-area-inset-bottom));
+    padding: 0;
+    margin: 12px 14px calc(40px + env(safe-area-inset-bottom));
   }
 
   .gallery {
