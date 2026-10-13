@@ -188,13 +188,24 @@ func (f rowFilter) where() (string, []any) {
 		}
 		return "is_template = ?", []any{want}
 	}
-	if !safePropID(f.Prop) {
+	if !safePropID(f.Prop) && f.Prop != sortCreatedProp && f.Prop != sortUpdatedProp {
 		return "", nil
 	}
 	// A relative day ("today-1M") names a different date every day. Resolve
 	// it now, per query, so a saved view stays live (see smartdate.go).
 	f = f.resolveDates(time.Now())
 	ex := "json_extract(props, '$." + f.Prop + "')"
+	// Created and Updated are not columns: they read the row’s own timestamps
+	// as days, so every operator below compares days to days.
+	sysCol := ""
+	if f.Prop == sortCreatedProp {
+		sysCol = "created_at"
+	} else if f.Prop == sortUpdatedProp {
+		sysCol = "updated_at"
+	}
+	if sysCol != "" {
+		ex = "date(" + sysCol + ")"
+	}
 	op := f.Op
 	if op == "" {
 		if f.Value == "" {
@@ -224,6 +235,11 @@ func (f rowFilter) where() (string, []any) {
 	// The value may be stored as a scalar or inside a list (multiselect, a
 	// relation): both spellings have to answer the same question.
 	inList := "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE value IN (" + holders + "))"
+	// A system timestamp is neither a scalar in props nor a list: one value the
+	// row always has, so the list half of the question is always false.
+	if sysCol != "" {
+		inList = "1 = 0"
+	}
 	set := "(" + ex + " IS NOT NULL AND " + ex + " != '' AND " + ex + " != json('[]'))"
 	switch op {
 	case "is_empty":
@@ -231,10 +247,17 @@ func (f rowFilter) where() (string, []any) {
 	case "is_not_empty":
 		return set, nil
 	case "is":
+		// A system timestamp has no list half: its placeholders are its own.
+		if sysCol != "" {
+			return ex + " IN (" + holders + ")", anyOf
+		}
 		return "(" + ex + " IN (" + holders + ") OR " + inList + ")", append(anyOf, anyOf...)
 	case "is_not":
 		// A missing/empty value counts as "is not X" — and with a set, as
 		// "is none of them".
+		if sysCol != "" {
+			return ex + " NOT IN (" + holders + ")", anyOf
+		}
 		return "(" + ex + " IS NULL OR (" + ex + " NOT IN (" + holders + ") AND NOT " + inList + "))", append(anyOf, anyOf...)
 	case "contains":
 		like := "%" + f.Value + "%"

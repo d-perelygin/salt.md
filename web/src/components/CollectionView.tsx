@@ -191,7 +191,14 @@ function matchesFilter(row: Row, f: Filter): boolean {
     if (!filterIsArmed(f)) return true;
     return String(!!row.isTemplate) === f.value;
   }
-  const v = row.props[f.property];
+  // Created and Updated read the row's own timestamps as days — the same days
+  // the server compares — and then answer through the shared operators below.
+  const v =
+    f.property === SORT_CREATED
+      ? (row.createdAt ?? '').slice(0, 10)
+      : f.property === SORT_UPDATED
+        ? (row.updatedAt ?? '').slice(0, 10)
+        : row.props[f.property];
   const op = f.op ?? (f.value === '' ? 'is_not_empty' : 'is');
   if (!filterIsArmed(f)) return true;
   // A relative day names a different date every day. Resolve it now — the
@@ -1627,7 +1634,13 @@ function FilterSortControls({
   const setGroups = (next: Filter[][]) => onChange({ filters: next[0] ?? [], filterGroups: next });
   const sort = view.sort ?? null;
   const propName = (id: string) =>
-    id === TEMPLATE_FILTER ? t('Template') : schema.find((p) => p.id === id)?.name ?? id;
+    id === TEMPLATE_FILTER
+      ? t('Template')
+      : id === SORT_CREATED
+        ? t('Created')
+        : id === SORT_UPDATED
+          ? t('Updated')
+          : schema.find((p) => p.id === id)?.name ?? id;
 
   const valuesFor = (propId: string): { value: string; label: string }[] => {
     if (propId === TEMPLATE_FILTER) {
@@ -1660,12 +1673,24 @@ function FilterSortControls({
   };
 
   // Operators offered per property type. The template condition is a checkbox
-  // in this respect: is / is not, and nothing else. Built during render, never as a module
+  // in this respect: is / is not, and nothing else. The two orders are dates:
+  // is, is not, after, before, between, and the emptiness pair. Built during render, never as a module
   // constant: a list of labels resolved once at import keeps its language for
   // the life of the tab. These read `is` / `is not` in a German interface for
   // exactly that reason — they were plain strings, which the checks cannot see
   // inside an object literal.
   const opsFor = (propId: string): { value: FilterOp; label: string }[] => {
+    if (propId === SORT_CREATED || propId === SORT_UPDATED) {
+      return [
+        { value: 'is', label: t('is') },
+        { value: 'is_not', label: t('is not') },
+        { value: 'gt', label: t('after') },
+        { value: 'lt', label: t('before') },
+        { value: 'between', label: t('between') },
+        { value: 'is_empty', label: t('is empty') },
+        { value: 'is_not_empty', label: t('is not empty') },
+      ];
+    }
     const prop = schema.find((p) => p.id === propId);
     const ty = prop?.type;
     const many = takesSeveral(propId);
@@ -1749,7 +1774,8 @@ function FilterSortControls({
               setGroups(next);
             };
             const propType = schema.find((p) => p.id === f.property)?.type;
-            const isDate = propType === 'date';
+            const isDate =
+              propType === 'date' || f.property === SORT_CREATED || f.property === SORT_UPDATED;
             const picked = filterValues(f);
             const several = takesSeveral(f.property) && (op === 'is' || op === 'is_not');
             // A tick list writes `values`, everything else writes `value` — the
@@ -1892,6 +1918,8 @@ function FilterSortControls({
                     among the properties. */}
                 <optgroup label={t('System')}>
                   <option value={TEMPLATE_FILTER}>{t('Template')}</option>
+                  <option value={SORT_CREATED}>{t('Created')}</option>
+                  <option value={SORT_UPDATED}>{t('Updated')}</option>
                 </optgroup>
               </select>
               {groups.length > 1 && (
@@ -1925,6 +1953,8 @@ function FilterSortControls({
               </optgroup>
               <optgroup label={t('System')}>
                 <option value={TEMPLATE_FILTER}>{t('Template')}</option>
+                <option value={SORT_CREATED}>{t('Created')}</option>
+                <option value={SORT_UPDATED}>{t('Updated')}</option>
               </optgroup>
             </select>
           ) : (
