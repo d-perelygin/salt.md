@@ -447,6 +447,13 @@ export default function App() {
       const id = (e as CustomEvent<{ id: string }>).detail?.id;
       if (!id) return;
       e.preventDefault();
+      // Clicking the row the peek already shows closes it again: the panel
+      // toggles rather than reopening itself. A pinned panel is exempt — its
+      // pin promises nothing hides it but its own close button.
+      if (!peekPinnedRef.current && id === peekIdRef.current) {
+        closePeek();
+        return;
+      }
       setPeekId(id);
     };
     window.addEventListener('salt:peek', onPeek);

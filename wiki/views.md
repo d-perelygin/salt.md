@@ -377,7 +377,8 @@ configures the current view sits on the right, in this order:
 
 The side peek is a second view of the workspace rather than a modal: clicking
 into the document beside it, or changing document tab, leaves it where it is.
-It closes on Escape and on its own close button.
+It closes on Escape, on its own close button, and on a click on the row it
+already shows — the panel toggles rather than reopening itself.
 
 The button beside that one — the expand arrow — carries a menu after a moment's
 hover: **Open full screen**, **Open in a new tab**, and **Pin**. A pinned panel
