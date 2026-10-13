@@ -135,9 +135,9 @@ export default function PublicCollection({ token }: { token: string }) {
   }, [cfg, view, token, password]);
 
   const openRow = async (id: string) => {
-    if (!cfg?.allowDetail) return;
+    if (!cfg?.allowDetail || !view) return;
     try {
-      const d = await api.publicCollectionRow(token, id, password || undefined);
+      const d = await api.publicCollectionRow(token, id, view.id, password || undefined);
       setDetail({ ...d, props: (d.props as Record<string, unknown>) ?? {} });
     } catch {
       // Row detail off or gone — stay on the collection.
@@ -307,7 +307,7 @@ export default function PublicCollection({ token }: { token: string }) {
                 ✕
               </button>
             </div>
-            <PublicDetailProps schema={schema} values={detail.props} related={related} />
+            <PublicDetailProps schema={visibleSchema} values={detail.props} related={related} />
             <PublicDetailContent content={detail.content} />
           </div>
         </div>

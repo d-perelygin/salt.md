@@ -1051,6 +1051,26 @@ func (s *Server) handleSharePage(w http.ResponseWriter, r *http.Request) {
 	// One live read-share per page: replace any existing read link so a re-share
 	// with a new expiry/password doesn't leave the old token valid. Form-shares
 	// (mode='form') are independent and left untouched.
+	// An empty view list does NOT mean "all views": it would publish every
+	// view, including ones created later. For a collection with no explicit
+	// selection, snapshot the first non-form view instead: new views stay
+	// unshared until the owner adds them.
+	if len(body.AllowedViews) == 0 {
+		var viewsJSON string
+		if err := s.db.QueryRow(`SELECT views FROM collections WHERE page_id = ?`, pageID).Scan(&viewsJSON); err == nil {
+			var views []map[string]any
+			if json.Unmarshal([]byte(viewsJSON), &views) == nil {
+				for _, v := range views {
+					if id, _ := v["id"].(string); id != "" {
+						if t, _ := v["type"].(string); t != "form" {
+							body.AllowedViews = []string{id}
+							break
+						}
+					}
+				}
+			}
+		}
+	}
 	s.db.Exec(`DELETE FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID)
 	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, page_id, created_at, expires_at, password_hash, options) VALUES (?, ?, ?, ?, ?, ?)`, tokenHash(token), pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail)); err != nil {
 		httpError(w, 500, err.Error())
@@ -1129,10 +1149,11 @@ func (s *Server) handlePatchShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		AllowedViews  *[]string `json:"allowedViews"`
-		AllowDetail   *bool     `json:"allowDetail"`
-		ExpiresInDays *int      `json:"expiresInDays"`
-		Password      *string   `json:"password"`
+		AllowedViews   *[]string `json:"allowedViews"`
+		AllowDetail    *bool     `json:"allowDetail"`
+		ExpiresInDays  *int      `json:"expiresInDays"`
+		Password       *string   `json:"password"`
+		RemovePassword *bool     `json:"removePassword"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httpError(w, 400, "invalid JSON")
@@ -1166,16 +1187,22 @@ func (s *Server) handlePatchShare(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// The password lives in its own salted hash, so it changes without
-	// touching the token: set a new one, or clear it with an empty string.
-	// (Older links carry the token-bound form; they keep working and upgrade
-	// here the first time their password changes.)
+	// touching the token. (Older links carry the token-bound form; they keep
+	// working and upgrade here the first time their password changes.)
 	hasPassword := false
-	if body.Password != nil {
+	if body.RemovePassword != nil && *body.RemovePassword {
+		if _, err := s.db.Exec(`UPDATE share_links SET password_hash = NULL WHERE page_id = ? AND mode != 'form'`, pageID); err != nil {
+			httpError(w, 500, err.Error())
+			return
+		}
+	} else if body.Password != nil {
+		// An empty string keeps the password: Apply with nothing typed is a
+		// no-op, so a password can never be wiped by accident. Explicit
+		// removal goes through removePassword above.
 		if *body.Password == "" {
-			if _, err := s.db.Exec(`UPDATE share_links SET password_hash = NULL WHERE page_id = ? AND mode != 'form'`, pageID); err != nil {
-				httpError(w, 500, err.Error())
-				return
-			}
+			var pwHash sql.NullString
+			s.db.QueryRow(`SELECT password_hash FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID).Scan(&pwHash)
+			hasPassword = pwHash.Valid && pwHash.String != ""
 		} else {
 			if _, err := s.db.Exec(`UPDATE share_links SET password_hash = ? WHERE page_id = ? AND mode != 'form'`, hashPassword(*body.Password), pageID); err != nil {
 				httpError(w, 500, err.Error())
@@ -1222,6 +1249,17 @@ func verifySharePassword(stored, token, password string) bool {
 	return password != "" && tokenHash(token+":"+password) == stored
 }
 
+// sharePasswordAllowed rate-limits share-link password verification: the
+// check runs argon2id at 64 MiB a throw, so unthrottled guessing is a memory
+// DoS (16 parallel wrong passwords took one process from 153 MB to 1.8 GB).
+// Only attempts count, and only per address and link.
+func (s *Server) sharePasswordAllowed(r *http.Request, token, password string) bool {
+	if password == "" {
+		return true
+	}
+	return s.sharePWRate.allow(s.clientIP(r) + "\x00" + token)
+}
+
 // resolveShare validates a share token: existence, expiry (expired links are
 // deleted on sight) and password. Returns the page id, whether a password is
 // required, and whether the supplied password matches.
@@ -1242,6 +1280,10 @@ func (s *Server) resolveShare(token, password string) (pageID string, needPW, pw
 }
 
 func (s *Server) handlePublicPage(w http.ResponseWriter, r *http.Request) {
+	if !s.sharePasswordAllowed(r, r.PathValue("token"), r.Header.Get("X-Share-Password")) {
+		httpError(w, 429, "too many attempts. Please try again shortly")
+		return
+	}
 	pageID, needPW, pwOK, found := s.resolveShare(r.PathValue("token"), r.Header.Get("X-Share-Password"))
 	if !found {
 		httpError(w, 404, "not found")

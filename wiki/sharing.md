@@ -77,30 +77,6 @@ Three behaviours of this menu are worth knowing before you use it a second time.
 **You can see sharing without opening the menu.** A published page carries a
 small globe: in the sidebar tree, in the sub-pages list, and on the topbar
 globe button itself, which is highlighted while the link is live. An expired
-<<<<<<< HEAD
-link drops the marker on its own. So to check whether a page is shared, look
-at the marker.
-
-**Opening the menu publishes an unshared page.** There is no "publish" button
-and no confirmation. If you open the globe menu on an unmarked page, you have
-shared it. Use **Stop sharing** to undo that.
-
-**A shared page keeps its link when you open the menu.** salt.md stores only a
-scrambled form of the token, so the menu cannot show you the address made last
-week. On a page that is already shared it says so ("This page is shared
-publicly. Its address was only shown when the link was made.") and offers two
-buttons: **New link** makes a fresh address and the old one stops working at
-that moment, **Stop sharing** ends it. Changing the expiry or leaving the
-password field re-mints the link too. So the address you send out is the
-address you copied in that sitting; a link that has been passed around cannot
-be given a password afterwards without breaking it.
-
-**A new link starts unprotected.** The expiry and the password live only in
-the open menu, never on the page. Navigate away and back, or reload the
-browser, and the menu starts again at `Never` with an empty password box, so
-**New link** mints an open link. If protection matters, set it again in the
-same sitting and hand out the new address.
-=======
 link drops the marker on its own.
 
 **The menu reads, it never publishes by itself.** Opening it only loads the
@@ -110,13 +86,19 @@ views and the password indicator reflect what is live.
 
 **Settings change in place, the address stays.** Expiry, collection views, row
 detail and the password all apply to the current link — none of them mints a
-new one. So a link that has been passed around can be given a password (or
-have it removed) afterwards without breaking it. Only **Create a new link**
-and sharing the page again replace the token and kill the old address.
->>>>>>> 4931ced (Share collections as read-only public views with per-link settings)
+new one. So a link that has been passed around can be given a password
+afterwards without breaking it. Only **Create a new link** and sharing the
+page again replace the token and kill the old address.
 
-Taking protection off is one press: clear the password field, press **Apply**,
-and the same link opens freely. There is no separate "remove password".
+Taking protection off is one press: **Remove password** beside the **Apply**
+button, and the same link opens freely. Typing nothing and pressing **Apply**
+leaves the password unchanged, so it cannot be wiped by accident.
+
+A fresh collection link snapshots the views that exist right now: views added
+later stay unshared until the owner ticks them in. Row detail is off unless
+explicitly allowed, and anonymous row reads go through the shared view's
+filters: private rows and filtered-out rows answer 404, as do hidden
+columns, which the server prunes before sending.
 
 ### Who can publish
 

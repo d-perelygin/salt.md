@@ -717,13 +717,20 @@ function PageHeader({
 
   const mintShare = async (days: number, password: string, allowed?: string[] | null, allowDetail?: boolean, rotated = false) => {
     try {
+      // An explicit view list, never empty: an empty list would publish every
+      // view including later ones, so a fresh link snapshots the views that
+      // exist right now.
+      const views = isCollection
+        ? (allowed ?? shareAllowed ?? shareViewsList.map((v) => v.id))
+        : [];
       const res = await api.sharePage(
         pageId,
         days,
         password,
-        isCollection ? (allowed ?? shareAllowed ?? []) : [],
+        views,
         isCollection ? (allowDetail ?? shareAllowDetail) : false,
       );
+      setShareAllowed(isCollection && views.length > 0 ? views : null);
       // Absolute URL on the external domain when configured; else current origin.
       const url = res.url.startsWith('http') ? res.url : location.origin + res.url;
       setShareUrl(url);
@@ -733,7 +740,7 @@ function PageHeader({
       setSharePassword('');
       setShareHasPassword(password !== '');
       setLastPassword(password);
-      if (rotated) toast(t('A new link was created — the old one no longer works'));
+      if (rotated) toast(t('A new link was created. The old one no longer works'));
     } catch {
       toast(t('Sharing failed'));
     }
@@ -783,13 +790,6 @@ function PageHeader({
       // Not a collection (any more) — the section stays hidden.
     }
     return out;
-  };
-
-  const openShare = async () => {
-    setShareOpen((o) => !o);
-    // Never mint here: minting replaces the token, so opening the menu must
-    // only read. A fresh link is created by the explicit button below.
-    await loadShareSettings();
   };
 
   const toggleShareView = async (viewId: string) => {
@@ -1190,6 +1190,21 @@ function PageHeader({
                       <button className="btn-sm" onClick={() => void applyPassword()}>
                         {t('Apply')}
                       </button>
+                      {shareHasPassword && sharePassword === '' && (
+                        <button
+                          className="btn-sm danger"
+                          onClick={() => void (async () => {
+                            try {
+                              await api.patchShare(pageId, { removePassword: true });
+                              setShareHasPassword(false);
+                            } catch {
+                              toast(t('Sharing failed'));
+                            }
+                          })()}
+                        >
+                          {t('Remove password')}
+                        </button>
+                      )}
                     </div>
                     {displayUrl && pwForLink && (
                       <button className="btn-sm" onClick={() => void copyPwLink()}>

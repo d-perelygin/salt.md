@@ -95,6 +95,10 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		// the gate script records the failure and does not loop it.
 		password = publicPassword(r)
 	}
+	if !s.sharePasswordAllowed(r, token, password) {
+		httpError(w, 429, "too many attempts. Please try again shortly")
+		return
+	}
 	pageID, needPW, pwOK, found := s.resolveShare(token, password)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Robots-Tag", "noindex")
@@ -132,6 +136,7 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Write([]byte(s.pageHTML(p, false, publicPrintOptions(s.printOptionsFor(p)))))
 	// A ?pw= address that just opened must not keep the secret in the bar,
+	// A ?pw= address that just opened must not keep the secret in the bar,
 	// and the tab should remember it like the gates do: the server verified
 	// it to render this page, so staging it into session storage is exact —
 	// a reload reopens through the gate script without asking again.
@@ -146,6 +151,23 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 				`}catch(e){}})();</script>`))
 		}
 	}
+}
+
+// publicPrintOptions trims the print view down to what an anonymous visitor
+// may read. The signed-in print view renders every optional part and hides the
+// unchosen ones by class, so its side panel can switch them on without asking
+// the server. A visitor has no panel, so a hidden part is only data sitting in
+// the source: every comment on the page with its author's name, and the names
+// of the workspace and the instance. The names go out only when the house style
+// actually shows them, on a cover. Comments never do: a discussion about a page
+// is not part of what was published.
+func publicPrintOptions(o printOptions) printOptions {
+	o.Comments = false
+	o.CommentL = nil
+	if !o.Cover || !o.Workspace {
+		o.WSName, o.Instance = "", ""
+	}
+	return o
 }
 
 // servePublicAppShell serves index.html for the public collection viewer.

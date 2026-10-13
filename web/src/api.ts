@@ -585,7 +585,7 @@ export const api = {
     }),
   shareStatus: (id: string) =>
     req<{ shared: boolean; allowedViews?: string[]; allowDetail?: boolean; hasPassword?: boolean; expiresAt?: string }>(`/api/pages/${id}/share`),
-  patchShare: (id: string, patch: { allowedViews?: string[]; allowDetail?: boolean; expiresInDays?: number; password?: string }) =>
+  patchShare: (id: string, patch: { allowedViews?: string[]; allowDetail?: boolean; expiresInDays?: number; password?: string; removePassword?: boolean }) =>
     req<{ ok: boolean; allowedViews?: string[]; allowDetail?: boolean; hasPassword?: boolean }>(`/api/pages/${id}/share`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
@@ -617,10 +617,13 @@ export const api = {
       headers: password ? { 'X-Share-Password': password } : undefined,
     });
   },
-  publicCollectionRow: (token: string, rowId: string, password?: string) =>
-    req<{ id: string; title: string; icon: string; cover: string; content: string; props: Record<string, unknown> }>(`/api/public/c/${token}/row/${rowId}`, {
+  publicCollectionRow: (token: string, rowId: string, viewId: string, password?: string) => {
+    const p = new URLSearchParams();
+    if (viewId) p.set('viewId', viewId);
+    return req<{ id: string; title: string; icon: string; cover: string; content: string; props: Record<string, unknown> }>(`/api/public/c/${token}/row/${rowId}?${p.toString()}`, {
       headers: password ? { 'X-Share-Password': password } : undefined,
-    }),
+    });
+  },
 
   // Resolved external base URL (public_base_url > HTTPS-Domain > Tunnel > Host).
   publicBase: () => req<{ base: string }>('/api/public-base'),

@@ -71,8 +71,17 @@ func TestSharePasswordKeepsTheLink(t *testing.T) {
 		t.Errorf("new password, same token: got %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
 
-	// Remove it: the same link opens freely.
+	// An empty Apply keeps the password: it is never a remover.
 	rec = call("PATCH", "/api/pages/"+db+"/share", `{"password":""}`, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty apply: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := call("GET", pub, "", ""); rec.Code != http.StatusForbidden {
+		t.Errorf("open link after empty apply: got %d, want 403", rec.Code)
+	}
+
+	// Remove it explicitly: the same link opens freely.
+	rec = call("PATCH", "/api/pages/"+db+"/share", `{"removePassword":true}`, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("remove password: %d %s", rec.Code, rec.Body.String())
 	}
