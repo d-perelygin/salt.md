@@ -644,7 +644,7 @@ function PublicCalendar({
         {r.title || t('Untitled')}
       </span>
     );
-  const dayCell = (d: Date | null, i: number | string, lanes: Span[] = []) => {
+  const dayCell = (d: Date | null, i: number | string, lanes: Span[] = [], rowKeys: string[] = []) => {
     const key = d ? toDayString(d) : '';
     const dayRows = (d ? byDate.get(key) ?? [] : []).filter((r) => !spanIds.has(r.id));
     const laneSlot = (s: Span) => {
@@ -652,10 +652,27 @@ function PublicCalendar({
       if (!covers) return <div key={'l' + s.row.id} className="cal-lane" />;
       const isStart = s.from === key;
       const isEnd = s.to === key;
+      // The label gets the whole bar, not just its first cell — same as the
+      // signed-in calendar (see CollectionView): the last day of this week row
+      // bounds it, so a bar running into the next week stops at the edge.
+      let cells = 1;
+      let endsHere = isEnd;
+      if (isStart) {
+        const at = rowKeys.indexOf(key);
+        cells = 0;
+        for (let k = Math.max(at, 0); k < rowKeys.length && rowKeys[k] <= s.to; k++) cells++;
+        if (cells === 0) cells = 1;
+        endsHere = rowKeys.length === 0 || s.to <= rowKeys[rowKeys.length - 1];
+      }
       return (
         <button
           key={'sp' + s.row.id}
-          className={'cal-span' + (isStart ? ' is-start' : '') + (isEnd ? ' is-end' : '')}
+          className={
+            'cal-span' +
+            (isStart ? ' is-start' : '') +
+            (isEnd || (isStart && endsHere) ? ' is-end' : '')
+          }
+          style={isStart ? ({ '--span-cells': cells } as React.CSSProperties) : undefined}
           onClick={allowDetail ? () => void onOpen(s.row.id) : undefined}
           title={spanTitle(s)}
         >
@@ -701,7 +718,7 @@ function PublicCalendar({
           {weekdayNames().map((d) => (
             <div key={d} className="calendar-dow">{d}</div>
           ))}
-          {weekDays.map((d, i) => dayCell(d, i, lanesFor(weekDays)))}
+          {weekDays.map((d, i) => dayCell(d, i, lanesFor(weekDays), weekDays.map((x) => toDayString(x))))}
         </div>
       ) : mode === 'year' ? (
         <div className="cal-year">
@@ -737,6 +754,11 @@ function PublicCalendar({
         <div className="cal-grids">
           {(mode === '2months' ? monthStarts : [new Date(cursor.getFullYear(), cursor.getMonth(), 1)]).map((first, mi) => {
             const cells = monthCells(first);
+            const rowKeys = (r: number) =>
+              cells
+                .slice(r * 7, r * 7 + 7)
+                .map((c) => (c ? toDayString(c) : ''))
+                .filter((k) => k !== '');
             const rowLanes: Span[][] = [];
             for (let r = 0; r * 7 < cells.length; r++) rowLanes.push(lanesFor(cells.slice(r * 7, r * 7 + 7)));
             return (
@@ -748,7 +770,14 @@ function PublicCalendar({
                   {weekdayNames().map((d) => (
                     <div key={d} className="calendar-dow">{d}</div>
                   ))}
-                  {cells.map((d, i) => dayCell(d, `${mi}-${i}`, rowLanes[Math.floor(i / 7)]))}
+                  {cells.map((d, i) =>
+                    dayCell(
+                      d,
+                      `${mi}-${i}`,
+                      rowLanes[Math.floor(i / 7)],
+                      rowKeys(Math.floor(i / 7)),
+                    ),
+                  )}
                 </div>
               </div>
             );

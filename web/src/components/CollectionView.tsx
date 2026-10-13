@@ -4871,7 +4871,7 @@ function CalendarView({
       )}
     </button>
   );
-  const dayCell = (d: Date | null, i: number | string, lanes: Span[] = []) => {
+  const dayCell = (d: Date | null, i: number | string, lanes: Span[] = [], rowKeys: string[] = []) => {
     const key = d ? ymd(d) : '';
     const dayRows = (d ? byDate.get(key) ?? [] : []).filter((r) => !spanIds.has(r.id));
     // A lane the bar does not cross today still takes its place, so the bars
@@ -4881,10 +4881,29 @@ function CalendarView({
       if (!covers) return <div key={'l' + s.row.id} className="cal-lane" />;
       const isStart = s.from === key;
       const isEnd = s.to === key;
+      // How much room this bar has in THIS week row. The label belongs to the
+      // whole bar, not to its first cell: a range crossing a week has the width
+      // to say its name, where one 50px cell managed only "Дое…". The last day
+      // of the row bounds it, so a bar that runs into the next week stops at
+      // the edge instead of hanging over the grid.
+      let cells = 1;
+      let endsHere = isEnd;
+      if (isStart) {
+        const at = rowKeys.indexOf(key);
+        cells = 0;
+        for (let k = Math.max(at, 0); k < rowKeys.length && rowKeys[k] <= s.to; k++) cells++;
+        if (cells === 0) cells = 1;
+        endsHere = rowKeys.length === 0 || s.to <= rowKeys[rowKeys.length - 1];
+      }
       return (
         <button
           key={'sp' + s.row.id}
-          className={'cal-span' + (isStart ? ' is-start' : '') + (isEnd ? ' is-end' : '')}
+          className={
+            'cal-span' +
+            (isStart ? ' is-start' : '') +
+            (isEnd || (isStart && endsHere) ? ' is-end' : '')
+          }
+          style={isStart ? ({ '--span-cells': cells } as React.CSSProperties) : undefined}
           onPointerDown={(e) => beginEntryDrag(e, s.row.id)}
           onClick={(e) => entryClick(e, s.row.id)}
           onAuxClick={(e) => openPageAux(e, s.row.id, { onNavigate, onOpenInNewTab })}
@@ -5053,7 +5072,7 @@ function CalendarView({
           {weekdayNames().map((d) => (
             <div key={d} className="calendar-dow">{d}</div>
           ))}
-          {weekDays.map((d, i) => dayCell(d, i, lanesFor(weekDays)))}
+          {weekDays.map((d, i) => dayCell(d, i, lanesFor(weekDays), weekDays.map((x) => ymd(x))))}
         </div>
       ) : mode === 'year' ? (
         <div className="cal-year">
@@ -5103,6 +5122,12 @@ function CalendarView({
         <div className="cal-grids">
           {monthStarts.map((first, mi) => {
             const rowLanes = monthRowLanes(first);
+            const cells = monthCells(first);
+            const rowKeys = (r: number) =>
+              cells
+                .slice(r * 7, r * 7 + 7)
+                .map((c) => (c ? ymd(c) : ''))
+                .filter((k) => k !== '');
             return (
               <div key={mi} className="calendar-grid-wrap">
                 {mode === '2months' && (
@@ -5112,7 +5137,14 @@ function CalendarView({
                   {weekdayNames().map((d) => (
                     <div key={d} className="calendar-dow">{d}</div>
                   ))}
-                  {monthCells(first).map((d, i) => dayCell(d, `${mi}-${i}`, rowLanes[Math.floor(i / 7)]))}
+                  {cells.map((d, i) =>
+                    dayCell(
+                      d,
+                      `${mi}-${i}`,
+                      rowLanes[Math.floor(i / 7)],
+                      rowKeys(Math.floor(i / 7)),
+                    ),
+                  )}
                 </div>
               </div>
             );

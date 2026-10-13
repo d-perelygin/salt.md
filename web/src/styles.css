@@ -3728,6 +3728,16 @@ body.is-col-resizing {
 .cal-span.is-start {
   margin-left: 0;
   border-radius: 5px 0 0 5px;
+  /* The label belongs to the whole bar, not to its first cell: a range that
+     crosses a week has the width to say its name, where one 50px cell managed
+     only "Дое…". The box is as many cells wide as the bar is in this week row
+     (--span-cells, set by the view) and is painted above the cells to its
+     right, so the text is not cut off at the cell border; the segments it
+     covers are the same colour, so the bar still reads as one piece. N cells
+     of pitch = N × (the cell's content box + its own two paddings). */
+  position: relative;
+  z-index: 1;
+  width: calc(var(--span-cells, 1) * (100% + var(--cell-pad, 4px) * 2));
 }
 .cal-span.is-end {
   margin-right: 0;
@@ -3845,7 +3855,10 @@ button.cal-mini-day:hover {
      (white-space: nowrap) forces its column wide and the whole 7-column grid
      sails off the screen on a phone. Zero lets 1fr hold and the text cut. */
   min-width: 0;
-  padding: 4px;
+  /* Named because a bar's label measures itself in whole cells (see
+     .cal-span.is-start) and needs to know what the cell's own padding is. */
+  --cell-pad: 4px;
+  padding: var(--cell-pad);
   display: flex;
   flex-direction: column;
   gap: 3px;
