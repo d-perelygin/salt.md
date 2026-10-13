@@ -883,10 +883,6 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const [newName, setNewName] = useState('');
   const [newDate, setNewDate] = useState('');
   const touchedNew = useRef(false);
-  // The raw link of a just-created subscription. Links are shown once, at
-  // creation, and only their hashes are stored — so this is the one moment
-  // the dialog can display one. A reload loses it, like a reload anywhere.
-  const [fresh, setFresh] = useState<{ id: string; url: string; webcal: string } | null>(null);
   useEffect(() => {
     void api.icsInfo().then(setInfo).catch((e) => setLoadErr((e as Error).message || t('Loading failed')));
   }, []);
@@ -910,8 +906,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
     // A date filter only makes sense for the collection it was picked from.
     const dateProp = s.kind === 'collection' ? newDate : '';
     try {
-      const created = await api.icsFeedCreate(s.kind, s.id, s.viewId ?? '', newName.trim() || fallbackName, dateProp);
-      setFresh({ id: created.id, url: created.url, webcal: created.webcal });
+      await api.icsFeedCreate(s.kind, s.id, s.viewId ?? '', newName.trim() || fallbackName, dateProp);
       setNewName('');
       await reload();
       toast(t('Subscription created — copy its link below'));
@@ -922,7 +917,6 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const revokeFeed = async (id: string, name: string) => {
     if (!window.confirm(t('Revoke this subscription? Its link stops working at once.'))) return;
     await api.icsFeedDelete(id);
-    setFresh((f) => (f && f.id === id ? null : f));
     await reload();
     toast(t('Subscription revoked') + (name ? `: ${name}` : ''));
   };
@@ -1104,11 +1098,6 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
               )}
               {(info.feeds ?? []).map((f) => {
                 const scopeName = feedScopeName(f);
-                // The link is displayable only while its creation is fresh in
-                // this dialog: raw tokens are shown once and never stored.
-                const link = fresh && fresh.id === f.id ? fresh : f;
-                const shownUrl = link.url ?? '';
-                const shownWebcal = link.webcal ?? '';
                 const meta = [
                   scopeName,
                   f.datePropName ?? '',
@@ -1130,15 +1119,10 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                       <option value="365">{t('Last 365 days')}</option>
                       <option value="0">{t('All history')}</option>
                     </select>
-                    {shownUrl !== '' && shownWebcal !== '' ? (
-                    <>
-                    <p className="dialog-hint">
-                      {t('Copy this link now — it is shown only once.')}
-                    </p>
                     <input
                       className="prop-input invite-input"
                       readOnly
-                      value={shownWebcal}
+                      value={f.webcal}
                       onFocus={(e) => e.currentTarget.select()}
                       aria-label={f.name}
                     />
@@ -1157,7 +1141,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                       </select>
                       <a
                         className="btn primary"
-                        href={feedHref({ url: shownUrl, webcal: shownWebcal })}
+                        href={feedHref(f)}
                         target={feedNewTab ? '_blank' : undefined}
                         rel="noreferrer"
                       >
@@ -1165,26 +1149,13 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                       </a>
                     </div>
                     <div className="dialog-buttons" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                      <button className="btn" style={{ flex: '1 1 0' }} onClick={() => void copyUrl(shownUrl)}>
+                      <button className="btn" style={{ flex: '1 1 0' }} onClick={() => void copyUrl(f.url)}>
                         {t('Copy URL')}
                       </button>
                       <button className="btn" style={{ flex: '1 1 0' }} onClick={() => void revokeFeed(f.id, f.name)}>
                         {t('Revoke')}
                       </button>
                     </div>
-                    </>
-                    ) : (
-                    <>
-                    <p className="dialog-hint">
-                      {t('The link is active, but this browser does not have its URL.')}
-                    </p>
-                    <div className="dialog-buttons" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                      <button className="btn" style={{ flex: '1 1 0' }} onClick={() => void revokeFeed(f.id, f.name)}>
-                        {t('Revoke')}
-                      </button>
-                    </div>
-                    </>
-                    )}
                   </div>
                 );
               })}

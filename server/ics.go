@@ -21,12 +21,9 @@ import (
 // A token fixes its scope: holding one link never grants more than that link
 // was made for, and query parameters on a feed URL are ignored rather than
 // honoured. Scope and token never change after creation — a link that widens
-// after sharing would not be a boundary; recreate it instead.
-//
-// Only the token HASH is stored (like share_links and api_tokens). The raw
-// token is shown once, in the creation response, and never again: a database
-// copy then carries no usable links. Every serving request re-checks what the
-// owner may read (visible workspaces, then no forbidden private ancestor); an
+// after sharing would not be a boundary; recreate it instead. The dialog
+// shows every link for copying at any time. Every serving request re-checks
+// what the owner may read (visible workspaces, then no forbidden private ancestor); an
 // unreadable scope yields an empty calendar rather than an error, so a
 // collection that gets moved or made private does not leave a broken
 // subscription in somebody's calendar app. A view that is gone or unreadable
@@ -63,8 +60,7 @@ var icsPastDaysOptions = []int{30, 90, 365, 0}
 // Upper bound on events in one feed response.
 const icsMaxEvents = 5000
 
-// icsNewToken mints one credential-grade feed token. The raw value is shown
-// once, at creation; only its hash is stored.
+// icsNewToken mints one credential-grade feed token.
 func icsNewToken() (string, error) {
 	b := make([]byte, 18)
 	if _, err := rand.Read(b); err != nil {
@@ -125,13 +121,12 @@ func (s *Server) handleICSPrefs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-// icsFeed is one named subscription row. The raw token is never carried here:
-// it is shown once, in the creation response, and only its hash is stored.
+// icsFeed is one named subscription row.
 // dateProp narrows a collection feed to one date property ("" carries every
 // date); view feeds follow their view instead and ignore it.
 type icsFeed struct {
-	id, kind, refID, viewID, name, created, dateProp string
-	pastDays                                        int
+	id, kind, refID, viewID, name, token, created, dateProp string
+	pastDays                                               int
 }
 
 // icsValidDays reports whether n is an offerable history window (0 keeps
@@ -189,18 +184,18 @@ func (s *Server) icsValidateScope(uid, kind, refID, viewID string) (string, bool
 	}
 }
 
-// icsFeedJSON renders one subscription for the dialog, with a live preview
-// of what it currently holds. It deliberately carries NO link: raw tokens
-// are shown once, at creation, and only their hashes are stored.
-func (s *Server) icsFeedJSON(uid string, f icsFeed) map[string]any {
+// icsFeedJSON renders one subscription for the dialog, with its links and a
+// live preview of what it currently holds.
+func (s *Server) icsFeedJSON(r *http.Request, uid string, f icsFeed) map[string]any {
 	events, _ := s.icsEventsFor(uid, wsOf(f.kind, f.refID), colOf(f.kind, f.refID), viewOf(f.kind, f.viewID), f.dateProp, f.pastDays)
 	n, nt, nd := icsPreview(events)
 	if len(nd) == 8 {
 		nd = nd[0:4] + "-" + nd[4:6] + "-" + nd[6:8]
 	}
+	u, w := icsFeedLinks(r, s, f.token)
 	out := map[string]any{
 		"id": f.id, "kind": f.kind, "refId": f.refID, "viewId": f.viewID,
-		"name": f.name, "createdAt": f.created,
+		"name": f.name, "url": u, "webcal": w, "createdAt": f.created,
 		"count": n, "nextTitle": nt, "nextDay": nd, "pastDays": f.pastDays,
 	}
 	if f.dateProp != "" {
@@ -312,20 +307,18 @@ func (s *Server) handleICSFeedsCreate(w http.ResponseWriter, r *http.Request) {
 		name = "Everything"
 	}
 	f := icsFeed{id: newID(), kind: body.Kind, refID: body.RefID, viewID: body.ViewID, name: name, created: now(), dateProp: dateProp, pastDays: pastDays}
-	// The raw token is shown once, here; only its hash reaches the database.
 	raw, err := icsNewToken()
 	if err != nil {
 		httpError(w, 500, "cannot create subscription")
 		return
 	}
-	if _, err := s.db.Exec(`INSERT INTO ics_feeds (id, user_id, token_hash, kind, ref_id, view_id, name, date_prop, past_days, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, f.id, uid, tokenHash(raw), f.kind, f.refID, f.viewID, f.name, f.dateProp, f.pastDays, f.created); err != nil {
+	f.token = raw
+	if _, err := s.db.Exec(`INSERT INTO ics_feeds (id, user_id, token, kind, ref_id, view_id, name, date_prop, past_days, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, f.id, uid, f.token, f.kind, f.refID, f.viewID, f.name, f.dateProp, f.pastDays, f.created); err != nil {
 		httpError(w, 500, "cannot create subscription")
 		return
 	}
-	out := s.icsFeedJSON(uid, f)
-	out["url"], out["webcal"] = icsFeedLinks(r, s, raw)
-	writeJSON(w, out)
+	writeJSON(w, s.icsFeedJSON(r, uid, f))
 }
 
 // handleICSFeedUpdate renames a subscription and/or changes its history
@@ -345,8 +338,8 @@ func (s *Server) handleICSFeedUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var f icsFeed
-	if err := s.db.QueryRow(`SELECT id, kind, ref_id, view_id, name, date_prop, past_days, created_at FROM ics_feeds WHERE id = ? AND user_id = ?`,
-		r.PathValue("id"), uid).Scan(&f.id, &f.kind, &f.refID, &f.viewID, &f.name, &f.dateProp, &f.pastDays, &f.created); err != nil {
+	if err := s.db.QueryRow(`SELECT id, kind, ref_id, view_id, name, token, date_prop, past_days, created_at FROM ics_feeds WHERE id = ? AND user_id = ?`,
+		r.PathValue("id"), uid).Scan(&f.id, &f.kind, &f.refID, &f.viewID, &f.name, &f.token, &f.dateProp, &f.pastDays, &f.created); err != nil {
 		httpError(w, 404, "not found")
 		return
 	}
@@ -369,7 +362,7 @@ func (s *Server) handleICSFeedUpdate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, "cannot update subscription")
 		return
 	}
-	writeJSON(w, s.icsFeedJSON(uid, f))
+	writeJSON(w, s.icsFeedJSON(r, uid, f))
 }
 
 // handleICSFeedDelete revokes one named subscription. The link stops working
@@ -390,7 +383,7 @@ func (s *Server) handleICSFeedDelete(w http.ResponseWriter, r *http.Request) {
 
 // icsListFeeds returns the caller's named subscriptions, oldest first.
 func (s *Server) icsListFeeds(uid string) []icsFeed {
-	rows, err := s.db.Query(`SELECT id, kind, ref_id, view_id, name, date_prop, past_days, created_at FROM ics_feeds WHERE user_id = ? ORDER BY created_at`, uid)
+	rows, err := s.db.Query(`SELECT id, kind, ref_id, view_id, name, token, date_prop, past_days, created_at FROM ics_feeds WHERE user_id = ? ORDER BY created_at`, uid)
 	if err != nil {
 		return nil
 	}
@@ -398,7 +391,7 @@ func (s *Server) icsListFeeds(uid string) []icsFeed {
 	var out []icsFeed
 	for rows.Next() {
 		var f icsFeed
-		if rows.Scan(&f.id, &f.kind, &f.refID, &f.viewID, &f.name, &f.dateProp, &f.pastDays, &f.created) == nil {
+		if rows.Scan(&f.id, &f.kind, &f.refID, &f.viewID, &f.name, &f.token, &f.dateProp, &f.pastDays, &f.created) == nil {
 			out = append(out, f)
 		}
 	}
@@ -538,7 +531,7 @@ func (s *Server) handleICSInfo(w http.ResponseWriter, r *http.Request) {
 
 	feeds := make([]map[string]any, 0)
 	for _, f := range s.icsListFeeds(uid) {
-		feeds = append(feeds, s.icsFeedJSON(uid, f))
+		feeds = append(feeds, s.icsFeedJSON(r, uid, f))
 	}
 
 	writeJSON(w, map[string]any{
@@ -1113,7 +1106,7 @@ func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
 	// link was made for, and query parameters are ignored, not honoured.
 	var userID, feedKind, feedRef, feedView, feedDateProp string
 	var feedWindow int
-	if err := s.db.QueryRow(`SELECT user_id, kind, ref_id, view_id, date_prop, past_days FROM ics_feeds WHERE token_hash = ?`, tokenHash(token)).
+	if err := s.db.QueryRow(`SELECT user_id, kind, ref_id, view_id, date_prop, past_days FROM ics_feeds WHERE token = ?`, token).
 		Scan(&userID, &feedKind, &feedRef, &feedView, &feedDateProp, &feedWindow); err != nil {
 		s.tokenRate.allow(s.clientIP(r))
 		httpError(w, 404, "not found")

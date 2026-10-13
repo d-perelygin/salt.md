@@ -228,8 +228,8 @@ export const api = {
         refId: string;
         viewId: string;
         name: string;
-        url?: string;
-        webcal?: string;
+        url: string;
+        webcal: string;
         dateProp?: string;
         datePropName?: string;
         createdAt: string;

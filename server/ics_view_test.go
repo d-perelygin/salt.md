@@ -22,16 +22,16 @@ func futureDate(n int) string {
 // the property name in the summary.
 
 // icsMintFeed creates a named subscription straight in the database and hands
-// back its raw token — the one value serving looks up by hash.
+// back its raw token.
 func icsMintFeed(t *testing.T, s *Server, uid, kind, refID, viewID string, pastDays int) string {
 	t.Helper()
 	raw, err := icsNewToken()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO ics_feeds (id, user_id, token_hash, kind, ref_id, view_id, name, past_days, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		newID(), uid, tokenHash(raw), kind, refID, viewID, kind+"/"+refID+"/"+viewID, pastDays, now()); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO ics_feeds (id, user_id, token, kind, ref_id, view_id, name, date_prop, past_days, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
+		newID(), uid, raw, kind, refID, viewID, kind+"/"+refID+"/"+viewID, pastDays, now()); err != nil {
 		t.Fatal(err)
 	}
 	return raw
@@ -305,7 +305,7 @@ func TestICSFeedHistoryWindowPref(t *testing.T) {
 		t.Errorf("feed pastDays = %d, want the account default 30", feed.PastDays)
 	}
 	if feed.URL == "" {
-		t.Fatalf("creation response carries no link — the raw token is shown once, here")
+		t.Fatalf("creation response carries no link")
 	}
 	body := icsGet(t, s, icsFeedPath(t, feed.URL))
 	if n := strings.Count(body, "BEGIN:VEVENT"); n != 3 || strings.Contains(body, "Oldie") {
@@ -469,13 +469,11 @@ func TestICSNamedFeedRoundTrip(t *testing.T) {
 	if n := strings.Count(wide, "BEGIN:VEVENT"); n != 3 {
 		t.Errorf("named feed with query has %d events, want its own 3", n)
 	}
-	// The info endpoint lists it — metadata only, never the link.
+	// The info endpoint lists it.
 	info := icsAPI(t, s, uid, "GET", "/api/ics", "")
 	var parsed struct {
 		Feeds []struct {
-			ID     string `json:"id"`
-			URL    string `json:"url"`
-			Webcal string `json:"webcal"`
+			ID string `json:"id"`
 		} `json:"feeds"`
 	}
 	if err := json.Unmarshal(info.Body.Bytes(), &parsed); err != nil {
@@ -483,9 +481,6 @@ func TestICSNamedFeedRoundTrip(t *testing.T) {
 	}
 	if len(parsed.Feeds) != 1 || parsed.Feeds[0].ID != feed.ID {
 		t.Errorf("info feeds = %+v, want the one created feed", parsed.Feeds)
-	}
-	if parsed.Feeds[0].URL != "" || parsed.Feeds[0].Webcal != "" {
-		t.Errorf("info leaks the link — raw tokens are shown once, at creation")
 	}
 	// Revoking kills exactly this link.
 	del := icsAPI(t, s, uid, "DELETE", "/api/ics/feeds/"+feed.ID, "")
@@ -742,19 +737,36 @@ func TestICSDisabledOwnerFeedDies(t *testing.T) {
 	}
 }
 
-// Only the hash is stored: the database carries no usable link.
-func TestICSFeedTokenHashed(t *testing.T) {
+// The dialog lists every link for copying at any time: listings carry the
+// same addresses as the creation response.
+func TestICSFeedLinksListed(t *testing.T) {
 	s, uid, col := icsViewFixture(t)
-	tok := icsMintFeed(t, s, uid, "collection", col, "", 90)
-	var stored string
-	if err := s.db.QueryRow(`SELECT token_hash FROM ics_feeds WHERE user_id = ?`, uid).Scan(&stored); err != nil {
+	rec := icsAPI(t, s, uid, "POST", "/api/ics/feeds",
+		`{"kind":"collection","refId":"`+col+`","name":"Team"}`)
+	if rec.Code != 200 {
+		t.Fatalf("POST /api/ics/feeds: status %d: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	if stored == tok {
-		t.Errorf("raw calendar token stored in the database")
+	info := icsAPI(t, s, uid, "GET", "/api/ics", "")
+	var parsed struct {
+		Feeds []struct {
+			URL    string `json:"url"`
+			Webcal string `json:"webcal"`
+		} `json:"feeds"`
 	}
-	if stored != tokenHash(tok) {
-		t.Errorf("stored value is not the token hash")
+	if err := json.Unmarshal(info.Body.Bytes(), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Feeds) != 1 || parsed.Feeds[0].URL == "" || parsed.Feeds[0].Webcal == "" {
+		t.Fatalf("listed feed carries no link: %+v", parsed.Feeds)
+	}
+	if parsed.Feeds[0].URL != created.URL {
+		t.Errorf("listed link differs from the created one")
 	}
 }
 

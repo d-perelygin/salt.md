@@ -116,14 +116,14 @@ CREATE TABLE IF NOT EXISTS collections (
 );
 -- Named calendar subscriptions (per-scope feeds): each row is one shareable
 -- link with its own token, so one subscription can be revoked without
--- touching the others. Only the token HASH is stored (like share_links and
--- api_tokens): a database copy must not carry usable links. The raw token is
--- shown once, at creation. kind/ref_id/view_id mirror the feed query
--- scope: all | workspace(ref_id) | collection(ref_id) | view(ref_id+view_id).
+-- touching the others. The token is stored as-is, like upstream: the dialog
+-- shows every link for copying at any time. kind/ref_id/view_id mirror the
+-- feed query scope: all | workspace(ref_id) | collection(ref_id) |
+-- view(ref_id+view_id).
 CREATE TABLE IF NOT EXISTS ics_feeds (
 	id TEXT PRIMARY KEY,
 	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-	token_hash TEXT NOT NULL UNIQUE,
+	token TEXT NOT NULL UNIQUE,
 	kind TEXT NOT NULL DEFAULT 'all',
 	ref_id TEXT NOT NULL DEFAULT '',
 	view_id TEXT NOT NULL DEFAULT '',
@@ -363,109 +363,6 @@ func ensureColumn(db *sql.DB, table, column, ddl string) error {
 	}
 	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + ddl)
 	return err
-}
-
-// migrateICSFeedHashes moves calendar subscriptions from raw tokens to hashes.
-// Old rows carry token (plaintext); new rows carry token_hash. The table is
-// rebuilt: hashes are computed in Go, and existing links keep working because
-// serving looks links up by hash. Their URLs cannot be shown again — the raw
-// token is gone — so the dialog asks to recreate feeds whose link is needed.
-func migrateICSFeedHashes(db *sql.DB) error {
-	cols, err := icsFeedsColumns(db)
-	if err != nil {
-		return err
-	}
-	hasToken := false
-	for _, c := range cols {
-		if c == "token" {
-			hasToken = true
-		}
-	}
-	if !hasToken {
-		return nil
-	}
-	type oldFeed struct {
-		id, userID, token, kind, refID, viewID, name, created string
-		pastDays                                              int
-	}
-	rows, err := db.Query(`SELECT id, user_id, token, kind, ref_id, view_id, name, past_days, created_at FROM ics_feeds`)
-	if err != nil {
-		return fmt.Errorf("migrate ics_feeds hashes: %w", err)
-	}
-	var feeds []oldFeed
-	for rows.Next() {
-		var f oldFeed
-		if err := rows.Scan(&f.id, &f.userID, &f.token, &f.kind, &f.refID, &f.viewID, &f.name, &f.pastDays, &f.created); err != nil {
-			rows.Close()
-			return fmt.Errorf("migrate ics_feeds hashes: %w", err)
-		}
-		feeds = append(feeds, f)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("migrate ics_feeds hashes: %w", err)
-	}
-	// Foreign keys stay off for the rebuild: the pool is a single connection
-	// (see openDB), and a feed whose owner is somehow gone migrates as-is —
-	// serving already answers it as missing.
-	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
-		return fmt.Errorf("migrate ics_feeds hashes: %w", err)
-	}
-	defer db.Exec(`PRAGMA foreign_keys = ON`)
-	if _, err := db.Exec(`CREATE TABLE ics_feeds_new (
-		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		token_hash TEXT NOT NULL UNIQUE,
-		kind TEXT NOT NULL DEFAULT 'all',
-		ref_id TEXT NOT NULL DEFAULT '',
-		view_id TEXT NOT NULL DEFAULT '',
-		name TEXT NOT NULL DEFAULT '',
-		date_prop TEXT NOT NULL DEFAULT '',
-		past_days INTEGER NOT NULL DEFAULT 90,
-		created_at TEXT NOT NULL
-	)`); err != nil {
-		return fmt.Errorf("migrate ics_feeds hashes: %w", err)
-	}
-	for _, f := range feeds {
-		if _, err := db.Exec(`INSERT INTO ics_feeds_new
-			(id, user_id, token_hash, kind, ref_id, view_id, name, date_prop, past_days, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
-			f.id, f.userID, tokenHash(f.token), f.kind, f.refID, f.viewID, f.name, f.pastDays, f.created); err != nil {
-			return fmt.Errorf("migrate ics_feeds hashes: %w", err)
-		}
-	}
-	if _, err := db.Exec(`DROP TABLE ics_feeds`); err != nil {
-		return fmt.Errorf("migrate ics_feeds hashes: %w", err)
-	}
-	if _, err := db.Exec(`ALTER TABLE ics_feeds_new RENAME TO ics_feeds`); err != nil {
-		return fmt.Errorf("migrate ics_feeds hashes: %w", err)
-	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_ics_feeds_user ON ics_feeds(user_id)`); err != nil {
-		return fmt.Errorf("migrate ics_feeds hashes: %w", err)
-	}
-	return nil
-}
-
-// icsFeedsColumns lists the columns of ics_feeds, so the hash migration can
-// tell a pre-hash table from a current one.
-func icsFeedsColumns(db *sql.DB) ([]string, error) {
-	rows, err := db.Query(`PRAGMA table_info(ics_feeds)`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull, pk int
-		var dflt any
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
-			return nil, err
-		}
-		out = append(out, name)
-	}
-	return out, rows.Err()
 }
 
 func openDB(path string) (*sql.DB, error) {
@@ -726,13 +623,8 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "ics_feeds", "date_prop", `date_prop TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate ics_feeds.date_prop: %w", err)
 	}
-	// Calendar subscriptions used to store the raw token (plus a single
-	// legacy per-user token in app_settings). Raw tokens are shown once, at
-	// creation, and only the hash is kept — like share_links and api_tokens —
-	// so a database copy carries no usable links.
-	if err := migrateICSFeedHashes(db); err != nil {
-		return nil, err
-	}
+	// Dead single-token rows from before named subscriptions: no code reads
+	// them any more.
 	db.Exec(`DELETE FROM app_settings WHERE key LIKE 'ics_token_%'`)
 	// Record the schema/app version so an operator (and future migrations) can
 	// see what a data dir was last written by. Additive, idempotent.

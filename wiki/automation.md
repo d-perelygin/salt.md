@@ -189,17 +189,16 @@ scope becomes unreadable simply goes empty, like any other stale subscription.
 https://salt.example.com/ics/<token>.ics
 ```
 
-Four things worth knowing before you paste a link anywhere:
+Three things worth knowing before you paste a link anywhere:
 
 - **The token is the credential.** No login, like a share link. Anybody
   holding the URL sees what that link's scope sees, and nothing wider. Do not
   share a link that sees more than its reader should.
 - **There is one token per link.** Narrowing the feed is a view on what you
   may read, never a way to see more: a link cannot show anything its owner
-  could not open.
-- **The link is shown once.** Only its hash is stored, so copy it at creation:
-  a link whose copy is lost is recreated, not re-shown. Guessing at links is
-  throttled, and deactivating or deleting the account stops every link at once.
+  could not open. Every link stays listed in the dialog for copying, and
+  guessing at links is throttled; deactivating or deleting the account stops
+  every link at once.
 - **Permissions are checked on every fetch, not at subscription time.** A
   collection that is moved, made private or trashed simply stops producing
   events. A scope you can no longer read yields an **empty calendar rather than

@@ -561,9 +561,8 @@ What lands in the calendar:
   scoped feed, so several subscriptions stay distinguishable.
 
 **The link is the credential.** It needs no sign-in: anyone holding it sees
-what that link's scope sees, and nothing wider. **Copy it now — the link is
-shown once and never again**: only its hash is stored, so a subscription whose
-link is lost is recreated, not re-shown. **Revoke** stops one link at once and
+what that link's scope sees, and nothing wider. Every link stays listed in the
+dialog for copying at any time. **Revoke** stops one link at once and
 touches nothing else; deactivating or deleting the account stops them all.
 
 The feed always reflects the permissions of the account it belongs to. A
