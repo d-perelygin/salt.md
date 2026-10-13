@@ -5,7 +5,7 @@ import {
   getDefaultReactSlashMenuItems,
 } from '@blocknote/react';
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core';
-import { en as coreEn } from '@blocknote/core/locales';
+import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { api, ApiError } from '../api';
 import * as Y from 'yjs';
@@ -2379,13 +2379,48 @@ function BlockContent({
 
   const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
 
+  // The dictionary key behind an English default title ("Heading 1" behind
+  // "heading"), so extra aliases can be looked up in every language. The React
+  // items carry no key — only the title — and the dictionary is keyed the
+  // other way round.
+  const slashKeyOf = (() => {
+    const byTitle = new Map<string, string>();
+    for (const [key, entry] of Object.entries(
+      coreEn.slash_menu as Record<string, { title?: string }>,
+    )) {
+      if (entry?.title) byTitle.set(entry.title, key);
+    }
+    return (title: string) => byTitle.get(title);
+  })();
+  // Aliases of one slash-menu entry in every shipped dictionary. The custom
+  // items below carry their own trilingual aliases inline.
+  //
+  // Two entries have no Russian alias in any dictionary — neither the title
+  // (the active dictionary is English) nor the aliases would answer a Russian
+  // query — so they get one here rather than waiting on the library.
+  const RU_GAP_FILL: Record<string, string[]> = {
+    quote: ['цитата'],
+    divider: ['разделитель', 'линия', 'черта'],
+    paragraph: ['абзац', 'текст'],
+  };
+  function slashAliases(title: string): string[] {
+    const key = slashKeyOf(title);
+    if (!key) return [];
+    const out: string[] = [...(RU_GAP_FILL[key] ?? [])];
+    for (const dict of [coreEn, coreDe, coreRu]) {
+      const entry = (dict.slash_menu as Record<string, { aliases?: string[] } | undefined>)[key];
+      if (entry?.aliases) out.push(...entry.aliases);
+    }
+    return out;
+  }
+
   // Slash menu: default items + column layout + our custom blocks.
   const getSlashItems = async (query: string) => {
     const custom = [
       {
         title: t('Diagram'),
         subtext: t('A flow chart written as text'),
-        aliases: ['diagram', 'diagramm', 'mermaid', 'flow', 'flussdiagramm', 'graph'], // i18n-ok: search aliases, deliberately multi
+        aliases: ['diagram', 'diagramm', 'mermaid', 'flow', 'flussdiagramm', 'graph', 'диаграмма', 'схема', 'граф', 'блок-схема'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
         group: 'Advanced',
         icon: <Workflow size={18} />,
         onItemClick: () =>
@@ -2397,7 +2432,7 @@ function BlockContent({
       {
         title: t('Columns'),
         subtext: t('Two blocks side by side'),
-        aliases: ['columns', 'spalten', 'nebeneinander'], // i18n-ok: search aliases, deliberately multi
+        aliases: ['columns', 'column', 'spalten', 'nebeneinander', 'колонки', 'столбцы', 'рядом', 'колонка'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
         group: 'Basic blocks',
         icon: <Columns2 size={18} />,
         // Inserted WITH its two children, because an empty columns block is a
@@ -2413,7 +2448,7 @@ function BlockContent({
       {
         title: t('Callout'),
         subtext: t('A highlighted note with an emoji'),
-        aliases: ['callout', 'hinweis', 'info', 'warnung'], // i18n-ok: search aliases, deliberately multilingual so a German user can type it
+        aliases: ['callout', 'hinweis', 'info', 'warnung', 'выноска', 'заметка', 'подсказка', 'важно'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
         group: 'Basic blocks',
         icon: <span>💡</span>,
         onItemClick: () =>
@@ -2422,7 +2457,7 @@ function BlockContent({
       {
         title: t('Bookmark / Embed'),
         subtext: t('A link card, or a YouTube/Vimeo player'),
-        aliases: ['bookmark', 'embed', 'link', 'video', 'youtube'], // i18n-ok: search aliases, deliberately multilingual so a German user can type it
+        aliases: ['bookmark', 'embed', 'link', 'video', 'youtube', 'закладка', 'встроить', 'ссылка', 'видео'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
         group: 'Media',
         icon: <span>🔖</span>,
         onItemClick: () =>
@@ -2431,7 +2466,7 @@ function BlockContent({
       {
         title: t('Embed a collection'),
         subtext: t('Show an existing collection inside the document'),
-        aliases: ['datenbank', 'database', 'db', 'tabelle', 'board', 'kanban'], // i18n-ok: search aliases, deliberately multilingual so a German user can type it
+        aliases: ['datenbank', 'database', 'db', 'tabelle', 'board', 'kanban', 'база', 'коллекция', 'таблица', 'доска', 'встроить коллекцию'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
         group: 'Basic blocks',
         icon: <span>▦</span>,
         onItemClick: () =>
@@ -2440,7 +2475,7 @@ function BlockContent({
       {
         title: t('Table of contents'),
         subtext: t('Auto-generated list of every heading'),
-        aliases: ['toc', 'inhalt', 'inhaltsverzeichnis', 'outline'], // i18n-ok: search aliases, deliberately multilingual so a German user can type it
+        aliases: ['toc', 'inhalt', 'inhaltsverzeichnis', 'outline', 'оглавление', 'содержание'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
         group: 'Basic blocks',
         icon: <span>📑</span>,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'toc' } as never),
@@ -2448,19 +2483,22 @@ function BlockContent({
       {
         title: t('Sub-pages'),
         subtext: t('List of pages below this one'),
-        aliases: ['subpages', 'unterseiten', 'children', 'sub-pages'], // i18n-ok: search aliases, deliberately multilingual so a German user can type it
+        aliases: ['subpages', 'unterseiten', 'children', 'sub-pages', 'подстраницы', 'дочерние', 'страницы', 'вложенные'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
         group: 'Basic blocks',
         icon: <span>📄</span>,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'subpages' } as never),
       },
     ];
-    return filterSuggestionItems(
-      [
-        ...getDefaultReactSlashMenuItems(editor),
-        ...custom,
-      ],
-      query,
-    );
+    // Every item searchable in every language, always: the menu matches the
+    // query against the title and the aliases, so each default item carries the
+    // union of its English, German and Russian aliases on top of whatever the
+    // active dictionary gave it. Display stays as the dictionary says; what the
+    // fingers may type does not depend on it.
+    const defaults = getDefaultReactSlashMenuItems(editor).map((it) => ({
+      ...it,
+      aliases: [...(it.aliases ?? []), ...slashAliases(it.title)],
+    }));
+    return filterSuggestionItems([...defaults, ...custom], query);
   };
 
   // Page-link menu (shared by the "@" mention trigger and the "[[" wiki-link
