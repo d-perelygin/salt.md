@@ -242,8 +242,9 @@ boxes: for the case where a row has a handful of steps that do not deserve a
 collection of their own.
 
 A filled cell shows a progress bar with a percentage; the tooltip says how many
-of how many. An empty one reads **+ Sub-task**, so there is always something to
-click. Inside: tick items, type over their text, press Enter or click
+of how many. Tapping the percentage flips every checklist on screen to the bare
+count — "1 / 6" — and back; the choice is remembered in the browser. An empty
+one reads **+ Sub-task**, so there is always something to click. Inside: tick items, type over their text, press Enter or click
 **Sub-task** to add the next one, use the bin to remove one, and click **Done**
 to close. Empty items are kept while the list is open (you have to be able to
 type into a fresh one) and dropped when you close it. Items with no text never

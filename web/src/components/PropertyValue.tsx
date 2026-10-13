@@ -6,6 +6,7 @@ import Portal from './Portal';
 import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
 import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
 import { showActivityFor } from './ActivityLogHost';
+import { useChecklistFrac } from '../pageUiState';
 import { initials, nameColor } from './CommentsPanel';
 import { Check, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
@@ -368,12 +369,25 @@ function ChecklistSummary({ items, compact }: { items: ChecklistItem[]; compact?
   const done = named.filter((i) => i.done).length;
   if (!total) return compact ? null : <span className="prop-empty" />;
   const pct = Math.round((done / total) * 100);
+  // The label flips, everywhere at once, between a percentage and the bare
+  // count: one tap on it is the switch. It stops the click there, or the tap
+  // would also open the row (or the list) underneath it.
+  const [frac, toggleFrac] = useChecklistFrac();
   return (
-    <span className="prop-bar prop-checklist-sum" title={`${done} / ${total}`}>
+    <span className="prop-bar prop-checklist-sum" title={frac ? `${pct}%` : `${done} / ${total}`}>
       <span className="prop-bar-track">
         <span className={'prop-bar-fill' + (done === total ? ' is-full' : '')} style={{ width: pct + '%' }} />
       </span>
-      <span className="prop-bar-label">{pct}%</span>
+      <button
+        type="button"
+        className="prop-bar-label prop-bar-toggle"
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleFrac();
+        }}
+      >
+        {frac ? `${done} / ${total}` : `${pct}%`}
+      </button>
     </span>
   );
 }

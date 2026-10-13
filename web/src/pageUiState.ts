@@ -10,6 +10,8 @@
 // also persist across reloads — localStorage is the store either way, and a
 // reload lands back where you were rather than at the top.
 
+import { useCallback, useEffect, useState } from 'react';
+
 const VIEW_PREFIX = 'salt:view:';
 const SCROLL_PREFIX = 'salt:scroll:';
 
@@ -125,4 +127,37 @@ export function hintSeen(name: string): boolean {
 
 export function markHintSeen(name: string) {
   write(HINT_PREFIX + name, '1');
+}
+
+// ---- checklist fraction ----
+
+// Whether every checklist summary reads "1 / 6" instead of a percentage.
+// Display-only, so it lives with the other interface state in localStorage
+// rather than on the account — and one tap flips all of them at once.
+const FRAC_KEY = 'salt-checklist-frac';
+const FRAC_EVENT = 'salt:checklist-frac';
+
+function readFrac(): boolean {
+  return read(FRAC_KEY) === '1';
+}
+
+/** The global checklist display and the tap that flips it. All summaries
+ *  subscribe, so one tap repaints every bar on screen. */
+export function useChecklistFrac(): [boolean, () => void] {
+  const [frac, setFrac] = useState(readFrac);
+  useEffect(() => {
+    const onChange = () => setFrac(readFrac());
+    window.addEventListener(FRAC_EVENT, onChange);
+    window.addEventListener('storage', onChange);
+    return () => {
+      window.removeEventListener(FRAC_EVENT, onChange);
+      window.removeEventListener('storage', onChange);
+    };
+  }, []);
+  const toggle = useCallback(() => {
+    write(FRAC_KEY, readFrac() ? '0' : '1');
+    setFrac(readFrac());
+    window.dispatchEvent(new Event(FRAC_EVENT));
+  }, []);
+  return [frac, toggle];
 }
