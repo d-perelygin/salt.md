@@ -3841,6 +3841,10 @@ button.cal-mini-day:hover {
   position: relative;
   background: var(--bg);
   min-height: 92px;
+  /* Grid children default to min-width: auto, so one long unbroken title
+     (white-space: nowrap) forces its column wide and the whole 7-column grid
+     sails off the screen on a phone. Zero lets 1fr hold and the text cut. */
+  min-width: 0;
   padding: 4px;
   display: flex;
   flex-direction: column;
