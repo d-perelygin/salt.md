@@ -825,19 +825,33 @@ func (s *Server) normalizePropValues(pageID string, patch map[string]json.RawMes
 	if err := s.db.QueryRow(`SELECT COALESCE(parent_id, '') FROM pages WHERE id = ?`, pageID).Scan(&parentID); err != nil || parentID == "" {
 		return
 	}
-	schema, _, err := s.loadCollection(parentID)
+	s.normalizePropsOf(parentID, patch)
+}
+
+// normalizePropsOf is the same work for a row that does not exist yet: a row
+// created WITH its properties — through the interface's + button, or through an
+// agent writing a link as it creates the row — has to be stored in the same
+// shape as one whose properties arrive in a later patch (see handleCreatePage).
+func (s *Server) normalizePropsOf(collectionID string, patch map[string]json.RawMessage) {
+	schema, _, err := s.loadCollection(collectionID)
 	if err != nil {
 		return
 	}
 	byProp := map[string]map[string]string{} // propID -> lowercased name or id -> id
 	listShaped := map[string]bool{}
+	relations := map[string]string{} // propID -> the collection its rows live in
 	for _, p := range schema {
 		id, _ := p["id"].(string)
 		if id == "" {
 			continue
 		}
 		switch t, _ := p["type"].(string); t {
-		case "relation", "multiselect":
+		case "relation":
+			listShaped[id] = true
+			if target, _ := p["relationCollection"].(string); target != "" {
+				relations[id] = target
+			}
+		case "multiselect":
 			listShaped[id] = true
 		}
 		opts, _ := p["options"].([]any)
@@ -860,6 +874,12 @@ func (s *Server) normalizePropValues(pageID string, patch map[string]json.RawMes
 		byProp[id] = m
 	}
 	for prop, raw := range patch {
+		// A relation value has to be a page id. See normalizeRelationValue: the
+		// option-name resolution below covers only properties that HAVE options,
+		// and a relation has none, so a title or an object went in untouched.
+		if target, ok := relations[prop]; ok {
+			raw = s.normalizeRelationValue(target, raw)
+		}
 		if m, ok := byProp[prop]; ok {
 			// Single value
 			var one string
@@ -899,6 +919,114 @@ func (s *Server) normalizePropValues(pageID string, patch map[string]json.RawMes
 		}
 		patch[prop] = raw
 	}
+}
+
+// normalizeRelationValue rewrites a relation value into page ids.
+//
+// A relation value has to be an id, and an agent naturally writes one of two
+// other things: the title it read somewhere ("Мемное"), or the object a read
+// handed back ({"id": …, "title": …}). Neither was touched, because the
+// option-name resolution next door covers only properties that HAVE options and
+// a relation has none. The value went in exactly as sent, `query_rows` reported
+// the same thing back — so the data looked right in a dump — and the cell
+// rendered as an empty blue chip with no text at all. In the report that found
+// this, twelve of thirteen rows were empty that way and the one that had been
+// linked through the interface was fine.
+//
+// A title that matches exactly one row of the target collection becomes that
+// row's id; an object becomes the id it carries. Anything else is left exactly
+// as sent: the cell then shows what it holds rather than nothing, and says it
+// cannot open it — which is the truth about a value that names no row.
+func (s *Server) normalizeRelationValue(target string, raw json.RawMessage) json.RawMessage {
+	byName := s.relationLookup(target)
+	if len(byName) == 0 {
+		return raw
+	}
+	pick := func(v any) (string, bool) {
+		switch x := v.(type) {
+		case string:
+			if id, ok := byName[strings.ToLower(strings.TrimSpace(x))]; ok {
+				return id, true
+			}
+		case map[string]any:
+			if id, _ := x["id"].(string); id != "" {
+				return id, true
+			}
+			if title, _ := x["title"].(string); title != "" {
+				if id, ok := byName[strings.ToLower(strings.TrimSpace(title))]; ok {
+					return id, true
+				}
+			}
+		}
+		return "", false
+	}
+
+	// One value — a bare string or a bare object, which listShaped turns into a
+	// one-element list after this runs.
+	var one any
+	if json.Unmarshal(raw, &one) == nil {
+		if id, ok := pick(one); ok {
+			if b, err := json.Marshal(id); err == nil {
+				return b
+			}
+		}
+	}
+	var many []any
+	if json.Unmarshal(raw, &many) == nil {
+		out, changed := make([]any, len(many)), false
+		for i, v := range many {
+			out[i] = v
+			if id, ok := pick(v); ok {
+				out[i] = id
+				changed = true
+			}
+		}
+		if changed {
+			if b, err := json.Marshal(out); err == nil {
+				return b
+			}
+		}
+	}
+	return raw
+}
+
+// relationIDs maps whatever a relation value may be written as onto the id of
+// the row it names: the id itself, and the titles of the target collection's
+// rows — a title only where exactly one row carries it, because a title shared
+// by two rows names neither.
+func (s *Server) relationLookup(target string) map[string]string {
+	out := map[string]string{}
+	if target == "" {
+		return out
+	}
+	rows, err := s.db.Query(`SELECT id, COALESCE(title, '') FROM pages WHERE parent_id = ? AND trashed_at IS NULL`, target)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	count := map[string]int{}
+	first := map[string]string{}
+	for rows.Next() {
+		var id, title string
+		if rows.Scan(&id, &title) != nil {
+			continue
+		}
+		out[id] = id
+		key := strings.ToLower(strings.TrimSpace(title))
+		if key == "" {
+			continue
+		}
+		count[key]++
+		if _, ok := first[key]; !ok {
+			first[key] = id
+		}
+	}
+	for key, n := range count {
+		if n == 1 {
+			out[key] = first[key]
+		}
+	}
+	return out
 }
 
 // resolveFilterValues maps filter values written as an option NAME onto the id

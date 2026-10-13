@@ -43,7 +43,13 @@ interface Props {
 // normalised on the server now; this keeps older rows readable.
 export function idList(value: unknown): string[] {
   if (Array.isArray(value)) return value as string[];
-  return typeof value === 'string' && value !== '' ? [value] : [];
+  if (typeof value === 'string' && value !== '') return [value];
+  // One row written as a bare value instead of a one-element list: a string is
+  // the common shape, an object ({"id": …}, what a read hands back) the other.
+  // The object used to fall through to nothing at all, so the cell showed no
+  // chip whatsoever — not even the empty one.
+  if (value && typeof value === 'object') return [value as unknown as string];
+  return [];
 }
 
 function chip(opt: PropOption | undefined, fallback: string) {
@@ -770,12 +776,44 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // window: a target collection past the 500 rows fetched here, a row somebody
   // may not read, a relation left pointing at something deleted. None of those
   // is a row called Untitled.
-  const titleOf = (id: string) => {
-    const hit = options.find((o) => o.id === id);
-    if (!hit) return '';
-    return hit.title || t('Untitled');
+  // A relation value is a page id. Older rows and hand-written ones may hold
+  // something else — the object a read handed back ({"id": …}), or a title —
+  // and reading one of those must not throw: a value nobody can parse is a
+  // value to SHOW, not a reason to take the whole view down. (It did throw:
+  // `value.trim is not a function` on every view holding one.)
+  const asText = (raw: unknown): string => {
+    if (typeof raw === 'string') return raw;
+    if (typeof raw === 'number') return String(raw);
+    if (raw && typeof raw === 'object') {
+      const o = raw as { id?: unknown; title?: unknown };
+      if (typeof o.id === 'string' && o.id) return o.id;
+      if (typeof o.title === 'string' && o.title) return o.title;
+      try {
+        return JSON.stringify(raw) ?? '';
+      } catch {
+        return '';
+      }
+    }
+    return '';
   };
-  const iconOf = (id: string) => options.find((o) => o.id === id)?.icon || '';
+
+  // A value that is not an id but matches exactly ONE row's title is resolved
+  // to that row. The stored value is wrong, but the row it names is not
+  // ambiguous, and hiding a working relation behind a data problem helps
+  // nobody. Two rows with the same title stay unresolved, because there is no
+  // answer to give.
+  const rowFor = (raw: unknown): RelOption | undefined => {
+    const value = asText(raw);
+    const byId = options.find((o) => o.id === value);
+    if (byId) return byId;
+    const wanted = value.trim().toLowerCase();
+    if (!wanted) return undefined;
+    const byTitle = options.filter((o) => {
+      const title = (o.title || '').trim().toLowerCase();
+      return title !== '' && title === wanted;
+    });
+    return byTitle.length === 1 ? byTitle[0] : undefined;
+  };
 
   if (!targetId) return <span className="prop-empty">{t('No target')}</span>;
 
@@ -797,38 +835,42 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   };
   const chips = (
     <span className="prop-multi">
-      {shown.map((id) => {
-        const title = titleOf(id);
+      {shown.map((raw, i) => {
+        const value = asText(raw);
+        const row = rowFor(raw);
+        // Nothing resolves: the chip says what the cell actually holds rather
+        // than showing an empty box. The tooltip says the rest.
+        const title = row ? row.title || t('Untitled') : loaded ? value : '';
         const inner = (
           <>
-            {iconOf(id) && (
+            {row?.icon && (
               <span className="relation-icon">
-                <PageIcon icon={iconOf(id)} size={14} />
+                <PageIcon icon={row.icon} size={14} />
               </span>
             )}
             {title}
           </>
         );
         const cls =
-          'prop-chip relation-chip' + (title ? '' : loaded ? ' is-unknown' : ' is-pending');
-        const tip = title || (loaded ? t('This row is not readable from here.') : undefined);
+          'prop-chip relation-chip' + (row ? '' : loaded ? ' is-unknown' : ' is-pending');
+        const tip = row ? title : loaded ? t('This row is not readable from here.') : undefined;
         // A readable row opens in a new tab; an unknown one stays plain text.
         // In the editor below the same chip is a span, not a button: it sits
         // inside the picker toggle, and a button in a button is invalid HTML.
         const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
-        if (onOpen && title) {
+        if (onOpen && row) {
           if (ro) {
             return (
               <button
-                key={id}
+                key={i}
                 type="button"
                 className={cls + ' relation-link'}
-                title={title}
+                title={tip}
                 style={chipStyle}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (openers) openCollectionRow(e, id, openers);
-                  else if (onOpen && !peekPage(e, id)) onOpen(id);
+                  if (openers) openCollectionRow(e, row.id, openers);
+                  else if (onOpen && !peekPage(e, row.id)) onOpen(row.id);
                 }}
               >
                 {inner}
@@ -837,14 +879,14 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
           }
           return (
             <span
-              key={id}
+              key={i}
               className={cls + ' relation-link'}
-              title={title}
+              title={tip}
               style={chipStyle}
               onClick={(e) => {
                 e.stopPropagation();
-                if (openers) openCollectionRow(e, id, openers);
-                else if (onOpen && !peekPage(e, id)) onOpen(id);
+                if (openers) openCollectionRow(e, row.id, openers);
+                else if (onOpen && !peekPage(e, row.id)) onOpen(row.id);
               }}
             >
               {inner}
@@ -863,13 +905,16 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
           );
         }
         return (
-          <span key={id} className={cls} title={tip} style={chipStyle}>
+          <span key={i} className={cls} title={tip} style={chipStyle}>
             {inner}
           </span>
         );
       })}
       {hidden > 0 && (
-        <span className="prop-chip relation-more" title={ids.map(titleOf).filter(Boolean).join(', ')}>
+        <span
+          className="prop-chip relation-more"
+          title={ids.map((v) => rowFor(v)?.title ?? asText(v)).filter(Boolean).join(', ')}
+        >
           {t('+{n} more', { n: hidden })}
         </span>
       )}
