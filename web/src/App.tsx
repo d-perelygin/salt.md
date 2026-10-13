@@ -435,6 +435,7 @@ export default function App() {
     // peek exists to answer.
     const onPeek = (e: Event) => {
       const detail = (e as CustomEvent<{ id?: string; focusTitle?: boolean }>).detail;
+      peekAskedRef.current = true;
       // A pinned panel keeps what it shows: another row's request neither
       // replaces it nor opens a tab beside it. The click is answered — with
       // nothing — rather than falling through to the tab a peek request opens
@@ -1248,6 +1249,35 @@ export default function App() {
     setPeekId(null);
     setPeekPinned(false);
   }, []);
+  // The click that just asked for a peek, if any: a click on a row first opens
+  // the peek (synchronously, through salt:peek) and only then reaches the
+  // document listener below — the flag tells the two apart, so opening never
+  // reads as leaving.
+  const peekAskedRef = useRef(false);
+  // A click outside the peek closes it — on the sidebar, the toolbar, the tab
+  // strip, a menu's backdrop. Two things do not: the document body beside it
+  // (that is what a side panel is for — working next to it), and the click
+  // that just opened the peek itself. A pinned panel ignores all of it.
+  useEffect(() => {
+    if (!peekId) return;
+    const onClick = (e: MouseEvent) => {
+      if (peekAskedRef.current) {
+        peekAskedRef.current = false;
+        return;
+      }
+      if (peekPinnedRef.current) return;
+      const t = e.target as Element | null;
+      if (
+        t?.closest?.(
+          '.peek-panel, .page-body, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay',
+        )
+      )
+        return;
+      closePeek();
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, [peekId, closePeek]);
   const canEditPeek = useMemo(() => {
     if (!peekId) return true;
     const page = pagesById.get(peekId);
