@@ -1265,7 +1265,17 @@ export default function App() {
   // and closest() on a detached node answers null, which reads as "outside".
   const downInsideRef = useRef(false);
   const OUTSIDE_OK =
-    '.peek-panel, .page-body, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
+    '.peek-panel, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
+  // Content the peek stays open over: text being read or edited, controls, and
+  // every row, card, chip and bar of the collection views. Anything else — the
+  // padding of the page and of the views, an empty day cell, the gaps between
+  // blocks — is empty space, and a click there closes the peek. A block's own
+  // outer margin counts as the block: it is a few pixels wide, and grabbing it
+  // must not dismiss what you were reading.
+  const PEEK_KEEPS_OPEN =
+    '.bn-block-content, .bn-block-outer, .row-prop, button, input, select, textarea, a, [contenteditable="true"], ' +
+    'td, th, .board-card, .list-row, .gallery-card, .calendar-event, .cal-span, ' +
+    '.tl-bar, .tl-label, .tl-resize, .tl-dep-handle';
   useEffect(() => {
     if (!peekId) return;
     const onDown = (e: PointerEvent) => {
@@ -1283,6 +1293,7 @@ export default function App() {
       if (inside) return;
       const t = e.target as Element | null;
       if (t?.closest?.(OUTSIDE_OK)) return;
+      if (t?.closest?.(PEEK_KEEPS_OPEN)) return;
       closePeek();
     };
     document.addEventListener('pointerdown', onDown, true);
