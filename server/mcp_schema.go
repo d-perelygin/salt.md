@@ -179,9 +179,25 @@ func (s *Server) saveCollection(pageID string, schema []map[string]any, views []
 	return nil
 }
 
+// translit spells out the letters an id cannot carry. Russian names used to
+// fall straight through slugID's loop and leave nothing behind, so EVERY one of
+// them came out as the same fallback: "prop", then "prop-2", "prop-3". Both the
+// property and its select options are named in that language here, so the ids
+// an agent has to read and pass back were indistinguishable from each other —
+// and from a property id — for no reason at all.
+var translit = map[rune]string{
+	'а': "a", 'б': "b", 'в': "v", 'г': "g", 'д': "d", 'е': "e", 'ё': "e",
+	'ж': "zh", 'з': "z", 'и': "i", 'й': "y", 'к': "k", 'л': "l", 'м': "m",
+	'н': "n", 'о': "o", 'п': "p", 'р': "r", 'с': "s", 'т': "t", 'у': "u",
+	'ф': "f", 'х': "h", 'ц': "ts", 'ч': "ch", 'ш': "sh", 'щ': "shch",
+	'ъ': "", 'ы': "y", 'ь': "", 'э': "e", 'ю': "yu", 'я': "ya",
+	// Ukrainian and Belarusian letters, sharing the alphabet.
+	'і': "i", 'ї': "yi", 'є': "ye", 'ґ': "g", 'ў': "u",
+}
+
 // slugID turns a name into a stable, readable identifier. Readable ids help
 // the agent: "due-date" says more than "p7". On a collision it counts up. The
-// umlaut cases below spell German letters out, because an id carries none.
+// letters below are spelled out because an id carries none of them.
 func slugID(name string, taken map[string]bool) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(name) {
@@ -198,6 +214,8 @@ func slugID(name string, taken map[string]bool) string {
 			b.WriteString("ss")
 		case r == ' ' || r == '-' || r == '_':
 			b.WriteRune('-')
+		default:
+			b.WriteString(translit[r])
 		}
 	}
 	base := strings.Trim(b.String(), "-")
@@ -235,9 +253,22 @@ func (s *Server) mcpUpdateSchema(pageID string, props json.RawMessage, remove []
 		return "", err
 	}
 	var incoming []map[string]any
+	// Which ids the AGENT named — asked before normalization, because after it
+	// there is no way to tell. normalizeSchema invents an id for a property that
+	// has none (that is what makes `{name:"Сезоны"}` work at all), so a second
+	// `{name:"Сезоны"}` invented "prop" again, found the property that already
+	// had that id, and OVERWROTE it — and the answer called it "changed prop"
+	// rather than anything anyone would recognise as a mistake. No id from the
+	// agent means ADD, whatever the invented id happens to be.
+	named := map[int]string{}
 	if len(props) > 0 {
 		if err := json.Unmarshal(props, &incoming); err != nil {
 			return "", fmt.Errorf("properties must be a list of {id?, name, type, options?}: %v", err)
+		}
+		for i, in := range incoming {
+			if id, _ := in["id"].(string); id != "" {
+				named[i] = id
+			}
 		}
 		if incoming, err = normalizeSchema(incoming); err != nil {
 			return "", err
@@ -249,10 +280,17 @@ func (s *Server) mcpUpdateSchema(pageID string, props json.RawMessage, remove []
 	for _, p := range schema {
 		taken[str(p, "id")] = true
 	}
+	// An id the agent named is spoken for, even before its property is added:
+	// otherwise the new one before it could take the id and this one would
+	// silently become an update of it.
+	for _, id := range named {
+		taken[id] = true
+	}
 
 	added, changed := []string{}, []string{}
-	for _, in := range incoming {
-		name, typ, id := str(in, "name"), str(in, "type"), str(in, "id")
+	for i, in := range incoming {
+		name, typ := str(in, "name"), str(in, "type")
+		id := named[i]
 		if strings.TrimSpace(name) == "" && id == "" {
 			return "", fmt.Errorf("each property needs at least a name")
 		}
@@ -283,10 +321,13 @@ func (s *Server) mcpUpdateSchema(pageID string, props json.RawMessage, remove []
 		if typ == "" {
 			in["type"] = "text"
 		}
+		// A new property. The id has to be free: normalization picked one
+		// against the incoming list alone, and a name it cannot spell (a
+		// Russian one, "Сезоны") lands on the same fallback every time.
 		if id == "" {
 			id = slugID(name, taken)
-			in["id"] = id
 		}
+		in["id"] = id
 		taken[id] = true
 		schema = append(schema, in)
 		added = append(added, id)
