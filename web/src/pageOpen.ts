@@ -43,11 +43,14 @@ export function peekPage(
  *  it reads as a place you got stuck in rather than a preview — there rows
  *  open tabs, like everywhere else. Same breakpoint as the full-screen peek
  *  stylesheet below (see styles.css). */
-export function peekPanel(id: string): boolean {
+export function peekPanel(id: string, opts?: { focusTitle?: boolean }): boolean {
   if (typeof window === 'undefined') return false;
   if (window.matchMedia('(max-width: 768px)').matches) return false;
   return !window.dispatchEvent(
-    new CustomEvent('salt:peek', { detail: { id }, cancelable: true }),
+    new CustomEvent('salt:peek', {
+      detail: { id, focusTitle: !!opts?.focusTitle },
+      cancelable: true,
+    }),
   );
 }
 
