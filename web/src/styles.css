@@ -7980,9 +7980,9 @@ a.btn {
   cursor: pointer;
   overflow: hidden;
   transition: filter 0.12s;
-  /* The bar is a thing you carry: on a phone a drag on it moves the event
-     rather than scrolling the axis under it. The track still scrolls. */
-  touch-action: none;
+  /* The bar is carried only after a hold (see beginBarDrag): until then a
+     finger starting here scrolls the axis, like everywhere else on it. */
+  touch-action: pan-x pan-y;
   /* A bar is a control, not prose: a long press on its own text would start a
      selection, and the browser then takes the gesture over — cancelling the
      drag and, on iOS, leaving a callout that swallows taps. */
@@ -8013,7 +8013,8 @@ a.btn {
   align-items: center;
   justify-content: center;
   cursor: ew-resize;
-  touch-action: none;
+  /* Same hold-to-arm as the bar itself: a swipe from a grip scrolls. */
+  touch-action: pan-x pan-y;
   opacity: 0;
 }
 @media (hover: hover) {

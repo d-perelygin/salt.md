@@ -3360,13 +3360,65 @@ function TimelineView({
     // A control on the bar — the blocker warning — is pressed, not carried.
     if (edge === 'move' && (e.target as HTMLElement).closest('button, .tl-resize')) return;
     e.stopPropagation();
+    // On a finger the drag starts with a hold, exactly like a board card: a
+    // swipe that starts on a bar is a scroll of the axis, not a move, and the
+    // fingers that scroll must never feel a bar stick to them. The timer below
+    // arms the same gesture a mouse starts at once.
+    // The React event is dead by the time the timer below runs (its
+    // currentTarget reads null), so capture what the armed half needs now.
+    const press = {
+      track: (e.currentTarget as HTMLElement).closest('.tl-track') as HTMLElement | null,
+      pointerType: e.pointerType,
+      x: e.clientX,
+    };
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      const x0 = press.x;
+      const y0 = e.clientY;
+      let settled = false;
+      const disarm = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        window.removeEventListener('pointermove', watch);
+        window.removeEventListener('pointerup', giveUp);
+        window.removeEventListener('pointercancel', giveUp);
+      };
+      const watch = (ev: PointerEvent) => {
+        // Past the wobble: it was a scroll, and the browser — whose
+        // touch-action lets it scroll from here — already owns it.
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 10) disarm();
+      };
+      const giveUp = () => disarm();
+      const timer = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('pointermove', watch);
+        window.removeEventListener('pointerup', giveUp);
+        window.removeEventListener('pointercancel', giveUp);
+        beginArmed(press, id, edge);
+      }, 320);
+      window.addEventListener('pointermove', watch);
+      window.addEventListener('pointerup', giveUp);
+      window.addEventListener('pointercancel', giveUp);
+      return;
+    }
+    beginArmed(press, id, edge);
+  };
+  // What a mouse starts at once and a finger starts after the hold above.
+  // Plain values, never the React event: the finger's half runs a hold later,
+  // when the event's currentTarget already reads null.
+  const beginArmed = (
+    press: { track: HTMLElement | null; pointerType: string; x: number },
+    id: string,
+    edge: 'start' | 'end' | 'move',
+  ) => {
     // Deliberately NOT preventDefault, for the same reason the table's column
     // resize does not: cancelling a pointerdown cancels the compatibility events
     // behind it, and on a phone it is one more thing between the finger and the
     // browser's own gesture handling. What it used to hold off is held off
-    // elsewhere — `touch-action: none` on the handle stops the page scrolling
-    // under the finger, `user-select: none` stops the selection, and the click
-    // guard below stops the click.
+    // elsewhere — `touch-action` lets the axis scroll from a bar or a handle
+    // until the hold arms the drag, `user-select: none` stops the selection,
+    // and the click guard below stops the click.
     // Whatever was dragging stops here (see dragCleanup): one gesture at a time,
     // so a leaked one cannot ride along with this one. No click guard from that
     // end — the click that follows belongs to this press.
@@ -3376,14 +3428,14 @@ function TimelineView({
     // bar is a move, and a move that goes nowhere is just a click: the guard
     // for that one is armed at the end, and only if the bar actually moved.
     if (edge !== 'move') navGuard.current = Date.now();
-    const track = (e.currentTarget as HTMLElement).closest('.tl-track') as HTMLElement | null;
+    const { track } = press;
     const it = items.find((i) => i.row.id === id);
     if (!track || !it) return;
     const rect = track.getBoundingClientRect();
     const rawEnd = endProp ? it.row.props[endProp] : undefined;
     const rowHasEnd = typeof rawEnd === 'string' && !!rawEnd;
     const fixed = edge === 'start' ? it.end : it.start;
-    const x0 = e.clientX;
+    const x0 = press.x;
     setDragBoth({ id, edge, day: edge === 'move' ? 0 : edge === 'start' ? it.start : it.end });
     const move = (ev: PointerEvent) => {
       if (edge === 'move') {
@@ -3409,6 +3461,7 @@ function TimelineView({
     // `blur` and a hidden document are the same story one level down: the gesture
     // is over the moment the app stops being what the finger is on.
     const finish = (armGuard: boolean) => {
+      window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', onEnd);
       window.removeEventListener('pointercancel', onEnd);
@@ -3463,6 +3516,15 @@ function TimelineView({
     // and the ids of a finger and a mouse are not comparable anyway.)
     const onOtherDown = () => finish(false);
     dragCleanup.current = finish;
+    // An armed finger drag must not scroll along with the pointer. This cannot
+    // go through `touch-action` — read when the gesture begins, changing it
+    // later does nothing to the running gesture — so the hard way, like the
+    // board's: passive false, so preventDefault is allowed.
+    const touchArmed = press.pointerType === 'touch' || press.pointerType === 'pen';
+    const onTouchMove = (ev: TouchEvent) => {
+      ev.preventDefault();
+    };
+    if (touchArmed) window.addEventListener('touchmove', onTouchMove, { passive: false });
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', onEnd);
     window.addEventListener('pointercancel', onEnd);
