@@ -30,6 +30,7 @@ import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption
 import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
 import { openCollectionRow, openPageAux, peekPanel, type PageOpeners } from '../pageOpen';
 import { hintSeen, markHintSeen, readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
+import { useMenuDismiss } from '../modal';
 import { AgentDot } from './AgentBadge';
 import { planCard, isBlank, zoneOf, contactKind, needsLabel } from '../cardLayout';
 import SchemaEditor from './SchemaEditor';
@@ -3132,6 +3133,10 @@ function TimelineView({
   const [hovered, setHovered] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(!!startWithSettings);
   const [settingsHint, settingsSeen] = useSettingsHint('timeline-settings');
+  // A click outside the settings popover closes it — the wrap holds the button
+  // and the menu together, so the button's own click still toggles.
+  const tlSettingsRef = useRef<HTMLDivElement>(null);
+  useMenuDismiss(settingsOpen, tlSettingsRef, () => setSettingsOpen(false));
   // The flag belongs to the moment the view was made, not to the view: once the
   // popover has been open, a later remount must not open it again.
   useEffect(() => {
@@ -3855,7 +3860,7 @@ function TimelineView({
           </div>
         )}
         <div className="tl-right">
-          <div className="tl-settings-wrap">
+          <div className="tl-settings-wrap" ref={tlSettingsRef}>
             <button
               className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
               title={t('Timeline settings: start, end and blockers')}
@@ -4512,6 +4517,10 @@ function CalendarView({
   // The view's own settings: which date it reads, and what a range is.
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsHint, settingsSeen] = useSettingsHint('calendar-settings');
+  // A click outside the settings popover closes it — same wrap trick as the
+  // timeline's: the button and the menu live in one box.
+  const calSettingsRef = useRef<HTMLDivElement>(null);
+  useMenuDismiss(settingsOpen, calSettingsRef, () => setSettingsOpen(false));
   const dateProps = schema.filter((p) => p.type === 'date');
   // Dragging an entry to another day: the day under the pointer, and the click
   // the gesture ends in (which must not open the row it just moved).
@@ -4857,7 +4866,7 @@ function CalendarView({
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
         <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
         <div className="cal-right">
-        <div className="cal-settings-wrap">
+        <div className="cal-settings-wrap" ref={calSettingsRef}>
           <button
             className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
             title={t('Calendar settings: start and end')}
