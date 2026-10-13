@@ -2642,9 +2642,16 @@ body:has(.icon-picker) .bn-side-menu {
 
 .table-wrap {
   padding: 12px 48px 40px;
-  overflow-x: auto;
+  /* The table scrolls inside its own box rather than with the page, because a
+     heading row can only stay put within the scroller it lives in: an
+     `overflow-x: auto` box is a scroll container in BOTH axes, so the sticky
+     heading stuck to a box that was itself sliding up the page and appeared
+     not to stick at all. */
+  overflow: auto;
   flex: 1;
-  overscroll-behavior-x: contain;
+  max-height: calc(100vh - 190px);
+  max-height: calc(100dvh - 190px);
+  overscroll-behavior: contain;
 }
 
 .db-table {
@@ -2828,7 +2835,10 @@ body.is-col-resizing {
   display: none;
   align-items: center;
   justify-content: center;
-  margin-left: 4px;
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
   padding: 1px;
   border: none;
   border-radius: 4px;
@@ -3540,6 +3550,14 @@ body.is-col-resizing {
   gap: 8px;
   margin-bottom: 10px;
 }
+/* Settings and the period picker keep the right edge, as on the timeline —
+   the settings button used to sit with the arrows on the left. */
+.cal-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
 /* A phone cannot fit ‹ title › Today ⚙ and the span picker on one line — the
    picker used to be pushed off the screen entirely. The head takes two lines
    there, and the picker keeps the right edge to itself. */
@@ -3552,10 +3570,20 @@ body.is-col-resizing {
   .tl-controls .cal-range-wrap {
     margin-left: auto;
   }
+  .cal-right {
+    margin-left: auto;
+  }
   .calendar-title,
   .tl-title {
     min-width: 0;
     flex: 1 1 auto;
+    /* A two-month span reads "Октябрь 2026 г. — Ноябрь 2026 г." and ran under
+       the period picker. Smaller, and cut with an ellipsis rather than
+       overflowing the row. */
+    font-size: 15px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
@@ -3821,6 +3849,24 @@ button.cal-mini-day:hover {
 /* The day an entry would land on. */
 .calendar-cell.is-drop {
   background: var(--accent-soft);
+}
+/* The entry under the finger, so the drag has something to look at besides a
+   tinted cell. */
+.cal-ghost {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 400;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .calendar-event {
   border: none;
