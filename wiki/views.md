@@ -74,8 +74,9 @@ parent is filtered out is not lost (it simply becomes a top-level row).
 Which branches are folded is yours alone and is not stored on the view. Leave
 the collection and come back and everything is open again.
 
-The table scrolls sideways when there are more columns than screen. Its row of
-headings is fixed: scroll the table down and the column names stay at the top.
+The table scrolls when there are more columns than screen, and it scrolls inside
+its own box rather than with the page — which is what lets its row of headings
+stay put: scroll the table down and the column names stay at the top.
 
 A column can be **pinned** from its header. A pinned column keeps its place as
 you scroll sideways: when it reaches the left edge it stops there and stays
@@ -143,7 +144,9 @@ values that only need to say "this exists" (email, phone, postal address, link).
 People from every person property collapse into one stack of faces in the corner.
 The field name is left off a fact only when the card has a single fact and the
 property is called Date, Datum, Number or Zahl, where repeating it would say
-nothing. Hovering a value on a card shows the name of its property in a tooltip.
+nothing. Hovering a value on a card shows the name of its property in a tooltip,
+and a checkbox or a checklist on a card can be ticked there: they stay live in
+the compact row, where every other value is display only.
 
 A card prints at most **eight** lines of facts and text together, and only ever
 one text: a second one goes below the line however few facts there are. What is
@@ -210,7 +213,8 @@ on** in your
 [account settings](account.md).
 
 An entry or a bar can be **dragged** onto another day: it moves as a whole and
-keeps its length, and the new dates are written when you let go. A click that
+keeps its length, a copy of it follows the pointer so the drag has something to
+look at, and the new dates are written when you let go. A click that
 does not move still opens the row.
 
 Clicking the **number** of a day switches the calendar to **Day** on that date;
@@ -371,11 +375,18 @@ configures the current view sits on the right, in this order:
 | **⋯** (*View options*) | Rename, move and remove this view. |
 | **＋ New** | Creates an *Untitled* row and opens it in the side peek. Every view except a form has it. |
 
-The side peek closes on Escape, on a click outside it, and when you change
-document tab: it is a preview of the row you were looking at, and each of those
-gestures says you have moved on. A new row, and a page made from a template,
-open in it; a screen too narrow for a peek has none, so both open as a tab
-there instead.
+The side peek is a second view of the workspace rather than a modal: clicking
+into the document beside it, or changing document tab, leaves it where it is.
+It closes on Escape and on its own close button.
+
+The button beside that one — the expand arrow — carries a menu after a moment's
+hover: **Open full screen**, **Open in a new tab**, and **Pin**. A pinned panel
+ignores Escape and refuses another row's request, so nothing hides it but its
+own close button; closing forgets the pin.
+
+A new row, and a page made from a template, open in it — and a new row opens
+with the caret already in its title, since a row is made to be named. A screen
+too narrow for a peek has none, so both open as a tab there instead.
 
 **Filter**, **Sort**, **Group** and **Columns** light up in the accent colour as
 soon as anything is set, so you can see that a view is filtered without opening
@@ -432,7 +443,8 @@ read and a single thing to change.
 
 One condition is not about a property at all. **Is a template** and **is not a
 template** filter by whether the row is a template, a fact about the page rather
-than about any column.
+than about any column; the picker keeps it under its own **System** heading,
+away from the collection's **Columns**.
 
 **A condition with nothing filled in does not filter.** It waits, and says so.
 It used to compare against the empty string and therefore match nothing, so the
