@@ -4377,6 +4377,9 @@ function CalendarView({
   // — there the same gesture scrolls the axis, which is what it is for.
   const swipe = useRef<{ x: number; y: number; done: boolean } | null>(null);
   const swipeLock = useRef(0);
+  // True from the press on an entry until its drag ends — while it is set,
+  // paging handlers stay out of the way (see beginEntryDrag).
+  const carryingEntry = useRef(false);
   const pageBy = (forward: boolean) => {
     const now = Date.now();
     if (now - swipeLock.current < 320) return;
@@ -4451,6 +4454,9 @@ function CalendarView({
   const beginEntryDrag = (e: React.PointerEvent, rowId: string) => {
     const r = rangeOf.get(rowId);
     if (!r) return;
+    // While an entry is being carried, swiping must not page the calendar: the
+    // same gesture cannot mean "move this entry" and "show another month".
+    carryingEntry.current = true;
     const x0 = e.clientX;
     const y0 = e.clientY;
     let moved = false;
@@ -4469,6 +4475,7 @@ function CalendarView({
       window.removeEventListener('pointercancel', finish);
       setDropDay(null);
       setGhost(null);
+      carryingEntry.current = false;
       if (!moved || !target || target === r.from) return;
       dragGuard.current = Date.now();
       const delta = Math.round(
@@ -4673,12 +4680,14 @@ function CalendarView({
     <div
       className="calendar"
       onWheel={(e) => {
+        if (carryingEntry.current) return;
         if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 16) pageBy(e.deltaX > 0);
       }}
       onPointerDown={(e) => {
         swipe.current = { x: e.clientX, y: e.clientY, done: false };
       }}
       onPointerMove={(e) => {
+        if (carryingEntry.current) return;
         const s = swipe.current;
         if (!s || s.done) return;
         const dx = e.clientX - s.x;
