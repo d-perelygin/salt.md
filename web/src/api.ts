@@ -217,6 +217,7 @@ export const api = {
         viewId?: string;
         kind: 'all' | 'workspace' | 'collection' | 'view';
         name: string;
+        dates?: { id: string; name: string }[];
         count: number;
         nextTitle?: string;
         nextDay?: string;
@@ -229,6 +230,8 @@ export const api = {
         name: string;
         url?: string;
         webcal?: string;
+        dateProp?: string;
+        datePropName?: string;
         createdAt: string;
         count: number;
         nextTitle?: string;
@@ -247,8 +250,9 @@ export const api = {
     }),
   // Named calendar subscriptions: each is a link with its own token, so one
   // can be shared or revoked without touching the others. The raw link is
-  // shown once, in this response, and never again.
-  icsFeedCreate: (kind: string, refId: string, viewId: string, name: string) =>
+  // shown once, in this response, and never again. dateProp narrows a
+  // collection subscription to one date property ("" carries every date).
+  icsFeedCreate: (kind: string, refId: string, viewId: string, name: string, dateProp = '') =>
     req<{
       id: string;
       kind: string;
@@ -258,7 +262,7 @@ export const api = {
       count: number;
     }>('/api/ics/feeds', {
       method: 'POST',
-      body: JSON.stringify({ kind, refId, viewId, name }),
+      body: JSON.stringify({ kind, refId, viewId, name, dateProp }),
     }),
   icsFeedDelete: (id: string) =>
     req<{ ok: boolean }>(`/api/ics/feeds/${id}`, { method: 'DELETE' }),

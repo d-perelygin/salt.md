@@ -133,10 +133,14 @@ One event is written per date value: the summary is the row's title, and the
 description is the name of the collection it came from. A row with two filled
 date properties produces two events, told apart by the property's name in
 parentheses, "Kickoff (Due)" and "Kickoff (Start)"; a row with a single date
-reads cleanly as just "Kickoff". A plain date becomes an all-day event ending
+reads cleanly as just "Kickoff". A view that names an end date draws one bar
+per row instead, from the start day through the end day — the same bar the
+calendar view in salt.md draws. A plain date becomes an all-day event ending
 the next day; a value that carries a time becomes a timed event lasting one
 hour, written without a time zone, so it shows at that clock time wherever the
-calendar is read. Every event links back to its row: opening it in the
+calendar is read. Every event links back to its row twice: the URL property,
+and a link at the end of the description, so the way back survives clients
+that show one and hide the other. Opening it in the
 calendar app jumps straight to the page in salt.md. Only recent history
 travels with the feed — everything upcoming plus a window into the past you
 choose yourself (30, 90 or 365 days, or the whole history), 90 days to begin
@@ -145,16 +149,18 @@ with — so years of done rows do not clog the calendar on a phone.
 The dialog holds **named links** and nothing else: one link per project or
 person, each with its own token, scope and history window. Creating one takes
 a **scope** (*What should the new subscription contain?*), a name ("For the
-client", "Releases on the phone") and nothing more. The dialog remembers your
-last scope on the server, so the creator reopens where you left it on any
-device; a scope that is gone falls back to Everything.
+client", "Releases on the phone") and nothing more. A collection scope can
+narrow further to one **date** (*Date*): one collection with a shoot day and a
+post date becomes two subscriptions with two colors in the calendar app. The
+dialog remembers your last scope on the server, so the creator reopens where
+you left it on any device; a scope that is gone falls back to Everything.
 
 | Scope | What lands in the feed |
 | --- | --- |
 | **Everything I can see** | every date property in every workspace you can see: your memberships, plus any workspace you currently hold emergency access to |
 | A workspace | the same, narrowed to one workspace |
-| A collection | one collection's dates |
-| A view | one saved view's dates: only the rows its filters show, on its date property |
+| A collection | one collection's dates, or one date property of it |
+| A view | one saved view's dates: only the rows its filters show, on its date property — one bar per row when the view names an end date |
 
 Only collections that actually have a date property are listed, with each of
 their saved views beneath them; otherwise the dialog would hand out a
@@ -199,9 +205,11 @@ Four things worth knowing before you paste a link anywhere:
   events. A scope you can no longer read yields an **empty calendar rather than
   an error**, so a stale subscription does not sit there flashing red in
   somebody's calendar app.
-- **The feed is read-only, and clients re-read it about every half an hour**:
-  salt.md advertises a half-hour refresh interval, so a moved deadline reaches
-  the calendar without re-subscribing. Editing an event in your calendar
+- **The feed is read-only, and clients re-read it about every five minutes**:
+  salt.md advertises a five-minute refresh interval, so a moved deadline reaches
+  the calendar without re-subscribing. Apple honors it; Google and Outlook poll
+  subscribed calendars on their own slower schedule whatever it says. Editing an
+  event in your calendar
   changes nothing in salt.md.
 
 ## Content coming in

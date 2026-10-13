@@ -549,6 +549,8 @@ the page open. See [Collaboration](collaboration.md).
 link per project or person, each with its own token and its own fixed scope
 (the whole account, one workspace, one collection, or one saved view). Each
 link comes as an `https:` and a `webcal:` url pointing at `/ics/{token}.ics`.
+A collection subscription takes an optional `dateProp` to carry one date
+property instead of every date; a view with an end date draws one bar per row.
 
 **That token is a credential in a path.** It is the one url in the product that
 carries its own key, because a calendar app has nowhere to put a header. Only

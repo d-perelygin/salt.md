@@ -534,8 +534,8 @@ its own token, scope and history window. Creating one takes a scope under
 | --- | --- |
 | **Everything I can see** | every date property in every workspace you are a member of, plus any you currently hold emergency access to |
 | a workspace | the same, limited to that workspace |
-| a collection | the dates of that collection's rows |
-| a view | one saved view's dates: only the rows its filters show, on its date property |
+| a collection | the dates of that collection's rows, or one date property of it |
+| a view | one saved view's dates: only the rows its filters show, on its date property — one bar per row when the view names an end date |
 
 A collection is only offered once it has a date property (the dialog says
 *"A collection appears here once it has a date property."*) because a feed that
@@ -550,7 +550,9 @@ What lands in the calendar:
 
 - **One event per date value.** A row with two date properties produces two
   events. The summary is the row's title with the property's name in
-  parentheses, *Kickoff (Due)*, and the description is the collection's name.
+  parentheses, *Kickoff (Due)*, and the description is the collection's name
+  with a link back to the row. A view with an end date draws one bar per row
+  instead.
 - **A plain date becomes an all-day event.** A value carrying a time becomes a
   timed event written without a time zone, so it shows at that clock time
   wherever it is read.

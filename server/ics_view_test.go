@@ -130,8 +130,11 @@ func TestICSCollectionFeedUnchanged(t *testing.T) {
 	if !strings.Contains(body, "SUMMARY:One\r\n") {
 		t.Errorf("collection feed lost its summary shape:\n%s", body)
 	}
-	if !strings.Contains(body, "DESCRIPTION:Tasks\r\n") {
+	if !strings.Contains(body, "DESCRIPTION:Tasks\r\n") && !strings.Contains(body, "DESCRIPTION:Tasks\\n") {
 		t.Errorf("collection feed description changed:\n%s", body)
+	}
+	if !strings.Contains(body, "/p/") {
+		t.Errorf("collection feed event lost its backlink to the row:\n%s", body)
 	}
 }
 
@@ -235,10 +238,10 @@ func TestICSFeedAdvertisesRefresh(t *testing.T) {
 	s, uid, col := icsViewFixture(t)
 	tok := icsMintFeed(t, s, uid, "collection", col, "", 90)
 	body := icsGet(t, s, "/ics/"+tok+".ics")
-	if !strings.Contains(body, "REFRESH-INTERVAL;VALUE=DURATION:PT30M") {
+	if !strings.Contains(body, "REFRESH-INTERVAL;VALUE=DURATION:PT5M") {
 		t.Errorf("feed does not advertise a refresh interval:\n%s", body)
 	}
-	if !strings.Contains(body, "X-PUBLISHED-TTL:PT30M") {
+	if !strings.Contains(body, "X-PUBLISHED-TTL:PT5M") {
 		t.Errorf("feed does not advertise a TTL:\n%s", body)
 	}
 }
@@ -563,6 +566,130 @@ func TestICSNamedFeedWindow(t *testing.T) {
 	}
 	if rec := icsAPI(t, s, uid, "PATCH", "/api/ics/feeds/"+feed.ID, `{"pastDays":45}`); rec.Code != 400 {
 		t.Errorf("unknown window: status %d, want 400", rec.Code)
+	}
+}
+
+// icsRangeFixture builds a collection with a start and an end date, a view
+// pairing them, and three rows: a real range, an end before its start, and
+// no end at all.
+func icsRangeFixture(t *testing.T) (*Server, string, string) {
+	t.Helper()
+	s := testServer(t)
+	uid, _ := signedIn(t, s, "icsrange@example.com")
+	var ws string
+	if err := s.db.QueryRow(`SELECT id FROM workspaces LIMIT 1`).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	col := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at)
+		VALUES (?, NULL, ?, 'Shoot', 'collection', '{}', ?, ?)`, col, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	schema := `[{"id":"start","name":"Start","type":"date"},{"id":"end","name":"End","type":"date"}]`
+	views := `[{"id":"span","name":"Span","type":"calendar","dateProp":"start","endDateProp":"end"}]`
+	if _, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, ?)`, col, schema, views); err != nil {
+		t.Fatal(err)
+	}
+	rows := []struct{ title, start, end string }{
+		{"Range", futureDate(5), futureDate(7)},
+		{"Backwards", futureDate(6), futureDate(4)},
+		{"Open", futureDate(5), ""},
+	}
+	for i, r := range rows {
+		props, _ := json.Marshal(map[string]any{"start": r.start, "end": r.end})
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'row', ?, ?, ?, ?)`,
+			newID(), col, ws, r.title, string(props), i, now(), now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s, uid, col
+}
+
+func icsDayToStamp(day string) string {
+	return day[0:4] + day[5:7] + day[8:10]
+}
+
+// A view naming an end property draws one bar per row, from the start day to
+// the day after the end day (all-day ends are exclusive).
+func TestICSRangeBarFromViewEndProp(t *testing.T) {
+	s, uid, col := icsRangeFixture(t)
+	tok := icsMintFeed(t, s, uid, "view", col, "span", 90)
+	body := icsGet(t, s, "/ics/"+tok+".ics")
+	if n := strings.Count(body, "BEGIN:VEVENT"); n != 3 {
+		t.Fatalf("range feed has %d events, want 3 (one per row)", n)
+	}
+	wantStart := "DTSTART;VALUE=DATE:" + icsDayToStamp(futureDate(5))
+	wantEnd := "DTEND;VALUE=DATE:" + icsDayToStamp(futureDate(8))
+	if !strings.Contains(body, wantStart) || !strings.Contains(body, wantEnd) {
+		t.Errorf("range bar does not span %s to %s:\n%s", wantStart, wantEnd, body)
+	}
+	if !strings.Contains(body, "SUMMARY:Range\r\n") {
+		t.Errorf("range bar lost its plain summary:\n%s", body)
+	}
+}
+
+// An end on or before the start is not a range: the start stays a point
+// event, like in the calendar view itself.
+func TestICSEndBeforeStartFallsBack(t *testing.T) {
+	s, uid, col := icsRangeFixture(t)
+	tok := icsMintFeed(t, s, uid, "view", col, "span", 90)
+	body := icsGet(t, s, "/ics/"+tok+".ics")
+	wantStart := "DTSTART;VALUE=DATE:" + icsDayToStamp(futureDate(6))
+	wantEnd := "DTEND;VALUE=DATE:" + icsDayToStamp(futureDate(7))
+	if !strings.Contains(body, "SUMMARY:Backwards\r\n") {
+		t.Errorf("backwards row lost its point event:\n%s", body)
+	}
+	if !strings.Contains(body, wantStart) || !strings.Contains(body, wantEnd) {
+		t.Errorf("backwards row is not a one-day point event %s to %s:\n%s", wantStart, wantEnd, body)
+	}
+	if strings.Contains(body, "DTEND;VALUE=DATE:"+icsDayToStamp(futureDate(5))) {
+		t.Errorf("backwards row kept its earlier end as a bar:\n%s", body)
+	}
+}
+
+// A collection feed with a date filter carries only that property: one
+// project with two dates becomes two subscriptions with two colors.
+func TestICSDatePropFilter(t *testing.T) {
+	s, uid, col := icsRangeFixture(t)
+	rec := icsAPI(t, s, uid, "POST", "/api/ics/feeds",
+		`{"kind":"collection","refId":"`+col+`","name":"Starts","dateProp":"start"}`)
+	if rec.Code != 200 {
+		t.Fatalf("POST /api/ics/feeds: status %d: %s", rec.Code, rec.Body.String())
+	}
+	var feed struct {
+		URL          string `json:"url"`
+		DateProp     string `json:"dateProp"`
+		DatePropName string `json:"datePropName"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &feed); err != nil {
+		t.Fatal(err)
+	}
+	if feed.DateProp != "start" || feed.DatePropName != "Start" {
+		t.Errorf("feed filter = %q/%q, want start/Start", feed.DateProp, feed.DatePropName)
+	}
+	body := icsGet(t, s, icsFeedPath(t, feed.URL))
+	if n := strings.Count(body, "BEGIN:VEVENT"); n != 3 {
+		t.Errorf("filtered feed has %d events, want 3 starts", n)
+	}
+	if strings.Contains(body, "(Start)") || strings.Contains(body, "(End)") {
+		t.Errorf("single-property feed keeps disambiguating suffixes:\n%s", body)
+	}
+}
+
+// A date filter names a date property of a collection subscription, or the
+// creation fails.
+func TestICSDatePropValidation(t *testing.T) {
+	s, uid, col := icsRangeFixture(t)
+	for _, body := range []string{
+		`{"kind":"collection","refId":"` + col + `","name":"x","dateProp":"missing"}`,
+		`{"kind":"view","refId":"` + col + `","viewId":"span","name":"x","dateProp":"start"}`,
+		`{"kind":"workspace","refId":"x","name":"x","dateProp":"start"}`,
+		`{"kind":"all","name":"x","dateProp":"start"}`,
+	} {
+		if rec := icsAPI(t, s, uid, "POST", "/api/ics/feeds", body); rec.Code != 400 {
+			t.Errorf("POST %s: status %d, want 400", body, rec.Code)
+		}
 	}
 }
 

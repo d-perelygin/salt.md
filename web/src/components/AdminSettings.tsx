@@ -881,6 +881,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [newPick, setNewPick] = useState('');
   const [newName, setNewName] = useState('');
+  const [newDate, setNewDate] = useState('');
   const touchedNew = useRef(false);
   // The raw link of a just-created subscription. Links are shown once, at
   // creation, and only their hashes are stored — so this is the one moment
@@ -906,8 +907,10 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
     // The dialog speaks the user's language; the API fallback ("Everything")
     // is English-only, so never send an empty name from here.
     const fallbackName = s.kind === 'all' ? t('Everything I can see') : s.name;
+    // A date filter only makes sense for the collection it was picked from.
+    const dateProp = s.kind === 'collection' ? newDate : '';
     try {
-      const created = await api.icsFeedCreate(s.kind, s.id, s.viewId ?? '', newName.trim() || fallbackName);
+      const created = await api.icsFeedCreate(s.kind, s.id, s.viewId ?? '', newName.trim() || fallbackName, dateProp);
       setFresh({ id: created.id, url: created.url, webcal: created.webcal });
       setNewName('');
       await reload();
@@ -945,6 +948,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const changeNewPick = (v: string) => {
     touchedNew.current = true;
     setNewPick(v);
+    setNewDate('');
     void api.icsPrefs({ scope: v }).catch(() => {});
   };
   const label = (s: { kind: string; name: string; count: number }) =>
@@ -995,7 +999,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
           ) : (
             <>
               <p className="dialog-hint">
-                {t('Changes reach your calendar within about half an hour.')}
+                {t('Changes reach your calendar within about five minutes.')}
               </p>
               {/* New subscription: scope, name, create — boxed, so the
                   creator reads as one thing rather than loose rows. */}
@@ -1007,6 +1011,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) => {
                   touchedNew.current = true;
                   setNewPick(e.target.value);
+                  setNewDate('');
                   void api.icsPrefs({ scope: e.target.value }).catch(() => {});
                 }}
                 aria-label={t('What should the new subscription contain?')}
@@ -1050,6 +1055,24 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                   {t('Nearest event:')} {picked.nextTitle}{picked.nextDay ? ` · ${picked.nextDay}` : ''}
                 </p>
               )}
+              {picked && picked.kind === 'collection' && (picked.dates ?? []).length > 1 && (
+                <label className="dialog-hint" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                  <span>{t('Date')}</span>
+                  <select
+                    className="prop-select"
+                    value={newDate}
+                    onChange={(e) => setNewDate(e.target.value)}
+                    aria-label={t('Date')}
+                  >
+                    <option value="">{t('All dates')}</option>
+                    {(picked.dates ?? []).map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {collections.length === 0 && (
                 <p className="dialog-hint">
                   {t('A collection appears here once it has a date property.')}
@@ -1088,6 +1111,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
                 const shownWebcal = link.webcal ?? '';
                 const meta = [
                   scopeName,
+                  f.datePropName ?? '',
                   plural(f.count, '{n} event', '{n} events'),
                   f.nextTitle ? `${t('Nearest event:')} ${f.nextTitle}${f.nextDay ? ` · ${f.nextDay}` : ''}` : '',
                 ].filter((x) => x !== '');

@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS ics_feeds (
 	ref_id TEXT NOT NULL DEFAULT '',
 	view_id TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
+	date_prop TEXT NOT NULL DEFAULT '',
 	past_days INTEGER NOT NULL DEFAULT 90,
 	created_at TEXT NOT NULL
 );
@@ -419,6 +420,7 @@ func migrateICSFeedHashes(db *sql.DB) error {
 		ref_id TEXT NOT NULL DEFAULT '',
 		view_id TEXT NOT NULL DEFAULT '',
 		name TEXT NOT NULL DEFAULT '',
+		date_prop TEXT NOT NULL DEFAULT '',
 		past_days INTEGER NOT NULL DEFAULT 90,
 		created_at TEXT NOT NULL
 	)`); err != nil {
@@ -426,8 +428,8 @@ func migrateICSFeedHashes(db *sql.DB) error {
 	}
 	for _, f := range feeds {
 		if _, err := db.Exec(`INSERT INTO ics_feeds_new
-			(id, user_id, token_hash, kind, ref_id, view_id, name, past_days, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, user_id, token_hash, kind, ref_id, view_id, name, date_prop, past_days, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
 			f.id, f.userID, tokenHash(f.token), f.kind, f.refID, f.viewID, f.name, f.pastDays, f.created); err != nil {
 			return fmt.Errorf("migrate ics_feeds hashes: %w", err)
 		}
@@ -717,6 +719,12 @@ func openDB(path string) (*sql.DB, error) {
 	// link can stay quiet while another keeps the archive.
 	if err := ensureColumn(db, "ics_feeds", "past_days", `past_days INTEGER NOT NULL DEFAULT 90`); err != nil {
 		return nil, fmt.Errorf("migrate ics_feeds.past_days: %w", err)
+	}
+	// A collection subscription can narrow to one date property, so one
+	// collection with two dates becomes two subscriptions with two colors.
+	// Empty carries every date, which is also what old rows get.
+	if err := ensureColumn(db, "ics_feeds", "date_prop", `date_prop TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate ics_feeds.date_prop: %w", err)
 	}
 	// Calendar subscriptions used to store the raw token (plus a single
 	// legacy per-user token in app_settings). Raw tokens are shown once, at

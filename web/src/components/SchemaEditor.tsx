@@ -221,6 +221,9 @@ export default function SchemaEditor({
       if (v.type === 'calendar' && !propIds.has(v.dateProp ?? '')) {
         next.dateProp = dateProps[0]?.id ?? '';
       }
+      if ((v.type === 'calendar' || v.type === 'timeline') && v.endDateProp && !propIds.has(v.endDateProp)) {
+        next.endDateProp = undefined;
+      }
       // Conditions and orders that are not columns survive a schema save:
       // no property id can collide with them, so there is nothing to clean.
 
