@@ -16,12 +16,26 @@ import { t } from '../i18n';
 
 type Props = Omit<EditorProps, 'regionId' | 'primary'> & {
   onClose: () => void;
+  focusTitleOnMount?: boolean;
   onOpenFull: (id: string) => void;
+  /** Pinned: nothing hides the panel but its own close button. */
+  pinned?: boolean;
+  onTogglePin?: () => void;
 };
 
-export default function PeekPanel({ pageId, onClose, onOpenFull, ...editorProps }: Props) {
+export default function PeekPanel({
+  pageId,
+  onClose,
+  onOpenFull,
+  focusTitleOnMount,
+  pinned,
+  onTogglePin,
+  ...editorProps
+}: Props) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const pinnedRef = useRef(pinned);
+  pinnedRef.current = pinned;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -30,6 +44,8 @@ export default function PeekPanel({ pageId, onClose, onOpenFull, ...editorProps 
       // that opened it and surprise nobody in a good way.
       const t = e.target as Element | null;
       if (t?.closest?.('.peek-panel .menu')) return;
+      // A pinned panel is one you asked to keep: Escape is not its master.
+      if (pinnedRef.current) return;
       closeRef.current();
     };
     document.addEventListener('keydown', onKey);
@@ -42,10 +58,13 @@ export default function PeekPanel({ pageId, onClose, onOpenFull, ...editorProps 
         key={pageId}
         {...editorProps}
         pageId={pageId}
+        focusTitleOnMount={focusTitleOnMount}
         regionId="peek"
         primary={false}
         onPeekClose={onClose}
         onPeekOpenFull={onOpenFull}
+        onPeekPin={onTogglePin}
+        peekPinned={pinned}
       />
     </aside>
   );

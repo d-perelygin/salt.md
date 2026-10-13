@@ -20,6 +20,7 @@ import { formatDay } from '../format';
 import { blockedByMap, dayNum, depListOf, isoDay, shiftTarget, type DepNode } from '../depUtils';
 import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
+import AnchoredMenu from './AnchoredMenu';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
@@ -44,7 +45,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2} from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin} from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -76,6 +77,9 @@ export interface EditorProps {
   // has no room for a full desktop topbar.
   onPeekClose?: () => void;
   onPeekOpenFull?: (id: string) => void;
+  /** Pinned: nothing hides the panel but its own close button. */
+  peekPinned?: boolean;
+  onPeekPin?: () => void;
   // Which keyboard-navigation region this editor owns. The main view is
   // 'content'; a second mounted editor (the side peek) takes another id, or
   // the two would register the same region and the later mount would steal
@@ -85,6 +89,9 @@ export interface EditorProps {
   // focus sits outside every editor. The main view keeps the historic
   // behaviour; the peek answers only with the focus inside itself.
   primary?: boolean;
+  // A brand-new page is a page you are about to name: the title takes the caret
+  // (and is selected, so typing replaces the placeholder).
+  focusTitleOnMount?: boolean;
 }
 
 export default function Editor(props: EditorProps) {
@@ -691,8 +698,11 @@ function PageHeader({
   onPagesChanged,
   pagesById,
   regionId,
+  focusTitleOnMount,
   onPeekClose,
   onPeekOpenFull,
+  peekPinned,
+  onPeekPin,
   structureOpen,
   onToggleStructure,
   commentsOpen,
@@ -704,6 +714,9 @@ function PageHeader({
   regionId: string;
   onPeekClose?: () => void;
   onPeekOpenFull?: (id: string) => void;
+  /** Pinned: nothing hides the panel but its own close button. */
+  peekPinned?: boolean;
+  onPeekPin?: () => void;
   structureOpen: boolean;
   onToggleStructure: () => void;
   commentsOpen: boolean;
@@ -840,6 +853,32 @@ function PageHeader({
       return false;
     },
   });
+
+  // Once per mount: a later re-render must not steal the caret back.
+  const wantTitleFocus = useRef(!!focusTitleOnMount);
+  // The peek's expand menu: a moment's hover rather than an instant one, so
+  // passing over the button on the way to the close button does not open it.
+  const [peekMenuOpen, setPeekMenuOpen] = useState(false);
+  const peekMenuTimer = useRef(0);
+  const peekMenuEnter = () => {
+    window.clearTimeout(peekMenuTimer.current);
+    peekMenuTimer.current = window.setTimeout(() => setPeekMenuOpen(true), 450);
+  };
+  const peekMenuLeave = () => {
+    window.clearTimeout(peekMenuTimer.current);
+    setPeekMenuOpen(false);
+  };
+
+  // The caret for a page that has just been made. Waits for the title field to
+  // exist, which is a render behind the page itself.
+  useEffect(() => {
+    if (!wantTitleFocus.current || !page) return;
+    const el = titleRef.current;
+    if (!el) return;
+    wantTitleFocus.current = false;
+    el.focus();
+    el.select();
+  }, [page]);
 
   // Grow the title to fit its text (any length wraps to as many lines as needed,
   // like Notion) — on every edit and whenever the page (and thus title) changes.
@@ -1286,13 +1325,35 @@ function PageHeader({
             <button className="icon-btn" title={t('Close preview')} onClick={onPeekClose}>
               <ChevronsRight size={17} />
             </button>
-            <button
-              className="icon-btn"
-              title={t('Open as page ↗')}
-              onClick={() => onPeekOpenFull?.(pageId)}
-            >
-              <Maximize2 size={16} />
-            </button>
+            {/* The expand button also carries a menu, after a moment's hover:
+                the three things one wants from a preview, without a bar of
+                their own in a panel this narrow. */}
+            <span className="peek-open-wrap" onMouseEnter={peekMenuEnter} onMouseLeave={peekMenuLeave}>
+              <button
+                className={'icon-btn' + (peekPinned ? ' is-on' : '')}
+                title={t('Open as page ↗')}
+                onClick={() => onPeekOpenFull?.(pageId)}
+              >
+                <Maximize2 size={16} />
+              </button>
+              {peekMenuOpen && (
+                <AnchoredMenu className="menu peek-open-menu">
+                  <button onClick={() => onPeekOpenFull?.(pageId)}>
+                    <Maximize2 size={14} /> {t('Open full screen')}
+                  </button>
+                  <button onClick={() => onOpenInNewTab?.(pageId)}>
+                    <SquareArrowOutUpRight size={14} /> {t('Open in a new tab')}
+                  </button>
+                  <button
+                    className={peekPinned ? 'is-on' : ''}
+                    onClick={() => onPeekPin?.()}
+                    aria-pressed={!!peekPinned}
+                  >
+                    <Pin size={14} /> {peekPinned ? t('Unpin') : t('Pin')}
+                  </button>
+                </AnchoredMenu>
+              )}
+            </span>
           </span>
         )}
         <button className="menu-btn topbar-menu" title={t('Menu')} onClick={onMenu}>

@@ -3852,6 +3852,24 @@ button.cal-mini-day:hover {
 }
 /* The entry under the finger, so the drag has something to look at besides a
    tinted cell. */
+/* The peek's expand button and the menu a moment's hover brings up. */
+.peek-open-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.peek-open-menu {
+  min-width: 190px;
+  top: calc(100% + 6px);
+  left: 0;
+}
+.peek-open-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.peek-open-menu button.is-on {
+  color: var(--accent);
+}
 .cal-ghost {
   position: fixed;
   transform: translate(-50%, -50%);

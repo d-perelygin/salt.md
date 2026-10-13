@@ -434,6 +434,16 @@ export default function App() {
     // claimed, so the click falls through to its normal meaning where no
     // peek exists to answer.
     const onPeek = (e: Event) => {
+      const detail = (e as CustomEvent<{ id?: string; focusTitle?: boolean }>).detail;
+      // A pinned panel keeps what it shows: another row's request neither
+      // replaces it nor opens a tab beside it. The click is answered — with
+      // nothing — rather than falling through to the tab a peek request opens
+      // when nobody claims it.
+      if (peekPinnedRef.current && peekIdRef.current && detail?.id !== peekIdRef.current) {
+        e.preventDefault();
+        return;
+      }
+      setPeekFocusTitle(!!detail?.focusTitle);
       const id = (e as CustomEvent<{ id: string }>).detail?.id;
       if (!id) return;
       e.preventDefault();
@@ -773,8 +783,6 @@ export default function App() {
     pushTabHistory(nextTabs, id, replace);
     setOpenTabs(nextTabs);
     setCurrentId(id);
-    // A peek belongs to what you were looking at: changing tab is leaving it.
-    setPeekId(null);
     setSidebarOpen(false); // close the mobile drawer after picking a page
     if (id && !replace) rememberRecent(id);
   }, []);
@@ -1214,20 +1222,25 @@ export default function App() {
   // opened with Shift-click wherever a page link opens one. It lives outside
   // the URL and the history — closing it changes nothing about the tabs.
   const [peekId, setPeekId] = useState<string | null>(null);
-  // The peek closes when the pointer goes down outside it. It is a preview of
-  // the row you were looking at, and clicking into the page beside it means you
-  // have moved on. A click on another row is not a contradiction: the row opens
-  // the peek itself, so the panel simply changes what it shows.
-  useEffect(() => {
-    if (!peekId) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Element | null;
-      if (t?.closest?.('.peek-panel')) return;
-      setPeekId(null);
-    };
-    document.addEventListener('pointerdown', onDown, true);
-    return () => document.removeEventListener('pointerdown', onDown, true);
-  }, [peekId]);
+  // A new row wants its title typed: the peek opens with the caret in it.
+  const [peekFocusTitle, setPeekFocusTitle] = useState(false);
+  // Pinned: nothing hides the panel but its own close button. Unpinned, it still
+  // stays where it is while you work in the document beside it — the panel is a
+  // second view of the workspace, not a modal.
+  const [peekPinned, setPeekPinned] = useState(false);
+  // Closing the peek by itself: only its own button (and Escape, while it is
+  // not pinned). Clicking into the document beside it, or changing tab, leaves
+  // it alone — that is what a side panel is for.
+  const peekIdRef = useRef<string | null>(null);
+  peekIdRef.current = peekId;
+  const peekPinnedRef = useRef(false);
+  peekPinnedRef.current = peekPinned;
+  // Closing forgets the pin: it belongs to the panel you had open, not to the
+  // next one — a silently pinned peek would ignore Escape with no way to know.
+  const closePeek = useCallback(() => {
+    setPeekId(null);
+    setPeekPinned(false);
+  }, []);
   const canEditPeek = useMemo(() => {
     if (!peekId) return true;
     const page = pagesById.get(peekId);
@@ -1545,6 +1558,9 @@ export default function App() {
       {peekId && me?.user && (
         <PeekPanel
           pageId={peekId}
+          focusTitleOnMount={peekFocusTitle}
+          pinned={peekPinned}
+          onTogglePin={() => setPeekPinned((v) => !v)}
           pagesById={pagesById}
           user={me.user}
           theme={theme}
@@ -1556,20 +1572,20 @@ export default function App() {
           onToggleFavorite={toggleFavorite}
           onMetaChange={updateMeta}
           onMissing={(id) => {
-            setPeekId(null);
+            closePeek();
             handleMissing(id);
           }}
           onNavigate={navigate}
           onOpenInNewTab={openInNewTab}
           onCreatePage={createPage}
           onTrash={(id) => {
-            if (id === peekId) setPeekId(null);
+            if (id === peekId) closePeek();
             trashPage(id);
           }}
           onPagesChanged={loadPages}
-          onClose={() => setPeekId(null)}
+          onClose={closePeek}
           onOpenFull={(id) => {
-            setPeekId(null);
+            closePeek();
             navigate(id);
           }}
         />
