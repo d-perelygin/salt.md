@@ -2698,11 +2698,16 @@ function TableView({
           // The exact width, not a rounded one: rounding down leaves a sliver
           // of the column behind showing between two pinned columns.
           el.style.left = `${acc}px`;
+          // The column at the scrollport's edge draws the table's own left
+          // line; the ones after it must not, or two pinned columns would
+          // share a 2px line (see the pseudo-element in styles.css).
+          el.classList.toggle('is-stuck-first', acc === 0);
         });
         acc += th.getBoundingClientRect().width;
       } else {
         cells.forEach((el) => {
           el.style.left = '';
+          el.classList.remove('is-stuck-first');
         });
       }
     }
