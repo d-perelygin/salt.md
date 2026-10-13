@@ -2332,6 +2332,19 @@ body:has(.icon-picker) .bn-side-menu {
   cursor: grabbing !important;
 }
 
+/* While a card is being carried, the rest of the board holds still: no hover
+   border, no ⋯ button appearing under the pointer as it sweeps past. The
+   values repeat the resting card on purpose — the theme layers its own hover
+   lift on top, so unsetting alone would not reach it. The only thing that
+   answers the pointer is the drop line. */
+.board.is-dragging .board-card:hover {
+  border-color: var(--border);
+  box-shadow: none;
+}
+.board.is-dragging .board-card:hover .card-move-btn {
+  opacity: 0;
+}
+
 /* Die schwebende Karte folgt dem Zeiger. */
 .board-drag-ghost {
   position: fixed;
