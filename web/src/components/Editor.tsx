@@ -858,6 +858,9 @@ function PageHeader({
   const wantTitleFocus = useRef(!!focusTitleOnMount);
   // The peek's expand menu: a moment's hover rather than an instant one, so
   // passing over the button on the way to the close button does not open it.
+  // Unpinning from the menu must not strand it open: the button it hangs off
+  // changes meaning under it (back to the fullscreen arrow), so the menu goes
+  // with the pin.
   const [peekMenuOpen, setPeekMenuOpen] = useState(false);
   const peekMenuTimer = useRef(0);
   const peekMenuEnter = () => {
@@ -1376,12 +1379,13 @@ function PageHeader({
             <span className="peek-open-wrap" onMouseEnter={peekMenuEnter} onMouseLeave={peekMenuLeave}>
               <button
                 className={'icon-btn' + (peekPinned ? ' is-on' : '')}
-                title={peekPinned ? t('Pinned') : t('Open as page ↗')}
-                onClick={() => onPeekOpenFull?.(pageId)}
+                title={peekPinned ? t('Unpin') : t('Open as page ↗')}
+                onClick={() => (peekPinned ? onPeekPin?.() : onPeekOpenFull?.(pageId))}
               >
-                {/* Pinned, the button says so: the pin in place of the expand
-                    arrow. The click still opens the page — the menu beside it
-                    is where the pin is managed. */}
+                {/* Pinned, the button says so — and pressing it unpins first.
+                    Only the fullscreen arrow opens the page: an icon and its
+                    meaning stay one thing, and the menu beside it is where the
+                    pin is managed either way. */}
                 {peekPinned ? <Pin size={16} /> : <Maximize2 size={16} />}
               </button>
               {peekMenuOpen && (
@@ -1394,7 +1398,10 @@ function PageHeader({
                   </button>
                   <button
                     className={peekPinned ? 'is-on' : ''}
-                    onClick={() => onPeekPin?.()}
+                    onClick={() => {
+                      onPeekPin?.();
+                      setPeekMenuOpen(false);
+                    }}
                     aria-pressed={!!peekPinned}
                   >
                     <Pin size={14} /> {peekPinned ? t('Unpin') : t('Pin')}
