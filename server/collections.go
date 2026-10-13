@@ -30,8 +30,8 @@ func (s *Server) handleGetCollection(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "not a collection")
 		return
 	}
-	var schema, views string
-	err := s.db.QueryRow(`SELECT schema, views FROM collections WHERE page_id = ?`, r.PathValue("id")).Scan(&schema, &views)
+	var schema, views, newFromTemplate string
+	err := s.db.QueryRow(`SELECT schema, views, new_from_template FROM collections WHERE page_id = ?`, r.PathValue("id")).Scan(&schema, &views, &newFromTemplate)
 	if err == sql.ErrNoRows {
 		httpError(w, 404, "not a collection")
 		return
@@ -40,10 +40,15 @@ func (s *Server) handleGetCollection(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, map[string]json.RawMessage{
+	out := map[string]json.RawMessage{
 		"schema": json.RawMessage(schema),
 		"views":  json.RawMessage(views),
-	})
+	}
+	// Empty means plain blank rows: omitted rather than sent as nothing.
+	if newFromTemplate != "" {
+		out["newFromTemplate"] = json.RawMessage(strconv.Quote(newFromTemplate))
+	}
+	writeJSON(w, out)
 }
 
 func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
@@ -53,8 +58,9 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Schema json.RawMessage `json:"schema"`
-		Views  json.RawMessage `json:"views"`
+		Schema          json.RawMessage `json:"schema"`
+		Views           json.RawMessage `json:"views"`
+		NewFromTemplate *string         `json:"newFromTemplate"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
@@ -69,9 +75,25 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "page not found")
 		return
 	}
-	_, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, ?)
-		ON CONFLICT(page_id) DO UPDATE SET schema = excluded.schema, views = excluded.views`,
-		id, string(body.Schema), string(body.Views))
+	tpl := ""
+	if body.NewFromTemplate != nil {
+		// A template that is gone (or never was one) clears the choice rather
+		// than pointing new rows at a dead page.
+		if *body.NewFromTemplate != "" {
+			var isTpl int
+			if err := s.db.QueryRow(`SELECT COUNT(*) FROM pages WHERE id = ? AND is_template = 1 AND trashed_at IS NULL`, *body.NewFromTemplate).Scan(&isTpl); err == nil && isTpl > 0 {
+				tpl = *body.NewFromTemplate
+			}
+		}
+	}
+	sets := "schema = excluded.schema, views = excluded.views"
+	args := []any{id, string(body.Schema), string(body.Views)}
+	if body.NewFromTemplate != nil {
+		sets += ", new_from_template = excluded.new_from_template"
+	}
+	_, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views, new_from_template) VALUES (?, ?, ?, ?)
+		ON CONFLICT(page_id) DO UPDATE SET `+sets,
+		append(args, tpl)...)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return

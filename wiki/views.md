@@ -372,6 +372,7 @@ configures the current view sits on the right, in this order:
 | **Group** | Board only: which property makes the columns. |
 | **Columns** | Which properties this view shows. Shows `Columns (4/7)` when anything is hidden. |
 | **Properties** | The schema editor: add a property, change a type, edit select options. It edits the collection, not the view, so it changes every view at once. This is the **⚙ Properties** the empty-state messages point at. |
+| **New rows from template** | In the same dialog, below the properties: a template every **＋ New** in the collection duplicates. What the button prescribes — the column on a board, the day on a calendar — is overwritten on top; values and text come from the template. Blank rows when nothing is chosen. |
 | **⋯** (*View options*) | Rename, move and remove this view. |
 | **＋ New** | Creates an *Untitled* row and opens it in the side peek. Every view except a form has it. |
 

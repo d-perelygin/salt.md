@@ -330,6 +330,10 @@ export interface ViewDef {  id: string;
 export interface CollectionConfig {
   schema: PropDef[];
   views: ViewDef[];
+  /** New rows are made from this template: duplicating it, then overwriting
+   *  with what the + button prescribes (the column, the day). Empty (or a
+   *  template that is gone) means plain blank rows. */
+  newFromTemplate?: string;
 }
 
 // Public form config served (unauthenticated) at /api/public/form/{token} —

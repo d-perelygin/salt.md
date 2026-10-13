@@ -577,6 +577,39 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // A new row opens in the side peek right away: pressing + means "I want to
     // write one", so the writing surface should be there. On a screen too
     // narrow for a peek it opens as a tab, which is what rows do there anyway.
+    // Made from a template when the collection says so: the copy lands under
+    // the collection with what the + button prescribes overwritten on top —
+    // the column on a board, the day on a calendar — and everything else keeps
+    // what the template had. A template that is gone falls back to a blank
+    // row rather than failing the press.
+    const tpl = config?.newFromTemplate;
+    if (tpl) {
+      try {
+        const dup = await api.duplicatePage(tpl, true);
+        if (dup?.id) {
+          try {
+            // A template may live in another workspace; the row belongs to the
+            // collection's, so it moves workspaces first. The server answers a
+            // workspace move without touching anything else, hence two writes.
+            const colWs = pages.get(collectionId)?.workspaceId ?? '';
+            const from = await api.getPage(dup.id);
+            if (colWs && from.workspaceId && from.workspaceId !== colWs) {
+              await api.updatePage(dup.id, { workspaceId: colWs });
+            }
+            await api.updatePage(dup.id, { parentId: collectionId, propsPatch: presetProps ?? {} });
+          } catch {
+            // The copy exists but did not land in the collection: open what
+            // was made rather than failing the press, let alone making two.
+            toast(t('The template could not be used'));
+          }
+          if (!peekPanel(dup.id, { focusTitle: true })) onNavigate(dup.id);
+          return;
+        }
+      } catch (e) {
+        // Offline, or a template that is gone: the blank row below.
+        if (!isOfflineError(e)) toast(t('The template could not be used'));
+      }
+    }
     try {
       const created = await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
       if (created?.id) {

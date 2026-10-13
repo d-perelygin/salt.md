@@ -2,6 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -331,5 +334,70 @@ func TestSystemDateFilters(t *testing.T) {
 		if has(list, oldID) != tc.wantOld || has(list, newID) != tc.wantNew {
 			t.Errorf("%s: old=%v new=%v, want old=%v new=%v", tc.name, has(list, oldID), has(list, newID), tc.wantOld, tc.wantNew)
 		}
+	}
+}
+
+func TestNewFromTemplateRoundtrip(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "tpl@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+	db := s.makeCollection(t, ws, uid, "Tasks", `[{"id":"a","name":"A","type":"text"}]`)
+	put := func(body string) int {
+		r := httptest.NewRequest("PUT", "/api/collections/"+db, strings.NewReader(body))
+		r.Header.Set("Cookie", cookie)
+		r.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	get := func() map[string]any {
+		r := httptest.NewRequest("GET", "/api/collections/"+db, nil)
+		r.Header.Set("Cookie", cookie)
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, r)
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		return out
+	}
+	views := `"views":[{"id":"v1","name":"Table","type":"table"}]`
+	schema := `"schema":[{"id":"a","name":"A","type":"text"}]`
+	// Nothing set: the key is omitted rather than sent as nothing.
+	if code := put(`{` + schema + `,` + views + `}`); code != http.StatusOK {
+		t.Fatalf("put: %d", code)
+	}
+	if _, ok := get()["newFromTemplate"]; ok {
+		t.Error("empty template choice should be omitted, not sent as nothing")
+	}
+	// A page that is not a template does not take: the choice clears itself.
+	notTpl := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at) VALUES (?, NULL, ?, 'X', 'doc', '{}', ?, ?)`, notTpl, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	if code := put(`{` + schema + `,` + views + `,"newFromTemplate":"` + notTpl + `"}`); code != http.StatusOK {
+		t.Fatalf("put: %d", code)
+	}
+	if _, ok := get()["newFromTemplate"]; ok {
+		t.Error("a non-template must clear the choice")
+	}
+	// A real template round-trips.
+	tmpl := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at, is_template) VALUES (?, NULL, ?, 'T', 'doc', '{}', ?, ?, 1)`, tmpl, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	if code := put(`{` + schema + `,` + views + `,"newFromTemplate":"` + tmpl + `"}`); code != http.StatusOK {
+		t.Fatalf("put: %d", code)
+	}
+	if got, _ := get()["newFromTemplate"].(string); got != tmpl {
+		t.Errorf("roundtrip: got %q, want %q", got, tmpl)
+	}
+	// And a save that does not mention it — the schema dialog sending only
+	// schema and views — leaves it alone.
+	if code := put(`{` + schema + `,` + views + `}`); code != http.StatusOK {
+		t.Fatalf("put: %d", code)
+	}
+	if got, _ := get()["newFromTemplate"].(string); got != tmpl {
+		t.Errorf("untouched save cleared it: got %q, want %q", got, tmpl)
 	}
 }

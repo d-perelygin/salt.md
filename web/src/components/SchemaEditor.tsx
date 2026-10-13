@@ -78,6 +78,20 @@ export default function SchemaEditor({
   const [dragProperty, setDragProperty] = useState<string | null>(null);
   const [dropProperty, setDropProperty] = useState<{ id: string; after: boolean } | null>(null);
   const [views, setViews] = useState<ViewDef[]>(config.views);
+  // Which template new rows are made from, if any. Templates come from their
+  // own endpoint (see the sidebar): the page tree no longer carries them.
+  const [newFromTemplate, setNewFromTemplate] = useState(config.newFromTemplate ?? '');
+  const [templates, setTemplates] = useState<{ id: string; title: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void api
+      .templates()
+      .then((t) => alive && setTemplates(t.filter((p) => !p.trashed).map((p) => ({ id: p.id, title: p.title }))))
+      .catch(() => alive && setTemplates([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
   useExclusiveModal(onClose);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<PropType>('select');
@@ -233,7 +247,10 @@ export default function SchemaEditor({
       if (v.hidden) next.hidden = v.hidden.filter((id) => propIds.has(id));
       return next;
     });
-    await onSave({ schema: colored, views: fixedViews });
+    // A template chosen above that is gone by now is dropped: new rows must
+    // never point at a dead page (the server re-checks this too).
+    const tpl = templates.some((p) => p.id === newFromTemplate) ? newFromTemplate : undefined;
+    await onSave({ schema: colored, views: fixedViews, ...(tpl ? { newFromTemplate: tpl } : {}) });
     onClose();
   };
 
@@ -650,6 +667,26 @@ export default function SchemaEditor({
               {renderConfig(p)}
             </div>
           ))}
+        </div>
+        <div className="schema-template">
+          <label className="schema-template-row">
+            <span>{t('New rows from template')}</span>
+            <select
+              className="prop-select"
+              value={newFromTemplate}
+              onChange={(e) => setNewFromTemplate(e.target.value)}
+            >
+              <option value="">{t('Blank rows')}</option>
+              {templates.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title || t('Untitled')}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="dialog-hint">
+            {t('A + button duplicates the template, then fills in what it prescribes — the column, the day. The rest — values, text — comes from the template.')}
+          </div>
         </div>
         <div className="schema-add">
           <input
