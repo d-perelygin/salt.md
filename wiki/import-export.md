@@ -525,25 +525,26 @@ Every `date` property, on every row, in every collection you can read, as an
 iCalendar feed. Apple Calendar, Google Calendar and Outlook can subscribe to it
 and re-poll it on their own schedule.
 
-Open the user menu and choose **Subscribe to calendar**. The dialog offers a
-scope under *What should the calendar contain?*:
+Open the user menu and choose **Subscribe to calendar**. The dialog holds
+**named links** and nothing else: one link per project or person, each with
+its own token, scope and history window. Creating one takes a scope under
+*What should the new subscription contain?*:
 
 | Scope | The feed holds |
 | --- | --- |
 | **Everything I can see** | every date property in every workspace you are a member of, plus any you currently hold emergency access to |
 | a workspace | the same, limited to that workspace |
 | a collection | the dates of that collection's rows |
+| a view | one saved view's dates: only the rows its filters show, on its date property |
 
 A collection is only offered once it has a date property (the dialog says
 *"A collection appears here once it has a date property."*) because a feed that
 can never contain anything is worse than no feed.
 
-**Open in calendar** hands the `webcal://` link to your calendar app; **Copy
-URL** copies the `https://` form for anything that wants to fetch it. The shape
-is your instance's public address followed by `/ics/<token>.ics`; a scoped feed
-is the same URL with `?workspace=<id>` or `?collection=<id>` on the end. That is
-enough to recognise one in a calendar app's settings, or to narrow a link you
-already have by hand.
+**Add to calendar** subscribes through the calendar app of your choice;
+**Copy URL** copies the `https://` form for anything that wants to fetch it.
+The shape is your instance's public address followed by
+`/ics/<token>.ics`.
 
 What lands in the calendar:
 
@@ -558,9 +559,10 @@ What lands in the calendar:
   scoped feed, so several subscriptions stay distinguishable.
 
 **The link is the credential.** It needs no sign-in: anyone holding it sees
-what you see, which is why the dialog says not to share it. There is one token
-behind every scope, so **Reset the link** invalidates *all* your calendar links
-at once; that is what people mean by revoking them, and the button says so.
+what that link's scope sees, and nothing wider. **Copy it now — the link is
+shown once and never again**: only its hash is stored, so a subscription whose
+link is lost is recreated, not re-shown. **Revoke** stops one link at once and
+touches nothing else; deactivating or deleting the account stops them all.
 
 The feed always reflects the permissions of the account it belongs to. A
 collection that is moved into a private area, or a workspace you are removed

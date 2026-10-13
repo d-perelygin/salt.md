@@ -307,13 +307,12 @@ func (s *Server) handleSetUserDisabled(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Disabled {
 		// A deactivated account must not keep running merely because it was
-		// already signed in. Sessions and tokens end at once.
+		// already signed in. Sessions, tokens and calendar subscriptions end
+		// at once — a feed that outlived the account would go on serving
+		// every date in those workspaces indefinitely, with no sign-in.
 		s.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, id)
 		s.db.Exec(`DELETE FROM api_tokens WHERE user_id = ?`, id)
-		// The calendar subscription link does not live in api_tokens but as an
-		// app_settings row — otherwise it would have gone on serving every date
-		// and database in those workspaces indefinitely, with no sign-in.
-		s.db.Exec(`DELETE FROM app_settings WHERE key = ?`, "ics_token_"+id)
+		s.db.Exec(`DELETE FROM ics_feeds WHERE user_id = ?`, id)
 		// And the open editor: the collab socket is only checked when it
 		// connects. Without this, an account deactivated a moment ago carried on
 		// writing happily from an open tab — the lock would not have bitten

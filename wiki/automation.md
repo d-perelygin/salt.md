@@ -191,6 +191,9 @@ Four things worth knowing before you paste a link anywhere:
 - **There is one token per link.** Narrowing the feed is a view on what you
   may read, never a way to see more: a link cannot show anything its owner
   could not open.
+- **The link is shown once.** Only its hash is stored, so copy it at creation:
+  a link whose copy is lost is recreated, not re-shown. Guessing at links is
+  throttled, and deactivating or deleting the account stops every link at once.
 - **Permissions are checked on every fetch, not at subscription time.** A
   collection that is moved, made private or trashed simply stops producing
   events. A scope you can no longer read yields an **empty calendar rather than

@@ -545,16 +545,17 @@ the page open. See [Collaboration](collaboration.md).
 
 ## Calendars and the agent skill
 
-`GET /api/ics` returns your calendar subscription links: one for the whole
-account, one per workspace, and one per database that actually has a date
-property. Each comes as an `https:` and a `webcal:` url pointing at
-`/ics/{token}.ics`.
+`GET /api/ics` returns your calendar scopes and your named subscriptions: one
+link per project or person, each with its own token and its own fixed scope
+(the whole account, one workspace, one collection, or one saved view). Each
+link comes as an `https:` and a `webcal:` url pointing at `/ics/{token}.ics`.
 
 **That token is a credential in a path.** It is the one url in the product that
-carries its own key, because a calendar app has nowhere to put a header.
-`GET /api/ics?rotate=1` throws the old token away and mints a new one, which
-breaks every subscription already set up; that is what you want when a link
-has gone somewhere it should not have.
+carries its own key, because a calendar app has nowhere to put a header. Only
+the token's hash is stored; the raw link is shown once, when the subscription
+is created, and never again. `GET /api/ics?rotate=1` revokes every subscription
+at once; that is what you want when a link has gone somewhere it should not
+have. Deactivating or deleting the account revokes them too.
 
 `GET /api/skill` downloads the agent skill this instance generates for itself,
 as a zip ([the skill](skill.md)). Pass `?workspace={id}` to aim it at one

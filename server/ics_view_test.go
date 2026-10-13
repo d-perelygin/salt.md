@@ -18,10 +18,26 @@ func futureDate(n int) string {
 }
 
 // A view-scoped feed carries only what its view shows, and says which view it
-// came from. The legacy collection scope keeps the old shape: every row, and
+// came from. The collection scope keeps the old shape: every row, and
 // the property name in the summary.
 
-func icsViewFixture(t *testing.T) (*Server, string, string, string) {
+// icsMintFeed creates a named subscription straight in the database and hands
+// back its raw token — the one value serving looks up by hash.
+func icsMintFeed(t *testing.T, s *Server, uid, kind, refID, viewID string, pastDays int) string {
+	t.Helper()
+	raw, err := icsNewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO ics_feeds (id, user_id, token_hash, kind, ref_id, view_id, name, past_days, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		newID(), uid, tokenHash(raw), kind, refID, viewID, kind+"/"+refID+"/"+viewID, pastDays, now()); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func icsViewFixture(t *testing.T) (*Server, string, string) {
 	t.Helper()
 	s := testServer(t)
 	uid, _ := signedIn(t, s, "icsview@example.com")
@@ -56,7 +72,7 @@ func icsViewFixture(t *testing.T) (*Server, string, string, string) {
 			t.Fatal(err)
 		}
 	}
-	return s, uid, col, s.icsToken(uid)
+	return s, uid, col
 }
 
 func icsGet(t *testing.T, s *Server, target string) string {
@@ -72,8 +88,9 @@ func icsGet(t *testing.T, s *Server, target string) string {
 // The filtered view's feed holds only the matching rows, and the description
 // names the view it came from.
 func TestICSViewFeedFollowsFilters(t *testing.T) {
-	s, _, col, tok := icsViewFixture(t)
-	body := icsGet(t, s, "/ics/"+tok+".ics?collection="+col+"&view=active")
+	s, uid, col := icsViewFixture(t)
+	tok := icsMintFeed(t, s, uid, "view", col, "active", 90)
+	body := icsGet(t, s, "/ics/"+tok+".ics")
 	if n := strings.Count(body, "BEGIN:VEVENT"); n != 2 {
 		t.Errorf("view feed has %d events, want 2 — the done row must not cross", n)
 	}
@@ -90,8 +107,9 @@ func TestICSViewFeedFollowsFilters(t *testing.T) {
 
 // A view with a date property produces one clean event per row, no suffix.
 func TestICSViewFeedUsesDateProp(t *testing.T) {
-	s, _, col, tok := icsViewFixture(t)
-	body := icsGet(t, s, "/ics/"+tok+".ics?collection="+col+"&view=cal")
+	s, uid, col := icsViewFixture(t)
+	tok := icsMintFeed(t, s, uid, "view", col, "cal", 90)
+	body := icsGet(t, s, "/ics/"+tok+".ics")
 	if n := strings.Count(body, "BEGIN:VEVENT"); n != 3 {
 		t.Errorf("calendar-view feed has %d events, want 3", n)
 	}
@@ -103,8 +121,9 @@ func TestICSViewFeedUsesDateProp(t *testing.T) {
 // Without a view nothing moves: every row, plain summaries (a single date
 // property needs no suffix), plain collection description.
 func TestICSCollectionFeedUnchanged(t *testing.T) {
-	s, _, col, tok := icsViewFixture(t)
-	body := icsGet(t, s, "/ics/"+tok+".ics?collection="+col)
+	s, uid, col := icsViewFixture(t)
+	tok := icsMintFeed(t, s, uid, "collection", col, "", 90)
+	body := icsGet(t, s, "/ics/"+tok+".ics")
 	if n := strings.Count(body, "BEGIN:VEVENT"); n != 3 {
 		t.Errorf("collection feed has %d events, want 3", n)
 	}
@@ -117,10 +136,12 @@ func TestICSCollectionFeedUnchanged(t *testing.T) {
 }
 
 // A view that is gone leaves an empty calendar, not an error — same bargain
-// as an unreadable collection.
+// as an unreadable collection. (Inserted directly: a deleted view cannot be
+// minted through the API any more, but a link made earlier keeps serving.)
 func TestICSUnknownViewIsEmpty(t *testing.T) {
-	s, _, col, tok := icsViewFixture(t)
-	body := icsGet(t, s, "/ics/"+tok+".ics?collection="+col+"&view=nope")
+	s, uid, col := icsViewFixture(t)
+	tok := icsMintFeed(t, s, uid, "view", col, "nope", 90)
+	body := icsGet(t, s, "/ics/"+tok+".ics")
 	if n := strings.Count(body, "BEGIN:VEVENT"); n != 0 {
 		t.Errorf("unknown-view feed has %d events, want an empty calendar", n)
 	}
@@ -128,7 +149,7 @@ func TestICSUnknownViewIsEmpty(t *testing.T) {
 
 // The scope list offers each saved view of a dated collection.
 func TestICSInfoListsViews(t *testing.T) {
-	s, uid, col, _ := icsViewFixture(t)
+	s, uid, col := icsViewFixture(t)
 	var userID string
 	s.db.QueryRow(`SELECT id FROM users WHERE email = ?`, "icsview@example.com").Scan(&userID)
 	if userID != uid {
@@ -173,8 +194,9 @@ func TestICSInfoListsViews(t *testing.T) {
 // Every event carries an end and a link back to its row: timed events get a
 // one-hour duration, all-day events end the next day.
 func TestICSFeedEventHasEndAndURL(t *testing.T) {
-	s, _, col, tok := icsViewFixture(t)
-	body := icsGet(t, s, "/ics/"+tok+".ics?collection="+col)
+	s, uid, col := icsViewFixture(t)
+	tok := icsMintFeed(t, s, uid, "collection", col, "", 90)
+	body := icsGet(t, s, "/ics/"+tok+".ics")
 	if !strings.Contains(body, "DTSTART;VALUE=DATE:") {
 		t.Errorf("all-day event lost its start:\n%s", body)
 	}
@@ -188,7 +210,7 @@ func TestICSFeedEventHasEndAndURL(t *testing.T) {
 
 // Timed values keep their clock time and gain a one-hour end.
 func TestICSFeedTimedEventHasDuration(t *testing.T) {
-	s, _, col, tok := icsViewFixture(t)
+	s, uid, col := icsViewFixture(t)
 	var ws string
 	if err := s.db.QueryRow(`SELECT workspace_id FROM pages WHERE id = ?`, col).Scan(&ws); err != nil {
 		t.Fatal(err)
@@ -198,7 +220,7 @@ func TestICSFeedTimedEventHasDuration(t *testing.T) {
 		VALUES (?, ?, ?, 'Timed', 'row', ?, 9, ?, ?)`, newID(), col, ws, string(props), now(), now()); err != nil {
 		t.Fatal(err)
 	}
-	body := icsGet(t, s, "/ics/"+tok+".ics?collection="+col)
+	body := icsGet(t, s, "/ics/"+icsMintFeed(t, s, uid, "collection", col, "", 90)+".ics")
 	if !strings.Contains(body, "DTSTART:") || !strings.Contains(body, "T143000") {
 		t.Errorf("timed event lost its clock time:\n%s", body)
 	}
@@ -210,8 +232,9 @@ func TestICSFeedTimedEventHasDuration(t *testing.T) {
 // The calendar tells clients when to re-poll instead of leaving it to each
 // app's default (up to a day on some providers).
 func TestICSFeedAdvertisesRefresh(t *testing.T) {
-	s, _, col, tok := icsViewFixture(t)
-	body := icsGet(t, s, "/ics/"+tok+".ics?collection="+col)
+	s, uid, col := icsViewFixture(t)
+	tok := icsMintFeed(t, s, uid, "collection", col, "", 90)
+	body := icsGet(t, s, "/ics/"+tok+".ics")
 	if !strings.Contains(body, "REFRESH-INTERVAL;VALUE=DURATION:PT30M") {
 		t.Errorf("feed does not advertise a refresh interval:\n%s", body)
 	}
@@ -223,7 +246,7 @@ func TestICSFeedAdvertisesRefresh(t *testing.T) {
 // Ancient history stays out of the feed: rows older than the window do not
 // sync onto phones.
 func TestICSFeedSkipsOldEvents(t *testing.T) {
-	s, _, col, tok := icsViewFixture(t)
+	s, uid, col := icsViewFixture(t)
 	var ws string
 	if err := s.db.QueryRow(`SELECT workspace_id FROM pages WHERE id = ?`, col).Scan(&ws); err != nil {
 		t.Fatal(err)
@@ -233,7 +256,7 @@ func TestICSFeedSkipsOldEvents(t *testing.T) {
 		VALUES (?, ?, ?, 'Ancient', 'row', ?, 9, ?, ?)`, newID(), col, ws, string(props), now(), now()); err != nil {
 		t.Fatal(err)
 	}
-	body := icsGet(t, s, "/ics/"+tok+".ics?collection="+col)
+	body := icsGet(t, s, "/ics/"+icsMintFeed(t, s, uid, "collection", col, "", 90)+".ics")
 	if n := strings.Count(body, "BEGIN:VEVENT"); n != 3 {
 		t.Errorf("feed has %d events, want 3 — the ancient row must not cross", n)
 	}
@@ -244,8 +267,12 @@ func TestICSFeedSkipsOldEvents(t *testing.T) {
 
 // The history window is personal: narrowing it drops older rows from the
 // feed, widening it brings them back.
+// The history window is personal: a new subscription inherits the account's
+// window unless the creation names its own. Changing the preference later
+// touches no existing link — each link's window is fixed at creation and
+// changed per link.
 func TestICSFeedHistoryWindowPref(t *testing.T) {
-	s, uid, col, tok := icsViewFixture(t)
+	s, uid, col := icsViewFixture(t)
 	var ws string
 	if err := s.db.QueryRow(`SELECT workspace_id FROM pages WHERE id = ?`, col).Scan(&ws); err != nil {
 		t.Fatal(err)
@@ -256,24 +283,30 @@ func TestICSFeedHistoryWindowPref(t *testing.T) {
 		VALUES (?, ?, ?, 'Oldie', 'row', ?, 9, ?, ?)`, newID(), col, ws, string(props), now(), now()); err != nil {
 		t.Fatal(err)
 	}
-	path := "/ics/" + tok + ".ics?collection=" + col
-	body := icsGet(t, s, path)
-	if n := strings.Count(body, "BEGIN:VEVENT"); n != 4 || !strings.Contains(body, "Oldie") {
-		t.Fatalf("default window has %d events, want 4 with Oldie", n)
-	}
 	if rec := icsAPI(t, s, uid, "POST", "/api/ics/prefs", `{"pastDays":30}`); rec.Code != 200 {
 		t.Fatalf("POST prefs: status %d: %s", rec.Code, rec.Body.String())
 	}
-	narrow := icsGet(t, s, path)
-	if n := strings.Count(narrow, "BEGIN:VEVENT"); n != 3 || strings.Contains(narrow, "Oldie") {
-		t.Errorf("narrow window has %d events, want 3 without Oldie", n)
+	rec := icsAPI(t, s, uid, "POST", "/api/ics/feeds",
+		`{"kind":"collection","refId":"`+col+`","name":"Narrow"}`)
+	if rec.Code != 200 {
+		t.Fatalf("POST /api/ics/feeds: status %d: %s", rec.Code, rec.Body.String())
 	}
-	if rec := icsAPI(t, s, uid, "POST", "/api/ics/prefs", `{"pastDays":365}`); rec.Code != 200 {
-		t.Fatalf("POST prefs: status %d: %s", rec.Code, rec.Body.String())
+	var feed struct {
+		URL      string `json:"url"`
+		PastDays int    `json:"pastDays"`
 	}
-	wide := icsGet(t, s, path)
-	if n := strings.Count(wide, "BEGIN:VEVENT"); n != 4 || !strings.Contains(wide, "Oldie") {
-		t.Errorf("wide window has %d events, want 4 with Oldie", n)
+	if err := json.Unmarshal(rec.Body.Bytes(), &feed); err != nil {
+		t.Fatal(err)
+	}
+	if feed.PastDays != 30 {
+		t.Errorf("feed pastDays = %d, want the account default 30", feed.PastDays)
+	}
+	if feed.URL == "" {
+		t.Fatalf("creation response carries no link — the raw token is shown once, here")
+	}
+	body := icsGet(t, s, icsFeedPath(t, feed.URL))
+	if n := strings.Count(body, "BEGIN:VEVENT"); n != 3 || strings.Contains(body, "Oldie") {
+		t.Errorf("inherited window has %d events, want 3 without Oldie", n)
 	}
 	if rec := icsAPI(t, s, uid, "POST", "/api/ics/prefs", `{"pastDays":45}`); rec.Code != 400 {
 		t.Errorf("unknown window: status %d, want 400", rec.Code)
@@ -283,7 +316,7 @@ func TestICSFeedHistoryWindowPref(t *testing.T) {
 // The dialog's scope pick is a personal preference: stored, returned with
 // the info, and rejected when malformed.
 func TestICSFeedScopePref(t *testing.T) {
-	s, uid, col, _ := icsViewFixture(t)
+	s, uid, col := icsViewFixture(t)
 	want := "collection:" + col + ":"
 	if rec := icsAPI(t, s, uid, "POST", "/api/ics/prefs", `{"scope":"`+want+`"}`); rec.Code != 200 {
 		t.Fatalf("POST prefs scope: status %d: %s", rec.Code, rec.Body.String())
@@ -332,7 +365,7 @@ func TestICSFeedSuffixOnlyForSeveralDates(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = uid
-	body := icsGet(t, s, "/ics/"+s.icsToken(uid)+".ics?collection="+col)
+	body := icsGet(t, s, "/ics/"+icsMintFeed(t, s, uid, "collection", col, "", 90)+".ics")
 	if !strings.Contains(body, "SUMMARY:Trip (Start)") || !strings.Contains(body, "SUMMARY:Trip (Due)") {
 		t.Errorf("multi-date row lost its disambiguating suffixes:\n%s", body)
 	}
@@ -403,9 +436,10 @@ func icsFeedPath(t *testing.T, rawURL string) string {
 }
 
 // A named subscription is a link with its own token, scoped to exactly what
-// it was made for.
+// it was made for. The raw token is shown once, in the creation response;
+// listings carry metadata only, because only the hash is stored.
 func TestICSNamedFeedRoundTrip(t *testing.T) {
-	s, uid, col, _ := icsViewFixture(t)
+	s, uid, col := icsViewFixture(t)
 	rec := icsAPI(t, s, uid, "POST", "/api/ics/feeds",
 		`{"kind":"collection","refId":"`+col+`","name":"Team"}`)
 	if rec.Code != 200 {
@@ -432,11 +466,13 @@ func TestICSNamedFeedRoundTrip(t *testing.T) {
 	if n := strings.Count(wide, "BEGIN:VEVENT"); n != 3 {
 		t.Errorf("named feed with query has %d events, want its own 3", n)
 	}
-	// The info endpoint lists it.
+	// The info endpoint lists it — metadata only, never the link.
 	info := icsAPI(t, s, uid, "GET", "/api/ics", "")
 	var parsed struct {
 		Feeds []struct {
-			ID string `json:"id"`
+			ID     string `json:"id"`
+			URL    string `json:"url"`
+			Webcal string `json:"webcal"`
 		} `json:"feeds"`
 	}
 	if err := json.Unmarshal(info.Body.Bytes(), &parsed); err != nil {
@@ -444,6 +480,9 @@ func TestICSNamedFeedRoundTrip(t *testing.T) {
 	}
 	if len(parsed.Feeds) != 1 || parsed.Feeds[0].ID != feed.ID {
 		t.Errorf("info feeds = %+v, want the one created feed", parsed.Feeds)
+	}
+	if parsed.Feeds[0].URL != "" || parsed.Feeds[0].Webcal != "" {
+		t.Errorf("info leaks the link — raw tokens are shown once, at creation")
 	}
 	// Revoking kills exactly this link.
 	del := icsAPI(t, s, uid, "DELETE", "/api/ics/feeds/"+feed.ID, "")
@@ -459,7 +498,7 @@ func TestICSNamedFeedRoundTrip(t *testing.T) {
 
 // Scopes that are unreadable or unknown cannot be made into links.
 func TestICSNamedFeedValidation(t *testing.T) {
-	s, uid, _, _ := icsViewFixture(t)
+	s, uid, _ := icsViewFixture(t)
 	for _, body := range []string{
 		`{"kind":"nope"}`,
 		`{"kind":"collection","refId":"missing"}`,
@@ -475,7 +514,7 @@ func TestICSNamedFeedValidation(t *testing.T) {
 // Each named subscription carries its own history window: narrowing it drops
 // older rows from that link only, and the link can be renamed.
 func TestICSNamedFeedWindow(t *testing.T) {
-	s, uid, col, _ := icsViewFixture(t)
+	s, uid, col := icsViewFixture(t)
 	var ws string
 	if err := s.db.QueryRow(`SELECT workspace_id FROM pages WHERE id = ?`, col).Scan(&ws); err != nil {
 		t.Fatal(err)
@@ -524,5 +563,98 @@ func TestICSNamedFeedWindow(t *testing.T) {
 	}
 	if rec := icsAPI(t, s, uid, "PATCH", "/api/ics/feeds/"+feed.ID, `{"pastDays":45}`); rec.Code != 400 {
 		t.Errorf("unknown window: status %d, want 400", rec.Code)
+	}
+}
+
+// Rotating revokes every subscription of the caller at once — the promise the
+// old single-token reset made, now true for per-feed links.
+func TestICSRotateRevokesAll(t *testing.T) {
+	s, uid, col := icsViewFixture(t)
+	var paths []string
+	for _, name := range []string{"one", "two"} {
+		rec := icsAPI(t, s, uid, "POST", "/api/ics/feeds",
+			`{"kind":"collection","refId":"`+col+`","name":"`+name+`"}`)
+		if rec.Code != 200 {
+			t.Fatalf("POST /api/ics/feeds: status %d: %s", rec.Code, rec.Body.String())
+		}
+		var feed struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &feed); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, icsFeedPath(t, feed.URL))
+	}
+	for _, p := range paths {
+		icsGet(t, s, p)
+	}
+	if rec := icsAPI(t, s, uid, "GET", "/api/ics?rotate=1", ""); rec.Code != 200 {
+		t.Fatalf("GET /api/ics?rotate=1: status %d", rec.Code)
+	}
+	for _, p := range paths {
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s after rotate: status %d, want 404", p, rec.Code)
+		}
+	}
+}
+
+// A deactivated account's feeds stop at once, like its sessions and tokens.
+func TestICSDisabledOwnerFeedDies(t *testing.T) {
+	s, uid, col := icsViewFixture(t)
+	tok := icsMintFeed(t, s, uid, "collection", col, "", 90)
+	icsGet(t, s, "/ics/"+tok+".ics")
+	if _, err := s.db.Exec(`UPDATE users SET disabled = 1 WHERE id = ?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest("GET", "/ics/"+tok+".ics", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("disabled owner's feed: status %d, want 404", rec.Code)
+	}
+}
+
+// Only the hash is stored: the database carries no usable link.
+func TestICSFeedTokenHashed(t *testing.T) {
+	s, uid, col := icsViewFixture(t)
+	tok := icsMintFeed(t, s, uid, "collection", col, "", 90)
+	var stored string
+	if err := s.db.QueryRow(`SELECT token_hash FROM ics_feeds WHERE user_id = ?`, uid).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored == tok {
+		t.Errorf("raw calendar token stored in the database")
+	}
+	if stored != tokenHash(tok) {
+		t.Errorf("stored value is not the token hash")
+	}
+}
+
+// Guessing at feed tokens is throttled per address; a wrong token eventually
+// answers 429 instead of 404.
+func TestICSFeedGuessingThrottled(t *testing.T) {
+	s := testServer(t)
+	raw, err := icsNewToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saw404, saw429 bool
+	for i := 0; i < 60; i++ {
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, httptest.NewRequest("GET", "/ics/"+raw+".ics", nil))
+		if rec.Code == http.StatusNotFound {
+			saw404 = true
+		}
+		if rec.Code == http.StatusTooManyRequests {
+			saw429 = true
+			break
+		}
+	}
+	if !saw404 {
+		t.Errorf("unknown feed token never answered 404")
+	}
+	if !saw429 {
+		t.Errorf("60 wrong feed tokens never throttled to 429")
 	}
 }
