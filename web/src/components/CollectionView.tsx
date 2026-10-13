@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { onRefresh } from '../pwa';
+import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
+import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
+import { useOnline } from '../useOnline';
 import Portal from './Portal';
+import AnchoredMenu from './AnchoredMenu';
 import { useBoardDrag } from '../boardDrag';
 import { tagColorClass } from '../tags';
-import { compare, firstWeekday, formatDay, formatMonth, toDayString, weekdayNames } from '../format';
+import { compare, firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, weekdayNames } from '../format';
 import { resolveSmartDate } from '../smartdate';
 import { plural, t } from '../i18n';
 import { confirm, promptText } from '../dialog';
@@ -18,10 +22,14 @@ import type {
   PropOption,
   PropType,
   Sort,
+  SpanMode,
   ViewDef,
 } from '../types';
+import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, isSystemRef } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
-import { openPage, openPageAux } from '../pageOpen';
+import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
+import { openCollectionRow, openPageAux, peekPanel, type PageOpeners } from '../pageOpen';
+import { hintSeen, markHintSeen, readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
 import { AgentDot } from './AgentBadge';
 import { planCard, isBlank, zoneOf, contactKind, needsLabel } from '../cardLayout';
 import SchemaEditor from './SchemaEditor';
@@ -67,7 +75,7 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
-  ArrowRight, History} from 'lucide-react';
+  ArrowRight, ChevronDown, History, PanelLeftClose, PanelLeftOpen, Pin} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
 function propTypeIcon(t: PropDef['type']) {
@@ -132,6 +140,13 @@ interface Row {
   props: Record<string, unknown>;
   position: number;
   tags?: string[];
+  /** Whether this row is a template: the one filter condition that is not a
+   *  column (see TEMPLATE_FILTER). */
+  isTemplate?: boolean;
+  /** When the row was made / last touched (ISO text): the two orders that are
+   *  not columns (see SORT_CREATED). */
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const UNSET = '__unset__';
@@ -148,6 +163,8 @@ function isEmptyVal(v: unknown): boolean {
   if (Array.isArray(v)) return v.length === 0;
   return v === undefined || v === '' || v === null || v === false;
 }
+
+
 
 /** What a condition compares against: the set if there is one, else the single
  *  value. Never both — the same rule the server applies (rowFilter.vals). */
@@ -168,6 +185,12 @@ export function filterIsArmed(f: Filter): boolean {
 }
 
 function matchesFilter(row: Row, f: Filter): boolean {
+  // The one condition that is not about a column (see TEMPLATE_FILTER). The
+  // server filters on it too; this is the same answer for the rows it sent.
+  if (f.property === TEMPLATE_FILTER) {
+    if (!filterIsArmed(f)) return true;
+    return String(!!row.isTemplate) === f.value;
+  }
   const v = row.props[f.property];
   const op = f.op ?? (f.value === '' ? 'is_not_empty' : 'is');
   if (!filterIsArmed(f)) return true;
@@ -242,6 +265,12 @@ function applyView(rows: Row[], view: ViewDef): Row[] {
   const sort = view.sort;
   if (sort) {
     out = [...out].sort((a, b) => {
+      if (sort.property === SORT_CREATED || sort.property === SORT_UPDATED) {
+        const ak = sort.property === SORT_CREATED ? (a.createdAt ?? '') : (a.updatedAt ?? '');
+        const bk = sort.property === SORT_CREATED ? (b.createdAt ?? '') : (b.updatedAt ?? '');
+        const cmp = ak < bk ? -1 : ak > bk ? 1 : 0;
+        return sort.dir === 'desc' ? -cmp : cmp;
+      }
       const av = a.props[sort.property];
       const bv = b.props[sort.property];
       const as = Array.isArray(av) ? av.join(',') : String(av ?? '');
@@ -256,12 +285,24 @@ function applyView(rows: Row[], view: ViewDef): Row[] {
 export default function CollectionView({ collectionId, pages, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, embed }: Props) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
-  const [viewId, setViewId] = useState<string>(embed?.viewId ?? '');
+  const [offlineSnapshot, setOfflineSnapshot] = useState(false);
+  const online = useOnline();
+  // A full page remembers its view across tab switches and reloads (see
+  // pageUiState). An embed never touches that store: its view lives in the
+  // block itself, and borrowing the page's would couple every embed of the
+  // collection to the last visited page.
+  const [viewId, setViewId] = useState<string>(() => embed?.viewId ?? (embed ? '' : (readViewId(collectionId) ?? '')));
   const pickView = (id: string) => {
     setViewId(id);
+    // An embed keeps its view to itself; a full page remembers it across tab
+    // switches and reloads (see pageUiState).
+    if (!embed) writeViewId(collectionId, id);
     embed?.onViewId(id);
   };
   const [schemaOpen, setSchemaOpen] = useState(false);
+  // A timeline made from the + menu opens its own settings: which dates it reads
+  // is the first thing it needs, and an empty diagram says nothing about it.
+  const [settingsFor, setSettingsFor] = useState<string | null>(null);
 
   // Open comments per row. Trello shows on every card whether anything was
   // discussed there — on a sales board the course of the conversation sits
@@ -283,11 +324,30 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // every change and would set off an endless loop here.
   }, [workspaceId]);
 
+  // Mirror for the callback below: `embed` is an inline object at some call
+  // sites, so depending on it would refetch the config on every render.
+  const embedRef = useRef(embed);
+  embedRef.current = embed;
+
   const loadConfig = useCallback(() => {
-    void api.getCollection(collectionId).then((c) => {
-      setConfig(c);
-      setViewId((v) => v || c.views[0]?.id || '');
-    });
+    void api
+      .getCollection(collectionId)
+      .then((c) => {
+        setConfig(c);
+        setOfflineSnapshot(false);
+        setViewId((v) => {
+          // The open view survives tab switches and reloads; it only falls
+          // back when it is gone (a removed view) or was never chosen.
+          if (v && c.views.some((x) => x.id === v)) return v;
+          const stored = embedRef.current ? null : readViewId(collectionId);
+          if (stored && c.views.some((x) => x.id === stored)) return stored;
+          return c.views[0]?.id || '';
+        });
+      })
+      .catch(() => {
+        // Offline: keep the last seen schema so the frozen rows still render
+        // with their columns. Rows fallback happens in loadRows.
+      });
   }, [collectionId]);
 
   const [total, setTotal] = useState(0);
@@ -340,27 +400,55 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const loadRows = useCallback(async () => {
     const epoch = ++epochRef.current;
     let acc: Row[] = [];
-    for (;;) {
-      const res = await api.collectionRows(collectionId, {
-        limit: PAGE,
-        offset: acc.length,
-        filterGroups: serverGroups,
-        sort: serverSort,
-      });
-      if (epoch !== epochRef.current) return; // inzwischen neu geladen
-      const mapped: Row[] = res.rows.map((r) => ({
-        id: r.id,
-        title: r.title,
-        icon: r.icon,
-        cover: r.cover || '',
-        props: r.props || {},
-        position: r.position,
-        tags: r.tags ?? [],
-      }));
-      acc = [...acc, ...mapped];
-      setTotal(res.total);
-      setRows(acc);
-      if (acc.length >= res.total || mapped.length === 0) return;
+    try {
+      for (;;) {
+        const res = await api.collectionRows(collectionId, {
+          limit: PAGE,
+          offset: acc.length,
+          filterGroups: serverGroups,
+          sort: serverSort,
+        });
+        if (epoch !== epochRef.current) return; // inzwischen neu geladen
+        const mapped: Row[] = res.rows.map((r) => ({
+          id: r.id,
+          title: r.title,
+          icon: r.icon,
+          cover: r.cover || '',
+          props: r.props || {},
+          position: r.position,
+          tags: r.tags ?? [],
+          isTemplate: r.isTemplate === true,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+        }));
+        acc = [...acc, ...mapped];
+        setTotal(res.total);
+        setRows(acc);
+        if (acc.length >= res.total || mapped.length === 0) break;
+      }
+      if (epoch !== epochRef.current) return;
+      setOfflineSnapshot(false);
+      // Freeze this exact view (filters + sort included): offline we can only
+      // show what was seen, not run a new query.
+      const snapConfig = config;
+      if (snapConfig && acc.length > 0) {
+        void putCollectionSnapshot({
+          key: collectionKey(collectionId, fsKey),
+          config: snapConfig,
+          rows: acc,
+          total: acc.length,
+        });
+      }
+    } catch {
+      if (epoch !== epochRef.current) return;
+      // Offline with a snapshot: render the frozen view instead of an empty table.
+      const snap = await getCollectionSnapshot(collectionKey(collectionId, fsKey));
+      if (snap && epoch === epochRef.current) {
+        if (!config) setConfig(snap.config);
+        setRows(snap.rows);
+        setTotal(snap.total);
+        setOfflineSnapshot(true);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId, fsKey]);
@@ -408,18 +496,128 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const view = view0;
   const schema = config?.schema ?? [];
 
+  // The inner horizontal scroller (the board's columns, the wide table) keeps
+  // its position per view, across tab switches and reloads. The vertical
+  // scroll belongs to `.page-body` and is remembered beside it (see Editor).
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Booleans, not the objects: re-run when the view becomes renderable (the
+  // config arrives after the mount, and the first rows after that) — but not
+  // on every config save or row page, which would yank a scrolled view back.
+  // Without this the effect below fires once while the loader is still up
+  // (rootRef is empty) and never again, so returning to a tab restores
+  // nothing — the position it was asked to remember is still in the store.
+  const viewReady = config !== null;
+  const rowsArrived = rows.length > 0;
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !viewId) return;
+    // The view's scroller mounts a render behind the state: retry until it is
+    // there and wide enough to take the position, then stop touching it.
+    let tries = 30;
+    let raf = 0;
+    const restore = () => {
+      const left = readViewScroll(collectionId, viewId);
+      if (!left) return;
+      const sc = root.querySelector<HTMLElement>('.board, .table-wrap, .tl-scroll');
+      if (sc && sc.scrollWidth > sc.clientWidth) {
+        sc.scrollLeft = left;
+        return;
+      }
+      if (--tries > 0) raf = requestAnimationFrame(restore);
+    };
+    raf = requestAnimationFrame(restore);
+    // Scroll events do not bubble, but a capture listener on the root still
+    // sees the inner scrollers' — and nothing else scrolls down here.
+    //
+    // Only user moves are remembered (same anchoring ratchet as the vertical
+    // scroll in Editor: late content growth shifts scrollLeft without a
+    // gesture, and that shift must not become the remembered position).
+    let lastGesture = 0;
+    const markGesture = () => {
+      lastGesture = Date.now();
+    };
+    const onScroll = (e: Event) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t instanceof HTMLElement &&
+        (t.classList.contains('board') || t.classList.contains('table-wrap') || t.classList.contains('tl-scroll'))
+      ) {
+        if (Date.now() - lastGesture < 2000) writeViewScroll(collectionId, viewId, t.scrollLeft);
+      }
+    };
+    root.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    root.addEventListener('wheel', markGesture, { passive: true });
+    root.addEventListener('touchmove', markGesture, { passive: true });
+    root.addEventListener('pointerdown', markGesture);
+    root.addEventListener('keydown', markGesture);
+    return () => {
+      cancelAnimationFrame(raf);
+      root.removeEventListener('scroll', onScroll, { capture: true });
+      root.removeEventListener('wheel', markGesture);
+      root.removeEventListener('touchmove', markGesture);
+      root.removeEventListener('pointerdown', markGesture);
+      root.removeEventListener('keydown', markGesture);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectionId, viewId, viewReady, rowsArrived]);
+
   const saveConfig = async (next: CollectionConfig) => {
     setConfig(next);
     await api.putCollection(collectionId, next);
   };
 
   const addRow = async (presetProps?: Record<string, unknown>) => {
-    // Deliberately does NOT onNavigate() into the new row: creating an item
-    // from a collection view should keep you looking at the collection, same
-    // as Notion. Opening it is the same click as any other existing row.
-    await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
+    // A new row opens in the side peek right away: pressing + means "I want to
+    // write one", so the writing surface should be there. On a screen too
+    // narrow for a peek it opens as a tab, which is what rows do there anyway.
+    try {
+      const created = await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
+      if (created?.id) {
+        // A row with no name yet: the caret belongs in its title.
+        if (!peekPanel(created.id, { focusTitle: true })) onNavigate(created.id);
+      }
+    } catch (e) {
+      // Offline: show a temp row at once and journal the create. The flush
+      // remaps its id (REMAP_EVENT below); prop edits meanwhile journal
+      // against the temp id and remap with it.
+      if (!isOfflineError(e)) throw e;
+      const tempId = newTempId();
+      setRows((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          title: t('Untitled'),
+          icon: '',
+          cover: '',
+          props: presetProps ?? {},
+          position: Date.now(),
+          tags: [],
+        },
+      ]);
+      setTotal((n) => n + 1);
+      await enqueue({
+        kind: 'create-page',
+        pageId: tempId,
+        parentId: collectionId,
+        payload: { title: 'Untitled', type: 'doc', props: presetProps ?? {} },
+        label: t('Untitled'),
+      });
+      toast(t('Will sync when the connection is back'));
+      return;
+    }
     onPagesChanged();
   };
+
+  // A queued create resolving: swap the temp row id for the real one so the
+  // card stops looking pending and its links work.
+  useEffect(() => {
+    const onRemap = (e: Event) => {
+      const { tempId, realId } = (e as CustomEvent<{ tempId: string; realId: string }>).detail;
+      setRows((prev) => prev.map((r) => (r.id === tempId ? { ...r, id: realId } : r)));
+    };
+    window.addEventListener(REMAP_EVENT, onRemap);
+    return () => window.removeEventListener(REMAP_EVENT, onRemap);
+  }, []);
 
   // Persist an inline change to a select/multiselect property's options (create,
   // recolour, delete) — the cell editor edits the schema, not just the value.
@@ -439,8 +637,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // different properties of the same row don't overwrite each other.
     try {
       await api.updatePage(rowId, { propsPatch: { [propId]: value } });
-    } catch {
-      toast(t('Change not saved'));
+    } catch (e) {
+      // Temp rows and dead networks journal into the outbox (remapped on
+      // flush); anything else is a real failure worth a toast.
+      if (isTempId(rowId) || isOfflineError(e)) {
+        await savePageUpdate(rowId, { propsPatch: { [propId]: value } }, { label: t('Change') });
+      } else {
+        toast(t('Change not saved'));
+      }
     }
   };
 
@@ -517,7 +721,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     if (config.views.length <= 1) return;
     const rest = config.views.filter((x) => x.id !== v.id);
     void saveConfig({ ...config, views: rest });
-    if (v.id === viewId) setViewId(rest[0].id);
+    if (v.id === viewId) {
+      setViewId(rest[0].id);
+      if (!embed) writeViewId(collectionId, rest[0].id);
+    }
   };
 
   // Moving a view along the strip. The ＋ appends and nothing ever moved, so
@@ -535,6 +742,44 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     const next = [...config.views];
     [next[at], next[to]] = [next[to], next[at]];
     void saveConfig({ ...config, views: next });
+  };
+
+  // One-click blocker columns for the timeline: a self-relation naming the
+  // tasks this row blocks ("Blocking") plus its backrelation ("Blocked by",
+  // the incoming side), with this view pointed at the former. The same shape
+  // as adding both by hand in Properties, minus the walkthrough. Property
+  // names stay English: they are data, not UI.
+  const ensureDepProps = () => {
+    if (!config || !view) return;
+    const schema = [...config.schema];
+    let depId = view.depProp && schema.some((p) => p.id === view.depProp) ? view.depProp : '';
+    if (!depId) {
+      const self = schema.find((p) => p.type === 'relation' && p.relationCollection === collectionId);
+      if (self) {
+        depId = self.id;
+      } else {
+        let relId = 'blocking';
+        while (schema.some((p) => p.id === relId)) relId += '-x';
+        let backId = 'blocked-by';
+        while (schema.some((p) => p.id === backId) || backId === relId) backId += '-x';
+        schema.push(
+          { id: relId, name: 'Blocking', type: 'relation', relationCollection: collectionId },
+          {
+            id: backId,
+            name: 'Blocked by',
+            type: 'backrelation',
+            backrelationCollection: collectionId,
+            backrelationProp: relId,
+          },
+        );
+        depId = relId;
+      }
+    }
+    void saveConfig({
+      ...config,
+      schema,
+      views: config.views.map((v) => (v.id === view.id ? { ...v, depProp: depId } : v)),
+    });
   };
 
   const addView = (type: ViewDef['type']) => {
@@ -557,6 +802,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     }
     void saveConfig({ ...config, views: [...config.views, nv] });
     setViewId(nv.id);
+    if (type === 'timeline') setSettingsFor(nv.id);
+    if (!embed) writeViewId(collectionId, nv.id);
     setAddViewOpen(false);
   };
 
@@ -582,9 +829,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Relation props that point back at this same collection — candidates for the
   // sub-item (task hierarchy) relation that the table can render as a tree.
   const selfRelProps = schema.filter((p) => p.type === 'relation' && p.relationCollection === collectionId);
-  // Date props — the timeline's Start/End pickers and the calendar's Date
-  // picker choose from these.
-  const dateProps = schema.filter((p) => p.type === 'date');
 
   const viewSwitcher = (
     <div className="collection-toolbar">
@@ -684,51 +928,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         </Portal>
       )}
       <div className="collection-actions">
-        {view.type === 'timeline' && (
-          <>
-            <select
-              className="subitems-select"
-              title={t('Start date for the bars')}
-              value={view.dateProp ?? ''}
-              onChange={(e) => updateView({ dateProp: e.target.value || undefined })}
-            >
-              <option value="">{t('Start: —')}</option>
-              {dateProps.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {t('Start:')} {p.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="subitems-select"
-              title={t('End date for the bars (blank = one-day bars)')}
-              value={view.endDateProp ?? ''}
-              onChange={(e) => updateView({ endDateProp: e.target.value || undefined })}
-            >
-              <option value="">{t('End: (none)')}</option>
-              {dateProps.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {t('End:')} {p.name}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
-        {view.type === 'calendar' && (
-          <select
-            className="subitems-select"
-            title={t('Date property shown on the calendar')}
-            value={view.dateProp ?? ''}
-            onChange={(e) => updateView({ dateProp: e.target.value || undefined })}
-          >
-            <option value="">{t('Date: —')}</option>
-            {dateProps.map((p) => (
-              <option key={p.id} value={p.id}>
-                {t('Date:')} {p.name}
-              </option>
-            ))}
-          </select>
-        )}
         {view.type === 'table' && selfRelProps.length > 0 && (
           <select
             className="subitems-select"
@@ -813,6 +1012,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
 
   return (
     <div
+      ref={rootRef}
       className={
         'collection-scroll' +
         (view.type === 'board' ? ' is-board' : '') +
@@ -820,6 +1020,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         (embed && viewFilterGroups(view).some((g) => g.some(filterIsArmed)) ? ' is-filtered' : '')
       }
     >
+      {(offlineSnapshot || !online) && rows.length > 0 ? (
+        <div className="offline-banner" role="status">
+          {t('Offline copy — filters and new rows need a connection')}
+        </div>
+      ) : null}
       {viewSwitcher}
       {view.type === 'form' ? (
         <FormView
@@ -864,9 +1069,15 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           rows={viewRows}
           schema={visibleSchema}
           dateProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
+          endDateProp={view.endDateProp || ''}
           tagColors={tagColors}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
+          mode={view.calMode ?? (view.calRange === 2 ? '2months' : 'month')}
+          onModeChange={(m) => updateView({ calMode: m, calRange: m === '2months' ? 2 : 1 })}
+          onViewChange={updateView}
+          onAddRow={(preset) => addRow(preset)}
+          onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
         />
       ) : view.type === 'list' ? (
         <ListView
@@ -883,16 +1094,38 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         <TimelineView
           rows={viewRows}
           schema={visibleSchema}
+          collectionId={collectionId}
           startProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
           endProp={view.endDateProp || ''}
+          depProp={view.depProp && selfRelProps.some((p) => p.id === view.depProp) ? view.depProp : ''}
           tagColors={tagColors}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
+          mode={view.tlMode ?? 'month'}
+          onModeChange={(m) => updateView({ tlMode: m })}
+          onViewChange={updateView}
+          onEnsureDepProps={ensureDepProps}
+          onAddRow={(preset) => addRow(preset)}
+          onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
+          onSetDep={(rowId, propId, ids) => void setRowProp(rowId, propId, ids)}
+          hideLabels={view.tlHideLabels ?? false}
+          onToggleLabels={() => updateView({ tlHideLabels: !view.tlHideLabels })}
+          skipWeekends={view.tlSkipWeekends ?? false}
+          startWithSettings={settingsFor === view.id}
+          onSettingsShown={() => setSettingsFor(null)}
         />
       ) : (
         <TableView
           rows={viewRows}
           schema={visibleSchema}
+          stuckCols={view.stuckCols ?? []}
+          onToggleStuck={(key) =>
+            updateView({
+              stuckCols: (view.stuckCols ?? []).includes(key)
+                ? (view.stuckCols ?? []).filter((k) => k !== key)
+                : [...(view.stuckCols ?? []), key],
+            })
+          }
           emptyLabel={emptyLabel}
           tagColors={tagColors}
           subItemProp={
@@ -1393,9 +1626,16 @@ function FilterSortControls({
   // readers that only know the old shape still see something honest.
   const setGroups = (next: Filter[][]) => onChange({ filters: next[0] ?? [], filterGroups: next });
   const sort = view.sort ?? null;
-  const propName = (id: string) => schema.find((p) => p.id === id)?.name ?? id;
+  const propName = (id: string) =>
+    id === TEMPLATE_FILTER ? t('Template') : schema.find((p) => p.id === id)?.name ?? id;
 
   const valuesFor = (propId: string): { value: string; label: string }[] => {
+    if (propId === TEMPLATE_FILTER) {
+      return [
+        { value: 'true', label: t('Is a template') },
+        { value: 'false', label: t('Is not a template') },
+      ];
+    }
     const prop = schema.find((p) => p.id === propId);
     if (!prop) return [];
     if (prop.type === 'select' || prop.type === 'multiselect') {
@@ -1419,7 +1659,8 @@ function FilterSortControls({
     return [];
   };
 
-  // Operators offered per property type. Built during render, never as a module
+  // Operators offered per property type. The template condition is a checkbox
+  // in this respect: is / is not, and nothing else. Built during render, never as a module
   // constant: a list of labels resolved once at import keeps its language for
   // the life of the tab. These read `is` / `is not` in a German interface for
   // exactly that reason — they were plain strings, which the checks cannot see
@@ -1639,11 +1880,19 @@ function FilterSortControls({
                 }}
               >
                 <option value="">{t('+ Add filter…')}</option>
-                {schema.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
+                <optgroup label={t('Columns')}>
+                  {schema.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </optgroup>
+                {/* Not a column of the collection: a fact about the page. It
+                    sits under its own heading so nobody goes looking for it
+                    among the properties. */}
+                <optgroup label={t('System')}>
+                  <option value={TEMPLATE_FILTER}>{t('Template')}</option>
+                </optgroup>
               </select>
               {groups.length > 1 && (
                 <button
@@ -1667,11 +1916,16 @@ function FilterSortControls({
               }}
             >
               <option value="">{t('+ Add filter…')}</option>
-              {schema.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              <optgroup label={t('Columns')}>
+                {schema.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label={t('System')}>
+                <option value={TEMPLATE_FILTER}>{t('Template')}</option>
+              </optgroup>
             </select>
           ) : (
             <button className="btn-sm fs-add-group" onClick={() => setGroups([...groups, []])}>
@@ -1693,11 +1947,17 @@ function FilterSortControls({
               }
             >
               <option value="">{t('No sort')}</option>
-              {schema.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              <optgroup label={t('Columns')}>
+                {schema.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label={t('System')}>
+                <option value={SORT_CREATED}>{t('Created')}</option>
+                <option value={SORT_UPDATED}>{t('Updated')}</option>
+              </optgroup>
             </select>
             {sort && (
               <select
@@ -1762,6 +2022,8 @@ function BoardCardProps({
   onToggleExpand,
   onSetProp,
   onSetOptions,
+  onOpen,
+  openers,
 }: {
   schema: PropDef[];
   row: Row;
@@ -1770,6 +2032,8 @@ function BoardCardProps({
   onToggleExpand: () => void;
   onSetProp: (rowId: string, propId: string, value: unknown) => void;
   onSetOptions: (propId: string, options: PropOption[]) => void;
+  onOpen?: (id: string) => void;
+  openers?: PageOpeners;
 }) {
   const defs = schema.filter((p) => p.id !== groupBy);
   const filled = defs.filter((p) => !isBlank(row.props[p.id]));
@@ -1782,12 +2046,28 @@ function BoardCardProps({
     (p) => (p.type === 'select' || p.type === 'multiselect') && isBlank(row.props[p.id]),
   );
 
-  const factRow = (p: PropDef) => (
-    <span key={p.id} className="card-fact">
-      {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
-      <PropertyValue def={p} value={row.props[p.id]} readOnly compact />
-    </span>
-  );
+  // A card shows values without their names (the compact layout has no room for
+  // labels), so hovering one names the property it belongs to.
+  const factRow = (p: PropDef) => {
+    // A checkbox or a checklist is something you tick, not something you read:
+    // it stays live in the compact row, where every other fact is display only
+    // — a disabled checkbox on a card reads as a broken one.
+    const tickable = p.type === 'checkbox' || p.type === 'checklist';
+    return (
+      <span key={p.id} className="card-fact" title={p.name}>
+        {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
+        <PropertyValue
+          def={p}
+          value={row.props[p.id]}
+          readOnly={!tickable}
+          compact
+          onOpen={onOpen}
+          openers={openers}
+          onChange={(nv) => onSetProp(row.id, p.id, nv)}
+        />
+      </span>
+    );
+  };
 
   const contactIcon = (p: PropDef) => {
     const kind = contactKind(p, row.props[p.id]);
@@ -1808,6 +2088,7 @@ function BoardCardProps({
             <div
               key={p.id}
               className={'card-prop-edit' + (isBlank(row.props[p.id]) ? ' is-empty' : '')}
+              title={p.name}
               onClick={(e) => e.stopPropagation()}
             >
               <PropertyValue
@@ -1815,6 +2096,8 @@ function BoardCardProps({
                 value={row.props[p.id]}
                 onChange={(nv) => onSetProp(row.id, p.id, nv)}
                 onOptionsChange={(opts) => onSetOptions(p.id, opts)}
+                onOpen={onOpen}
+                openers={openers}
               />
             </div>
           ))}
@@ -2005,7 +2288,7 @@ function BoardView({
                   // Do NOT open after a drag — otherwise every move jumps
                   // straight into the card.
                   if (consumeClick()) return;
-                  openPage(e, r.id, { onNavigate, onOpenInNewTab });
+                  openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab });
                 }}
                 onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                 // Right-click opens the card's own menu, the same one behind
@@ -2062,7 +2345,7 @@ function BoardView({
                         <button
                           onClick={() => {
                             setMoveMenu(null);
-                            onNavigate(r.id);
+                            openCollectionRow({}, r.id, { onNavigate, onOpenInNewTab });
                           }}
                         >
                           <SquareArrowOutUpRight size={15} /> {t('Open')}
@@ -2135,6 +2418,8 @@ function BoardView({
                   }
                   onSetProp={onSetProp}
                   onSetOptions={onSetOptions}
+                  onOpen={onOpenInNewTab ?? onNavigate}
+                  openers={{ onNavigate, onOpenInNewTab }}
                 />
               </div>
             ))}
@@ -2170,14 +2455,32 @@ function ColHead({
   label,
   onResize,
   onReset,
+  stuck,
+  onToggleStuck,
 }: {
   label: string;
   onResize: (e: React.PointerEvent<HTMLSpanElement>) => void;
   onReset: () => void;
+  stuck?: boolean;
+  onToggleStuck?: () => void;
 }) {
   return (
     <span className="th-inner">
       {label}
+      {onToggleStuck && (
+        <button
+          className={'col-stick' + (stuck ? ' is-on' : '')}
+          title={stuck ? t('Unpin column') : t('Pin column')}
+          aria-label={stuck ? t('Unpin column') : t('Pin column')}
+          aria-pressed={!!stuck}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleStuck();
+          }}
+        >
+          <Pin size={12} />
+        </button>
+      )}
       <span
         className="col-resize"
         title={t('Drag to resize, double-click to fit the content')}
@@ -2203,6 +2506,8 @@ function TableView({
   tagColors,
   subItemProp,
   colWidths,
+  stuckCols,
+  onToggleStuck,
   onSetColWidths,
   onNavigate,
   onOpenInNewTab,
@@ -2215,6 +2520,8 @@ function TableView({
   tagColors: Record<string, string>;
   subItemProp?: string;
   colWidths?: Record<string, number>;
+  stuckCols?: string[];
+  onToggleStuck?: (key: string) => void;
   onSetColWidths: (next: Record<string, number>) => void;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
@@ -2229,6 +2536,37 @@ function TableView({
 
   const widthOf = (key: string) =>
     drag?.key === key ? drag.px : colWidths?.[key];
+
+  // Columns pinned to the left edge. Distinct from a *dragged* width, which the
+  // comment below calls pinned too: this one is about staying on screen while
+  // the table scrolls sideways.
+  const stuckSet = new Set(stuckCols ?? []);
+  const tableRef = useRef<HTMLTableElement>(null);
+  // Sticky needs a left offset per column, and only the browser knows how wide
+  // an un-resized column came out — so the offsets are measured after layout and
+  // written straight onto the cells.
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    let acc = 0;
+    for (const key of [TITLE_COL, ...schema.map((p) => p.id)]) {
+      const th = table.querySelector<HTMLElement>(`th[data-col="${key}"]`);
+      if (!th) continue;
+      const cells = table.querySelectorAll<HTMLElement>(`[data-col="${key}"]`);
+      if (stuckSet.has(key)) {
+        cells.forEach((el) => {
+          // The exact width, not a rounded one: rounding down leaves a sliver
+          // of the column behind showing between two pinned columns.
+          el.style.left = `${acc}px`;
+        });
+        acc += th.getBoundingClientRect().width;
+      } else {
+        cells.forEach((el) => {
+          el.style.left = '';
+        });
+      }
+    }
+  });
 
   // A dragged column is pinned: width alone is a suggestion under auto layout,
   // so the three together are what actually hold it.
@@ -2249,9 +2587,14 @@ function TableView({
     const widthAt = (clientX: number) => Math.max(64, Math.round(from + clientX - x0));
     document.body.classList.add('is-col-resizing');
     const move = (ev: PointerEvent) => setDrag({ key, px: widthAt(ev.clientX) });
-    const up = (ev: PointerEvent) => {
+    // `pointercancel` as well as `pointerup`: on touch the browser can take the
+    // gesture over (a long press, an OS swipe) and sends the cancel instead of
+    // the up. Without it the body would keep `is-col-resizing` — no text
+    // selectable anywhere — until a reload.
+    const end = (ev: PointerEvent) => {
       document.removeEventListener('pointermove', move);
-      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointerup', end);
+      document.removeEventListener('pointercancel', end);
       document.body.classList.remove('is-col-resizing');
       const px = widthAt(ev.clientX);
       setDrag(null);
@@ -2263,7 +2606,8 @@ function TableView({
       }
     };
     document.addEventListener('pointermove', move);
-    document.addEventListener('pointerup', up);
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
   };
 
   // Double-click gives a column back to the content: the entry is REMOVED
@@ -2338,15 +2682,36 @@ function TableView({
 
   return (
     <div className="table-wrap">
-      <table className="db-table">
+      <table className="db-table" ref={tableRef}>
         <thead>
           <tr>
-            <th className="db-title-col" style={colStyle(TITLE_COL)}>
-              <ColHead label={t('Name')} onResize={startResize(TITLE_COL)} onReset={resetCol(TITLE_COL)} />
+            <th
+              data-col={TITLE_COL}
+              className={'db-title-col' + (stuckSet.has(TITLE_COL) ? ' is-stuck' : '')}
+              style={colStyle(TITLE_COL)}
+            >
+              <ColHead
+                label={t('Name')}
+                onResize={startResize(TITLE_COL)}
+                onReset={resetCol(TITLE_COL)}
+                stuck={stuckSet.has(TITLE_COL)}
+                onToggleStuck={onToggleStuck && (() => onToggleStuck(TITLE_COL))}
+              />
             </th>
             {schema.map((p) => (
-              <th key={p.id} style={colStyle(p.id)}>
-                <ColHead label={p.name} onResize={startResize(p.id)} onReset={resetCol(p.id)} />
+              <th
+                key={p.id}
+                data-col={p.id}
+                className={stuckSet.has(p.id) ? 'is-stuck' : undefined}
+                style={colStyle(p.id)}
+              >
+                <ColHead
+                  label={p.name}
+                  onResize={startResize(p.id)}
+                  onReset={resetCol(p.id)}
+                  stuck={stuckSet.has(p.id)}
+                  onToggleStuck={onToggleStuck && (() => onToggleStuck(p.id))}
+                />
               </th>
             ))}
           </tr>
@@ -2354,7 +2719,11 @@ function TableView({
         <tbody>
           {ordered.map(({ row: r, depth, hasKids }) => (
             <tr key={r.id}>
-              <td className="db-title-col" style={colStyle(TITLE_COL)}>
+              <td
+                data-col={TITLE_COL}
+                className={'db-title-col' + (stuckSet.has(TITLE_COL) ? ' is-stuck' : '')}
+                style={colStyle(TITLE_COL)}
+              >
                 <span className="db-title-inner" style={depth ? { paddingLeft: depth * 20 } : undefined}>
                   {subItemProp ? (
                     hasKids ? (
@@ -2371,7 +2740,7 @@ function TableView({
                   ) : null}
                   <button
                     className="db-title-link"
-                    onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+                    onClick={(e) => openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab })}
                     onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                   >
                     {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
@@ -2392,13 +2761,20 @@ function TableView({
                 )}
               </td>
               {schema.map((p) => (
-                <td key={p.id} style={colStyle(p.id)}>
+                <td
+                  key={p.id}
+                  data-col={p.id}
+                  className={stuckSet.has(p.id) ? 'is-stuck' : undefined}
+                  style={colStyle(p.id)}
+                >
                   <PropertyValue
                     def={p}
                     value={r.props[p.id]}
                     onChange={(v) => onSetProp(r.id, p.id, v)}
                     onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                     maxChips={2}
+                    onOpen={onOpenInNewTab ?? onNavigate}
+                    openers={{ onNavigate, onOpenInNewTab }}
                   />
                 </td>
               ))}
@@ -2537,33 +2913,60 @@ const ymd = toDayString;
 function TimelineView({
   rows,
   schema,
+  collectionId,
   startProp,
   endProp,
+  depProp,
   onNavigate,
   onOpenInNewTab,
+  mode,
+  onModeChange,
+  onViewChange,
+  onEnsureDepProps,
+  onAddRow,
+  onSetDate,
+  onSetDep,
+  hideLabels,
+  onToggleLabels,
+  skipWeekends,
+  startWithSettings,
+  onSettingsShown,
 }: {
   rows: Row[];
   schema: PropDef[];
+  collectionId: string;
   startProp: string;
   endProp: string;
+  depProp: string;
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
+  mode: SpanMode;
+  onModeChange: (m: SpanMode) => void;
+  onViewChange: (patch: Partial<ViewDef>) => void;
+  onEnsureDepProps: () => void;
+  onAddRow: (presetProps?: Record<string, unknown>) => void;
+  onSetDate: (rowId: string, propId: string, iso: string) => void;
+  onSetDep: (rowId: string, propId: string, ids: string[]) => void;
+  hideLabels?: boolean;
+  onToggleLabels?: () => void;
+  skipWeekends?: boolean;
+  startWithSettings?: boolean;
+  onSettingsShown?: () => void;
 }) {
-  if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
-    return (
-      <div className="board-empty">
-        {t('This timeline needs a {type} property as its start. Open ⚙ Properties to add one.', { type: t('Date') })}
-      </div>
-    );
-  }
-
   const DAY = 26; // px per day
+  const YEARW = 140; // px per month in year mode
   const LABELW = 190; // sticky title column width
+  // Collapsed, the title column takes no room at all and the grid keeps the
+  // width: the bars carry their own titles, so the axis is what is left to look
+  // at. `onToggleLabels` is absent where nothing may be collapsed (a public
+  // link shows the owner's choice).
+  const labelW = hideLabels ? 0 : LABELW;
   const dayNum = (iso: string) => {
     const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
     return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
   };
+  const isoDay = (n: number) => new Date(n * 86400000).toISOString().slice(0, 10);
 
   type Item = { row: Row; start: number; end: number };
   const items: Item[] = [];
@@ -2579,6 +2982,195 @@ function TimelineView({
     items.push({ row: r, start, end });
   }
 
+  // Blockers, OUTGOING: a row lists the tasks IT blocks, read from a
+  // self-relation prop. blockedBy is derived by reversing those edges: a row
+  // is blocked when it starts on or before a blocker's end.
+  // When no dep prop is picked but exactly one self-relation exists, it is the
+  // blocker list — nothing else could be meant, and forcing a pick for the
+  // single-candidate case would be pure friction.
+  const selfRels = schema.filter((p) => p.type === 'relation' && p.relationCollection === collectionId);
+  const effDep = depProp || (selfRels.length === 1 ? selfRels[0].id : '');
+
+  const today = dayNum(ymd(new Date()));
+  const dataMin = items.length ? Math.min(...items.map((i) => i.start)) : today;
+  const dataMax = items.length ? Math.max(...items.map((i) => i.end)) : today;
+  const [cursor, setCursor] = useState(() =>
+    today < dataMin - 3 ? dataMin : today > dataMax + 4 ? dataMax : today,
+  );
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(!!startWithSettings);
+  const [settingsHint, settingsSeen] = useSettingsHint('timeline-settings');
+  // The flag belongs to the moment the view was made, not to the view: once the
+  // popover has been open, a later remount must not open it again.
+  useEffect(() => {
+    if (startWithSettings) onSettingsShown?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startWithSettings]);
+  const [conflictsOpen, setConflictsOpen] = useState(false);
+  // Row whose blocker popover is open, with the click point for positioning.
+  const [depPop, setDepPop] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [addBlockerFor, setAddBlockerFor] = useState<string | null>(null);
+  // Drag-to-link: which row the handle was pulled from. The lasso line and
+  // the target highlight are driven imperatively (refs + classList) during
+  // the drag — a React render per mousemove janks, the line jumps.
+  const [linkFrom, setLinkFrom] = useState<string | null>(null);
+  const linkActiveRef = useRef<string | null>(null);
+  const prevOverRef = useRef<string | null>(null);
+  // Arrow whose ✕ (unlink) button is showing, else null.
+  const [hoverArrow, setHoverArrow] = useState<string | null>(null);
+  // Lasso line endpoints in client pixels while linking, else null.
+  const [linkLine, setLinkLine] = useState<{ x: number; y: number; x2: number; y2: number } | null>(null);
+  // Pixel width of the arrow overlay (the track area). Arrows are drawn in
+  // pixels like Notion's, so a resize re-measures via this observer.
+  const [trackW, setTrackW] = useState(0);
+  const roRef = useRef<ResizeObserver | null>(null);
+  const arrowsRefCb = useCallback((el: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (!el) return;
+    setTrackW(el.clientWidth);
+    const ro = new ResizeObserver(() => setTrackW(el.clientWidth));
+    ro.observe(el);
+    roRef.current = ro;
+  }, []);
+  useEffect(() => () => roRef.current?.disconnect(), []);
+  const linkOverRef = useRef<string | null>(null);
+  const lassoPathRef = useRef<SVGPathElement | null>(null);
+  const lassoDotRef = useRef<SVGCircleElement | null>(null);
+  // Clear the imperative drag paint (line + target highlight) without a render.
+  const clearLinkPaint = () => {
+    if (prevOverRef.current) {
+      document
+        .querySelector(`[data-tl-row="${prevOverRef.current}"]`)
+        ?.classList.remove('is-link-target');
+      prevOverRef.current = null;
+    }
+    linkOverRef.current = null;
+  };
+  useEffect(() => {
+    if (!linkFrom && !depPop) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      linkActiveRef.current = null;
+      clearLinkPaint();
+      setLinkFrom(null);
+      setLinkLine(null);
+      setDepPop(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [linkFrom, depPop]);
+  // Edge-resize drag: which row, which edge, which day it is over right now.
+  // Persisted on pointer-up only; until then the bar is drawn from this.
+  const [drag, setDrag] = useState<{ id: string; edge: 'start' | 'end' | 'move'; day: number } | null>(null);
+  // Mirrored in a ref, so the end of a gesture reads the day it had reached from
+  // here rather than from React state — see finish, which must not read a day
+  // the NEXT gesture has already put into the state.
+  const dragRef = useRef<typeof drag>(null);
+  const setDragBoth = (v: typeof drag) => {
+    dragRef.current = v;
+    setDrag(v);
+  };
+  // A resize ends in a click: the browser sends one after the gesture even when
+  // the finger barely moved, and cancelling the pointerdown does not reliably
+  // stop it on touch. That click must not open the row whose edge was held. A
+  // timestamp rather than a flag, because on touch the click may never arrive at
+  // all — a flag left armed would then swallow the NEXT honest tap, which is a
+  // bug of its own. The window is short and re-armed when the gesture ends, so
+  // it covers a press of any length and expires on its own.
+  const navGuard = useRef(0);
+  const swallowClick = () => Date.now() - navGuard.current < 700;
+  // The live gesture's own way out. A browser that takes a gesture over without
+  // saying so leaves the previous drag running: its window listeners stay
+  // attached, so it keeps following the NEXT finger and its finish can fire
+  // during the next gesture. Starting one drag therefore ends any other first,
+  // which is also why the handle below can promise "one at a time".
+  const dragCleanup = useRef<((armGuard: boolean) => void) | null>(null);
+  // While an edge is held, nothing on the page may start a text selection: the
+  // browser would take the gesture over (see finish below) and, on iOS, leave a
+  // callout sitting on top of the interface that swallows taps. The class goes
+  // on the body rather than the bar so a drag that wanders off the bar is
+  // covered, and the cleanup takes it off on unmount too — a stuck
+  // `user-select: none` is exactly the bug it prevents.
+  useEffect(() => {
+    document.body.classList.toggle('is-tl-resizing', !!drag);
+    return () => document.body.classList.remove('is-tl-resizing');
+  }, [drag]);
+
+  // Live dependency graph: while an edge resize drags, the dragged row keeps
+  // its stored dates only on release — but bars, arrows, conflicts and fixes
+  // all follow the pointer NOW, or the arrows hang behind the gesture.
+  const liveFor = (it: Item): Item => {
+    if (!drag || drag.id !== it.row.id) return it;
+    // A move carries the whole span by the day delta it has reached.
+    if (drag.edge === 'move') return { ...it, start: it.start + drag.day, end: it.end + drag.day };
+    return {
+      ...it,
+      start: drag.edge === 'start' ? drag.day : it.start,
+      end: drag.edge === 'end' ? drag.day : it.end,
+    };
+  };
+  const liveItems = items.map(liveFor);
+  const byId = new Map(liveItems.map((i) => [i.row.id, i]));
+  const knownIds = new Set(byId.keys());
+  // Tasks this row blocks (outgoing edges).
+  const depIdsOf = (rowId: string): string[] => {
+    const it = byId.get(rowId);
+    if (!it) return [];
+    return depListOf(it.row.props, effDep, rowId, knownIds);
+  };
+  const nodes: DepNode[] = liveItems.map((i) => ({
+    id: i.row.id,
+    start: i.start,
+    end: i.end,
+    deps: depIdsOf(i.row.id),
+  }));
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const blockedBy = blockedByMap(nodes);
+  // A row is blocked when a blocker ends on or after its start: the blocker
+  // must finish first, so start <= pred.end is the conflict.
+  const violationsOf = (rowId: string): { pred: Item; self: Item }[] => {
+    const self = byId.get(rowId);
+    if (!self) return [];
+    const out: { pred: Item; self: Item }[] = [];
+    for (const pid of blockedBy.get(rowId) ?? []) {
+      const pred = byId.get(pid);
+      if (pred && self.start <= pred.end) out.push({ pred, self });
+    }
+    return out;
+  };
+  const allViolations = liveItems.flatMap((i) => violationsOf(i.row.id));
+  // Linking must not close a loop: does `to` already (transitively) block
+  // `from`? Depth-first over the small in-memory graph.
+  const wouldCycle = (from: string, to: string): boolean => wouldCreateCycle(from, to, depIdsOf);
+  // Shift a row so it starts the day after its latest blocker, keeping its
+  // duration. One explicit user action, never automatic.
+  // Where a row lands when it is pushed out of its blockers' way: the day after
+  // the last blocker, or the Monday after it when the view skips weekends.
+  const shiftDay = (day: number) => (skipWeekends ? nextWorkday(day) : day);
+  const shiftAfterBlockers = (rowId: string) => {
+    const self = byId.get(rowId);
+    if (!self) return;
+    const preds = (blockedBy.get(rowId) ?? []).map((id) => byId.get(id)!).filter(Boolean);
+    if (!preds.length) return;
+    const node = nodeById.get(rowId)!;
+    const predNodes = preds.map((p) => nodeById.get(p.row.id)!).filter(Boolean);
+    const target = shiftTarget(node, predNodes);
+    if (target === null) return;
+    const after = shiftDay(target);
+    const dur = self.end - self.start;
+    void onSetDate(rowId, startProp, isoDay(after));
+    if (endProp) void onSetDate(rowId, endProp, isoDay(after + dur));
+  };
+
+  if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
+    return (
+      <div className="board-empty">
+        {t('This timeline needs a {type} property as its start. Open ⚙ Properties to add one.', { type: t('Date') })}
+      </div>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <div className="board-empty">
@@ -2587,83 +3179,1169 @@ function TimelineView({
     );
   }
 
-  const today = dayNum(ymd(new Date()));
-  const min = Math.min(today, ...items.map((i) => i.start)) - 3;
-  const max = Math.max(today, ...items.map((i) => i.end)) + 4;
-  const totalDays = max - min + 1;
-  const gridWidth = totalDays * DAY;
-
-  // Month header segments across the visible range.
-  const months: { label: string; left: number; width: number }[] = [];
-  let cursor = min;
-  while (cursor <= max) {
-    const d = new Date(cursor * 86400000);
-    const y = d.getUTCFullYear();
-    const mo = d.getUTCMonth();
-    const nextMonthDay = Math.floor(Date.UTC(y, mo + 1, 1) / 86400000);
-    const segEnd = Math.min(nextMonthDay - 1, max);
-    months.push({
-      label: formatMonth(y, mo, 'short'),
-      left: (cursor - min) * DAY,
-      width: (segEnd - cursor + 1) * DAY,
-    });
-    cursor = nextMonthDay;
+  // Visible window per mode. Day modes count days; year mode counts
+  // fixed-width months.
+  const yearOf = (n: number) => new Date(n * 86400000).getUTCFullYear();
+  const monthOf = (n: number) => new Date(n * 86400000).getUTCMonth();
+  // Saturday and Sunday, in the same UTC day-number space as everything else
+  // here: the weekend a Gantt is read against, whatever a region calls the start
+  // of its week.
+  const isWeekend = (n: number) => {
+    const wd = new Date(n * 86400000).getUTCDay();
+    return wd === 0 || wd === 6;
+  };
+  let dayCols: number[] = [];
+  let monthCols: { y: number; mo: number }[] = [];
+  if (mode === 'day') {
+    dayCols = [cursor];
+  } else if (mode === 'week') {
+    const ws = cursor - ((new Date(cursor * 86400000).getUTCDay() - firstWeekday() + 7) % 7);
+    dayCols = Array.from({ length: 7 }, (_, k) => ws + k);
+  } else if (mode === 'year') {
+    const y = yearOf(cursor);
+    monthCols = Array.from({ length: 12 }, (_, mo) => ({ y, mo }));
+  } else {
+    const nMonths = mode === '2months' ? 2 : 1;
+    const m0 = { y: yearOf(cursor), mo: monthOf(cursor) };
+    const firstDay = Math.floor(Date.UTC(m0.y, m0.mo, 1) / 86400000);
+    const lastDay = Math.floor(Date.UTC(m0.y, m0.mo + nMonths, 1) / 86400000) - 1;
+    dayCols = Array.from({ length: lastDay - firstDay + 1 }, (_, k) => firstDay + k);
   }
-  const todayLeft = (today - min) * DAY;
+  const isYear = monthCols.length > 0;
+  // Grid geometry is proportional so spans narrower than a month stretch to
+  // the full width: day columns share the track equally (never narrower than
+  // 26px — below that the track scrolls), year columns split it in twelve.
+  const gridMin = isYear ? monthCols.length * YEARW : dayCols.length * DAY;
+  // Handles live only on day-granular spans of a ranged timeline: without an
+  // end property there is nothing to stretch to, and month columns are too
+  // coarse for day precision.
+  const resizable = !!endProp && !isYear;
+  // One gesture, three meanings: pulling the left edge, pulling the right edge,
+  // or carrying the whole bar. `move` is the delta in days, the other two are
+  // the day the edge has reached.
+  const beginBarDrag = (e: React.PointerEvent, id: string, edge: 'start' | 'end' | 'move') => {
+    // A control on the bar — the blocker warning — is pressed, not carried.
+    if (edge === 'move' && (e.target as HTMLElement).closest('button, .tl-resize')) return;
+    e.stopPropagation();
+    // Deliberately NOT preventDefault, for the same reason the table's column
+    // resize does not: cancelling a pointerdown cancels the compatibility events
+    // behind it, and on a phone it is one more thing between the finger and the
+    // browser's own gesture handling. What it used to hold off is held off
+    // elsewhere — `touch-action: none` on the handle stops the page scrolling
+    // under the finger, `user-select: none` stops the selection, and the click
+    // guard below stops the click.
+    // Whatever was dragging stops here (see dragCleanup): one gesture at a time,
+    // so a leaked one cannot ride along with this one. No click guard from that
+    // end — the click that follows belongs to this press.
+    dragCleanup.current?.(false);
+    // An edge press is never a click, so the guard goes up at the press — even
+    // if the end of the gesture is never reported. A press in the middle of a
+    // bar is a move, and a move that goes nowhere is just a click: the guard
+    // for that one is armed at the end, and only if the bar actually moved.
+    if (edge !== 'move') navGuard.current = Date.now();
+    const track = (e.currentTarget as HTMLElement).closest('.tl-track') as HTMLElement | null;
+    const it = items.find((i) => i.row.id === id);
+    if (!track || !it) return;
+    const rect = track.getBoundingClientRect();
+    const rawEnd = endProp ? it.row.props[endProp] : undefined;
+    const rowHasEnd = typeof rawEnd === 'string' && !!rawEnd;
+    const fixed = edge === 'start' ? it.end : it.start;
+    const x0 = e.clientX;
+    setDragBoth({ id, edge, day: edge === 'move' ? 0 : edge === 'start' ? it.start : it.end });
+    const move = (ev: PointerEvent) => {
+      if (edge === 'move') {
+        const perDay = rect.width / dayCols.length;
+        setDragBoth({ id, edge, day: Math.round((ev.clientX - x0) / perDay) });
+        return;
+      }
+      const n = Math.min(
+        dayCols[dayCols.length - 1],
+        Math.max(dayCols[0], dayCols[0] + Math.floor(((ev.clientX - rect.left) / rect.width) * dayCols.length)),
+      );
+      setDragBoth({ id, edge, day: edge === 'start' ? Math.min(n, fixed) : Math.max(n, fixed) });
+    };
+    // The stretched bar and the date badge are drawn from `drag` alone, so every
+    // way this gesture can end has to clear it. A finger lifting is `pointerup`;
+    // the browser taking the gesture over — a long press that turns into a text
+    // selection, a phone call, an OS swipe — is `pointercancel`, and on touch it
+    // arrives INSTEAD of the up. Listening for one and not the other leaves the
+    // bar stuck mid-drag with its badge hanging over the timeline, and the next
+    // stray touch keeps moving it. Where the drag got to is what the user saw,
+    // so a cancelled drag stores the day it had reached, exactly like a lift.
+    //
+    // `blur` and a hidden document are the same story one level down: the gesture
+    // is over the moment the app stops being what the finger is on.
+    const finish = (armGuard: boolean) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('blur', onEnd);
+      window.removeEventListener('pointerdown', onOtherDown, true);
+      document.removeEventListener('visibilitychange', onHide);
+      if (dragCleanup.current === finish) dragCleanup.current = null;
+      // The click that follows a gesture belongs to it and must not open the row
+      // whose edge was held — so the guard is armed here as well as at the press,
+      // which covers a press of any length. Not when the gesture was ended by a
+      // NEW press though: the click that follows that one is that press's own.
+      // The move decides for itself, above.
+      if (armGuard && edge !== 'move') navGuard.current = Date.now();
+      // Read from the ref, not from the state updater: React may run an updater
+      // more than once and this one writes to the server, and — the reason this
+      // is a ref at all — a gesture that ends late must not commit whatever the
+      // NEXT gesture has put in the state in the meantime.
+      const reached = dragRef.current && dragRef.current.id === id ? dragRef.current : null;
+      setDragBoth(null);
+      if (!reached) return;
+      if (reached.edge === 'move') {
+        // Nothing moved: the click that follows is an honest one.
+        if (reached.day === 0) {
+          navGuard.current = 0;
+          return;
+        }
+        navGuard.current = Date.now();
+        void onSetDate(id, startProp, isoDay(it.start + reached.day));
+        // A move keeps whatever the row already had: a one-day row stays one
+        // day instead of growing an end nobody asked for.
+        if (endProp && rowHasEnd) void onSetDate(id, endProp, isoDay(it.end + reached.day));
+        return;
+      }
+      void onSetDate(id, reached.edge === 'start' ? startProp : endProp, isoDay(reached.day));
+      // Pulling the start of a one-day row makes it a range: the end keeps the
+      // day the row started on, so the bar grows rather than slides.
+      if (reached.edge === 'start' && endProp && !rowHasEnd) {
+        void onSetDate(id, endProp, isoDay(it.start));
+      }
+    };
+    const onEnd = () => finish(true);
+    const onHide = () => {
+      if (document.hidden) finish(true);
+    };
+    // A gesture can also end without the browser ever saying so — a phone that
+    // takes the touch over for a system swipe, a lost pointerup — and then the
+    // badge hangs over the timeline and the bar follows the next finger, which
+    // reads as "nothing on the page answers any more" until a reload. A finger
+    // that is gone cannot press again, so ANY press that starts after this one
+    // proves the old gesture is over: it ends here, and that press goes on to do
+    // whatever it was meant to do. (No pointer-id comparison: a press is a press,
+    // and the ids of a finger and a mouse are not comparable anyway.)
+    const onOtherDown = () => finish(false);
+    dragCleanup.current = finish;
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    window.addEventListener('blur', onEnd);
+    window.addEventListener('pointerdown', onOtherDown, true);
+    document.addEventListener('visibilitychange', onHide);
+  };
+
+  // Drag-to-link: pull the handle on a bar and drop it on another bar for
+  // this row to block that one. One gesture at a time, same as resize — a new
+  // link drag ends a running resize first.
+  const beginLink = (e: React.PointerEvent, id: string) => {
+    if (!effDep) return;
+    e.stopPropagation();
+    e.preventDefault();
+    dragCleanup.current?.(false);
+    navGuard.current = Date.now();
+    // Anchor the lasso at the grabbed handle; the free end follows the
+    // pointer and snaps to the hovered bar, Notion-style. Everything below
+    // paints imperatively: a render per mousemove janks and the line jumps.
+    const hr = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const anchor = { x: hr.left + hr.width / 2, y: hr.top + hr.height / 2 };
+    linkActiveRef.current = id;
+    setLinkFrom(id);
+    setLinkLine({ ...anchor, x2: e.clientX, y2: e.clientY });
+    linkOverRef.current = null;
+    prevOverRef.current = null;
+    // Smooth Notion-like curve: horizontal out of the handle, bend, into
+    // the pointer. Painted straight onto the SVG node, no render involved.
+    const paint = (x2: number, y2: number) => {
+      const dx = Math.max(30, Math.abs(x2 - anchor.x) * 0.5);
+      const d =
+        `M ${anchor.x} ${anchor.y} ` +
+        `C ${anchor.x + dx} ${anchor.y}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+      lassoPathRef.current?.setAttribute('d', d);
+      lassoDotRef.current?.setAttribute('cx', String(x2));
+      lassoDotRef.current?.setAttribute('cy', String(y2));
+    };
+    const markTarget = (over: string | null) => {
+      if (over === prevOverRef.current) return;
+      if (prevOverRef.current) {
+        document
+          .querySelector(`[data-tl-row="${prevOverRef.current}"]`)
+          ?.classList.remove('is-link-target');
+      }
+      if (over) {
+        document.querySelector(`[data-tl-row="${over}"]`)?.classList.add('is-link-target');
+      }
+      prevOverRef.current = over;
+    };
+    const overAt = (x: number, y: number): string | null => {
+      // elementsFromPoint, not elementFromPoint: a fat invisible arrow hit
+      // path (or the link line) can lie on top of a bar — the topmost node
+      // then has no row ancestor, so walk the stack down to the row.
+      const els = document.elementsFromPoint(x, y);
+      for (const el of els) {
+        const row = (el as Element).closest?.('[data-tl-row]');
+        if (row) {
+          const over = row.getAttribute('data-tl-row') ?? null;
+          if (over && over !== id) return over;
+          return null;
+        }
+      }
+      return null;
+    };
+    let lastX = e.clientX;
+    let lastY = e.clientY;
+    // Snap radius around the whole bar: the line (and the drop) engage
+    // when brought close to any part of it, with the end sliding to the
+    // nearest point on the bar. Touch has no hover precision, so a finger
+    // over the row counts.
+    const SNAP_PX = 48;
+    const move = (ev: PointerEvent) => {
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      const over = overAt(ev.clientX, ev.clientY);
+      let snapped: string | null = null;
+      let end = { x: ev.clientX, y: ev.clientY };
+      if (over) {
+        const bar = document.querySelector(`[data-tl-row="${over}"] .tl-bar`);
+        if (bar) {
+          const r = bar.getBoundingClientRect();
+          const cx = Math.max(r.left, Math.min(ev.clientX, r.right));
+          const cy = Math.max(r.top, Math.min(ev.clientY, r.bottom));
+          const near =
+            ev.pointerType !== 'mouse' || Math.hypot(ev.clientX - cx, ev.clientY - cy) < SNAP_PX;
+          if (near) {
+            snapped = over;
+            end = { x: cx, y: cy };
+          }
+        }
+      }
+      linkOverRef.current = snapped;
+      markTarget(snapped);
+      paint(end.x, end.y);
+    };
+    const done = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      linkActiveRef.current = null;
+      clearLinkPaint();
+      setLinkFrom(null);
+      setLinkLine(null);
+    };
+    const onUp = () => {
+      // Forgiving drop: the row under the pointer counts even outside the
+      // snap radius — the snap only drives the preview, never vetoes.
+      const target = overAt(lastX, lastY) ?? linkOverRef.current;
+      done();
+      if (target && !wouldCycle(id, target)) {
+        const cur = depIdsOf(id);
+        if (!cur.includes(target)) void onSetDep(id, effDep, [...cur, target]);
+      }
+    };
+    const onCancel = () => done();
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+  };
+  // Drop one outgoing edge: `rowId` no longer blocks `succId`.
+  const unlink = (rowId: string, succId: string) => {
+    if (!effDep) return;
+    void onSetDep(rowId, effDep, depIdsOf(rowId).filter((id) => id !== succId));
+  };
+
+  // Month header segments across the visible range, in percent of the grid.
+  const months: { label: string; left: string; width: string; from: number; to: number }[] = [];
+  if (!isYear) {
+    const min = dayCols[0];
+    const max = dayCols[dayCols.length - 1];
+    const n = dayCols.length;
+    let c = min;
+    while (c <= max) {
+      const d = new Date(c * 86400000);
+      const y = d.getUTCFullYear();
+      const mo = d.getUTCMonth();
+      const nextMonthDay = Math.floor(Date.UTC(y, mo + 1, 1) / 86400000);
+      const segEnd = Math.min(nextMonthDay - 1, max);
+      months.push({
+        label: formatMonthYear(y, mo),
+        left: `${((c - min) / n) * 100}%`,
+        width: `${((segEnd - c + 1) / n) * 100}%`,
+        from: c,
+        to: segEnd,
+      });
+      c = nextMonthDay;
+    }
+  } else {
+    monthCols.forEach((m, i) => {
+      const from = Math.floor(Date.UTC(m.y, m.mo, 1) / 86400000);
+      const to = Math.floor(Date.UTC(m.y, m.mo + 1, 1) / 86400000) - 1;
+      months.push({
+        label: formatMonthYear(m.y, m.mo),
+        left: `${(i / monthCols.length) * 100}%`,
+        width: `${(1 / monthCols.length) * 100}%`,
+        from,
+        to,
+      });
+    });
+  }
+  // The weekends of the visible range, as runs, so the body draws one band per
+  // weekend instead of one per day. Percent of the grid, like every other
+  // position here — the day columns share the track equally.
+  const weekends: { left: string; width: string }[] = [];
+  if (!isYear) {
+    const n = dayCols.length;
+    let i = 0;
+    while (i < n) {
+      if (!isWeekend(dayCols[i])) {
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j + 1 < n && isWeekend(dayCols[j + 1])) j++;
+      weekends.push({ left: `${(i / n) * 100}%`, width: `${((j - i + 1) / n) * 100}%` });
+      i = j + 1;
+    }
+  }
+  const todayLeft = ((): string | null => {
+    if (!isYear) {
+      if (today < dayCols[0] || today > dayCols[dayCols.length - 1]) return null;
+      return `${((today - dayCols[0]) / dayCols.length) * 100}%`;
+    }
+    const mi = monthCols.findIndex((m) => m.y === yearOf(today) && m.mo === monthOf(today));
+    if (mi < 0) return null;
+    const mStart = Math.floor(Date.UTC(monthCols[mi].y, monthCols[mi].mo, 1) / 86400000);
+    const mDays = Math.floor(Date.UTC(monthCols[mi].y, monthCols[mi].mo + 1, 1) / 86400000) - mStart;
+    return `${((mi + (today - mStart) / mDays) / monthCols.length) * 100}%`;
+  })();
+
+  const title =
+    mode === 'day'
+      ? formatDay(isoDay(cursor))
+      : mode === 'week'
+        ? formatDay(isoDay(dayCols[0])) + ' — ' + formatDay(isoDay(dayCols[dayCols.length - 1]))
+        : mode === 'year'
+          ? String(yearOf(cursor))
+          : dayCols.length > 0 && monthOf(dayCols[0]) === monthOf(dayCols[dayCols.length - 1])
+            ? formatMonth(yearOf(dayCols[0]), monthOf(dayCols[0]), 'long')
+            : formatMonth(yearOf(dayCols[0]), monthOf(dayCols[0]), 'long') +
+              ' — ' +
+              formatMonth(yearOf(dayCols[dayCols.length - 1]), monthOf(dayCols[dayCols.length - 1]), 'long');
+  const step = (delta: number) => {
+    if (mode === 'day') setCursor((c) => c + delta);
+    else if (mode === 'week') setCursor((c) => c + delta * 7);
+    else if (mode === 'year')
+      setCursor((c) => {
+        const d = new Date(c * 86400000);
+        return Math.floor(Date.UTC(d.getUTCFullYear() + delta, d.getUTCMonth(), 1) / 86400000);
+      });
+    // Month modes always slide by one month — even showing two — so no month
+    // is ever skipped over.
+    else
+      setCursor((c) => {
+        const d = new Date(c * 86400000);
+        return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + delta, 1) / 86400000);
+      });
+  };
+  const goToday = () => setCursor(today);
+
+  // Bar geometry in percent of the grid, clamped to the window. Null when
+  // the item is fully outside. fracGeom is the same in fractions (for the
+  // dependency arrows); barGeom formats it for CSS.
+  const fracGeom = (it: Item): { l: number; r: number } | null => {
+    if (!isYear) {
+      const n = dayCols.length;
+      const s = Math.max(it.start, dayCols[0]);
+      const e = Math.min(it.end, dayCols[n - 1]);
+      if (e < s) return null;
+      return { l: (s - dayCols[0]) / n, r: (e - dayCols[0] + 1) / n };
+    }
+    const ser = (n: number) => yearOf(n) * 12 + monthOf(n);
+    const base = yearOf(cursor) * 12;
+    const a = Math.max(0, ser(it.start) - base);
+    const b = Math.min(11, ser(it.end) - base);
+    if (b < a) return null;
+    return { l: a / 12, r: (b + 1) / 12 };
+  };
+  const barGeom = (it: Item) => {
+    const f = fracGeom(it);
+    if (!f) return null;
+    return { left: `${f.l * 100}%`, width: `calc(${((f.r - f.l) * 100).toFixed(4)}% - 4px)` };
+  };
+  const covers = (it: Item, n: number) =>
+    isYear
+      ? yearOf(n) * 12 + monthOf(n) >= yearOf(it.start) * 12 + monthOf(it.start) &&
+        yearOf(n) * 12 + monthOf(n) <= yearOf(it.end) * 12 + monthOf(it.end)
+      : n >= it.start && n <= it.end;
+  const hoveredItem = hovered ? items.find((i) => i.row.id === hovered) ?? null : null;
+  // While resizing, the highlight follows the dragged edge rather than the
+  // stored span.
+  const spanItem = drag
+    ? (() => {
+        const base = items.find((i) => i.row.id === drag.id);
+        if (!base) return hoveredItem;
+        return {
+          ...base,
+          start: drag.edge === 'start' ? drag.day : base.start,
+          end: drag.edge === 'end' ? drag.day : base.end,
+        };
+      })()
+    : hoveredItem;
+  const tipFor = (row: Row, it: Item) => {
+    const sv = typeof row.props[startProp] === 'string' ? (row.props[startProp] as string) : '';
+    const ev = endProp && typeof row.props[endProp] === 'string' ? (row.props[endProp] as string) : '';
+    return (
+      (row.title || t('Untitled')) +
+      (sv ? ' — ' + formatDay(sv) + (it.end !== it.start && ev ? ' → ' + formatDay(ev) : '') : '')
+    );
+  };
+  const dateProps = schema.filter((p) => p.type === 'date');
+  // Dependency arrows: predecessor's end to successor's start. Each arrow gets
+  // its own small SVG box from x1 to x2 so no global measuring is needed —
+  // x is in track percent, y in row pixels (ROW_H per row, bar center at 20).
+  const ROW_H = 40;
+  type Arrow = { key: string; from: number; to: number; pred: string; succ: string; x1: number; x2: number; bad: boolean };
+  // Only rows inside the window take up vertical space: arrow Y comes from
+  // the RENDERED order, not the data order. Using data indices puts every
+  // arrow too low as soon as one dated row falls outside the window.
+  const rendered: { it: Item; geom: { left: string; width: string }; fx: { l: number; r: number } }[] = [];
+  for (const it of liveItems) {
+    const g = barGeom(it);
+    const f = g ? fracGeom(it) : null;
+    if (g && f) rendered.push({ it, geom: g, fx: f });
+  }
+  const renderIndex = new Map(rendered.map((r, k) => [r.it.row.id, k]));
+  // Fractions of the track width here; pixels at render time (trackW), so
+  // curves and heads never distort the way a stretched viewBox would.
+  const arrows: Arrow[] = [];
+  if (effDep) {
+    for (const r of rendered) {
+      const it = r.it;
+      for (const sid of depIdsOf(it.row.id)) {
+        const succ = byId.get(sid);
+        const si = renderIndex.get(sid);
+        if (!succ || si === undefined) continue;
+        const pf = fracGeom(it);
+        const sf = fracGeom(succ);
+        if (!pf || !sf) continue;
+        arrows.push({
+          key: it.row.id + '→' + sid,
+          from: renderIndex.get(it.row.id)!,
+          to: si,
+          pred: it.row.id,
+          succ: sid,
+          x1: Math.min(0.99, Math.max(0, pf.r)),
+          x2: Math.min(0.99, Math.max(0, sf.l)),
+          bad: succ.start <= it.end,
+        });
+      }
+    }
+  }
+  const depPopItem = depPop ? byId.get(depPop.id) : undefined;
+  const depPopViolations = depPop ? violationsOf(depPop.id) : [];
 
   return (
     <div className="timeline">
-      <div className="tl-scroll">
-        <div className="tl-inner" style={{ width: LABELW + gridWidth }}>
-          <div className="tl-header">
-            <div className="tl-corner" style={{ width: LABELW }} />
-            <div className="tl-months" style={{ width: gridWidth }}>
-              {months.map((m, i) => (
-                <div key={i} className="tl-month" style={{ left: m.left, width: m.width }}>
-                  {m.label}
+      <div className="tl-controls">
+        {onToggleLabels && (
+          <button
+            className="btn-sm tl-collapse"
+            onClick={onToggleLabels}
+            aria-label={hideLabels ? t('Show the title column') : t('Hide the title column')}
+            title={hideLabels ? t('Show the title column') : t('Hide the title column')}
+          >
+            {hideLabels ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          </button>
+        )}
+        <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
+        <span className="tl-title">{title}</span>
+        <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
+        <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
+        {allViolations.length > 0 && (
+          <div className="tl-conflicts-wrap">
+            <button
+              className="btn-sm tl-conflicts-btn"
+              onClick={() => {
+                setConflictsOpen((o) => !o);
+                setSettingsOpen(false);
+              }}
+              aria-expanded={conflictsOpen}
+              title={plural(
+                allViolations.length,
+                '{n} task starts before its blocker ends',
+                '{n} tasks start before their blockers end',
+              )}
+            >
+              ⚠ {plural(allViolations.length, '{n} conflict', '{n} conflicts')}
+            </button>
+            {conflictsOpen && (
+              <>
+                <div
+                  className="fs-backdrop"
+                  onClick={() => setConflictsOpen(false)}
+                />
+                <div className="menu tl-conflicts-menu" role="listbox">
+                  <div className="tl-menu-head">{t('Blocked tasks overlap their blockers')}</div>
+                  {allViolations.slice(0, 20).map((v) => (
+                    <div key={v.self.row.id + v.pred.row.id} className="tl-conflict-row">
+                      <button
+                        className="tl-conflict-name"
+                        onClick={() => {
+                          setConflictsOpen(false);
+                          openCollectionRow(
+                            { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
+                            v.self.row.id,
+                            { onNavigate, onOpenInNewTab },
+                          );
+                        }}
+                      >
+                        {v.self.row.title || t('Untitled')}
+                        <span className="tl-conflict-sub">
+                          {t('starts {a}, blocked by {b} until {c}', {
+                            a: formatDay(isoDay(v.self.start), 'dayMonth'),
+                            b: v.pred.row.title || t('Untitled'),
+                            c: formatDay(isoDay(v.pred.end), 'dayMonth'),
+                          })}
+                        </span>
+                      </button>
+                      <button
+                        className="btn-sm primary"
+                        onClick={() => {
+                          shiftAfterBlockers(v.self.row.id);
+                          setConflictsOpen(false);
+                        }}
+                      >
+                        {t('Shift to {d}', { d: formatDay(isoDay(shiftDay(v.pred.end + 1)), 'dayMonth') })}
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              <div className="tl-today-tick" style={{ left: todayLeft }} title={t('Today')} />
+              </>
+            )}
+          </div>
+        )}
+        <div className="tl-right">
+          <div className="tl-settings-wrap">
+            <button
+              className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
+              title={t('Timeline settings: start, end and blockers')}
+              onClick={() => {
+                setSettingsOpen((o) => !o);
+                setConflictsOpen(false);
+                settingsSeen();
+              }}
+              aria-expanded={settingsOpen}
+            >
+              <Settings2 size={14} />
+            </button>
+            {settingsOpen && (
+              <AnchoredMenu className="menu tl-settings-menu">
+                <div className="tl-menu-head">{t('Timeline settings')}</div>
+                <label className="tl-settings-row">
+                  <span>{t('Start')}</span>
+                  <select
+                    className="subitems-select"
+                    value={startProp}
+                    onChange={(e) => onViewChange({ dateProp: e.target.value || undefined })}
+                  >
+                    <option value="">{t('Start: —')}</option>
+                    {dateProps.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="tl-settings-row">
+                  <span>{t('End')}</span>
+                  <select
+                    className="subitems-select"
+                    value={endProp}
+                    onChange={(e) => onViewChange({ endDateProp: e.target.value || undefined })}
+                  >
+                    <option value="">{t('End: (none)')}</option>
+                    {dateProps.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="tl-settings-row">
+                  <span>{t('Blockers')}</span>
+                  <select
+                    className="subitems-select"
+                    value={depProp}
+                    onChange={(e) => onViewChange({ depProp: e.target.value || undefined })}
+                  >
+                    <option value="">{t('Blockers: (none)')}</option>
+                    {selfRels.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {selfRels.length === 0 && (
+                  <button
+                    className="btn-sm"
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      onEnsureDepProps();
+                    }}
+                  >
+                    <Plus size={14} /> {t('Create blocker columns')}
+                  </button>
+                )}
+                {!effDep && selfRels.length > 0 && (
+                  <div className="tl-menu-hint">{t('Pick which relation blocks tasks to draw arrows.')}</div>
+                )}
+                {effDep && (
+                  <>
+                    <label className="tl-settings-row">
+                      <span>{t('Skip weekends')}</span>
+                      <input
+                        type="checkbox"
+                        checked={!!skipWeekends}
+                        onChange={(e) => onViewChange({ tlSkipWeekends: e.target.checked })}
+                      />
+                    </label>
+                    <div className="tl-menu-hint">
+                      {t("Shifting a task out of its blockers' way lands on a working day.")}
+                    </div>
+                  </>
+                )}
+              </AnchoredMenu>
+            )}
+          </div>
+          <ModePicker mode={mode} onChange={onModeChange} />
+        </div>
+      </div>
+      <div className="tl-scroll">
+        <div className="tl-inner" style={{ minWidth: labelW + gridMin }}>
+          <div className="tl-header">
+            <div className="tl-corner" style={{ width: labelW }} />
+            <div className="tl-head-right">
+              <div className="tl-months">
+                {months.map((m, i) => (
+                  <div
+                    key={i}
+                    className="tl-month"
+                    style={{ left: m.left, width: m.width }}
+                  >
+                    {m.label}
+                  </div>
+                ))}
+                {todayLeft && <div className="tl-today-tick" style={{ left: todayLeft }} title={t('Today')} />}
+              </div>
+              {!isYear && (
+                <div
+                  className="tl-days"
+                  style={{ gridTemplateColumns: `repeat(${dayCols.length}, minmax(26px, 1fr))` }}
+                >
+                  {dayCols.map((n) => (
+                    <div
+                      key={n}
+                      className={
+                        'tl-day' +
+                        (isWeekend(n) ? ' is-weekend' : '') +
+                        (n === today ? ' is-today' : '') +
+                        (spanItem && covers(spanItem, n) ? ' is-span' : '') +
+                        (spanItem && covers(spanItem, n) && !covers(spanItem, n - 1) ? ' is-span-first' : '') +
+                        (spanItem && covers(spanItem, n) && !covers(spanItem, n + 1) ? ' is-span-last' : '')
+                      }
+                    >
+                      {new Date(n * 86400000).getUTCDate()}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <div className="tl-body">
-            {items.map(({ row, start, end }) => {
-              const left = (start - min) * DAY;
-              const width = Math.max(DAY - 4, (end - start + 1) * DAY - 4);
+            {rendered.map(({ it, geom: g0, fx }) => {
+              const { row } = it;
+              // While dragging, the bar follows the pointer; the dates persist
+              // on release only.
+              const dg =
+                drag && drag.id === row.id
+                  ? barGeom({
+                      ...it,
+                      start: drag.edge === 'start' ? drag.day : it.start,
+                      end: drag.edge === 'end' ? drag.day : it.end,
+                    })
+                  : null;
+              const geom = dg ?? g0;
+              const blocked = effDep ? violationsOf(row.id) : [];
               return (
-                <div key={row.id} className="tl-row">
-                  <div
-                    className="tl-label"
-                    style={{ width: LABELW }}
-                    onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
-                    onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                    title={row.title}
-                  >
-                    {row.icon && (
-                      <span className="inline-icon">
-                        <PageIcon icon={row.icon} size={14} />
-                      </span>
-                    )}
-                    <span className="tl-label-text">{row.title || 'Untitled'}</span>
-                  </div>
-                  <div className="tl-track" style={{ width: gridWidth }}>
-                    <div className="tl-today-line" style={{ left: todayLeft }} />
+                <div
+                  key={row.id}
+                  className={
+                    'tl-row' +
+                    (linkFrom === row.id ? ' is-link-source' : '')
+                  }
+                  data-tl-row={row.id}
+                >
+                  {!hideLabels && (
                     <div
-                      className="tl-bar"
-                      style={{ left, width }}
-                      onClick={(e) => openPage(e, row.id, { onNavigate, onOpenInNewTab })}
+                      className="tl-label"
+                      style={{ width: LABELW }}
+                      onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
                       onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                      title={row.title}
+                      title={tipFor(row, it)}
+                    >
+                      {row.icon && (
+                        <span className="inline-icon">
+                          <PageIcon icon={row.icon} size={14} />
+                        </span>
+                      )}
+                      <span className="tl-label-text">{row.title || 'Untitled'}</span>
+                      {blocked.length > 0 && (
+                        <button
+                          className="tl-warn"
+                          title={plural(
+                            blocked.length,
+                            'Blocked: starts before {n} blocker ends',
+                            'Blocked: starts before {n} blockers end',
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                            setAddBlockerFor(null);
+                          }}
+                        >
+                          ⚠{blocked.length > 1 ? blocked.length : ''}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <div className="tl-track">
+                    {weekends.map((w, k) => (
+                      <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
+                    ))}
+                    {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
+                    <div
+                      className={
+                        'tl-bar' +
+                        (drag && drag.id === row.id ? ' is-dragging' : '') +
+                        (blocked.length > 0 ? ' is-blocked' : '')
+                      }
+                      style={{ left: geom.left, width: geom.width }}
+                      onPointerDown={(e) => beginBarDrag(e, row.id, 'move')}
+                      onClick={(e) => {
+                        if (swallowClick()) return;
+                        openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab });
+                      }}
+                      onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
+                      onMouseEnter={() => {
+                        // While linking, the pointer sweeps other bars: that
+                        // must not re-render (it would reset the lasso paint).
+                        if (!linkActiveRef.current) setHovered(row.id);
+                      }}
+                      onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
+                      title={tipFor(row, it) + (blocked.length > 0 ? ' — ' + t('blocked') : '')}
                     >
                       <span className="tl-bar-label">{row.title || 'Untitled'}</span>
+                      {blocked.length > 0 && (
+                        <button
+                          className="tl-warn on-bar"
+                          title={t('Show blockers and fixes')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                            setAddBlockerFor(null);
+                          }}
+                        >
+                          ⚠
+                        </button>
+                      )}
+                      {resizable && (
+                        <>
+                          {/* The browser's own long-press menu is what takes the
+                              drag away in the first place; on a handle it has
+                              nothing useful to offer, so it is never shown. */}
+                          <span
+                            className="tl-resize tl-resize-l"
+                            onPointerDown={(e) => beginBarDrag(e, row.id, 'start')}
+                            onContextMenu={(e) => e.preventDefault()}
+                          />
+                          <span
+                            className="tl-resize tl-resize-r"
+                            onPointerDown={(e) => beginBarDrag(e, row.id, 'end')}
+                            onContextMenu={(e) => e.preventDefault()}
+                          />
+                        </>
+                      )}
                     </div>
+                    {/* Link handle just past the bar's right edge, Notion-style:
+                        a short stub and a white dot with an accent ring. It
+                        appears on bar hover (or while linking from here) and
+                        pulls onto another bar for this row to block that one.
+                        It lives on the track: inside the bar the overflow
+                        would cut it off. */}
+                    {effDep && (
+                      <span
+                        className={
+                          'tl-dep-handle' + (linkFrom === row.id ? ' is-active' : '')
+                        }
+                        style={{ left: `calc(${((fx.r) * 100).toFixed(3)}% - 3px)` }}
+                        title={t('Drag onto a task to block it')}
+                        onPointerDown={(e) => beginLink(e, row.id)}
+                        onContextMenu={(e) => e.preventDefault()}
+                      >
+                        <svg viewBox="0 0 26 30" aria-hidden>
+                          <path
+                            d="M 1 15 C 7 15, 9 15, 14 15"
+                            fill="transparent"
+                            className="tl-dep-stub"
+                          />
+                          <circle cx="19" cy="15" r="4.5" className="tl-dep-dot" />
+                        </svg>
+                      </span>
+                    )}
+                    {/* The live date hangs off an edge being pulled. A bar
+                        being carried does not need it: the bar itself is
+                        already under the pointer, and the date only got in the
+                        way of seeing where it would land. */}
+                    {drag && drag.id === row.id && drag.edge !== 'move' && (
+                      <span
+                        className="tl-drag-tip"
+                        style={{
+                          left:
+                            drag.edge === 'start'
+                              ? geom.left
+                              : `calc(${geom.left} + ${geom.width})`,
+                        }}
+                      >
+                        {formatDay(isoDay(drag.day), 'dayMonth')}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
             })}
+            {/* Dependency arrows: one overlay SVG in track pixels, Notion-style.
+                Short horizontal stub out of the blocker, straight diagonal,
+                horizontal entry into the target with a chevron head that stops
+                just before the bar. A fat invisible twin of each path takes
+                clicks and opens the successor's popover. Bad (overlapping)
+                arrows are red. */}
+            {effDep && (
+              <div className="tl-arrows" ref={arrowsRefCb} style={{ left: labelW }}>
+                <svg
+                  width={trackW}
+                  height={rendered.length * ROW_H}
+                  style={{ display: 'block', overflow: 'visible' }}
+                >
+                  {arrows.length > 0 &&
+                    trackW > 0 &&
+                    arrows.map((a) => {
+                    const x1 = a.x1 * trackW;
+                    // The head stops just before the bar instead of climbing it.
+                    const x2 = a.x2 * trackW - 5;
+                    const y1 = a.from * ROW_H + 20;
+                    const y2 = a.to * ROW_H + 20;
+                    const d = arrowPathD(x1, y1, x2, y2);
+                    return (
+                      <g key={a.key} className={a.bad ? 'is-bad' : undefined}>
+                        <path d={d} className="tl-dep-path" />
+                        <polyline points={arrowHeadPoints(x2, y2)} className="tl-dep-head" />
+                        <path
+                          d={d}
+                          className="tl-dep-hit"
+                          onMouseEnter={() => setHoverArrow(a.key)}
+                          onMouseLeave={() => setHoverArrow((h) => (h === a.key ? null : h))}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDepPop({ id: a.succ, x: e.clientX, y: e.clientY + 4 });
+                            setAddBlockerFor(null);
+                          }}
+                        />
+                      </g>
+                    );
+                    })}
+                </svg>
+                {arrows.length > 0 &&
+                  trackW > 0 &&
+                  arrows.map((a) => {
+                    if (hoverArrow !== a.key) return null;
+                    const x2 = a.x2 * trackW - 5;
+                    const y2 = a.to * ROW_H + 20;
+                    return (
+                      <button
+                        key={'x-' + a.key}
+                        className="tl-arrow-x"
+                        style={{ left: `${x2 - 12}px`, top: `${y2}px` }}
+                        title={t('Remove link')}
+                        onMouseEnter={() => setHoverArrow(a.key)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setHoverArrow(null);
+                          unlink(a.pred, a.succ);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
+            {!hideLabels && (
+              <div className="tl-row">
+                <div className="tl-label tl-add" style={{ width: LABELW }}>
+                  <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
+                    <Plus size={14} /> {t('New')}
+                  </button>
+                </div>
+                <div className="tl-track" />
+              </div>
+            )}
           </div>
         </div>
       </div>
+      {linkFrom && (
+        <div className="tl-link-hint" role="status">
+          {t('Drop on a task to block it — Esc cancels')}
+        </div>
+      )}
+      {linkFrom && linkLine && (
+        <Portal>
+          <svg
+            className="tl-lasso"
+            width={window.innerWidth}
+            height={window.innerHeight}
+            aria-hidden
+          >
+            <path
+              ref={lassoPathRef}
+              d={`M ${linkLine.x} ${linkLine.y} C ${linkLine.x + 30} ${linkLine.y}, ${linkLine.x2 - 30} ${linkLine.y2}, ${linkLine.x2} ${linkLine.y2}`}
+            />
+            <circle
+              ref={lassoDotRef}
+              cx={linkLine.x2}
+              cy={linkLine.y2}
+              r={6}
+              className="tl-lasso-dot"
+            />
+          </svg>
+        </Portal>
+      )}
+      {depPop && depPopItem && (
+        <Portal>
+          <div className="fs-backdrop" onClick={() => setDepPop(null)} />
+          <div
+            className="menu tl-dep-menu"
+            style={{
+              position: 'fixed',
+              left: Math.max(8, Math.min(depPop.x, window.innerWidth - 320)),
+              top: Math.max(8, Math.min(depPop.y, window.innerHeight - 300)),
+              width: 300,
+              zIndex: 320,
+            }}
+            role="dialog"
+            aria-label={t('Blockers')}
+          >
+            <div className="tl-menu-head">{depPopItem.row.title || t('Untitled')}</div>
+            {(blockedBy.get(depPop.id) ?? []).length > 0 && (
+              <div className="tl-dep-section">{t('Blocked by')}</div>
+            )}
+            {(blockedBy.get(depPop.id) ?? []).map((pid) => {
+              const pred = byId.get(pid);
+              if (!pred) return null;
+              const bad = depPopItem.start <= pred.end;
+              return (
+                <div key={'in-' + pid} className={'tl-dep-row' + (bad ? ' is-bad' : '')}>
+                  <button
+                    className="tl-dep-name"
+                    onClick={() => {
+                      setDepPop(null);
+                      openCollectionRow(
+                        { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
+                        pid,
+                        { onNavigate, onOpenInNewTab },
+                      );
+                    }}
+                    title={tipFor(pred.row, pred)}
+                  >
+                    {pred.row.title || t('Untitled')}
+                    <span className="tl-conflict-sub">
+                      {t('ends {d}', { d: formatDay(isoDay(pred.end), 'dayMonth') })}
+                      {bad ? ' — ' + t('overlaps') : ''}
+                    </span>
+                  </button>
+                  <button
+                    className="btn-sm"
+                    title={t('Remove block')}
+                    onClick={() => {
+                      void onSetDep(pid, effDep, depIdsOf(pid).filter((id) => id !== depPop.id));
+                      setDepPop(null);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+            {depPopViolations.length > 0 && (
+              <button
+                className="btn-sm primary tl-dep-fix"
+                onClick={() => {
+                  shiftAfterBlockers(depPop.id);
+                  setDepPop(null);
+                }}
+              >
+                {t('Shift to {d}, keep duration', {
+                  d: formatDay(
+                    isoDay(shiftDay(Math.max(...depPopViolations.map((v) => v.pred.end)) + 1)),
+                    'dayMonth',
+                  ),
+                })}
+              </button>
+            )}
+            <div className="tl-dep-section">{t('Blocks')}</div>
+            {depIdsOf(depPop.id).length === 0 && (blockedBy.get(depPop.id) ?? []).length === 0 && (
+              <div className="tl-menu-hint">{t('No links yet.')}</div>
+            )}
+            {depIdsOf(depPop.id).map((sid) => {
+              const succ = byId.get(sid);
+              if (!succ) return null;
+              return (
+                <div key={'out-' + sid} className="tl-dep-row">
+                  <button
+                    className="tl-dep-name"
+                    onClick={() => {
+                      setDepPop(null);
+                      openCollectionRow(
+                        { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
+                        sid,
+                        { onNavigate, onOpenInNewTab },
+                      );
+                    }}
+                    title={tipFor(succ.row, succ)}
+                  >
+                    {succ.row.title || t('Untitled')}
+                    <span className="tl-conflict-sub">
+                      {t('starts {d}', { d: formatDay(isoDay(succ.start), 'dayMonth') })}
+                    </span>
+                  </button>
+                  <button
+                    className="btn-sm"
+                    title={t('Stop blocking')}
+                    onClick={() => {
+                      unlink(depPop.id, sid);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+            {addBlockerFor === depPop.id ? (
+              <select
+                className="subitems-select tl-dep-add"
+                autoFocus
+                value=""
+                onChange={(e) => {
+                  const target = e.target.value;
+                  setAddBlockerFor(null);
+                  if (target && !wouldCycle(depPop.id, target)) {
+                    const cur = depIdsOf(depPop.id);
+                    if (!cur.includes(target)) void onSetDep(depPop.id, effDep, [...cur, target]);
+                  } else if (target) {
+                    toast(t('That would create a loop'));
+                  }
+                }}
+              >
+                <option value="">{t('Pick a task to block…')}</option>
+                {items
+                  .filter((i) => i.row.id !== depPop.id && !depIdsOf(depPop.id).includes(i.row.id))
+                  .slice(0, 50)
+                  .map((i) => (
+                    <option key={i.row.id} value={i.row.id}>
+                      {i.row.title || t('Untitled')}
+                    </option>
+                  ))}
+              </select>
+            ) : (
+              <button className="btn-sm" onClick={() => setAddBlockerFor(depPop.id)}>
+                <Plus size={14} /> {t('Block a task')}
+              </button>
+            )}
+          </div>
+        </Portal>
+      )}
+    </div>
+  );
+}
+
+/** The dot on a view's settings button.
+ *
+ *  A view has settings — which date it reads, what it spans — and nothing says
+ *  so. The button wears a dot until that kind of view's settings have been
+ *  opened once, and the memory is keyed by the kind: the point is made once per
+ *  kind of view, not once per view somebody creates. */
+function useSettingsHint(name: string): [boolean, () => void] {
+  const [show, setShow] = useState(() => !hintSeen(name));
+  const seen = () => {
+    if (!show) return;
+    markHintSeen(name);
+    setShow(false);
+  };
+  return [show, seen];
+}
+
+// Day/Week/Month/2-months/Year switch shared by the calendar and the
+// timeline headers: same control, same place, same labels.
+function ModePicker({ mode, onChange }: { mode: SpanMode; onChange: (m: SpanMode) => void }) {
+  const [open, setOpen] = useState(false);
+  const label =
+    mode === 'day'
+      ? t('Day')
+      : mode === 'week'
+        ? t('Week')
+        : mode === 'year'
+          ? t('Year')
+          : mode === '2months'
+            ? t('2 months')
+            : t('Month');
+  const pick = (m: SpanMode) => {
+    setOpen(false);
+    if (m !== mode) onChange(m);
+  };
+  return (
+    <div className="cal-range-wrap">
+      <button className="btn-sm" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        {label} <ChevronDown size={14} />
+      </button>
+      {open && (
+        <>
+          <div className="fs-backdrop" onClick={() => setOpen(false)} />
+          <div className="menu view-tab-menu" role="listbox">
+            {(['day', 'week', 'month', '2months', 'year'] as const).map((m) => (
+              <button
+                key={m}
+                role="option"
+                aria-selected={mode === m}
+                onClick={() => pick(m)}
+              >
+                {m === 'day'
+                  ? t('Day')
+                  : m === 'week'
+                    ? t('Week')
+                    : m === 'year'
+                      ? t('Year')
+                      : m === '2months'
+                        ? t('2 months')
+                        : t('Month')}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2672,21 +4350,59 @@ function CalendarView({
   rows,
   schema,
   dateProp,
+  endDateProp,
   tagColors,
   onNavigate,
   onOpenInNewTab,
+  mode,
+  onModeChange,
+  onViewChange,
+  onAddRow,
+  onSetDate,
 }: {
   rows: Row[];
   schema: PropDef[];
   dateProp: string;
+  endDateProp: string;
   tagColors: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
+  mode: SpanMode;
+  onModeChange: (m: SpanMode) => void;
+  onViewChange: (patch: Partial<ViewDef>) => void;
+  onAddRow: (presetProps?: Record<string, unknown>) => void;
+  onSetDate: (rowId: string, propId: string, iso: string) => void;
 }) {
-  const [month, setMonth] = useState(() => {
+  const [cursor, setCursor] = useState(() => {
     const n = new Date();
-    return new Date(n.getFullYear(), n.getMonth(), 1);
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate());
   });
+  // The view's own settings: which date it reads, and what a range is.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsHint, settingsSeen] = useSettingsHint('calendar-settings');
+  const dateProps = schema.filter((p) => p.type === 'date');
+  // Dragging an entry to another day: the day under the pointer, and the click
+  // the gesture ends in (which must not open the row it just moved).
+  const [dropDay, setDropDay] = useState<string | null>(null);
+  // The entry itself, following the pointer: a tinted cell says where it will
+  // land, this says what is being carried.
+  const [ghost, setGhost] = useState<{ x: number; y: number; title: string } | null>(null);
+  const dragGuard = useRef(0);
+  // Swiping the calendar pages it, like the arrows: a trackpad's sideways scroll
+  // and a finger's sideways drag both step one span. The timeline is left alone
+  // — there the same gesture scrolls the axis, which is what it is for.
+  const swipe = useRef<{ x: number; y: number; done: boolean } | null>(null);
+  const swipeLock = useRef(0);
+  // True from the press on an entry until its drag ends — while it is set,
+  // paging handlers stay out of the way (see beginEntryDrag).
+  const carryingEntry = useRef(false);
+  const pageBy = (forward: boolean) => {
+    const now = Date.now();
+    if (now - swipeLock.current < 320) return;
+    swipeLock.current = now;
+    dragGuard.current = now; // a swipe is not a click on what it started over
+    step(forward ? 1 : -1);
+  };
 
   if (!dateProp || !schema.some((p) => p.id === dateProp && p.type === 'date')) {
     return (
@@ -2705,62 +4421,447 @@ function CalendarView({
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(r);
   }
 
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  // Where the week starts is a property of the language, not of the code:
-  // Monday across most of Europe, Sunday in the US and Japan, Saturday in much
-  // of the Arab world. This used to be hardcoded to Monday.
-  const startWeekday = (first.getDay() - firstWeekday() + 7) % 7;
-  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  const cells: (Date | null)[] = [];
-  for (let i = 0; i < startWeekday; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(month.getFullYear(), month.getMonth(), d));
-  while (cells.length % 7 !== 0) cells.push(null);
+  // A row with an end date covers days, and is drawn as ONE bar across them
+  // rather than a chip in each cell — see the settings for the end property.
+  // A range that ends where it starts is not a range, and stays a chip.
+  type Span = { row: Row; from: string; to: string };
+  const spans: Span[] = [];
+  for (const r of rows) {
+    const v = r.props[dateProp];
+    if (typeof v !== 'string' || !v) continue;
+    const from = v.slice(0, 10);
+    let to = from;
+    if (endDateProp) {
+      const e = r.props[endDateProp];
+      if (typeof e === 'string' && e) {
+        const end = e.slice(0, 10);
+        if (end > from) to = end;
+      }
+    }
+    if (to > from) spans.push({ row: r, from, to });
+  }
+  const spanIds = new Set(spans.map((s) => s.row.id));
+  // Every row's own span, whatever it looks like on screen: a move needs the
+  // dates it started from, not the segment under the finger.
+  const rangeOf = new Map<string, { from: string; to: string }>();
+  for (const r of rows) {
+    const v = r.props[dateProp];
+    if (typeof v !== 'string' || !v) continue;
+    const from = v.slice(0, 10);
+    let to = from;
+    if (endDateProp) {
+      const e = r.props[endDateProp];
+      if (typeof e === 'string' && e && e.slice(0, 10) > from) to = e.slice(0, 10);
+    }
+    rangeOf.set(r.id, { from, to });
+  }
+  const addDaysTo = (key: string, n: number) => {
+    const d = new Date(key + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return toDayString(d);
+  };
+  const dayAtPoint = (x: number, y: number): string | null => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const cell = el?.closest('.calendar-cell') as HTMLElement | null;
+    return cell?.dataset.day ?? null;
+  };
+  // Carrying an entry to another day: it keeps its length and moves by the days
+  // the pointer travelled, exactly like a bar on the timeline.
+  const beginEntryDrag = (e: React.PointerEvent, rowId: string) => {
+    const r = rangeOf.get(rowId);
+    if (!r) return;
+    // While an entry is being carried, swiping must not page the calendar: the
+    // same gesture cannot mean "move this entry" and "show another month".
+    carryingEntry.current = true;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let moved = false;
+    let target: string | null = null;
+    const label = rows.find((r) => r.id === rowId)?.title || t('Untitled');
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - y0) < 4) return;
+      moved = true;
+      target = dayAtPoint(ev.clientX, ev.clientY);
+      setDropDay(target);
+      setGhost({ x: ev.clientX, y: ev.clientY, title: label });
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      setDropDay(null);
+      setGhost(null);
+      carryingEntry.current = false;
+      if (!moved || !target || target === r.from) return;
+      dragGuard.current = Date.now();
+      const delta = Math.round(
+        (new Date(target + 'T00:00:00').getTime() - new Date(r.from + 'T00:00:00').getTime()) / 86400000,
+      );
+      void onSetDate(rowId, dateProp, addDaysTo(r.from, delta));
+      // Only a row that already ended somewhere gets an end: moving a one-day
+      // entry keeps it one day.
+      if (endDateProp && r.to > r.from) void onSetDate(rowId, endDateProp, addDaysTo(r.to, delta));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
+  const entryClick = (e: React.MouseEvent, rowId: string) => {
+    if (Date.now() - dragGuard.current < 700) return;
+    openCollectionRow(e, rowId, { onNavigate, onOpenInNewTab });
+  };
+
+  // Every day a bar touches, for the year's mini grids (a range lights all of
+  // its days, not only the first).
+  const covered = new Set<string>();
+  for (const s of spans) {
+    const d = new Date(s.from + 'T00:00:00');
+    const end = new Date(s.to + 'T00:00:00');
+    // A runaway range cannot flood the set: a year of days is already absurd.
+    for (let i = 0; d <= end && i < 400; i++, d.setDate(d.getDate() + 1)) covered.add(ymd(d));
+  }
+  /** The bars a week shows, in a fixed order — so a bar's segment sits at the
+   *  same height in every cell of the row it crosses. */
+  const lanesFor = (days: (Date | null)[]): Span[] => {
+    const keys = days.filter((d): d is Date => !!d).map((d) => ymd(d));
+    if (keys.length === 0) return [];
+    const lo = keys[0];
+    const hi = keys[keys.length - 1];
+    return spans
+      .filter((s) => s.from <= hi && s.to >= lo)
+      .sort((a, b) =>
+        a.from !== b.from ? (a.from < b.from ? -1 : 1) : a.row.id < b.row.id ? -1 : 1,
+      );
+  };
+  const spanTitle = (s: Span) =>
+    (s.row.title || t('Untitled')) + ' — ' + formatDay(s.from, 'dayMonth') + ' → ' + formatDay(s.to, 'dayMonth');
 
   const today = ymd(new Date());
-  const monthLabel = formatMonth(month.getFullYear(), month.getMonth(), 'long');
-  const step = (delta: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + delta, 1));
+  const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const addMonths = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth() + n, 1);
+  const startOfWeek = (d: Date) => addDays(d, -((d.getDay() - firstWeekday() + 7) % 7));
+  const weekStart = startOfWeek(cursor);
+  const weekDays: Date[] = [];
+  for (let k = 0; k < 7; k++) weekDays.push(addDays(weekStart, k));
+  // One cell grid per shown month.
+  const monthStarts: Date[] =
+    mode === '2months'
+      ? [new Date(cursor.getFullYear(), cursor.getMonth(), 1), addMonths(cursor, 1)]
+      : [new Date(cursor.getFullYear(), cursor.getMonth(), 1)];
+  const monthCells = (first: Date) => {
+    // Where the week starts is a property of the language, not of the code:
+    // Monday across most of Europe, Sunday in the US and Japan, Saturday in much
+    // of the Arab world. This used to be hardcoded to Monday.
+    const startWeekday = (first.getDay() - firstWeekday() + 7) % 7;
+    const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    const cells: (Date | null)[] = [];
+    for (let i = 0; i < startWeekday; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(first.getFullYear(), first.getMonth(), d));
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  };
+  // One lane list per week row of a month grid, so a bar keeps its height
+  // across the row it crosses.
+  const monthRowLanes = (first: Date): Span[][] => {
+    const cells = monthCells(first);
+    const rows: Span[][] = [];
+    for (let r = 0; r * 7 < cells.length; r++) rows.push(lanesFor(cells.slice(r * 7, r * 7 + 7)));
+    return rows;
+  };
+
+  const second = monthStarts[1];
+  const step = (delta: number) => {
+    if (mode === 'day') setCursor((c) => addDays(c, delta));
+    else if (mode === 'week') setCursor((c) => addDays(c, delta * 7));
+    else if (mode === 'year') setCursor((c) => new Date(c.getFullYear() + delta, c.getMonth(), 1));
+    // Month modes always slide by one month — even showing two — so no month
+    // is ever skipped over.
+    else setCursor((c) => addMonths(c, delta));
+  };
+  const goToday = () => {
+    const n = new Date();
+    setCursor(new Date(n.getFullYear(), n.getMonth(), n.getDate()));
+  };
+  const title =
+    mode === 'day'
+      ? formatDay(toDayString(cursor))
+      : mode === 'week'
+        ? formatDay(toDayString(weekStart)) + ' — ' + formatDay(toDayString(addDays(weekStart, 6)))
+        : mode === 'year'
+          ? String(cursor.getFullYear())
+          : mode === '2months' && second
+            ? formatMonth(monthStarts[0].getFullYear(), monthStarts[0].getMonth(), 'long') +
+              ' — ' +
+              formatMonth(second.getFullYear(), second.getMonth(), 'long')
+            : formatMonth(cursor.getFullYear(), cursor.getMonth(), 'long');
+  const eventButton = (r: Row, d: Date | null) => (
+    <button
+      key={r.id}
+      className="calendar-event"
+      onPointerDown={(e) => beginEntryDrag(e, r.id)}
+      onClick={(e) => entryClick(e, r.id)}
+      onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+      title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
+    >
+      {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+      {r.title || 'Untitled'}
+      {!!r.tags?.length && (
+        <span className="cal-event-tags">
+          {r.tags.map((t) => (
+            <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
+          ))}
+        </span>
+      )}
+    </button>
+  );
+  const dayCell = (d: Date | null, i: number | string, lanes: Span[] = []) => {
+    const key = d ? ymd(d) : '';
+    const dayRows = (d ? byDate.get(key) ?? [] : []).filter((r) => !spanIds.has(r.id));
+    // A lane the bar does not cross today still takes its place, so the bars
+    // stay in line across the row.
+    const laneSlot = (s: Span) => {
+      const covers = !!d && s.from <= key && s.to >= key;
+      if (!covers) return <div key={'l' + s.row.id} className="cal-lane" />;
+      const isStart = s.from === key;
+      const isEnd = s.to === key;
+      return (
+        <button
+          key={'sp' + s.row.id}
+          className={'cal-span' + (isStart ? ' is-start' : '') + (isEnd ? ' is-end' : '')}
+          onPointerDown={(e) => beginEntryDrag(e, s.row.id)}
+          onClick={(e) => entryClick(e, s.row.id)}
+          onAuxClick={(e) => openPageAux(e, s.row.id, { onNavigate, onOpenInNewTab })}
+          title={spanTitle(s)}
+        >
+          {isStart && (
+            <>
+              {s.row.icon && (
+                <span className="inline-icon">
+                  <PageIcon icon={s.row.icon} size={14} />{' '}
+                </span>
+              )}
+              {s.row.title || t('Untitled')}
+            </>
+          )}
+        </button>
+      );
+    };
+    return (
+      <div
+        key={i}
+        data-day={key || undefined}
+        className={
+          'calendar-cell' +
+          (d ? '' : ' empty') +
+          (key === today ? ' today' : '') +
+          (key && key === dropDay ? ' is-drop' : '')
+        }
+      >
+        {d && (
+          <button
+            className="calendar-daynum"
+            onClick={() => {
+              setCursor(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+              onModeChange('day');
+            }}
+            title={t('Open this day')}
+          >
+            {d.getDate()}
+          </button>
+        )}
+        {lanes.map(laneSlot)}
+        {dayRows.map((r) => eventButton(r, d))}
+        {/* Adding from the day itself: the corner of the cell, always there on
+            a touch screen and on hover where there is a pointer. */}
+        {d && (
+          <button
+            className="cal-add"
+            title={t('Add an entry on this day')}
+            aria-label={t('Add an entry on this day')}
+            onClick={(e) => {
+              e.stopPropagation();
+              void onAddRow({ [dateProp]: ymd(d) });
+            }}
+          >
+            <Plus size={13} />
+          </button>
+        )}
+      </div>
+    );
+  };
+  const yearMonths: Date[] = [];
+  for (let m = 0; m < 12; m++) yearMonths.push(new Date(cursor.getFullYear(), m, 1));
 
   return (
-    <div className="calendar">
+    <div
+      className="calendar"
+      onWheel={(e) => {
+        if (carryingEntry.current) return;
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 16) pageBy(e.deltaX > 0);
+      }}
+      onPointerDown={(e) => {
+        swipe.current = { x: e.clientX, y: e.clientY, done: false };
+      }}
+      onPointerMove={(e) => {
+        if (carryingEntry.current) return;
+        const s = swipe.current;
+        if (!s || s.done) return;
+        const dx = e.clientX - s.x;
+        const dy = e.clientY - s.y;
+        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        s.done = true;
+        pageBy(dx < 0);
+      }}
+      onPointerUp={() => {
+        swipe.current = null;
+      }}
+      onPointerCancel={() => {
+        swipe.current = null;
+      }}
+    >
       <div className="calendar-head">
         <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
-        <span className="calendar-title">{monthLabel}</span>
+        <span className="calendar-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
-        <button className="btn-sm" onClick={() => setMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>{t('Today')}</button>
-      </div>
-      <div className="calendar-grid">
-        {weekdayNames().map((d) => (
-          <div key={d} className="calendar-dow">{d}</div>
-        ))}
-        {cells.map((d, i) => {
-          const key = d ? ymd(d) : '';
-          const dayRows = d ? byDate.get(key) ?? [] : [];
-          return (
-            <div key={i} className={'calendar-cell' + (d ? '' : ' empty') + (key === today ? ' today' : '')}>
-              {d && <div className="calendar-daynum">{d.getDate()}</div>}
-              {dayRows.map((r) => (
-                <button
-                  key={r.id}
-                  className="calendar-event"
-                  onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
-                  onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
-                  title={r.title}
+        <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
+        <div className="cal-right">
+        <div className="cal-settings-wrap">
+          <button
+            className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
+            title={t('Calendar settings: start and end')}
+            onClick={() => {
+              setSettingsOpen((o) => !o);
+              settingsSeen();
+            }}
+            aria-expanded={settingsOpen}
+          >
+            <Settings2 size={14} />
+          </button>
+          {settingsOpen && (
+            <AnchoredMenu className="menu tl-settings-menu">
+              <div className="tl-menu-head">{t('Calendar settings')}</div>
+              <label className="tl-settings-row">
+                <span>{t('Start')}</span>
+                <select
+                  className="subitems-select"
+                  value={dateProp}
+                  onChange={(e) => onViewChange({ dateProp: e.target.value || undefined })}
                 >
-                  {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                  {r.title || 'Untitled'}
-                  {!!r.tags?.length && (
-                    <span className="cal-event-tags">
-                      {r.tags.map((t) => (
-                        <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
-                      ))}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          );
-        })}
+                  <option value="">{t('Start: —')}</option>
+                  {dateProps.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="tl-settings-row">
+                <span>{t('End')}</span>
+                <select
+                  className="subitems-select"
+                  value={endDateProp}
+                  onChange={(e) => onViewChange({ endDateProp: e.target.value || undefined })}
+                >
+                  <option value="">{t('End: (none)')}</option>
+                  {dateProps.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="tl-menu-hint">
+                {t('A range is drawn as one bar; with no end it stays an entry on a single day.')}
+              </div>
+            </AnchoredMenu>
+          )}
+        </div>
+          <ModePicker mode={mode} onChange={onModeChange} />
+        </div>
       </div>
+      {ghost && (
+        <div className="cal-ghost" style={{ left: ghost.x, top: ghost.y }} aria-hidden="true">
+          {ghost.title}
+        </div>
+      )}
+      {mode === 'day' ? (
+        <div className="cal-day-list">
+          {(byDate.get(toDayString(cursor)) ?? []).map((r) => eventButton(r, cursor))}
+          {(byDate.get(toDayString(cursor)) ?? []).length === 0 && (
+            <div className="db-empty">{t('Nothing on this day.')}</div>
+          )}
+        </div>
+      ) : mode === 'week' ? (
+        <div className="calendar-grid">
+          {weekdayNames().map((d) => (
+            <div key={d} className="calendar-dow">{d}</div>
+          ))}
+          {weekDays.map((d, i) => dayCell(d, i, lanesFor(weekDays)))}
+        </div>
+      ) : mode === 'year' ? (
+        <div className="cal-year">
+          {yearMonths.map((first, mi) => (
+            <div key={mi} className="cal-mini">
+              <button
+                className="cal-mini-title"
+                onClick={() => {
+                  setCursor(new Date(first.getFullYear(), first.getMonth(), 1));
+                  onModeChange('month');
+                }}
+              >
+                {formatMonth(first.getFullYear(), first.getMonth(), 'long')}
+              </button>
+              <div className="cal-mini-grid">
+                {monthCells(first).map((d, i) => {
+                  const key = d ? ymd(d) : '';
+                  const has = d && ((byDate.get(key) ?? []).length > 0 || covered.has(key));
+                  const dim = d && d.getMonth() !== first.getMonth();
+                  return (
+                    <button
+                      key={i}
+                      className={
+                        'cal-mini-day' +
+                        (!d ? ' empty' : '') +
+                        (key === today ? ' today' : '') +
+                        (has ? ' has-events' : '') +
+                        (dim ? ' dim' : '')
+                      }
+                      disabled={!d}
+                      onClick={() => {
+                        if (!d) return;
+                        setCursor(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+                        onModeChange('day');
+                      }}
+                      title={d ? formatDay(toDayString(d)) : undefined}
+                    >
+                      {d?.getDate() ?? ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="cal-grids">
+          {monthStarts.map((first, mi) => {
+            const rowLanes = monthRowLanes(first);
+            return (
+              <div key={mi} className="calendar-grid-wrap">
+                {mode === '2months' && (
+                  <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
+                )}
+                <div className="calendar-grid">
+                  {weekdayNames().map((d) => (
+                    <div key={d} className="calendar-dow">{d}</div>
+                  ))}
+                  {monthCells(first).map((d, i) => dayCell(d, `${mi}-${i}`, rowLanes[Math.floor(i / 7)]))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { showActivityFor } from './ActivityLogHost';
 import { initials, nameColor } from './CommentsPanel';
 import { Check, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
+import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
 
 interface Props {
@@ -23,6 +24,14 @@ interface Props {
    *  table is not for. The rest is summarised as "+N" and stays one click
    *  away. Same reasoning as the one-line truncation of long text cells. */
   maxChips?: number;
+  /** Open a related row when its chip is clicked — always in a new tab, never
+   *  in place. Absent, chips stay static text (unknown rows always do: there
+   *  is nothing readable to open). */
+  onOpen?: (id: string) => void;
+  /** Where the full modifier rule lives (Option peeks, the row setting
+   *  decides the plain click). Preferred over onOpen wherever both openers
+   *  are in scope; onOpen stays as the fallback for public views. */
+  openers?: PageOpeners;
 }
 
 // idList reads a list-shaped value (relation, multiselect). A single id stored
@@ -702,7 +711,7 @@ export function loadRelationOptions(colId: string, force = false): Promise<RelOp
   return relCache.get(colId)!;
 }
 
-function RelationValue({ def, value, onChange, readOnly, compact, maxChips }: Props) {
+function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen, openers }: Props) {
   const targetId = def.relationCollection;
   const ids = idList(value);
   const [options, setOptions] = useState<RelOption[]>([]);
@@ -737,8 +746,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips }: Pr
     return () => document.removeEventListener('pointerdown', onDown);
   }, [open]);
 
-  // Three cases, and the middle one is the whole point:
-  //
+  // Three cases, and the middle one is the whole point:  //
   //   in the list with a title   → the title
   //   in the list with none      → "Untitled", which is then TRUE of that row
   //   not in the list at all     → '' — we do not know, and say so
@@ -767,25 +775,85 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips }: Pr
   // through PageIcon like everywhere else. Printed raw, a Lucide or MDI icon
   // arrived as the literal text "lucide:PhoneCall" — visible in the picker on
   // every row whose icon was not an emoji.
+  // The pencil on a chip opens this field's picker — the chip itself
+  // navigates, so editing needs its own affordance, like URL chips have.
+  const openPicker = () => {
+    if (!open && targetId) void loadRelationOptions(targetId, true).then(setOptions);
+    setOpen(true);
+  };
   const chips = (
     <span className="prop-multi">
-      {shown.map((id) => (
-        <span
-          key={id}
-          className={
-            'prop-chip relation-chip' + (titleOf(id) ? '' : loaded ? ' is-unknown' : ' is-pending')
+      {shown.map((id) => {
+        const title = titleOf(id);
+        const inner = (
+          <>
+            {iconOf(id) && (
+              <span className="relation-icon">
+                <PageIcon icon={iconOf(id)} size={14} />
+              </span>
+            )}
+            {title}
+          </>
+        );
+        const cls =
+          'prop-chip relation-chip' + (title ? '' : loaded ? ' is-unknown' : ' is-pending');
+        const tip = title || (loaded ? t('This row is not readable from here.') : undefined);
+        // A readable row opens in a new tab; an unknown one stays plain text.
+        // In the editor below the same chip is a span, not a button: it sits
+        // inside the picker toggle, and a button in a button is invalid HTML.
+        const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
+        if (onOpen && title) {
+          if (ro) {
+            return (
+              <button
+                key={id}
+                type="button"
+                className={cls + ' relation-link'}
+                title={title}
+                style={chipStyle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (openers) openCollectionRow(e, id, openers);
+                  else if (onOpen && !peekPage(e, id)) onOpen(id);
+                }}
+              >
+                {inner}
+              </button>
+            );
           }
-          title={titleOf(id) || (loaded ? t('This row is not readable from here.') : undefined)}
-          style={{ background: '#3b6fb52e', color: '#3b6fb5' }}
-        >
-          {iconOf(id) && (
-            <span className="relation-icon">
-              <PageIcon icon={iconOf(id)} size={14} />
+          return (
+            <span
+              key={id}
+              className={cls + ' relation-link'}
+              title={title}
+              style={chipStyle}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (openers) openCollectionRow(e, id, openers);
+                else if (onOpen && !peekPage(e, id)) onOpen(id);
+              }}
+            >
+              {inner}
+              <button
+                type="button"
+                className="relation-edit-btn"
+                title={t('Edit relation')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openPicker();
+                }}
+              >
+                <Pencil size={12} />
+              </button>
             </span>
-          )}
-          {titleOf(id)}
-        </span>
-      ))}
+          );
+        }
+        return (
+          <span key={id} className={cls} title={tip} style={chipStyle}>
+            {inner}
+          </span>
+        );
+      })}
       {hidden > 0 && (
         <span className="prop-chip relation-more" title={ids.map(titleOf).filter(Boolean).join(', ')}>
           {t('+{n} more', { n: hidden })}
@@ -858,6 +926,8 @@ export default function PropertyValue({
   readOnly,
   compact,
   maxChips,
+  onOpen,
+  openers,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const ro = readOnly || !onChange;
@@ -872,6 +942,8 @@ export default function PropertyValue({
           readOnly={readOnly}
           compact={compact}
           maxChips={maxChips}
+          onOpen={onOpen}
+          openers={openers}
         />
       );
     // A backrelation IS a relation to read — same ids, same titles, same
@@ -886,6 +958,8 @@ export default function PropertyValue({
           readOnly
           compact={compact}
           maxChips={maxChips}
+          onOpen={onOpen}
+          openers={openers}
         />
       );
     case 'lastActivity': {

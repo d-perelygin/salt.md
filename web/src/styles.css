@@ -859,6 +859,75 @@ button {
   position: relative;
 }
 
+/* ---------- Side peek ---------- */
+
+/* A second document over the right side (Option-click a page link), below the
+   modals (100) but above everything else, so its own dropdowns (310+) and
+   dialogs still open over it. No backdrop: the page behind stays usable, and
+   Escape or ≫ closes the panel. */
+.peek-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(680px, 50vw);
+  z-index: 90;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+}
+
+.peek-panel > .editor-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+/* In the peek the header is denser: the panel controls travel as one pair
+   with almost no gap inside it, the pair keeps its usual distance to the
+   text, and the text runs up to the right icons with barely a gap — the
+   trail fade (below) handles the overflow instead of empty space. */
+.peek-panel .topbar {
+  gap: 2px;
+}
+
+.peek-pair {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 10px;
+}
+
+.peek-panel .topbar-menu {
+  margin-right: 10px;
+}
+
+.peek-panel .topbar-right {
+  gap: 2px;
+}
+
+/* A long trail fades instead of cutting mid-word. The mask only touches the
+   trailing edge, so a trail that fits shows no change at all; the last crumb
+   is uncapped so the fade — not a per-crumb ellipsis — decides where it ends.
+   Kept narrow so as much of the title stays readable as possible. */
+.peek-panel .breadcrumbs {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+}
+
+.peek-panel .crumb-wrap:last-child .crumb {
+  max-width: none;
+}
+
+@media (max-width: 768px) {
+  .peek-panel {
+    width: 100vw;
+    border-left: none;
+  }
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -1266,6 +1335,19 @@ body:has(.icon-picker) .bn-side-menu {
   justify-content: center;
   gap: 12px;
   color: var(--muted);
+}
+
+/* Offline snapshot notice: the data on screen is the last seen copy, not a
+   live view. Kept quiet by design — one line, no modal, no blocking. */
+.offline-banner {
+  margin: 8px 16px 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: var(--hover);
+  text-align: center;
 }
 
 .empty-state {
@@ -2092,6 +2174,17 @@ body:has(.icon-picker) .bn-side-menu {
   top: 0;
   background: var(--bg);
   z-index: 5;
+  /* Tabs plus Filter/Sort/Columns can outgrow the row (image-3); the bar
+     scrolls horizontally instead of cutting them off. Same treatment the
+     narrow layout already had — children must not shrink. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: none;
+}
+
+.collection-toolbar > * {
+  flex-shrink: 0;
 }
 
 .view-tabs {
@@ -2549,9 +2642,16 @@ body:has(.icon-picker) .bn-side-menu {
 
 .table-wrap {
   padding: 12px 48px 40px;
-  overflow-x: auto;
+  /* The table scrolls inside its own box rather than with the page, because a
+     heading row can only stay put within the scroller it lives in: an
+     `overflow-x: auto` box is a scroll container in BOTH axes, so the sticky
+     heading stuck to a box that was itself sliding up the page and appeared
+     not to stick at all. */
+  overflow: auto;
   flex: 1;
-  overscroll-behavior-x: contain;
+  max-height: calc(100vh - 190px);
+  max-height: calc(100dvh - 190px);
+  overscroll-behavior: contain;
 }
 
 .db-table {
@@ -2657,6 +2757,18 @@ body:has(.icon-picker) .bn-side-menu {
   font-size: 12.5px;
   position: relative;
 }
+/* The heading row stays put while the table scrolls: with a dozen columns it is
+   the only thing that says which column you are looking at. A sticky row cannot
+   keep a collapsed border, so the line under it is a shadow instead. The paint
+   is opaque on purpose: without a background the rows sliding underneath show
+   straight through it. */
+.db-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--sidebar-bg);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
 
 /* The heading's own box, which is what the grip is positioned against — see
    ColHead for why it cannot hang off the <th>. */
@@ -2707,6 +2819,46 @@ body.is-col-resizing {
 /* The identity column earns more room than the generic floor above gives it, and
    needs the same specificity to say so — as a plain `.db-title-col` it lost to
    `.db-table th, .db-table td` and titles started wrapping over two lines. */
+/* A pinned column: it stays at the left edge while the table scrolls sideways.
+   The offset comes from the layout effect that measures the columns before it;
+   the shadow is what separates it from the columns sliding underneath. */
+.db-table th.is-stuck,
+.db-table td.is-stuck {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg);
+  box-shadow: inset -1px 0 0 var(--border);
+}
+.db-table thead th.is-stuck {
+  z-index: 4;
+  background: var(--sidebar-bg);
+}
+/* The pin sits 16px from the right edge of the heading: 6px of its own offset
+   plus the 10px the heading cell pads itself with. Clear of the resize grip
+   riding the very edge. */
+.col-stick {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.th-inner:hover .col-stick,
+.col-stick.is-on {
+  display: inline-flex;
+}
+.col-stick.is-on {
+  color: var(--accent);
+}
 .db-table .db-title-col {
   min-width: 200px;
   max-width: 420px;
@@ -3168,6 +3320,76 @@ body.is-col-resizing {
   white-space: nowrap;
 }
 
+/* A chip whose row opens in a new tab on click. Read-only spots render it as
+   a button; inside the editor's picker toggle it stays a span (a button in
+   a button is invalid HTML) — the pointer and hover are what make both read
+   as links. Unknown rows never get here: there is nothing to open. */
+.relation-chip.relation-link {
+  cursor: pointer;
+}
+.relation-chip.relation-link:hover {
+  filter: brightness(0.94);
+  text-decoration: underline;
+}
+
+/* The pencil edits the field: the chip itself navigates now, so the picker
+   needs its own affordance. Same reveal as URL chips — hidden until hover,
+   always on where there is no hover. */
+.relation-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  border-radius: 4px;
+  flex-shrink: 0;
+  vertical-align: -1px;
+  /* Invisible means absent from the layout too: an opacity-only hide keeps
+     a ~18px gap after every chip, so without hover the row reads as if the
+     button is not there at all. */
+  max-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: opacity 0.12s ease, max-width 0.12s ease, padding 0.12s ease, margin 0.12s ease;
+}
+.prop-multi:hover .relation-edit-btn {
+  opacity: 1;
+  max-width: 24px;
+  padding: 2px;
+  margin-left: 2px;
+}
+.relation-edit-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+@media (hover: none) {
+  .relation-edit-btn {
+    opacity: 1;
+    max-width: 24px;
+    padding: 2px;
+    margin-left: 2px;
+  }
+}
+
+/* On cards a relation chip folds instead of forcing the card wider than its
+   column: a related row can be called anything, including a whole sentence.
+   Same two-line clamp as card text chips. Tables keep nowrap with ellipsis
+   (see .db-table td .relation-chip) — there shortening is the point, and the
+   cell clips it. Clipping is scoped to the chip itself, never the card, so
+   the floating ⋯ menu still escapes. */
+.board-card .relation-chip,
+.public-collection .relation-chip {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+
 /* A row icon may be an emoji (text) or an SVG. Centring the box rather than the
    glyph keeps both sitting on the same line as the title. */
 .relation-icon {
@@ -3334,11 +3556,209 @@ body.is-col-resizing {
   gap: 8px;
   margin-bottom: 10px;
 }
+/* Settings and the period picker keep the right edge, as on the timeline —
+   the settings button used to sit with the arrows on the left. */
+.cal-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+/* A phone cannot fit ‹ title › Today ⚙ and the span picker on one line — the
+   picker used to be pushed off the screen entirely. The head takes two lines
+   there, and the picker keeps the right edge to itself. */
+@media (max-width: 700px) {
+  .calendar-head,
+  .tl-controls {
+    flex-wrap: wrap;
+  }
+  .calendar-head .cal-range-wrap,
+  .tl-controls .cal-range-wrap {
+    margin-left: auto;
+  }
+  .cal-right {
+    margin-left: auto;
+  }
+  .calendar-title,
+  .tl-title {
+    min-width: 0;
+    flex: 1 1 auto;
+    /* A two-month span reads "Октябрь 2026 г. — Ноябрь 2026 г." and ran under
+       the period picker. Smaller, and cut with an ellipsis rather than
+       overflowing the row. */
+    font-size: 15px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
 
 .calendar-title {
   font-weight: 600;
   min-width: 160px;
   text-transform: capitalize;
+}
+
+/* Month-count picker in the calendar head, and the grids it switches. */
+.cal-range-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.cal-range-wrap .btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cal-grids {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: stretch;
+}
+
+.cal-grids .calendar-grid {
+  min-width: 0;
+}
+
+.cal-grid-title {
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: capitalize;
+  margin: 2px 2px 8px;
+}
+
+/* One day's rows as a plain vertical list. */
+.cal-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px;
+}
+
+.cal-day-list .calendar-event {
+  text-align: left;
+}
+/* A row with an end date is drawn as one bar across the days it covers: a
+   segment in each cell it touches, bleeding over the cell's own padding and
+   over the 1px grid line so the pieces read as one bar, rounded only at the
+   real start and end. Lanes give a week's bars the same order in every cell,
+   so the segments line up instead of jumping between rows. */
+.cal-lane {
+  height: 21px;
+  flex: none;
+}
+.cal-span {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  /* A fixed height, not one grown from the text: the segments that carry no
+     label (everything but the first day of a range) would otherwise collapse to
+     their padding and the bar would look like a hairline. */
+  height: 21px;
+  box-sizing: border-box;
+  line-height: 17px;
+  padding: 2px 6px;
+  margin: 0 -4.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  cursor: pointer;
+}
+.cal-span.is-start {
+  margin-left: 0;
+  border-radius: 5px 0 0 5px;
+}
+.cal-span.is-end {
+  margin-right: 0;
+  border-radius: 0 5px 5px 0;
+}
+.cal-span.is-start.is-end {
+  border-radius: 5px;
+}
+.cal-span:hover {
+  filter: brightness(1.07);
+}
+/* A dot on a button with something behind it — the view settings, once per kind
+   of view, cleared the moment it is opened. The same mark the workspace menu
+   grows for a waiting proposal. */
+.btn-sm.has-dot {
+  position: relative;
+}
+.btn-sm.has-dot::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* Year overview: twelve compact month grids. Days with rows read bolder;
+   today keeps its marker; the mini title drills into that month. */
+.cal-year {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 20px 24px;
+}
+
+.cal-mini {
+  min-width: 0;
+}
+
+.cal-mini-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  text-transform: capitalize;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--fg);
+}
+
+button.cal-mini-title:hover {
+  background: var(--hover);
+}
+
+.cal-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+
+.cal-mini-day {
+  font-size: 11.5px;
+  text-align: center;
+  padding: 3px 0;
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.cal-mini-day.empty {
+  visibility: hidden;
+}
+
+.cal-mini-day.dim {
+  opacity: 0.45;
+}
+
+.cal-mini-day.today {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.cal-mini-day.has-events {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+button.cal-mini-day:hover {
+  background: var(--hover);
 }
 
 .calendar-grid {
@@ -3361,12 +3781,44 @@ body.is-col-resizing {
 }
 
 .calendar-cell {
+  position: relative;
   background: var(--bg);
   min-height: 92px;
   padding: 4px;
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+/* Add-from-the-day: the corner of the cell. On a pointer it waits for hover, on
+   a touch screen it is simply there. */
+.cal-add {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.calendar-cell:hover .cal-add {
+  opacity: 1;
+}
+.cal-add:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+@media (hover: none) {
+  .cal-add {
+    opacity: 1;
+  }
 }
 
 .calendar-cell.empty {
@@ -3378,12 +3830,68 @@ body.is-col-resizing {
   background: var(--accent-soft);
 }
 
+/* The day number is a button — clicking it opens that day in the day view —
+   but it must not look like one: same size, same colour, no underline. */
 .calendar-daynum {
   font-size: 11.5px;
   color: var(--muted);
   align-self: flex-end;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
 }
 
+/* An entry is a thing you carry: no text selection while dragging it, and on a
+   phone the gesture belongs to the drag rather than to the page scrolling. */
+.calendar-event,
+.cal-span {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* The day an entry would land on. */
+.calendar-cell.is-drop {
+  background: var(--accent-soft);
+}
+/* The entry under the finger, so the drag has something to look at besides a
+   tinted cell. */
+/* The peek's expand button and the menu a moment's hover brings up. */
+.peek-open-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.peek-open-menu {
+  min-width: 190px;
+  top: calc(100% + 6px);
+  left: 0;
+}
+.peek-open-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.peek-open-menu button.is-on {
+  color: var(--accent);
+}
+.cal-ghost {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 400;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .calendar-event {
   border: none;
   background: var(--accent-soft);
@@ -4282,6 +4790,11 @@ body.is-col-resizing {
   color: var(--accent);
 }
 
+/* The peek's expand button while the panel is pinned: the pin reads as on. */
+.peek-open-wrap .icon-btn.is-on {
+  color: var(--accent);
+}
+
 /* ---------- Page cover ---------- */
 
 .page-cover {
@@ -4537,9 +5050,13 @@ body.is-col-resizing {
  * .menu sits UNDER the sheet meant to catch clicks outside it: every click on
  * an item lands on the backdrop, which closes the menu and does nothing else.
  * It reads as a dead menu, not as a stacking bug. .fs-popover already had the
- * higher value; these two were missed and were dead from the day they shipped. */
+ * higher value; these two were missed and were dead from the day they shipped,
+ * and the timeline's blocker menus were missed in the same way later: the
+ * conflict list and the dependency popover answered every click with a close. */
 .view-tab-menu,
-.view-add-menu {
+.view-add-menu,
+.tl-conflicts-menu,
+.tl-dep-menu {
   z-index: 320;
 }
 
@@ -5059,16 +5576,19 @@ body.is-col-resizing {
 .share-menu select,
 .index-controls .prop-select,
 .settings-grid .prop-select,
+.subitems-select,
 .form-view select,
 .access-menu select:hover,
 .share-menu select:hover,
 .index-controls .prop-select:hover,
 .settings-grid .prop-select:hover,
+.subitems-select:hover,
 .form-view select:hover,
 .access-menu select:focus,
 .share-menu select:focus,
 .index-controls .prop-select:focus,
 .settings-grid .prop-select:focus,
+.subitems-select:focus,
 .form-view select:focus {
   appearance: none;
   -webkit-appearance: none;
@@ -7247,17 +7767,38 @@ a.btn {
 /* ---- Timeline / Gantt view ---- */
 .timeline { width: 100%; }
 .tl-scroll { overflow-x: auto; overflow-y: hidden; }
-.tl-inner { position: relative; }
+.tl-inner { position: relative; width: 100%; }
+.tl-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tl-controls .cal-range-wrap {
+  margin-left: auto;
+}
+.tl-title {
+  font-weight: 600;
+  min-width: 160px;
+  text-transform: capitalize;
+}
 .tl-header { display: flex; }
 .tl-corner {
   position: sticky;
   left: 0;
   z-index: 4;
   flex: none;
-  height: 32px;
+  align-self: stretch;
+  min-height: 32px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border);
+}
+.tl-head-right {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .tl-months {
   position: relative;
@@ -7281,6 +7822,53 @@ a.btn {
   text-transform: capitalize;
 }
 .tl-today-tick { position: absolute; top: 0; width: 2px; height: 32px; background: var(--danger); }
+.tl-days {
+  display: grid;
+  border-bottom: 1px solid var(--border);
+}
+.tl-day {
+  box-sizing: border-box;
+  min-width: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 3px 0;
+}
+.tl-day.is-today {
+  color: var(--accent);
+  font-weight: 700;
+}
+/* Weekends get a slightly greyer column: a Gantt is read against them ("does
+   this land on a weekend?"). Before the span rules, so an event's own
+   highlight still wins on a weekend day. */
+.tl-day.is-weekend {
+  background: var(--hover);
+}
+.tl-day.is-span {
+  background: var(--accent-soft);
+}
+.tl-day.is-span-first {
+  border-radius: 8px 0 0 8px;
+}
+.tl-day.is-span-last {
+  border-radius: 0 8px 8px 0;
+}
+.tl-day.is-span-first.is-span-last {
+  border-radius: 8px;
+}
+.tl-label.tl-add {
+  cursor: default;
+}
+.tl-label.tl-add:hover {
+  background: none;
+}
+.tl-add .btn-sm {
+  width: 100%;
+  justify-content: center;
+}
+.timeline {
+  padding: 8px 12px 24px;
+}
 .tl-row { display: flex; align-items: stretch; height: 40px; }
 .tl-label {
   position: sticky;
@@ -7304,31 +7892,412 @@ a.btn {
   white-space: nowrap;
   font-size: 13.5px;
 }
-.tl-track { position: relative; flex: none; border-bottom: 1px solid var(--border); }
+.tl-track { position: relative; flex: 1 1 auto; min-width: 0; border-bottom: 1px solid var(--border); }
 .tl-today-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--danger); opacity: 0.28; }
+/* The weekend column in the body, one band per weekend rather than per day. It
+   sits behind the bars, so a bar is read against the weekend it crosses. */
+.tl-weekend { position: absolute; top: 0; bottom: 0; background: var(--hover); }
 .tl-bar {
   position: absolute;
   top: 7px;
   height: 26px;
-  background: var(--accent);
+  /* The calendar's own event colours: the accent on a wash of it, not white on
+     solid — a Gantt bar is a span, not a button. */
+  background: var(--accent-soft);
+  color: var(--accent);
   border-radius: 6px;
   display: flex;
   align-items: center;
   padding: 0 9px;
   cursor: pointer;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
   transition: filter 0.12s;
+  /* The bar is a thing you carry: on a phone a drag on it moves the event
+     rather than scrolling the axis under it. The track still scrolls. */
+  touch-action: none;
+  /* A bar is a control, not prose: a long press on its own text would start a
+     selection, and the browser then takes the gesture over — cancelling the
+     drag and, on iOS, leaving a callout that swallows taps. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .tl-bar:hover { filter: brightness(1.07); }
+
+/* Edge-resize handles: a slim grip at each bar end. Only where there IS a
+   pointer does hovering reveal it — a touch screen has no hover to read, and
+   would otherwise leave both grips stuck on the bar it last touched. There the
+   grips show while a drag is actually in progress and no longer, which is also
+   what a desktop does once the pointer leaves the bar mid-drag. The band is the
+   same width either way, so where a touch lands does not change. Dragging a
+   grip stretches that edge day by day; the live date hangs off the edge being
+   pulled. */
+.tl-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* A twelfth of the bar, so the two grips never eat a short one: on a one-day
+     bar (26px) two 12px bands left a 2px middle, and neither the resize nor the
+     click on the row could be aimed at. */
+  width: min(12px, 30%);
+  max-width: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ew-resize;
+  touch-action: none;
+  opacity: 0;
+}
+@media (hover: hover) {
+  .tl-bar:hover .tl-resize {
+    opacity: 1;
+  }
+}
+.tl-bar.is-dragging .tl-resize {
+  opacity: 1;
+}
+.tl-resize::after {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  /* The accent, like the bar's own text — white would vanish on the wash. */
+  background: currentColor;
+}
+.tl-resize-l {
+  left: 1px;
+}
+.tl-resize-r {
+  right: 1px;
+}
+/* While an edge is held the whole page stops offering a text selection: a drag
+   that wanders off the bar must not be able to start one there instead, and the
+   cursor stays the resize one wherever the pointer goes. */
+body.is-tl-resizing {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: ew-resize;
+}
+.tl-drag-tip {
+  position: absolute;
+  top: -30px;
+  transform: translateX(-50%);
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  z-index: 5;
+  pointer-events: none;
+}
 .tl-bar-label {
   font-size: 12px;
   font-weight: 500;
-  color: #fff;
+  /* The bar's own colour (the accent), which the calendar's events use too. */
+  color: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A phone gets taller bars: the row is where a finger aims, and 26px of wash is
+   a hard target to hit and a hard thing to read. */
+@media (max-width: 900px) {
+  .tl-row { height: 46px; }
+  .tl-bar { height: 32px; }
+}
+
+/* ---- Timeline dependencies (blockers) ---- */
+.tl-body { position: relative; }
+.tl-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tl-right .cal-range-wrap { margin-left: 0; }
+.tl-bar.is-blocked {
+  outline: 2px solid var(--danger);
+  outline-offset: -1px;
+}
+.tl-warn {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.tl-warn:hover { background: var(--hover); }
+.tl-warn.on-bar {
+  color: #fff;
+  background: var(--danger);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  padding: 0;
+  margin-left: auto;
+}
+/* Dependency link handle just past the bar's right edge, Notion-style: a
+   short stub and a white dot with an accent ring. Hidden until the bar (or
+   the edge zone itself) is hovered, with Notion's quick scale-in; while a
+   link drag runs from here it stays on. It lives on the track: inside the
+   bar the overflow would cut it off. */
+.tl-dep-handle {
+  position: absolute;
+  top: 20px;
+  width: 26px;
+  height: 30px;
+  transform: translate(-4px, -50%);
+  cursor: grab;
+  touch-action: none;
+  z-index: 3;
+  opacity: 0;
+  transition:
+    opacity 160ms ease-in-out,
+    transform 160ms ease-in-out;
+}
+.tl-dep-handle svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: scale(0.4);
+  transform-origin: 8px 15px;
+  transition: transform 160ms ease-in-out;
+}
+.tl-bar:hover + .tl-dep-handle,
+.tl-dep-handle:hover,
+.tl-dep-handle.is-active {
+  opacity: 1;
+}
+.tl-bar:hover + .tl-dep-handle svg,
+.tl-dep-handle:hover svg,
+.tl-dep-handle.is-active svg {
+  transform: scale(1);
+}
+.tl-dep-stub {
+  stroke: #d9a13b;
+  stroke-width: 2;
+}
+.tl-dep-dot {
+  fill: var(--bg);
+  stroke: #d9a13b;
+  stroke-width: 2;
+}
+.tl-dep-handle:hover .tl-dep-dot,
+.tl-dep-handle.is-active .tl-dep-dot {
+  fill: #d9a13b;
+}
+@media (hover: none) {
+  .tl-dep-handle {
+    opacity: 1;
+  }
+  .tl-dep-handle svg {
+    transform: scale(1);
+  }
+}
+.tl-row.is-link-target .tl-track { background: var(--accent-soft); }
+.tl-row.is-link-source .tl-bar { outline: 2px dashed var(--accent); }
+.tl-arrows {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+/* Notion-style dependency paths: thin line, chevron head, and a fat
+   invisible twin that takes clicks. */
+.tl-dep-path {
+  fill: none;
+  stroke: #d9a13b;
+  stroke-width: 2;
+  pointer-events: none;
+}
+g.is-bad > .tl-dep-path { stroke: var(--danger); }
+.tl-dep-head {
+  fill: none;
+  stroke: #d9a13b;
+  stroke-width: 2;
+  pointer-events: none;
+}
+g.is-bad > .tl-dep-head { stroke: var(--danger); }
+.tl-dep-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+/* Unlink button on the hovered arrow, Notion-style. The overlay ignores
+   pointer events; the button opts back in. */
+.tl-arrow-x {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 2;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  padding: 0;
+}
+.tl-arrow-x:hover { filter: brightness(1.12); }
+.tl-link-hint {
+  position: sticky;
+  bottom: 8px;
+  margin: 8px auto 0;
+  width: max-content;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  z-index: 6;
+}
+/* Lasso line while dragging a dependency handle: from the grabbed handle
+   to the pointer, snapping to the hovered bar. */
+.tl-lasso {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  pointer-events: none;
+}
+.tl-lasso path {
+  fill: none;
+  stroke: #d9a13b;
+  stroke-width: 2.5;
+}
+.tl-lasso-dot {
+  fill: none;
+  stroke: #d9a13b;
+  stroke-width: 2.5;
+}
+.tl-conflicts-wrap { position: relative; }
+.tl-conflicts-btn { border-color: var(--danger); color: var(--danger); }
+.tl-conflicts-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  /* No z-index here on purpose: it must clear .fs-backdrop, and a value set
+     here would win over the one in the "menus behind the backdrop" block
+     further up the file (same specificity, later wins). */
+  padding: 8px;
+}
+.tl-menu-head { font-weight: 600; font-size: 13px; padding: 4px 6px 8px; }
+.tl-menu-sub { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.tl-menu-hint { font-size: 12px; color: var(--muted); padding: 4px 6px; }
+.tl-conflict-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 6px;
+  border-radius: 8px;
+}
+.tl-conflict-row:hover { background: var(--hover); }
+.tl-conflict-row .btn-sm { align-self: flex-start; }
+.tl-conflict-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.tl-conflict-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* The wrapper is what AnchoredMenu measures: without a positioned box the
+   settings menu lands wherever the nearest positioned ancestor happens to be
+   rather than under its own button. */
+.tl-settings-wrap,
+.cal-settings-wrap { position: relative; }
+.tl-settings-menu { min-width: 260px; padding: 8px; }
+.tl-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  font-size: 13px;
+}
+.tl-settings-row > span { flex: none; width: 64px; color: var(--muted); }
+.tl-settings-row .subitems-select { flex: 1 1 auto; min-width: 0; }
+.tl-dep-menu { padding: 8px; }
+.tl-dep-section {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 8px 6px 2px;
+}
+.tl-dep-section:first-of-type { padding-top: 2px; }
+.tl-dep-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+.tl-dep-row:hover { background: var(--hover); }
+.tl-dep-row.is-bad .tl-dep-name { color: var(--danger); }
+.tl-dep-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  padding: 0;
+}
+.tl-dep-fix { width: 100%; justify-content: center; margin: 8px 0; }
+.tl-dep-add { width: 100%; margin-top: 4px; }
+
+/* ---- Blocked-row banner in the record editor ---- */
+.dep-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.dep-banner-ic { color: var(--danger); font-size: 15px; flex: none; }
+.dep-banner-text { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.dep-banner .btn-sm { flex: none; }
 
 /* ---- Sub-task tree (table hierarchy) ---- */
 .db-title-inner { display: inline-flex; align-items: center; gap: 2px; }
@@ -10471,6 +11440,58 @@ body:has(.live-down) .update-banner {
 .sync-btn:disabled {
   opacity: 1; /* it is working, not unavailable */
   color: var(--accent);
+}
+
+/* Offline outbox: the pending count on the sync button and the list of what
+   is waiting. Anchored to the button's corner in the sidebar footer. */
+.sync-wrap {
+  position: relative;
+}
+.sync-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+}
+.sync-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 200;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  font-size: 12.5px;
+}
+.sync-panel-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.sync-panel ul {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted);
+  max-height: 160px;
+  overflow: auto;
+}
+.sync-panel-more {
+  margin-top: 4px;
+  color: var(--muted);
 }
 
 .schema-drag-handle {

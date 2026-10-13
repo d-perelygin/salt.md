@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { api } from '../api';
+import { isTempId, savePageUpdate } from '../outbox';
 import type { FontPref } from '../App';
 import type { PageMeta, User, Workspace } from '../types';
 import UserMenu from './UserMenu';
@@ -15,7 +16,7 @@ import { PageIcon } from '../pageIcon';
 import TrashSection from './TrashSection';
 import { compare } from '../format';
 import { plural, t } from '../i18n';
-import { openPage, openPageAux } from '../pageOpen';
+import { openPage, openPageAux, peekPanel } from '../pageOpen';
 import AgentConnectModal from './AgentConnect';
 import BreakGlassLog from './BreakGlassLog';
 import TemplateGallery from './TemplateGallery';
@@ -666,7 +667,7 @@ function TreeItem({
         onDragLeave={() => ctx.dragLeave(p.id)}
         onDrop={(e) => ctx.drop(p, e)}
         onDragEnd={ctx.dragEnd}
-        onClick={(e) => (e.metaKey || e.ctrlKey ? ctx.onOpenInNewTab(p.id) : ctx.onNavigate(p.id))}
+        onClick={(e) => openPage(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
         // The whole row answers a right-click with the same menu the ⋯ offers.
         // Hunting for a three-dot button that only appears on hover is the
         // slowest way to reach an action everybody knows is there.
@@ -675,12 +676,7 @@ function TreeItem({
           ctx.setAddFor(null);
           ctx.setMenuFor(p.id);
         }}
-        onAuxClick={(e) => {
-          if (e.button === 1) {
-            e.preventDefault();
-            ctx.onOpenInNewTab(p.id);
-          }
-        }}
+        onAuxClick={(e) => openPageAux(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
       >
         {hasExpand ? (
           <button
@@ -876,7 +872,10 @@ export default function Sidebar({
   const instantiateTemplate = async (id: string) => {
     try {
       const r = await api.duplicatePage(id, true);
-      onNavigate(r.id);
+      // A page made from a template is a page you are about to write in, so it
+      // opens in the side peek; on a screen too narrow for one it opens as a
+      // tab, which is what pages do there anyway.
+      if (!peekPanel(r.id)) onNavigate(r.id);
     } catch {
       toast(t('The template could not be used'));
     }
@@ -901,7 +900,9 @@ export default function Sidebar({
     },
   });
   const unflagTemplate = (id: string) =>
-    void api.updatePage(id, { isTemplate: false }).catch(() => toast(t('Could not be changed')));
+    void savePageUpdate(id, { isTemplate: false }, { label: t('Template') }).then((ok) => {
+      if (!ok) toast(t('Could not be changed'));
+    });
 
   // Which of the two sidebar shapes this workspace uses. Needed by the tree
   // itself, not just by the sections — see treeMode.ts.
@@ -1087,15 +1088,18 @@ export default function Sidebar({
     onMoveToWorkspace: (pageId, wsId, wsName) => {
       // The move takes the whole subtree along and puts the page at the top
       // level in the target — the previous parent stays behind.
-      void api
-        .updatePage(pageId, { workspaceId: wsId })
-        .then(() => {
-          toast(t('Moved to “{name}”').replace('{name}', wsName));
-          // The page tree updates itself through the server's change feed
-          // (pagesChanged); only the workspace counters need catching up here.
-          onWorkspacesChanged();
-        })
-        .catch((e: Error) => toast(e.message || t('Moving failed')));
+      const live = !isTempId(pageId) && navigator.onLine !== false;
+      void savePageUpdate(pageId, { workspaceId: wsId }, { label: t('Move') }).then((ok) => {
+        if (!ok) {
+          toast(t('Moving failed'));
+          return;
+        }
+        // Online the tree updates through the server's change feed
+        // (pagesChanged); offline the queue toast already said it is pending.
+        if (live) toast(t('Moved to “{name}”').replace('{name}', wsName));
+        // Only the workspace counters need catching up here.
+        onWorkspacesChanged();
+      });
     },
     dragStart: (id, e) => {
       dragId.current = id;

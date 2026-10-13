@@ -3,7 +3,7 @@ import PropertyValue from './PropertyValue';
 import { tagColorClass } from '../tags';
 import { PageIcon } from '../pageIcon';
 import { t } from '../i18n';
-import { openPage, openPageAux } from '../pageOpen';
+import { openCollectionRow, openPageAux } from '../pageOpen';
 
 interface Row {
   id: string;
@@ -51,7 +51,7 @@ export default function ListView({
         <div
           key={r.id}
           className="list-row"
-          onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+          onClick={(e) => openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab })}
           onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
         >
           <span className="list-row-icon">
@@ -80,6 +80,8 @@ export default function ListView({
                   readOnly={readOnly}
                   onChange={readOnly ? undefined : (v) => onSetProp(r.id, p.id, v)}
                   onOptionsChange={readOnly ? undefined : (opts) => onSetOptions(p.id, opts)}
+                  onOpen={onOpenInNewTab ?? onNavigate}
+                  openers={{ onNavigate, onOpenInNewTab }}
                 />
               ))}
             </span>

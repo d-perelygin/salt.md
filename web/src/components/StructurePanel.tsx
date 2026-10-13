@@ -5,6 +5,7 @@ import { PageIcon } from '../pageIcon';
 import { FilePreview, isPreviewable } from './FilePreview';
 import { formatBytes } from '../format';
 import { t } from '../i18n';
+import { openPage, openPageAux } from '../pageOpen';
 import { CornerDownRight, FileText, Globe, Link2, PanelRightClose, Table2 } from 'lucide-react';
 
 // What a document carries but never showed: the pages below it, the files
@@ -102,12 +103,14 @@ export default function StructurePanel({
   isCollection,
   pagesById,
   onNavigate,
+  onOpenInNewTab,
   onClose,
 }: {
   pageId: string;
   isCollection: boolean;
   pagesById: Map<string, PageMeta>;
   onNavigate: (id: string | null) => void;
+  onOpenInNewTab?: (id: string) => void;
   onClose: () => void;
 }) {
   const [files, setFiles] = useState<SaltFile[]>([]);
@@ -161,7 +164,8 @@ export default function StructurePanel({
                 key={p.id}
                 className="structure-item"
                 style={{ paddingLeft: 8 + i * 10 }}
-                onClick={() => onNavigate(p.id)}
+                onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
+                onAuxClick={(e) => openPageAux(e, p.id, { onNavigate, onOpenInNewTab })}
                 title={p.title || t('Untitled')}
               >
                 <span className="structure-icon">
@@ -197,7 +201,8 @@ export default function StructurePanel({
                 key={page.id}
                 className="structure-item"
                 style={{ paddingLeft: 8 + Math.min(depth, 4) * 14 }}
-                onClick={() => onNavigate(page.id)}
+                onClick={(e) => openPage(e, page.id, { onNavigate, onOpenInNewTab })}
+                onAuxClick={(e) => openPageAux(e, page.id, { onNavigate, onOpenInNewTab })}
                 title={page.title || t('Untitled')}
               >
                 {/* Depth reads as a turn, not as blank space: indentation alone
@@ -260,7 +265,8 @@ export default function StructurePanel({
             <button
               key={l.id}
               className="structure-item"
-              onClick={() => onNavigate(l.id)}
+              onClick={(e) => openPage(e, l.id, { onNavigate, onOpenInNewTab })}
+              onAuxClick={(e) => openPageAux(e, l.id, { onNavigate, onOpenInNewTab })}
               title={l.title || t('Untitled')}
             >
               <span className="structure-icon">

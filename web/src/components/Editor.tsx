@@ -7,17 +7,26 @@ import {
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core';
 import { en as coreEn } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
-import { api } from '../api';
+import { api, ApiError } from '../api';
+import * as Y from 'yjs';
+import { getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
+import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
+import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User } from '../types';
 import { SaltProvider } from '../collab';
 import { plural, t } from '../i18n';
+import { formatDay } from '../format';
+import { blockedByMap, dayNum, depListOf, isoDay, shiftTarget, type DepNode } from '../depUtils';
 import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
+import AnchoredMenu from './AnchoredMenu';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
 import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, navItem, nothingBefore, useNavRegion } from '../nav';
+import { openPage, openPageAux, type PageOpeners } from '../pageOpen';
+import { readPageScroll, writePageScroll } from '../pageUiState';
 import { useShortcut } from '../keys';
 import CollectionView from './CollectionView';
 import PageShares from './PageShares';
@@ -36,7 +45,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList} from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin} from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -62,12 +71,37 @@ export interface EditorProps {
   // the one menu every page has, so it is the honest place for it.
   onTrash: (id: string) => void;
   onPagesChanged: () => void;
+  // Side peek chrome (see PeekPanel): when present, the panel controls sit
+  // inline at the head of this topbar instead of on a bar of their own, and
+  // the structure and favorite buttons move into the ⋯ menu — a narrow panel
+  // has no room for a full desktop topbar.
+  onPeekClose?: () => void;
+  onPeekOpenFull?: (id: string) => void;
+  /** Pinned: nothing hides the panel but its own close button. */
+  peekPinned?: boolean;
+  onPeekPin?: () => void;
+  // Which keyboard-navigation region this editor owns. The main view is
+  // 'content'; a second mounted editor (the side peek) takes another id, or
+  // the two would register the same region and the later mount would steal
+  // the earlier one's arrows — and keep them after it unmounts.
+  regionId?: string;
+  // Which editor answers focus-free shortcuts ('c' for comments) when the
+  // focus sits outside every editor. The main view keeps the historic
+  // behaviour; the peek answers only with the focus inside itself.
+  primary?: boolean;
+  // A brand-new page is a page you are about to name: the title takes the caret
+  // (and is selected, so typing replaces the placeholder).
+  focusTitleOnMount?: boolean;
 }
 
 export default function Editor(props: EditorProps) {
   const [page, setPage] = useState<Page | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [offlineCopy, setOfflineCopy] = useState(false);
+  const online = useOnline();
   const [nonce, setNonce] = useState(0);
+  const regionId = props.regionId ?? 'content';
+  const primary = props.primary ?? true;
   // The panel is a reading preference, not a property of the page: it stays
   // put while you move through the workspace, like the comment column's.
   const [structureOpen, setStructureOpen] = useState(structurePanelOpen);
@@ -98,20 +132,6 @@ export default function Editor(props: EditorProps) {
   };
   const toggleStructure = () => showStructure(!structureOpen);
 
-  // Same rule as the other single letters (see App.tsx): only while nothing is
-  // being typed. A collection has no comment panel, so there it stays a letter.
-  useShortcut({
-    id: 'comments.toggle',
-    keys: ['c'],
-    when: () => !!page && page.type !== 'collection',
-    label: () => t('Comments'),
-    group: () => t('Page'),
-    run: () => {
-      if (modalOpen()) return false;
-      showComments(!commentsOpen);
-    },
-  });
-
   // A panel the reader just opened slides in. One that is simply still open
   // when the next page loads does not, or every click in the tree would set
   // it moving again, so the flag lives here, above the page that remounts.
@@ -131,6 +151,30 @@ export default function Editor(props: EditorProps) {
   // that still reads as text.
   const [pageEl, setPageEl] = useState<HTMLDivElement | null>(null);
   const [narrow, setNarrow] = useState(false);
+
+  // Same rule as the other single letters (see App.tsx): only while nothing is
+  // being typed. A collection has no comment panel, so there it stays a letter.
+  //
+  // With two editors mounted (main + side peek) a focus-free shortcut must know
+  // whose it is: the editor holding the focus answers, and with the focus
+  // outside every editor the primary one keeps the historic behaviour.
+  const ownsFocus = () => {
+    const ae = document.activeElement as Element | null;
+    if (pageEl && ae && pageEl.contains(ae)) return true;
+    if (ae && ae.closest('.editor-page')) return false;
+    return primary;
+  };
+  useShortcut({
+    id: 'comments.toggle',
+    keys: ['c'],
+    when: () => !!page && page.type !== 'collection' && ownsFocus(),
+    label: () => t('Comments'),
+    group: () => t('Page'),
+    run: () => {
+      if (modalOpen()) return false;
+      showComments(!commentsOpen);
+    },
+  });
   useEffect(() => {
     if (!pageEl) return;
     const ro = new ResizeObserver(([entry]) => {
@@ -145,13 +189,26 @@ export default function Editor(props: EditorProps) {
     let alive = true;
     setPage(null);
     setError(null);
+    setOfflineCopy(false);
     api
       .getPage(props.pageId)
       .then((p) => {
-        if (alive) setPage(p);
+        if (!alive) return;
+        setPage(p);
+        void putCachedPage(p);
       })
       .catch((e: Error) => {
-        if (alive) setError(e.message);
+        // Offline with a snapshot: render the last seen copy instead of an
+        // error. Edits still merge through the CRDT layer on reconnect.
+        void getCachedPage(props.pageId).then((cached) => {
+          if (!alive) return;
+          if (cached) {
+            setPage(cached);
+            setOfflineCopy(true);
+          } else {
+            setError(e.message);
+          }
+        });
       });
     return () => {
       alive = false;
@@ -188,9 +245,15 @@ export default function Editor(props: EditorProps) {
         (arriving ? ' panel-arriving' : '')
       }
     >
+      {(offlineCopy || !online) && page ? (
+        <div className="offline-banner" role="status">
+          {t('Offline copy — changes will sync when the connection is back')}
+        </div>
+      ) : null}
       <PageHeader
         page={page}
         {...props}
+        regionId={regionId}
         structureOpen={structureOpen}
         onToggleStructure={toggleStructure}
         commentsOpen={commentsOpen}
@@ -210,6 +273,7 @@ export default function Editor(props: EditorProps) {
         ) : (
           <CollabEditor
             key={page.id}
+            regionId={regionId}
             structureOpen={structureOpen}
             page={page}
             user={props.user}
@@ -221,7 +285,13 @@ export default function Editor(props: EditorProps) {
             onOpenInNewTab={props.onOpenInNewTab}
             onCreatePage={props.onCreatePage}
             onPagesChanged={props.onPagesChanged}
-            onReset={() => setNonce((n) => n + 1)}
+            onReset={() => {
+              // The server replaced the document under us (restore, agent
+              // rewrite, import): our in-flight edits lost to the replacement.
+              // The state before it survives as a revision — point there.
+              toast(t('This page was replaced on the server. Open Version history to recover your text.'));
+              setNonce((n) => n + 1);
+            }}
           />
         )}
       </PageHeader>
@@ -239,6 +309,7 @@ export default function Editor(props: EditorProps) {
           isCollection={page.type === 'collection'}
           pagesById={props.pagesById}
           onNavigate={props.onNavigate}
+          onOpenInNewTab={props.onOpenInNewTab}
           onClose={toggleStructure}
         />
       )}
@@ -375,6 +446,123 @@ function TagChip({
 // RowProperties renders a database row's typed properties as a Notion-style
 // panel under the title (label · value), so a row's page shows its Status,
 // Priority, etc. as real fields — not as text dumped into the body. Shown only
+// A blocked-row banner for the record editor: when sibling rows block this
+// one and the dates overlap, say so and offer the same one-click shift as the
+// timeline popover. Best-effort over the first 500 rows — a banner that misses
+// on a giant database is better than a full-table scan on every open.
+function BlockedBanner({
+  pageId,
+  parentId,
+  liveProps,
+  config,
+  canEdit,
+  onShift,
+}: {
+  pageId: string;
+  parentId: string;
+  liveProps: Record<string, unknown>;
+  config: CollectionConfig;
+  canEdit: boolean;
+  onShift: (startProp: string, endProp: string, startIso: string, endIso: string | null) => void;
+}) {
+  const [rows, setRows] = useState<{ id: string; title: string; props: Record<string, unknown> }[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setRows(null);
+    api
+      .collectionRows(parentId, { limit: 500 })
+      .then((r) => alive && setRows(r.rows))
+      .catch(() => alive && setRows([]));
+    return () => {
+      alive = false;
+    };
+  }, [parentId, pageId]);
+
+  const schema = config.schema;
+  const selfRels = schema.filter((p) => p.type === 'relation' && p.relationCollection === parentId);
+  if (selfRels.length === 0 || rows === null) return null;
+  const tlView = config.views.find((v) => v.type === 'timeline');
+  const picked = tlView?.depProp && selfRels.some((p) => p.id === tlView.depProp) ? tlView.depProp : '';
+  const effDep = picked || (selfRels.length === 1 ? selfRels[0].id : '');
+  if (!effDep) return null;
+  const dateIds = schema.filter((p) => p.type === 'date').map((p) => p.id);
+  const startProp =
+    tlView?.dateProp && dateIds.includes(tlView.dateProp) ? tlView.dateProp : (dateIds[0] ?? '');
+  if (!startProp) return null;
+  const endProp = tlView?.endDateProp && dateIds.includes(tlView.endDateProp) ? tlView.endDateProp : '';
+
+  const toNode = (id: string, props: Record<string, unknown>, known: Set<string>): DepNode | null => {
+    const sv = props[startProp];
+    if (typeof sv !== 'string' || !sv) return null;
+    const start = dayNum(sv);
+    let end = start;
+    if (endProp) {
+      const ev = props[endProp];
+      if (typeof ev === 'string' && ev) end = Math.max(start, dayNum(ev));
+    }
+    return { id, start, end, deps: depListOf(props, effDep, id, known) };
+  };
+  // Two passes: ids first (links only resolve against dated rows), then edges.
+  const known = new Set<string>();
+  const dated = new Map<string, { title: string; props: Record<string, unknown> }>();
+  for (const r of rows) {
+    const sv = r.props[startProp];
+    if (typeof sv === 'string' && sv) {
+      known.add(r.id);
+      dated.set(r.id, r);
+    }
+  }
+  const selfSv = liveProps[startProp];
+  const selfDated = typeof selfSv === 'string' && !!selfSv;
+  if (selfDated) known.add(pageId);
+  const nodes: DepNode[] = [];
+  for (const [id, r] of dated) {
+    const n = toNode(id, r.props, known);
+    if (n) nodes.push(n);
+  }
+  if (selfDated) {
+    const n = toNode(pageId, liveProps, known);
+    if (n) {
+      const at = nodes.findIndex((x) => x.id === pageId);
+      if (at >= 0) nodes[at] = n;
+      else nodes.push(n);
+    }
+  }
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const titles = new Map<string, string>();
+  for (const r of rows) titles.set(r.id, r.title);
+  const self = byId.get(pageId);
+  if (!self) return null;
+  const blockers = (blockedByMap(nodes).get(pageId) ?? [])
+    .map((id) => byId.get(id)!)
+    .filter((p) => p && self.start <= p.end);
+  if (!blockers.length) return null;
+  const latest = Math.max(...blockers.map((p) => p.end));
+  const target = shiftTarget(self, blockers);
+
+  return (
+    <div className="dep-banner" role="status">
+      <span className="dep-banner-ic">⚠</span>
+      <div className="dep-banner-text">
+        {t('Blocked by {names} until {d}', {
+          names: blockers.map((p) => titles.get(p.id) ?? t('Untitled')).join(', '),
+          d: formatDay(isoDay(latest), 'dayMonth'),
+        })}
+      </div>
+      {target !== null && canEdit && (
+        <button
+          className="btn-sm primary"
+          onClick={() =>
+            onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null)
+          }
+        >
+          {t('Shift to {d}, keep duration', { d: formatDay(isoDay(target), 'dayMonth') })}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // when the page is a child of a collection. Reuses the same PropertyValue cells
 // (and inline option editing) as the table/board.
 function RowProperties({
@@ -382,11 +570,15 @@ function RowProperties({
   parentId,
   initialProps,
   canEdit,
+  onOpen,
+  openers,
 }: {
   pageId: string;
   parentId: string;
   initialProps: Record<string, unknown>;
   canEdit: boolean;
+  onOpen?: (id: string) => void;
+  openers?: PageOpeners;
 }) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [props, setProps] = useState<Record<string, unknown>>(initialProps ?? {});
@@ -412,8 +604,10 @@ function RowProperties({
     setProps((p) => ({ ...p, [propId]: value }));
     try {
       await api.updatePage(pageId, { propsPatch: { [propId]: value } });
-    } catch {
-      toast(t('Property not saved'));
+    } catch (e) {
+      if (!(await savePageUpdate(pageId, { propsPatch: { [propId]: value } }, { label: t('Property') }))) {
+        toast(t('Property not saved'));
+      }
     }
   };
   const setOptions = async (propId: string, options: PropOption[]) => {
@@ -430,7 +624,19 @@ function RowProperties({
   };
 
   return (
-    <div className="row-props">
+    <>
+      <BlockedBanner
+        pageId={pageId}
+        parentId={parentId}
+        liveProps={props}
+        config={config}
+        canEdit={canEdit}
+        onShift={(sp, ep, sIso, eIso) => {
+          void setProp(sp, sIso);
+          if (ep && eIso) void setProp(ep, eIso);
+        }}
+      />
+      <div className="row-props">
       {config.schema.map((p) => (
         <div key={p.id} className="row-prop">
           <div className="row-prop-label" title={p.name}>
@@ -443,11 +649,14 @@ function RowProperties({
               onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
               onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
               readOnly={!canEdit}
+              onOpen={onOpen}
+              openers={openers}
             />
           </div>
         </div>
       ))}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -483,10 +692,17 @@ function PageHeader({
   onToggleFavorite,
   onMetaChange,
   onNavigate,
+  onOpenInNewTab,
   onTrash,
   onLocalMeta,
   onPagesChanged,
   pagesById,
+  regionId,
+  focusTitleOnMount,
+  onPeekClose,
+  onPeekOpenFull,
+  peekPinned,
+  onPeekPin,
   structureOpen,
   onToggleStructure,
   commentsOpen,
@@ -495,6 +711,12 @@ function PageHeader({
 }: EditorProps & {
   page: Page;
   onLocalMeta: (patch: Partial<PageMeta>) => void;
+  regionId: string;
+  onPeekClose?: () => void;
+  onPeekOpenFull?: (id: string) => void;
+  /** Pinned: nothing hides the panel but its own close button. */
+  peekPinned?: boolean;
+  onPeekPin?: () => void;
   structureOpen: boolean;
   onToggleStructure: () => void;
   commentsOpen: boolean;
@@ -606,10 +828,10 @@ function PageHeader({
   // keystroke goes back to the browser unless the caret sits at the very edge
   // it is trying to cross.
   useNavRegion({
-    id: 'content',
+    id: regionId,
     ref: bodyRef,
     scope: 'editor',
-    prev: 'sidebar.tree',
+    prev: regionId === 'content' ? 'sidebar.tree' : undefined,
     whileTyping: true,
     canLeave: (el, dir) => {
       if (el === titleRef.current) {
@@ -631,6 +853,80 @@ function PageHeader({
       return false;
     },
   });
+
+  // Once per mount: a later re-render must not steal the caret back.
+  const wantTitleFocus = useRef(!!focusTitleOnMount);
+  // The peek's expand menu: a moment's hover rather than an instant one, so
+  // passing over the button on the way to the close button does not open it.
+  // Unpinning from the menu must not strand it open: the button it hangs off
+  // changes meaning under it (back to the fullscreen arrow), so the menu goes
+  // with the pin.
+  const [peekMenuOpen, setPeekMenuOpen] = useState(false);
+  const peekMenuTimer = useRef(0);
+  const peekMenuEnter = () => {
+    window.clearTimeout(peekMenuTimer.current);
+    peekMenuTimer.current = window.setTimeout(() => setPeekMenuOpen(true), 450);
+  };
+  const peekMenuLeave = (e: React.MouseEvent) => {
+    window.clearTimeout(peekMenuTimer.current);
+    // The menu hangs a few pixels below the button, and a pointer travelling
+    // to it crosses a strip that belongs to neither — leaving the wrap would
+    // close the menu the instant the pointer aims at it diagonally. So the
+    // way there stays open: while the pointer is inside the trapezoid from the
+    // button's edges to the menu's edges, the menu lives, and it closes once
+    // the pointer is outside both.
+    const wrap = e.currentTarget as HTMLElement;
+    const menu = wrap.querySelector('.peek-open-menu') as HTMLElement | null;
+    if (menu) {
+      const b = wrap.getBoundingClientRect();
+      const m = menu.getBoundingClientRect();
+      const { clientX: x, clientY: y } = e;
+      const gap = Math.max(1, m.top - b.bottom);
+      if (y >= b.bottom && y <= m.bottom) {
+        const k = Math.min(1, (y - b.bottom) / gap);
+        const left = y <= m.top ? b.left + (m.left - b.left) * k : m.left;
+        const right = y <= m.top ? b.right + (m.right - b.right) * k : m.right;
+        if (x >= left && x <= right) {
+          const watch = (ev: MouseEvent) => {
+            const wb = wrap.getBoundingClientRect();
+            const inside =
+              ev.clientX >= Math.min(wb.left, m.left) - 4 &&
+              ev.clientX <= Math.max(wb.right, m.right) + 4 &&
+              ev.clientY >= wb.top &&
+              ev.clientY <= m.bottom;
+            if (menu.contains(ev.target as Node)) {
+              document.removeEventListener('mousemove', watch);
+              return;
+            }
+            if (!inside) {
+              document.removeEventListener('mousemove', watch);
+              setPeekMenuOpen(false);
+            }
+          };
+          document.addEventListener('mousemove', watch);
+          return;
+        }
+      }
+    }
+    setPeekMenuOpen(false);
+  };
+  useEffect(
+    () => () => {
+      window.clearTimeout(peekMenuTimer.current);
+    },
+    [],
+  );
+
+  // The caret for a page that has just been made. Waits for the title field to
+  // exist, which is a render behind the page itself.
+  useEffect(() => {
+    if (!wantTitleFocus.current || !page) return;
+    const el = titleRef.current;
+    if (!el) return;
+    wantTitleFocus.current = false;
+    el.focus();
+    el.select();
+  }, [page]);
 
   // Grow the title to fit its text (any length wraps to as many lines as needed,
   // like Notion) — on every edit and whenever the page (and thus title) changes.
@@ -668,10 +964,27 @@ function PageHeader({
   // Toggle a `scrolled` class on the page body (with hysteresis so it never
   // flaps) — CSS uses it to shrink the docked page icon once the collapsed
   // cover strip is pinned.
+  //
+  // The same listener remembers the scroll position per page (see
+  // pageUiState): the Editor remounts on every document-tab switch, so without
+  // this every return lands at the top.
+  //
+  // Only USER moves are remembered. After a restore the content keeps growing
+  // (images, embeds, fonts), and the browser's scroll anchoring shifts scrollTop
+  // to hold the text still — persisting that shift ratchets the position a
+  // little lower on every reload. A gesture timestamp separates the two: wheel,
+  // touch, keys and scrollbar drags count; restores, anchoring and content
+  // growth do not.
   useEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
     let scrolled = false;
+    let saveRaf = 0;
+    let lastGesture = 0;
+    const markGesture = () => {
+      lastGesture = Date.now();
+    };
+    const maySave = () => Date.now() - lastGesture < 2000;
     const onScroll = () => {
       const s = el.scrollTop;
       if (!scrolled && s > 110) {
@@ -681,16 +994,59 @@ function PageHeader({
         scrolled = false;
         el.classList.remove('scrolled');
       }
+      if (!maySave()) return;
+      cancelAnimationFrame(saveRaf);
+      saveRaf = requestAnimationFrame(() => {
+        if (maySave()) writePageScroll(pageId, el.scrollTop);
+      });
     };
     onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+    el.addEventListener('wheel', markGesture, { passive: true });
+    el.addEventListener('touchmove', markGesture, { passive: true });
+    el.addEventListener('pointerdown', markGesture);
+    el.addEventListener('keydown', markGesture);
+    return () => {
+      cancelAnimationFrame(saveRaf);
+      // A switch made mid-glide keeps the last user position rather than the
+      // one before it — but never an anchoring shift (no gesture, no save).
+      if (maySave()) writePageScroll(pageId, el.scrollTop);
+      el.removeEventListener('scroll', onScroll);
+      el.removeEventListener('wheel', markGesture);
+      el.removeEventListener('touchmove', markGesture);
+      el.removeEventListener('pointerdown', markGesture);
+      el.removeEventListener('keydown', markGesture);
+    };
+  }, [pageId]);
+
+  // Back where you were: restore the remembered scroll position. The content
+  // (document blocks, collection rows) grows over several frames after the
+  // mount, and setting scrollTop early clamps — so retry until the value
+  // sticks or the budget runs out.
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    const saved = el && readPageScroll(pageId);
+    if (!el || !saved) return;
+    let tries = 60;
+    let raf = 0;
+    const restore = () => {
+      el.scrollTop = saved.top;
+      if (el.scrollTop < saved.top - 2 && --tries > 0) raf = requestAnimationFrame(restore);
+    };
+    raf = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(raf);
+  }, [pageId]);
 
   const togglePrivate = () => {
     const next = visibility === 'private' ? 'workspace' : 'private';
     setVisibility(next);
-    api.updatePage(pageId, { visibility: next }).catch(() => toast(t('Visibility not saved')));
+    api.updatePage(pageId, { visibility: next }).catch((e) => {
+      if (isTempId(pageId) || isOfflineError(e)) {
+        void savePageUpdate(pageId, { visibility: next }, { label: t('Visibility') });
+        return;
+      }
+      toast(t('Visibility not saved'));
+    });
   };
 
   // The token itself is stored hashed server-side, so a minted URL cannot be
@@ -899,7 +1255,14 @@ function PageHeader({
     saveTimer.current = window.setTimeout(() => {
       const merged = pendingMeta.current;
       pendingMeta.current = {};
-      api.updatePage(pageId, merged).catch(() => {
+      api.updatePage(pageId, merged).catch((e) => {
+        // Temp pages and dead networks both journal into the outbox (it
+        // survives reloads and remaps temp ids on flush); any other failure
+        // keeps the existing in-memory retry.
+        if (isTempId(pageId) || isOfflineError(e)) {
+          void savePageUpdate(pageId, merged as Record<string, unknown>, { label: t('Title and properties') });
+          return;
+        }
         Object.assign(pendingMeta.current, merged); // keep for a later retry
         toast(t('Title/icon not saved'));
       });
@@ -1005,6 +1368,49 @@ function PageHeader({
   return (
     <>
       <header className="topbar">
+        {onPeekClose && (
+          <span className="peek-pair">
+            <button className="icon-btn" title={t('Close preview')} onClick={onPeekClose}>
+              <ChevronsRight size={17} />
+            </button>
+            {/* The expand button also carries a menu, after a moment's hover:
+                the three things one wants from a preview, without a bar of
+                their own in a panel this narrow. */}
+            <span className="peek-open-wrap" onMouseEnter={peekMenuEnter} onMouseLeave={peekMenuLeave}>
+              <button
+                className={'icon-btn' + (peekPinned ? ' is-on' : '')}
+                title={peekPinned ? t('Unpin') : t('Open as page ↗')}
+                onClick={() => (peekPinned ? onPeekPin?.() : onPeekOpenFull?.(pageId))}
+              >
+                {/* Pinned, the button says so — and pressing it unpins first.
+                    Only the fullscreen arrow opens the page: an icon and its
+                    meaning stay one thing, and the menu beside it is where the
+                    pin is managed either way. */}
+                {peekPinned ? <Pin size={16} /> : <Maximize2 size={16} />}
+              </button>
+              {peekMenuOpen && (
+                <AnchoredMenu className="menu peek-open-menu">
+                  <button onClick={() => onPeekOpenFull?.(pageId)}>
+                    <Maximize2 size={14} /> {t('Open full screen')}
+                  </button>
+                  <button onClick={() => onOpenInNewTab?.(pageId)}>
+                    <SquareArrowOutUpRight size={14} /> {t('Open in a new tab')}
+                  </button>
+                  <button
+                    className={peekPinned ? 'is-on' : ''}
+                    onClick={() => {
+                      onPeekPin?.();
+                      setPeekMenuOpen(false);
+                    }}
+                    aria-pressed={!!peekPinned}
+                  >
+                    <Pin size={14} /> {peekPinned ? t('Unpin') : t('Pin')}
+                  </button>
+                </AnchoredMenu>
+              )}
+            </span>
+          </span>
+        )}
         <button className="menu-btn topbar-menu" title={t('Menu')} onClick={onMenu}>
           <Menu size={18} />
         </button>
@@ -1012,7 +1418,11 @@ function PageHeader({
           {breadcrumbs.map((b, i) => (
             <span key={b.id} className="crumb-wrap">
               {i > 0 && <span className="crumb-sep">/</span>}
-              <button className="crumb" onClick={() => onNavigate(b.id)}>
+              <button
+                className="crumb"
+                onClick={(e) => openPage(e, b.id, { onNavigate, onOpenInNewTab })}
+                onAuxClick={(e) => openPageAux(e, b.id, { onNavigate, onOpenInNewTab })}
+              >
                 {(() => {
                   const ic = b.id === pageId ? icon : b.icon;
                   const tt = (b.id === pageId ? title : b.title) || 'Untitled';
@@ -1062,6 +1472,10 @@ function PageHeader({
             {openComments > 0 && <span className="badge-count">{openComments}</span>}
           </button>
           )}
+          {/* In the side peek these two move into the ⋯ menu below — a narrow
+              panel has no room for a full desktop topbar. */}
+          {!onPeekClose && (
+          <>
           <button
             className={'icon-btn' + (structureOpen ? ' is-on' : '')}
             title={structureOpen ? t('Hide structure') : t('Show structure')}
@@ -1076,6 +1490,8 @@ function PageHeader({
           >
             <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
           </button>
+          </>
+          )}
           <div className="access-wrap" ref={accessWrapRef}>
             <button
               className={'icon-btn topbar-wide-only' + (visibility !== 'workspace' ? ' active-star' : '')}
@@ -1229,6 +1645,30 @@ function PageHeader({
             />
             {overflowOpen && (
               <div className="menu overflow-menu">
+                {onPeekClose && (
+                  <>
+                    <button
+                      className="menu-item"
+                      onClick={() => {
+                        setOverflowOpen(false);
+                        onToggleStructure();
+                      }}
+                    >
+                      <PanelRight size={15} /> {structureOpen ? t('Hide structure') : t('Show structure')}
+                    </button>
+                    <button
+                      className="menu-item"
+                      onClick={() => {
+                        setOverflowOpen(false);
+                        onToggleFavorite(pageId);
+                      }}
+                    >
+                      <Star size={15} fill={favorite ? 'currentColor' : 'none'} />{' '}
+                      {favorite ? t('Remove from favorites') : t('Add to favorites')}
+                    </button>
+                    <div className="menu-sep" />
+                  </>
+                )}
                 {canEdit && !showDesc && !description && (
                   <button
                     className="menu-item"
@@ -1463,7 +1903,7 @@ function PageHeader({
               e.preventDefault();
               // The region knows how to focus its own items, including the one
               // that wraps a ProseMirror rather than being an input.
-              focusKey('content', 'body');
+              focusKey(regionId, 'body');
             }
           }}
         />
@@ -1613,6 +2053,8 @@ function PageHeader({
             parentId={page.parentId}
             initialProps={page.props}
             canEdit={canEdit}
+            onOpen={onOpenInNewTab ?? onNavigate}
+            openers={{ onNavigate, onOpenInNewTab }}
           />
         )}
       </div>
@@ -1692,6 +2134,9 @@ interface CollabProps {
    *  while it is closed, so the information is never in two places at once and
    *  never in none. */
   structureOpen: boolean;
+  /** Keyboard-navigation region of the owning editor ('content', or 'peek' in
+   *  the side panel). Flows through ...rest to BlockContent. */
+  regionId: string;
 }
 
 function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabProps) {
@@ -1706,57 +2151,96 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
   // destroyed the committed provider for good — dev hung on a dead Y.Doc.
   // Here, setup→cleanup→setup simply produces a second provider.
   useEffect(() => {
-    const p = new SaltProvider(
-      page.id,
-      (isNew) => {
-        // Seed a brand-new CRDT doc from the page's stored content once.
-        if (isNew && Array.isArray(page.content) && page.content.length > 0) {
-          seedRef.current = page.content;
+    let cancelled = false;
+    let p: SaltProvider | null = null;
+    let saveTimer = 0;
+    let onVisibility: (() => void) | null = null;
+    // Restore the offline snapshot first so edits typed before a reload are
+    // not lost; the provider merges it with the server replay on connect.
+    void getYDoc(page.id).then((initialUpdate) => {
+      if (cancelled) return;
+      const scheduleSave = () => {
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(() => {
+          try {
+            if (p) {
+              const cur = Y.encodeStateAsUpdate(p.doc);
+              if (cur.length > 0) void putYDoc(page.id, cur);
+            }
+          } catch {
+            /* snapshot is best-effort */
+          }
+        }, 1000);
+      };
+      p = new SaltProvider(
+        page.id,
+        (isNew) => {
+          // Seed a brand-new CRDT doc from the page's stored content once.
+          if (isNew && Array.isArray(page.content) && page.content.length > 0) {
+            seedRef.current = page.content;
+          }
+          setReady(true);
+        },
+        onReset,
+        { initialUpdate, onLocalUpdate: () => scheduleSave() },
+      );
+      // Presence means "is looking at this page right now": a tab in a hidden
+      // window must not show up as a peer for hours. Doc sync stays connected;
+      // only the awareness state is withdrawn. IMPORTANT: setLocalState, not
+      // setLocalStateField — after setLocalState(null) the latter is a silent
+      // no-op (y-protocols checks state !== null), and presence would never come
+      // back after switching tabs.
+      const applyPresence = () => {
+        if (!p) return;
+        if (document.visibilityState === 'hidden') {
+          p.awareness.setLocalState(null);
+        } else {
+          p.awareness.setLocalState({
+            user: { name: user.name, color: user.color, avatar: user.avatar },
+          });
         }
-        setReady(true);
-      },
-      onReset,
-    );
-
-    // Presence means "is looking at this page right now": a tab in a hidden
-    // window must not show up as a peer for hours. Doc sync stays connected;
-    // only the awareness state is withdrawn. IMPORTANT: setLocalState, not
-    // setLocalStateField — after setLocalState(null) the latter is a silent
-    // no-op (y-protocols checks state !== null), and presence would never come
-    // back after switching tabs.
-    const applyPresence = () => {
-      if (document.visibilityState === 'hidden') {
-        p.awareness.setLocalState(null);
-      } else {
-        p.awareness.setLocalState({
-          user: { name: user.name, color: user.color, avatar: user.avatar },
+      };
+      onVisibility = applyPresence;
+      applyPresence();
+      // Awareness has long known about the others — you just never saw them.
+      // Here they are written into the presence store the header reads.
+      const pushPeers = () => {
+        if (!p) return;
+        const mine = p.awareness.clientID;
+        const out: { name: string; color: string; avatar?: string }[] = [];
+        p.awareness.getStates().forEach((state: Record<string, unknown>, id: number) => {
+          if (id === mine) return;
+          const u = state.user as { name?: string; color?: string; avatar?: string } | undefined;
+          if (u?.name) out.push({ name: u.name, color: u.color || '#888', avatar: u.avatar });
         });
-      }
-    };
-    applyPresence(); // deckt auch den nie fokussierten Hintergrund-Tab ab (startet hidden)
-
-    // Awareness has long known about the others — you just never saw them.
-    // Here they are written into the presence store the header reads.
-    const pushPeers = () => {
-      const mine = p.awareness.clientID;
-      const out: { name: string; color: string; avatar?: string }[] = [];
-      p.awareness.getStates().forEach((state: Record<string, unknown>, id: number) => {
-        if (id === mine) return;
-        const u = state.user as { name?: string; color?: string; avatar?: string } | undefined;
-        if (u?.name) out.push({ name: u.name, color: u.color || '#888', avatar: u.avatar });
-      });
-      setPeers(page.id, out);
-    };
-    p.awareness.on('change', pushPeers);
-    pushPeers();
-
-    document.addEventListener('visibilitychange', applyPresence);
-    setProvider(p);
+        setPeers(page.id, out);
+      };
+      p.awareness.on('change', pushPeers);
+      pushPeers();
+      document.addEventListener('visibilitychange', applyPresence);
+      setProvider(p);
+    });
     return () => {
-      document.removeEventListener('visibilitychange', applyPresence);
+      cancelled = true;
+      window.clearTimeout(saveTimer);
+      if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
       clearPeers(page.id);
       setReady(false); // the next provider (StrictMode) gates itself again
-      p.destroy();
+      // Flush the latest state so a tab closed right now keeps its edits.
+      try {
+        if (p) {
+          const cur = Y.encodeStateAsUpdate(p.doc);
+          if (cur.length > 0) void putYDoc(page.id, cur);
+        }
+      } catch {
+        /* best-effort */
+      }
+      try {
+        p?.destroy();
+      } catch {
+        /* best-effort */
+      }
+      setProvider(null);
     };
     // page.id is constant over the lifetime (key={currentId} remounts)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1800,12 +2284,14 @@ function BlockContent({
   onCreatePage,
   onPagesChanged,
   structureOpen,
+  regionId,
 }: {
   provider: SaltProvider;
   pageId: string;
   seed: unknown[] | null;
   hadContent: boolean;
   structureOpen: boolean;
+  regionId: string;
   user: User;
   theme: 'light' | 'dark';
   canEdit: boolean;
@@ -1850,7 +2336,7 @@ function BlockContent({
     keys: ['ctrl+enter'],
     scope: 'editor',
     whileTyping: true,
-    when: () => canEdit && focusedKey('content') === 'body',
+    when: () => canEdit && focusedKey(regionId) === 'body',
     label: () => t('Tick/untick the checkbox'),
     group: () => t('Page'),
     run: () => {
@@ -1875,7 +2361,7 @@ function BlockContent({
     keys: ['alt+arrowup'],
     scope: 'editor',
     whileTyping: true,
-    when: () => canEdit && focusedKey('content') === 'body',
+    when: () => canEdit && focusedKey(regionId) === 'body',
     label: () => t('Move block up'),
     group: () => t('Page'),
     run: () => editor.moveBlocksUp(),
@@ -1885,7 +2371,7 @@ function BlockContent({
     keys: ['alt+arrowdown'],
     scope: 'editor',
     whileTyping: true,
-    when: () => canEdit && focusedKey('content') === 'body',
+    when: () => canEdit && focusedKey(regionId) === 'body',
     label: () => t('Move block down'),
     group: () => t('Page'),
     run: () => editor.moveBlocksDown(),
@@ -2007,6 +2493,45 @@ function BlockContent({
               ' ',
             ]);
           } catch (e) {
+            // Offline: journal the page but insert no link — a link to a temp
+            // id would dangle after the flush remaps it, and there is no
+            // in-doc fixup pass. The page itself appears in the tree on sync.
+            if (isOfflineError(e)) {
+              const tempId = newTempId();
+              const now = new Date().toISOString();
+              await putCachedPage({
+                id: tempId,
+                parentId: null,
+                title: query.trim(),
+                icon: '',
+                cover: '',
+                position: Date.now(),
+                updatedAt: now,
+                trashed: false,
+                type: 'doc',
+                props: {},
+                workspaceId: '',
+                ownerId: '',
+                visibility: 'workspace',
+                isTemplate: false,
+                tags: [],
+                description: '',
+                snippet: '',
+                thumb: '',
+                content: [],
+                createdAt: now,
+              });
+              await enqueue({
+                kind: 'create-page',
+                pageId: tempId,
+                parentId: null,
+                payload: { title: query.trim(), type: 'doc', props: {} },
+                label: query.trim(),
+              });
+              onPagesChanged();
+              toast(t('Will sync when the connection is back'));
+              return;
+            }
             console.error('salt.md: failed to create page from mention', e);
           }
         },
@@ -2090,7 +2615,23 @@ function BlockContent({
           keepalive: true,
         });
       } else {
-        api.updatePage(provider.pageId, { content: doc }, { materialize: true }).catch(() => {
+        api.updatePage(provider.pageId, { content: doc }, { materialize: true }).catch((e) => {
+          // Dead network or a not-yet-synced temp page: journal the snapshot
+          // (the outbox replays it after the create). A 404 here means the
+          // page was deleted or replaced under us — say so plainly (#4).
+          if (isTempId(provider.pageId) || isOfflineError(e)) {
+            dirty.current = false;
+            void savePageUpdate(
+              provider.pageId,
+              { content: doc } as Record<string, unknown>,
+              { materialize: true, label: t('Page content') },
+            );
+            return;
+          }
+          if (e instanceof ApiError && e.status === 404) {
+            toast(t('This page was deleted on the server. Open the trash to get it back.'));
+            return;
+          }
           dirty.current = true; // retry on next change / unmount flush
           toast(t('Page content not saved'));
         });
@@ -2257,7 +2798,7 @@ function BlockContent({
         </BlockNoteView>
         </BlockContext.Provider>
         {!structureOpen && (
-          <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} />
+          <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}
       </div>
       {preview && (
@@ -2272,10 +2813,12 @@ function Backlinks({
   pageId,
   pagesById,
   onNavigate,
+  onOpenInNewTab,
 }: {
   pageId: string;
   pagesById: Map<string, PageMeta>;
   onNavigate: (id: string | null) => void;
+  onOpenInNewTab?: (id: string) => void;
 }) {
   const [links, setLinks] = useState<Backlink[]>([]);
   // Refetch when the page changes or the page list updates — App rebuilds the
@@ -2302,7 +2845,12 @@ function Backlinks({
         <Link2 size={14} /> {t('Linked from')} · {links.length}
       </div>
       {links.map((l) => (
-        <button key={l.id} className="backlink-item" onClick={() => onNavigate(l.id)}>
+        <button
+          key={l.id}
+          className="backlink-item"
+          onClick={(e) => openPage(e, l.id, { onNavigate, onOpenInNewTab })}
+          onAuxClick={(e) => openPageAux(e, l.id, { onNavigate, onOpenInNewTab })}
+        >
           <span className="tree-icon"><PageIcon icon={l.icon} size={14} fallback={<FileText size={14} />} /></span>
           {l.title || 'Untitled'}
         </button>

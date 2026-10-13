@@ -161,7 +161,33 @@ func isNumeric(s string) bool {
 // it. An empty condition means "does not filter": an unsafe property id, a
 // comparison with nothing to compare against, or a half-built range. The
 // caller skips those, so an unfinished condition never blanks the answer.
+// templateFilterProp is the one condition that is not about a column: whether
+// the row is a template. A pseudo-property, so it travels in the same shape as
+// every other condition and a view can save it like any other (the client has
+// the same id — see TEMPLATE_FILTER).
+const templateFilterProp = "@template"
+
+// The two orders that are not about a column: when the row was made and when
+// it was last touched. Pseudo-properties, like the template condition — a view
+// saves them in the same Sort shape as any column, and the client offers them
+// under the same System heading as the template condition.
+const sortCreatedProp = "@created"
+const sortUpdatedProp = "@updated"
+
 func (f rowFilter) where() (string, []any) {
+	if f.Prop == templateFilterProp {
+		// "is a template" is the checked value; anything else — and "is not a
+		// template" with it — asks for the other half.
+		want := 1
+		no := f.Value == "false" || f.Value == "0"
+		if f.Op == "is_not" {
+			no = !no
+		}
+		if no {
+			want = 0
+		}
+		return "is_template = ?", []any{want}
+	}
 	if !safePropID(f.Prop) {
 		return "", nil
 	}
@@ -300,27 +326,41 @@ func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter
 	orderSQL := "position, created_at"
 	if sortParam != "" {
 		propID, dir, _ := strings.Cut(sortParam, ":")
-		if safePropID(propID) {
-			d := "ASC"
-			if strings.EqualFold(dir, "desc") {
-				d = "DESC"
+		d := "ASC"
+		if strings.EqualFold(dir, "desc") {
+			d = "DESC"
+		}
+		switch propID {
+		case sortCreatedProp:
+			orderSQL = "created_at " + d + ", position"
+		case sortUpdatedProp:
+			orderSQL = "updated_at " + d + ", position"
+		default:
+			if safePropID(propID) {
+				orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position"
 			}
-			orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position"
 		}
 	}
 
 	s.db.QueryRow(`SELECT COUNT(*) FROM pages AS row WHERE `+whereSQL, args...).Scan(&total)
 
-	rows, err := s.db.Query(`SELECT id, title, icon, cover, position, props, tags FROM pages AS row WHERE `+whereSQL+` ORDER BY `+orderSQL+` LIMIT ? OFFSET ?`, append(args, limit, offset)...)
+	// is_template travels with the row because a view can filter on it (see
+	// templateFilterProp): the client re-checks the conditions it was sent, and
+	// it cannot re-check one whose answer is not in the payload.
+	// createdAt/updatedAt travel with the row because a view can sort on them
+	// (see sortCreatedProp): the client re-sorts what it was sent, and it
+	// cannot order by a value that is not in the payload.
+	rows, err := s.db.Query(`SELECT id, title, icon, cover, position, props, tags, is_template, created_at, updated_at FROM pages AS row WHERE `+whereSQL+` ORDER BY `+orderSQL+` LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
 	list = []map[string]any{}
 	for rows.Next() {
-		var id, title, icon, cover, props, tags string
+		var id, title, icon, cover, props, tags, createdAt, updatedAt string
 		var position float64
-		if rows.Scan(&id, &title, &icon, &cover, &position, &props, &tags) != nil {
+		var isTemplate int
+		if rows.Scan(&id, &title, &icon, &cover, &position, &props, &tags, &isTemplate, &createdAt, &updatedAt) != nil {
 			continue
 		}
 		var pm map[string]any
@@ -333,6 +373,7 @@ func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter
 		}
 		list = append(list, map[string]any{
 			"id": id, "title": title, "icon": icon, "cover": cover, "position": position, "props": pm, "tags": tagList,
+			"isTemplate": isTemplate != 0, "createdAt": createdAt, "updatedAt": updatedAt,
 		})
 	}
 

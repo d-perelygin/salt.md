@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react';
 import { api } from '../api';
 import type { CollectionConfig, PropDef, PropType, ViewDef } from '../types';
+import { isSystemRef } from '../types';
 import Portal from './Portal';
 import { useExclusiveModal } from '../modal';
 import { OPTION_HEXES, optionPalette } from '../selectOptions';
@@ -220,12 +221,15 @@ export default function SchemaEditor({
       if (v.type === 'calendar' && !propIds.has(v.dateProp ?? '')) {
         next.dateProp = dateProps[0]?.id ?? '';
       }
-      if (v.filters) next.filters = v.filters.filter((f) => propIds.has(f.property));
+      // Conditions and orders that are not columns survive a schema save:
+      // no property id can collide with them, so there is nothing to clean.
+
+      if (v.filters) next.filters = v.filters.filter((f) => propIds.has(f.property) || isSystemRef(f.property));
       if (v.filterGroups)
         next.filterGroups = v.filterGroups
-          .map((g) => g.filter((f) => propIds.has(f.property)))
+          .map((g) => g.filter((f) => propIds.has(f.property) || isSystemRef(f.property)))
           .filter((g) => g.length > 0);
-      if (v.sort && !propIds.has(v.sort.property)) next.sort = null;
+      if (v.sort && !propIds.has(v.sort.property) && !isSystemRef(v.sort.property)) next.sort = null;
       if (v.hidden) next.hidden = v.hidden.filter((id) => propIds.has(id));
       return next;
     });

@@ -2,7 +2,7 @@ import type { PropDef, PropOption } from '../types';
 import PropertyValue from './PropertyValue';
 import { tagColorClass } from '../tags';
 import { PageIcon } from '../pageIcon';
-import { openPage, openPageAux } from '../pageOpen';
+import { openCollectionRow, openPageAux } from '../pageOpen';
 
 interface Row {
   id: string;
@@ -46,7 +46,7 @@ export default function GalleryView({
         <div
           key={r.id}
           className="gallery-card"
-          onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+          onClick={(e) => openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab })}
           onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
         >
           <div className="gallery-cover" style={coverStyle(r.cover)}>
@@ -80,11 +80,13 @@ export default function GalleryView({
                         value={v}
                         onChange={(nv) => onSetProp(r.id, p.id, nv)}
                         onOptionsChange={(opts) => onSetOptions(p.id, opts)}
+                        onOpen={onOpenInNewTab ?? onNavigate}
+                        openers={{ onNavigate, onOpenInNewTab }}
                       />
                     </div>
                   );
                 }
-                return <PropertyValue key={p.id} def={p} value={v} readOnly compact />;
+                return <PropertyValue key={p.id} def={p} value={v} readOnly compact onOpen={onOpenInNewTab ?? onNavigate} openers={{ onNavigate, onOpenInNewTab }} />;
               })}
             </div>
           </div>

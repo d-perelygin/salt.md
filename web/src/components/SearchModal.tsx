@@ -5,6 +5,7 @@ import Portal from './Portal';
 import { PageIcon } from '../pageIcon';
 import { useExclusiveModal } from '../modal';
 import { t } from '../i18n';
+import { openPage, openPageAux, peekPage } from '../pageOpen';
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -19,9 +20,10 @@ interface Props {
   recent?: { id: string; title: string; icon: string }[];
   onClose: () => void;
   onNavigate: (id: string) => void;
+  onOpenInNewTab?: (id: string) => void;
 }
 
-export default function SearchModal({ recent, onClose, onNavigate }: Props) {
+export default function SearchModal({ recent, onClose, onNavigate, onOpenInNewTab }: Props) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [sel, setSel] = useState(0);
@@ -55,7 +57,15 @@ export default function SearchModal({ recent, onClose, onNavigate }: Props) {
       e.preventDefault();
       setSel((s) => Math.max(s - 1, 0));
     } else if (e.key === 'Enter' && results[sel]) {
-      onNavigate(results[sel].id);
+      // The click modifiers, on the keyboard: Option peeks (and closes the
+      // palette), Ctrl/⌘ together with Alt stays, Ctrl/⌘ opens beside.
+      const id = results[sel].id;
+      if (e.altKey && !e.metaKey && !e.ctrlKey) {
+        if (peekPage(e, id)) onClose();
+        else onNavigate(id);
+      } else if (e.altKey) onNavigate(id);
+      else if (e.metaKey || e.ctrlKey) (onOpenInNewTab ?? onNavigate)(id);
+      else onNavigate(id);
     }
   };
 
@@ -81,7 +91,8 @@ export default function SearchModal({ recent, onClose, onNavigate }: Props) {
               key={r.id}
               className={'search-result' + (i === sel ? ' selected' : '')}
               onMouseEnter={() => setSel(i)}
-              onClick={() => onNavigate(r.id)}
+              onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+              onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
             >
               <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
               <span className="result-body">
@@ -102,7 +113,12 @@ export default function SearchModal({ recent, onClose, onNavigate }: Props) {
             <>
               <div className="search-section-label">{t('Recently opened')}</div>
               {recent!.map((r) => (
-                <button key={r.id} className="search-result" onClick={() => onNavigate(r.id)}>
+                <button
+                  key={r.id}
+                  className="search-result"
+                  onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+                  onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+                >
                   <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
                   <span className="result-body">
                     <span className="result-title">{r.title || t('Untitled')}</span>

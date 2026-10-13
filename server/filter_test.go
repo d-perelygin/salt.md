@@ -196,3 +196,87 @@ func TestParseFilterGroups(t *testing.T) {
 		t.Errorf("second group is %#v, want the datum range", groups[1])
 	}
 }
+
+func TestTemplateFilter(t *testing.T) {
+	// The one condition that is not about a column: whether the row is a
+	// template. It must answer for all four spellings a view can carry, and for
+	// the empty one a half-built row leaves behind.
+	cases := []struct {
+		op, value string
+		want      int
+	}{
+		{"is", "true", 1},
+		{"is", "false", 0},
+		{"is_not", "true", 0},
+		{"is_not", "false", 1},
+		{"", "", 1},
+	}
+	for _, c := range cases {
+		sql, args := (rowFilter{Prop: templateFilterProp, Op: c.op, Value: c.value}).where()
+		if sql != "is_template = ?" {
+			t.Errorf("%q %q: sql = %q", c.op, c.value, sql)
+			continue
+		}
+		if len(args) != 1 || args[0] != c.want {
+			t.Errorf("%q %q: args = %v, want %d", c.op, c.value, args, c.want)
+		}
+	}
+}
+
+func TestSystemSorts(t *testing.T) {
+	s, col := filterFixture(t)
+	// Two rows with known timestamps: the older one must come first ascending.
+	// The fixture already holds four rows; both newcomers sort after them by
+	// position only when no sort applies, so the assertions name ids, not
+	// places.
+	oldID, newID := newID(), newID()
+	var ws string
+	if err := s.db.QueryRow(`SELECT id FROM workspaces LIMIT 1`).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []struct {
+		id, created, updated string
+	}{
+		{oldID, "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z"},
+		{newID, "2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z"},
+	} {
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'row', '{}', 0, ?, ?)`, r.id, col, ws, "row", r.created, r.updated); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u := &user{ID: "tester"}
+	// Both newcomers carry the timestamps above; the order between the two must
+	// follow the sort in all four spellings, wherever the fixture rows land.
+	at := func(list []map[string]any, id string) int {
+		for i, r := range list {
+			if r["id"] == id {
+				return i
+			}
+		}
+		return -1
+	}
+	for _, tc := range []struct {
+		sort         string
+		oldBeforeNew bool
+	}{
+		{sortCreatedProp + ":asc", true},
+		{sortCreatedProp + ":desc", false},
+		{sortUpdatedProp + ":asc", true},
+		{sortUpdatedProp + ":desc", false},
+	} {
+		list, _, err := s.collectionRowsQuery(u, col, nil, tc.sort, 10, 0)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.sort, err)
+		}
+		if len(list) != 6 {
+			t.Fatalf("%s: got %d rows, want 6", tc.sort, len(list))
+		}
+		if (at(list, oldID) < at(list, newID)) != tc.oldBeforeNew {
+			t.Errorf("%s: old/new order wrong", tc.sort)
+		}
+		if list[0]["createdAt"] == nil || list[0]["updatedAt"] == nil {
+			t.Errorf("%s: rows carry no timestamps for the client to sort by", tc.sort)
+		}
+	}
+}

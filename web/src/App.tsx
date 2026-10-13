@@ -5,6 +5,7 @@ import { WifiOff } from 'lucide-react';
 import type { Me, PageMeta, User, Workspace } from './types';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
+import PeekPanel from './components/PeekPanel';
 import TabBar from './components/TabBar';
 import SearchModal from './components/SearchModal';
 import IndexView from './components/IndexView';
@@ -21,12 +22,31 @@ import { DialogHost, confirm, promptText } from './dialog';
 import { announceModal, modalOpen } from './modal';
 import { toast } from './toast';
 import { onRefresh } from './pwa';
+import { putPage as putCachedPage } from './offlineCache';
+import {
+  REMAP_EVENT,
+  enqueue,
+  flush as flushOutbox,
+  initOutbox,
+  isOfflineError,
+  isTempId,
+  newTempId,
+} from './outbox';
 import PullToRefresh from './components/PullToRefresh';
 import Logo from './Logo';
 import ThemeSwitch, { type ThemePref } from './ThemeSwitch';
 import { applyPrefs, plural, t } from './i18n';
 import { useShortcut } from './keys';
 import { focusKey, useNavEntry } from './nav';
+import {
+  forgetPageScroll,
+  forgetViewId,
+  forgetViewScrolls,
+  readPageScroll,
+  readViewId,
+  writePageScroll,
+  writeViewId,
+} from './pageUiState';
 import { pageIdFromPathname, pagePath } from './pageUrl';
 import ShortcutSheet from './components/ShortcutSheet';
 import { guardDrops } from './dropFiles';
@@ -381,16 +401,26 @@ export default function App() {
     };
     // Clicking an inline @-mention (rendered by BlockNote) dispatches this.
     // Inlined (not via `navigate`) so the listener needs no deps and can't
-    // hit a temporal-dead-zone on the later useCallback; navigates the active
-    // tab in place, matching a normal link click.
+    // hit a temporal-dead-zone on the later useCallback. A plain click
+    // navigates the active tab in place, matching a normal link click;
+    // ⌘/Ctrl-click (or the middle button) opens beside it instead.
     const onLinkNav = (e: Event) => {
-      const id = (e as CustomEvent<string>).detail;
+      const detail = (e as CustomEvent<string | { id: string; newTab?: boolean }>).detail;
+      const id = typeof detail === 'string' ? detail : detail?.id;
+      const newTab = typeof detail === 'object' && !!detail?.newTab;
       if (!id) return;
       history.pushState(null, '', pagePath(id, pagesByIdRef.current.get(id)?.title));
       setCurrentId(id);
       setSidebarOpen(false);
       setOpenTabs((prev) => {
+        // Open in a tab already: land on it, the way a browser focuses the
+        // tab a link is already open in.
         if (prev.includes(id)) return prev;
+        // A new tab slides in right after the active one (see openInNewTab).
+        if (newTab) {
+          const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
+          return i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+        }
         const active = activeRef.current;
         if (active && prev.includes(active)) return prev.map((t) => (t === active ? id : t));
         return [...prev, id];
@@ -399,10 +429,40 @@ export default function App() {
     window.addEventListener('salt:unauthorized', onUnauthorized);
     window.addEventListener('popstate', onPop);
     window.addEventListener('salt:navigate', onLinkNav);
+    // A Shift-click anywhere a page link opens one asks for a side peek
+    // instead (see peekPage in pageOpen). preventDefault marks the request
+    // claimed, so the click falls through to its normal meaning where no
+    // peek exists to answer.
+    const onPeek = (e: Event) => {
+      const detail = (e as CustomEvent<{ id?: string; focusTitle?: boolean }>).detail;
+      peekAskedRef.current = true;
+      // A pinned panel keeps what it shows: another row's request neither
+      // replaces it nor opens a tab beside it. The click is answered — with
+      // nothing — rather than falling through to the tab a peek request opens
+      // when nobody claims it.
+      if (peekPinnedRef.current && peekIdRef.current && detail?.id !== peekIdRef.current) {
+        e.preventDefault();
+        return;
+      }
+      setPeekFocusTitle(!!detail?.focusTitle);
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (!id) return;
+      e.preventDefault();
+      // Clicking the row the peek already shows closes it again: the panel
+      // toggles rather than reopening itself. A pinned panel is exempt — its
+      // pin promises nothing hides it but its own close button.
+      if (!peekPinnedRef.current && id === peekIdRef.current) {
+        closePeek();
+        return;
+      }
+      setPeekId(id);
+    };
+    window.addEventListener('salt:peek', onPeek);
     return () => {
       window.removeEventListener('salt:unauthorized', onUnauthorized);
       window.removeEventListener('popstate', onPop);
       window.removeEventListener('salt:navigate', onLinkNav);
+      window.removeEventListener('salt:peek', onPeek);
     };
   }, []);
 
@@ -767,6 +827,10 @@ export default function App() {
       n.delete(id);
       return n;
     });
+    // The remembered scroll positions die with the tab. The chosen VIEW stays:
+    // that is a choice about the collection, not about the tab.
+    forgetPageScroll(id);
+    forgetViewScrolls(id);
     if (activeRef.current === id) {
       const neighbour = next[i] ?? next[i - 1] ?? null;
       pushTabHistory(next, neighbour, true);
@@ -803,6 +867,44 @@ export default function App() {
     run: () => cycleTab(-1),
   });
 
+  // A create queued offline resolves its temp id here: swap the tree entry,
+  // the tabs and the active page onto the real id, then reload the tree for
+  // the server's authoritative meta (position, owner).
+  // Registered once; the outbox owns the mapping, this owns the UI state.
+  useEffect(() => {
+    const onRemap = (e: Event) => {
+      const { tempId, realId } = (e as CustomEvent<{ tempId: string; realId: string }>).detail;
+      setPages((prev) => prev?.map((p) => (p.id === tempId ? { ...p, id: realId } : p)) ?? prev);
+      setExtraPages((prev) => {
+        if (!prev.has(tempId)) return prev;
+        const next = new Map(prev);
+        const meta = next.get(tempId);
+        next.delete(tempId);
+        if (meta) next.set(realId, { ...meta, id: realId });
+        return next;
+      });
+      // The remembered interface state moves onto the real id with everything
+      // else — typed while offline under the temp id, it still belongs here.
+      const scrolled = readPageScroll(tempId);
+      if (scrolled) {
+        writePageScroll(realId, scrolled.top);
+        forgetPageScroll(tempId);
+      }
+      const seenView = readViewId(tempId);
+      if (seenView) {
+        writeViewId(realId, seenView);
+        forgetViewId(tempId);
+      }
+      setOpenTabs((prev) => prev.map((id) => (id === tempId ? realId : id)));
+      if (activeRef.current === tempId) navigate(realId, true);
+      void loadPages();
+    };
+    window.addEventListener(REMAP_EVENT, onRemap);
+    initOutbox();
+    return () => window.removeEventListener(REMAP_EVENT, onRemap);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Pick a landing page when nothing is selected, and bounce away from a page
   // that was trashed. IMPORTANT: a selected id that is simply absent from the
   // tree list is still valid — database rows are children of a collection and
@@ -838,7 +940,10 @@ export default function App() {
     if (!pages) return;
     const known = new Set(pages.map((p) => p.id));
     for (const id of openTabs) {
-      if (known.has(id) || extraPages.has(id) || resolvingRef.current.has(id)) continue;
+      // Temp ids from offline creates resolve through REMAP_EVENT on flush,
+      // not through the server: asking for one now would 404 and close a tab
+      // the user is actively typing in.
+      if (known.has(id) || extraPages.has(id) || resolvingRef.current.has(id) || isTempId(id)) continue;
       resolvingRef.current.add(id);
       void api
         .getPage(id)
@@ -871,6 +976,10 @@ export default function App() {
     // the agent's sign-in vanished into the app before anyone could answer it.
     if (window.location.pathname === '/oauth/consent') return;
     if (currentId) {
+      // A temp id from an offline create resolves through REMAP_EVENT on
+      // flush — it is valid by definition, never a stale selection, so keep it
+      // instead of bouncing to the first page.
+      if (isTempId(currentId)) return;
       const cur = pages.find((p) => p.id === currentId);
       if (!cur || !cur.trashed) return; // in-tree-and-live, OR a row not in the tree → keep
       // else: the current page is trashed → fall through and pick another
@@ -892,8 +1001,56 @@ export default function App() {
 
   const createPage = useCallback(
     async (parentId: string | null, type: 'doc' | 'collection' = 'doc') => {
+      // Shortcuts are global: without this an Alt+N on the sign-in screen
+      // would journal a temp page nobody can open yet.
+      if (!me?.authenticated) {
+        toast(t('Sign in to your workspace.'));
+        return;
+      }
       // Root pages land in the selected workspace; children inherit the parent's.
-      const p = await api.createPage(parentId, '', type, undefined, parentId ? undefined : currentWs);
+      let p: PageMeta;
+      try {
+        p = await api.createPage(parentId, '', type, undefined, parentId ? undefined : currentWs);
+      } catch (e) {
+        if (!isOfflineError(e)) throw e;
+        // Offline: create locally with a temp id and journal the create. The
+        // page renders from the snapshot cache at once; flush() swaps the temp
+        // id for the real one (REMAP_EVENT below) once the server answers.
+        const tempId = newTempId();
+        const now = new Date().toISOString();
+        const wsId = parentId ? (pagesByIdRef.current.get(parentId)?.workspaceId ?? currentWs) : currentWs;
+        p = {
+          id: tempId,
+          parentId,
+          title: '',
+          icon: '',
+          cover: '',
+          position: Date.now(),
+          updatedAt: now,
+          trashed: false,
+          type,
+          props: {},
+          workspaceId: wsId,
+          ownerId: '',
+          visibility: 'workspace',
+          isTemplate: false,
+          tags: [],
+          description: '',
+          snippet: '',
+          thumb: '',
+        };
+        await putCachedPage({ ...p, content: [], createdAt: now });
+        await enqueue({
+          kind: 'create-page',
+          pageId: tempId,
+          parentId,
+          payload: { title: '', type, props: {}, workspaceId: parentId ? undefined : wsId },
+          label: t('New page'),
+        });
+        toast(t('Will sync when the connection is back'));
+        // A transient blip rather than a dead network: try at once.
+        void flushOutbox();
+      }
       setPages((prev) => (prev ? [...prev, p] : [p]));
       navigate(p.id);
       // Land in the title: a new page is created to be named, and from ⌥N there
@@ -913,7 +1070,7 @@ export default function App() {
       // immediately against the wrong page's title and never waits for `p`'s.
       focusKey('content', 'title', 180, (root) => root.dataset.pageId === p.id);
     },
-    [navigate, currentWs],
+    [navigate, currentWs, me?.authenticated],
   );
   createPageRef.current = createPage;
 
@@ -1068,6 +1225,80 @@ export default function App() {
     const role = workspaces.find((w) => w.id === page.workspaceId)?.role;
     return role !== 'viewer';
   }, [currentId, pagesById, workspaces]);
+
+  // The side peek: a second editor over the right side (see PeekPanel),
+  // opened with Shift-click wherever a page link opens one. It lives outside
+  // the URL and the history — closing it changes nothing about the tabs.
+  const [peekId, setPeekId] = useState<string | null>(null);
+  // A new row wants its title typed: the peek opens with the caret in it.
+  const [peekFocusTitle, setPeekFocusTitle] = useState(false);
+  // Pinned: nothing hides the panel but its own close button. Unpinned, it still
+  // stays where it is while you work in the document beside it — the panel is a
+  // second view of the workspace, not a modal.
+  const [peekPinned, setPeekPinned] = useState(false);
+  // Closing the peek by itself: only its own button (and Escape, while it is
+  // not pinned). Clicking into the document beside it, or changing tab, leaves
+  // it alone — that is what a side panel is for.
+  const peekIdRef = useRef<string | null>(null);
+  peekIdRef.current = peekId;
+  const peekPinnedRef = useRef(false);
+  peekPinnedRef.current = peekPinned;
+  // Closing forgets the pin: it belongs to the panel you had open, not to the
+  // next one — a silently pinned peek would ignore Escape with no way to know.
+  const closePeek = useCallback(() => {
+    setPeekId(null);
+    setPeekPinned(false);
+  }, []);
+  // The click that just asked for a peek, if any: a click on a row first opens
+  // the peek (synchronously, through salt:peek) and only then reaches the
+  // document listener below — the flag tells the two apart, so opening never
+  // reads as leaving.
+  const peekAskedRef = useRef(false);
+  // A click outside the peek closes it — on the sidebar, the toolbar, the tab
+  // strip, a menu's backdrop. Two things do not: the document body beside it
+  // (that is what a side panel is for — working next to it), and the click
+  // that just opened the peek itself. A pinned panel ignores all of it.
+  // Where the press started, decided on pointerdown: the click handler below
+  // must not ask the event target where it is. React redraws synchronously on
+  // the click itself (the pin button swaps its own icon), so by the time the
+  // click bubbles to the document its target may hang off no parent at all —
+  // and closest() on a detached node answers null, which reads as "outside".
+  const downInsideRef = useRef(false);
+  const OUTSIDE_OK =
+    '.peek-panel, .page-body, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
+  useEffect(() => {
+    if (!peekId) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      downInsideRef.current = !!t?.closest?.(OUTSIDE_OK);
+    };
+    const onClick = (e: MouseEvent) => {
+      const inside = downInsideRef.current;
+      downInsideRef.current = false;
+      if (peekAskedRef.current) {
+        peekAskedRef.current = false;
+        return;
+      }
+      if (peekPinnedRef.current) return;
+      if (inside) return;
+      const t = e.target as Element | null;
+      if (t?.closest?.(OUTSIDE_OK)) return;
+      closePeek();
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    document.addEventListener('click', onClick);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      document.removeEventListener('click', onClick);
+    };
+  }, [peekId, closePeek]);
+  const canEditPeek = useMemo(() => {
+    if (!peekId) return true;
+    const page = pagesById.get(peekId);
+    if (!page) return true;
+    const role = workspaces.find((w) => w.id === page.workspaceId)?.role;
+    return role !== 'viewer';
+  }, [peekId, pagesById, workspaces]);
 
   // Switching workspaces must not leave the editor (and the URL) pointing at a
   // document that belonged to the workspace you just left — the picker used
@@ -1271,6 +1502,10 @@ export default function App() {
               setIndexOpen(false);
               navigate(id);
             }}
+            onOpenInNewTab={(id) => {
+              setIndexOpen(false);
+              openInNewTab(id);
+            }}
             onClose={() => setIndexOpen(false)}
           />
         ) : currentId ? (
@@ -1371,6 +1606,41 @@ export default function App() {
           </div>
         )}
       </main>
+      {peekId && me?.user && (
+        <PeekPanel
+          pageId={peekId}
+          focusTitleOnMount={peekFocusTitle}
+          pinned={peekPinned}
+          onTogglePin={() => setPeekPinned((v) => !v)}
+          pagesById={pagesById}
+          user={me.user}
+          theme={theme}
+          canEdit={canEditPeek}
+          favorite={favorites.includes(peekId)}
+          tagColors={tagColors}
+          onSetTagColor={setTagColor}
+          onMenu={openSidebar}
+          onToggleFavorite={toggleFavorite}
+          onMetaChange={updateMeta}
+          onMissing={(id) => {
+            closePeek();
+            handleMissing(id);
+          }}
+          onNavigate={navigate}
+          onOpenInNewTab={openInNewTab}
+          onCreatePage={createPage}
+          onTrash={(id) => {
+            if (id === peekId) closePeek();
+            trashPage(id);
+          }}
+          onPagesChanged={loadPages}
+          onClose={closePeek}
+          onOpenFull={(id) => {
+            closePeek();
+            navigate(id);
+          }}
+        />
+      )}
       {helpOpen && <ShortcutSheet onClose={() => setHelpOpen(false)} />}
       {searchOpen && (
         <SearchModal
@@ -1389,6 +1659,10 @@ export default function App() {
           onNavigate={(id) => {
             setSearchOpen(false);
             navigate(id);
+          }}
+          onOpenInNewTab={(id) => {
+            setSearchOpen(false);
+            openInNewTab(id);
           }}
         />
       )}

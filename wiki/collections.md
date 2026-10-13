@@ -81,8 +81,9 @@ Two things about that call are easy to get wrong:
 
 ## Rows are pages
 
-**New** in the toolbar creates a row called *Untitled* and opens it immediately.
-On a board, the **＋ New** at the foot of a column does the same and presets the
+**New** in the toolbar creates a row called *Untitled* and opens it immediately
+in the side peek, a page over the right of the screen rather than a new tab. On
+a board, the **＋ New** at the foot of a column does the same and presets the
 grouping property to that column's value, so a card added under *In progress*
 arrives in progress.
 
@@ -141,7 +142,7 @@ right, the settings for the view you are on.
 | **Columns** | Show and hide properties. Two lists, **Shown** and **Hidden**, with **Hide all** and **Show all**. The button reads **Columns**, and `Columns (4/7)` once something is hidden. |
 | **Properties** | Opens the schema dialog (see below). |
 | `⋯` (View options) | **Rename view**, **Move left**, **Move right**, **Remove view**. The arrows grey out at the ends; with only one view left the menu offers nothing but **Rename view**. |
-| **New** | Creates a row and opens it. |
+| **New** | Creates a row and opens it in the side peek. |
 
 On a **form** view the bar keeps only **Columns**, **Properties** and the `⋯`.
 There is nothing to filter, sort or add by hand there, and hiding a property
@@ -171,7 +172,8 @@ offered depends on the type:
 The value box adapts too. A select or multi-select offers its options, a
 checkbox offers **Checked** / **Unchecked**, and a relation offers the titles of
 the rows it points at; you never have to type an id. Anything else is a free
-text box.
+text box. Besides the property conditions, a filter can ask whether the row is a
+template: **is template** / **is not template**.
 
 A date value can also be a relative day instead of a picked date: `today`,
 `yesterday`, `tomorrow`, or `today` with an offset such as `today-1M` (a month
@@ -221,7 +223,8 @@ from [Trash](trash-and-recovery.md).
 
 A card shows a fixed set of zones rather than every property in schema order:
 
-1. **Chips**: select, multi-select and relation values, coloured.
+1. **Chips**: select, multi-select and relation values, coloured. A relation
+   chip opens the row it names in a new tab.
 2. **Facts**: numbers, dates, checkboxes, checklists, rollups and formulas,
    each with its field name in front of it, because a bare "55" or a second
    date means nothing.

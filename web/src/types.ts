@@ -268,13 +268,47 @@ export interface Sort {
   dir: 'asc' | 'desc';
 }
 
-export interface ViewDef {
-  id: string;
+/** The one filter condition that is not about a column: whether the row is a
+ *  template. A pseudo-property, so it travels in the same Filter shape as
+ *  everything else. The server knows this id, and so does the sort picker
+ *  below for its own two pseudo-properties. */
+export const TEMPLATE_FILTER = '@template';
+
+/** The two orders that are not about a column: when the row was made and when
+ *  it was last touched. Pseudo-properties, like the template condition — a view
+ *  saves them in the same Sort shape as any column. */
+export const SORT_CREATED = '@created';
+export const SORT_UPDATED = '@updated';
+
+/** A reference to a column or to one of the system pseudo-properties above:
+ *  anything a saved view can point at that no schema edit can remove. */
+export const isSystemRef = (id: string) =>
+  id === TEMPLATE_FILTER || id === SORT_CREATED || id === SORT_UPDATED;
+
+/** Visible span of calendar and timeline views. */
+export type SpanMode = 'day' | 'week' | 'month' | '2months' | 'year';
+
+export interface ViewDef {  id: string;
   name: string;
   type: 'table' | 'board' | 'list' | 'gallery' | 'calendar' | 'form' | 'timeline';
   groupBy?: string;
   dateProp?: string; // calendar/timeline view: date property (timeline: start)
+  /** Calendar view: which span the grid shows. Older views carry calRange
+   *  instead (1 = month, 2 = two months); calMode wins when both are set. */
+  calMode?: SpanMode;
+  /** Timeline view: which window it shows. Defaults to a month. */
+  tlMode?: SpanMode;
+  /** Timeline view: the sticky title column is collapsed, leaving the axis. */
+  tlHideLabels?: boolean;
+  /** Timeline view: shifting a row out of its blockers' way lands on a working
+   *  day rather than on a Saturday. */
+  tlSkipWeekends?: boolean;
+  /** Table view: columns pinned to the left edge, so they stay on screen while
+   *  the rest of the table scrolls sideways. Column keys, in pin order. */
+  stuckCols?: string[];
+  calRange?: 1 | 2; // deprecated: superseded by calMode, still read as a fallback
   endDateProp?: string; // timeline view: optional end-date property (else 1-day bar)
+  depProp?: string; // timeline view: self-relation property whose ids block this row
   hidden?: string[]; // property ids hidden in this view
   filters?: Filter[];
   /** OR groups: conditions inside one group are ANDed, groups are ORed. When

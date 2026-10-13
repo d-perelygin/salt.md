@@ -207,7 +207,8 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 			Property string `json:"property"`
 			Dir      string `json:"dir"`
 		}
-		if json.Unmarshal(sraw, &so) == nil && so.Property != "" && safePropID(so.Property) {
+		if json.Unmarshal(sraw, &so) == nil && so.Property != "" &&
+			(safePropID(so.Property) || so.Property == sortCreatedProp || so.Property == sortUpdatedProp) {
 			d := "asc"
 			if strings.EqualFold(so.Dir, "desc") {
 				d = "desc"
@@ -239,12 +240,19 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 	orderSQL := "position, created_at"
 	if sortParam != "" {
 		propID, dir, _ := strings.Cut(sortParam, ":")
-		if safePropID(propID) {
-			d := "ASC"
-			if strings.EqualFold(dir, "desc") {
-				d = "DESC"
+		d := "ASC"
+		if strings.EqualFold(dir, "desc") {
+			d = "DESC"
+		}
+		switch propID {
+		case sortCreatedProp:
+			orderSQL = "created_at " + d + ", position"
+		case sortUpdatedProp:
+			orderSQL = "updated_at " + d + ", position"
+		default:
+			if safePropID(propID) {
+				orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position"
 			}
-			orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position"
 		}
 	}
 	// Relation properties whose ids are resolved to display names below. Loaded
@@ -266,7 +274,7 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 	}
 	var total int
 	s.db.QueryRow(`SELECT COUNT(*) FROM pages WHERE `+whereSQL, args...).Scan(&total)
-	rows, err := s.db.Query(`SELECT id, title, icon, cover, position, props, tags FROM pages WHERE `+whereSQL+` ORDER BY `+orderSQL+` LIMIT ? OFFSET ?`, append(args, limit, offset)...)
+	rows, err := s.db.Query(`SELECT id, title, icon, cover, position, props, tags, is_template, created_at, updated_at FROM pages WHERE `+whereSQL+` ORDER BY `+orderSQL+` LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -275,9 +283,10 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 	list := []map[string]any{}
 	relIDs := map[string]bool{}
 	for rows.Next() {
-		var id, title, icon, cover, props, tags string
+		var id, title, icon, cover, props, tags, createdAt, updatedAt string
 		var position float64
-		if rows.Scan(&id, &title, &icon, &cover, &position, &props, &tags) != nil {
+		var isTemplate int
+		if rows.Scan(&id, &title, &icon, &cover, &position, &props, &tags, &isTemplate, &createdAt, &updatedAt) != nil {
 			continue
 		}
 		var pm map[string]any
@@ -305,6 +314,7 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 		list = append(list, map[string]any{
 			"id": id, "title": title, "icon": icon, "cover": cover,
 			"position": position, "props": pm, "tags": tagList,
+			"isTemplate": isTemplate != 0, "createdAt": createdAt, "updatedAt": updatedAt,
 		})
 	}
 	rows.Close() // drain first, then resolve (one DB connection — see handleGraph)

@@ -155,9 +155,11 @@ export function useBoardDrag(onMove: (rowId: string, toCol: string) => void) {
   const startDrag = useCallback(
     (e: React.PointerEvent, rowId: string, fromCol: string, title: string) => {
       // Left mouse button or finger only, and not on a control of the card
-      // (the ⋯ menu, a select chip) — there you want to click, not drag.
+      // (the ⋯ menu, a select chip, a checkbox) — there you want to click, not
+      // drag. A checkbox was missing from this list, so its toggle was swallowed
+      // by the drag that started on top of it.
       if (e.button !== 0) return;
-      if ((e.target as Element).closest?.('.card-move, .card-prop-edit, a, button')) return;
+      if ((e.target as Element).closest?.('.card-move, .card-prop-edit, a, button, input, select, textarea, label')) return;
       const card = (e.currentTarget as HTMLElement).getBoundingClientRect();
       draggedRef.current = false;
       const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
