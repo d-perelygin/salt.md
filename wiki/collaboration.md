@@ -164,12 +164,20 @@ sitting there, it is your connection that went, not theirs; they reappear within
 seconds of it coming back.
 
 **Closing the tab while disconnected** used to lose the edits made in that
-window. A snapshot of them is now kept in the browser and pushed across on the
-next visit, merged with whatever the others wrote meanwhile. The remaining way
-to lose work is a replacement landing in between (below): the stored document
-is discarded, and what was in flight has nowhere to land. If you have been
-typing and are not sure the page is live, leave the tab open until the faces
-come back.
+window. A journal of them is now kept in the browser and replayed on the next
+visit: exactly what was typed, merged into the server's current state, never
+a wholesale push of the old copy (which would resurrect a restore, an agent
+rewrite or an import that landed meanwhile). The remaining way to lose work is
+a replacement landing in between (below): the stored document is discarded,
+and what was in flight has nowhere to land. If you have been typing and are
+not sure the page is live, leave the tab open until the faces come back.
+
+Offline data belongs to the account, not the browser: snapshots, the journal
+and the queue live under the signed-in account's name, and signing out wipes
+them, so the next person on the same browser starts clean. Queued creates
+replay exactly once even from two tabs, and a queued write is never dropped
+for failing: it waits, listed under the sync button, until the server takes
+it or refuses it for good.
 
 ## When the page is replaced under you
 
