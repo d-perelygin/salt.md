@@ -382,12 +382,14 @@ function RowProperties({
   initialProps,
   canEdit,
   onOpen,
+  onOpenInNewTab,
 }: {
   pageId: string;
   parentId: string;
   initialProps: Record<string, unknown>;
   canEdit: boolean;
   onOpen?: (id: string) => void;
+  onOpenInNewTab?: (id: string) => void;
 }) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [props, setProps] = useState<Record<string, unknown>>(initialProps ?? {});
@@ -445,6 +447,7 @@ function RowProperties({
               onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
               readOnly={!canEdit}
               onOpen={onOpen}
+              onOpenInNewTab={onOpenInNewTab}
             />
           </div>
         </div>
@@ -465,6 +468,7 @@ function PageHeader({
   onToggleFavorite,
   onMetaChange,
   onNavigate,
+  onOpenInNewTab,
   onTrash,
   onLocalMeta,
   onPagesChanged,
@@ -1328,6 +1332,7 @@ function PageHeader({
             initialProps={page.props}
             canEdit={canEdit}
             onOpen={onNavigate}
+            onOpenInNewTab={onOpenInNewTab}
           />
         )}
       </div>
