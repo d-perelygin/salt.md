@@ -671,26 +671,6 @@ export default function SchemaEditor({
             </div>
           ))}
         </div>
-        <div className="schema-template">
-          <label className="schema-template-row">
-            <span>{t('New rows from template')}</span>
-            <select
-              className="prop-select"
-              value={newFromTemplate}
-              onChange={(e) => setNewFromTemplate(e.target.value)}
-            >
-              <option value="">{t('Blank rows')}</option>
-              {templates.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title || t('Untitled')}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="dialog-hint">
-            {t('A + button duplicates the template, then fills in what it prescribes — the column, the day. The rest — values, text — comes from the template.')}
-          </div>
-        </div>
         <div className="schema-add">
           <input
             className="prop-input"
@@ -712,6 +692,27 @@ export default function SchemaEditor({
           </select>
           <button className="btn" onClick={addProp}>Add</button>
         </div>
+        <div className="schema-template">
+          <label className="schema-template-row">
+            <span>{t('New rows from template')}</span>
+            <select
+              className="prop-select"
+              value={newFromTemplate}
+              onChange={(e) => setNewFromTemplate(e.target.value)}
+            >
+              <option value="">{t('Blank rows')}</option>
+              {templates.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title || t('Untitled')}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="dialog-hint">
+            {t('A + button duplicates the template, then fills in what it prescribes — the column, the day. The rest — values, text — comes from the template.')}
+          </div>
+        </div>
+
         <div className="dialog-buttons">
           <button className="btn" onClick={onClose}>{t('Cancel')}</button>
           <button className="btn primary" onClick={save}>{t('Save')}</button>
