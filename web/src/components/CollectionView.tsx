@@ -25,6 +25,7 @@ import type {
   SpanMode,
   ViewDef,
 } from '../types';
+import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, isSystemRef } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
 import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
 import { openCollectionRow, openPageAux, peekPanel, type PageOpeners } from '../pageOpen';
@@ -142,6 +143,10 @@ interface Row {
   /** Whether this row is a template: the one filter condition that is not a
    *  column (see TEMPLATE_FILTER). */
   isTemplate?: boolean;
+  /** When the row was made / last touched (ISO text): the two orders that are
+   *  not columns (see SORT_CREATED). */
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const UNSET = '__unset__';
@@ -159,10 +164,7 @@ function isEmptyVal(v: unknown): boolean {
   return v === undefined || v === '' || v === null || v === false;
 }
 
-/** The one condition that is not about a column: whether the row is a template.
- *  A pseudo-property, so it travels in the same Filter shape as everything else
- *  and needs no second code path in the interface. The server knows this id. */
-export const TEMPLATE_FILTER = '@template';
+
 
 /** What a condition compares against: the set if there is one, else the single
  *  value. Never both — the same rule the server applies (rowFilter.vals). */
@@ -263,6 +265,12 @@ function applyView(rows: Row[], view: ViewDef): Row[] {
   const sort = view.sort;
   if (sort) {
     out = [...out].sort((a, b) => {
+      if (sort.property === SORT_CREATED || sort.property === SORT_UPDATED) {
+        const ak = sort.property === SORT_CREATED ? (a.createdAt ?? '') : (a.updatedAt ?? '');
+        const bk = sort.property === SORT_CREATED ? (b.createdAt ?? '') : (b.updatedAt ?? '');
+        const cmp = ak < bk ? -1 : ak > bk ? 1 : 0;
+        return sort.dir === 'desc' ? -cmp : cmp;
+      }
       const av = a.props[sort.property];
       const bv = b.props[sort.property];
       const as = Array.isArray(av) ? av.join(',') : String(av ?? '');
@@ -410,6 +418,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           position: r.position,
           tags: r.tags ?? [],
           isTemplate: r.isTemplate === true,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
         }));
         acc = [...acc, ...mapped];
         setTotal(res.total);
@@ -1937,11 +1947,17 @@ function FilterSortControls({
               }
             >
               <option value="">{t('No sort')}</option>
-              {schema.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              <optgroup label={t('Columns')}>
+                {schema.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label={t('System')}>
+                <option value={SORT_CREATED}>{t('Created')}</option>
+                <option value={SORT_UPDATED}>{t('Updated')}</option>
+              </optgroup>
             </select>
             {sort && (
               <select

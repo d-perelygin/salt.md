@@ -500,7 +500,9 @@ not: there the sort is the database's alone.
 One property, **Ascending** or **Descending**, or **No sort** (the popover
 behind the **Sort** button). Text is compared the way your language sorts it, so
 accented letters land beside their plain forms instead of after Z; numbers are
-compared as numbers.
+compared as numbers. Below the collection's columns, under a **System** heading
+of their own, sit two orders that are not columns at all: **Created** and
+**Updated**, by when the row was made and last touched.
 
 With no sort, rows keep the order they have in the collection: the manual
 position first, then when they were created. That is also the order cards come in

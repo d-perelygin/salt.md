@@ -901,6 +901,7 @@
   "Users may create their own workspaces": "Пользователи могут создавать собственные рабочие области",
   "Uses the OAuth apps from the Access tab: connect once and invitations go out through the chosen mailbox — no SMTP needed. Store and save the client ID and secret there first, then connect here. In the sign-in window you may pick any account at all — including a dedicated sending mailbox such as noreply@example.com; it does not have to be the account you sign in with.": "Используются приложения OAuth со вкладки «Доступ»: подключите один раз — и приглашения будут отправляться через выбранный почтовый ящик, SMTP не нужен. Сначала сохраните там идентификатор клиента и секрет, затем подключитесь здесь. В окне входа можно выбрать любой аккаунт — в том числе отдельный ящик для отправки, например noreply@example.com; это не обязательно должен быть аккаунт, с которым вы входите.",
   "Unpin": "Открепить",
+  "Updated": "Обновлено",
   "Value": "Значение",
   "Version": "Версия",
   "Version history": "История версий",
@@ -1303,6 +1304,7 @@
     "other": "Заблокирована: начинается раньше конца {n} блокеров"
   },
   "Create blocker columns": "Создать колонки блокеров",
+  "Created": "Создано",
   "Block a task": "Заблокировать задачу",
   "Blocked by": "Заблокирована",
   "Blocked by {names} until {d}": "Заблокирована задачами {names} до {d}",
@@ -1312,7 +1314,6 @@
   "No links yet.": "Связей пока нет.",
   "Pick a task to block…": "Выберите задачу для блокировки…",
   "Pin": "Зафиксировать",
-  "Pinned": "Закреплено",
   "Remove block": "Снять блокировку",
   "Stop blocking": "Перестать блокировать",
   "starts {d}": "начинается {d}",
