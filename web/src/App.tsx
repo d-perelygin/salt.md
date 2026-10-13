@@ -1258,25 +1258,39 @@ export default function App() {
   // strip, a menu's backdrop. Two things do not: the document body beside it
   // (that is what a side panel is for — working next to it), and the click
   // that just opened the peek itself. A pinned panel ignores all of it.
+  // Where the press started, decided on pointerdown: the click handler below
+  // must not ask the event target where it is. React redraws synchronously on
+  // the click itself (the pin button swaps its own icon), so by the time the
+  // click bubbles to the document its target may hang off no parent at all —
+  // and closest() on a detached node answers null, which reads as "outside".
+  const downInsideRef = useRef(false);
+  const OUTSIDE_OK =
+    '.peek-panel, .page-body, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
   useEffect(() => {
     if (!peekId) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      downInsideRef.current = !!t?.closest?.(OUTSIDE_OK);
+    };
     const onClick = (e: MouseEvent) => {
+      const inside = downInsideRef.current;
+      downInsideRef.current = false;
       if (peekAskedRef.current) {
         peekAskedRef.current = false;
         return;
       }
       if (peekPinnedRef.current) return;
+      if (inside) return;
       const t = e.target as Element | null;
-      if (
-        t?.closest?.(
-          '.peek-panel, .page-body, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay',
-        )
-      )
-        return;
+      if (t?.closest?.(OUTSIDE_OK)) return;
       closePeek();
     };
+    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('click', onClick);
-    return () => document.removeEventListener('click', onClick);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      document.removeEventListener('click', onClick);
+    };
   }, [peekId, closePeek]);
   const canEditPeek = useMemo(() => {
     if (!peekId) return true;
