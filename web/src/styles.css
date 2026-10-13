@@ -4790,6 +4790,11 @@ button.cal-mini-day:hover {
   color: var(--accent);
 }
 
+/* The peek's expand button while the panel is pinned: the pin reads as on. */
+.peek-open-wrap .icon-btn.is-on {
+  color: var(--accent);
+}
+
 /* ---------- Page cover ---------- */
 
 .page-cover {
