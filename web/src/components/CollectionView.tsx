@@ -1861,6 +1861,10 @@ function FilterSortControls({
               <div key={ci} className="fs-filter">
                 <div className="fs-filter-head">
                   <span className="fs-label">{propName(f.property)}</span>
+                  {/* The template condition is a choice, not an operator plus a
+                      choice: one select says which half, so there is no second
+                      menu underneath repeating the question. */}
+                  {f.property !== TEMPLATE_FILTER && (
                   <select
                     className="prop-select fs-op"
                     value={op}
@@ -1883,6 +1887,7 @@ function FilterSortControls({
                       </option>
                     ))}
                   </select>
+                  )}
                   <button
                     className="icon-btn danger fs-remove"
                     title={t('Remove filter')}
