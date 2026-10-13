@@ -576,8 +576,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
 
   const addRow = async (presetProps?: Record<string, unknown>) => {
     // A new row opens in the side peek right away: pressing + means "I want to
-    // write one", so the writing surface should be there. On a screen too
-    // narrow for a peek it opens as a tab, which is what rows do there anyway.
+    // write one", so the writing surface should be there. Where no peek answers
+    // — a phone, a public view — it opens in a new tab, exactly as a row does
+    // there (see openCollectionRow): the view you pressed + on stays where it
+    // was instead of being replaced by the row it just made.
     // Made from a template when the collection says so: the copy lands under
     // the collection with what the + button prescribes overwritten on top —
     // the column on a board, the day on a calendar — and everything else keeps
@@ -603,7 +605,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             // was made rather than failing the press, let alone making two.
             toast(t('The template could not be used'));
           }
-          if (!peekPanel(dup.id, { focusTitle: true })) onNavigate(dup.id);
+          if (!peekPanel(dup.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(dup.id);
           return;
         }
       } catch (e) {
@@ -615,7 +617,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       const created = await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
       if (created?.id) {
         // A row with no name yet: the caret belongs in its title.
-        if (!peekPanel(created.id, { focusTitle: true })) onNavigate(created.id);
+        if (!peekPanel(created.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(created.id);
       }
     } catch (e) {
       // Offline: show a temp row at once and journal the create. The flush
