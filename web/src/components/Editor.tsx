@@ -864,10 +864,55 @@ function PageHeader({
     window.clearTimeout(peekMenuTimer.current);
     peekMenuTimer.current = window.setTimeout(() => setPeekMenuOpen(true), 450);
   };
-  const peekMenuLeave = () => {
+  const peekMenuLeave = (e: React.MouseEvent) => {
     window.clearTimeout(peekMenuTimer.current);
+    // The menu hangs a few pixels below the button, and a pointer travelling
+    // to it crosses a strip that belongs to neither — leaving the wrap would
+    // close the menu the instant the pointer aims at it diagonally. So the
+    // way there stays open: while the pointer is inside the trapezoid from the
+    // button's edges to the menu's edges, the menu lives, and it closes once
+    // the pointer is outside both.
+    const wrap = e.currentTarget as HTMLElement;
+    const menu = wrap.querySelector('.peek-open-menu') as HTMLElement | null;
+    if (menu) {
+      const b = wrap.getBoundingClientRect();
+      const m = menu.getBoundingClientRect();
+      const { clientX: x, clientY: y } = e;
+      const gap = Math.max(1, m.top - b.bottom);
+      if (y >= b.bottom && y <= m.bottom) {
+        const k = Math.min(1, (y - b.bottom) / gap);
+        const left = y <= m.top ? b.left + (m.left - b.left) * k : m.left;
+        const right = y <= m.top ? b.right + (m.right - b.right) * k : m.right;
+        if (x >= left && x <= right) {
+          const watch = (ev: MouseEvent) => {
+            const wb = wrap.getBoundingClientRect();
+            const inside =
+              ev.clientX >= Math.min(wb.left, m.left) - 4 &&
+              ev.clientX <= Math.max(wb.right, m.right) + 4 &&
+              ev.clientY >= wb.top &&
+              ev.clientY <= m.bottom;
+            if (menu.contains(ev.target as Node)) {
+              document.removeEventListener('mousemove', watch);
+              return;
+            }
+            if (!inside) {
+              document.removeEventListener('mousemove', watch);
+              setPeekMenuOpen(false);
+            }
+          };
+          document.addEventListener('mousemove', watch);
+          return;
+        }
+      }
+    }
     setPeekMenuOpen(false);
   };
+  useEffect(
+    () => () => {
+      window.clearTimeout(peekMenuTimer.current);
+    },
+    [],
+  );
 
   // The caret for a page that has just been made. Waits for the title field to
   // exist, which is a render behind the page itself.
@@ -1331,10 +1376,13 @@ function PageHeader({
             <span className="peek-open-wrap" onMouseEnter={peekMenuEnter} onMouseLeave={peekMenuLeave}>
               <button
                 className={'icon-btn' + (peekPinned ? ' is-on' : '')}
-                title={t('Open as page ↗')}
+                title={peekPinned ? t('Pinned') : t('Open as page ↗')}
                 onClick={() => onPeekOpenFull?.(pageId)}
               >
-                <Maximize2 size={16} />
+                {/* Pinned, the button says so: the pin in place of the expand
+                    arrow. The click still opens the page — the menu beside it
+                    is where the pin is managed. */}
+                {peekPinned ? <Pin size={16} /> : <Maximize2 size={16} />}
               </button>
               {peekMenuOpen && (
                 <AnchoredMenu className="menu peek-open-menu">
