@@ -2163,7 +2163,16 @@ function BoardCardProps({
     // — a disabled checkbox on a card reads as a broken one.
     const tickable = p.type === 'checkbox' || p.type === 'checklist';
     return (
-      <span key={p.id} className="card-fact" title={p.name}>
+      <span
+        key={p.id}
+        className="card-fact"
+        title={p.name}
+        /* A tick is a tick. The card's own click opens the peek, so without
+           this the tick and the open happen together: the box flips and the
+           page you were reading slides over the board. Only the tickable facts
+           claim the click — pressing any other one still opens the card. */
+        onClick={tickable ? (e) => e.stopPropagation() : undefined}
+      >
         {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
         <PropertyValue
           def={p}
