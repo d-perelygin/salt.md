@@ -4,7 +4,7 @@ import { toast } from '../toast';
 import { t } from '../i18n';
 
 type Access = 'view' | 'edit';
-type Visibility = 'workspace' | 'private' | 'restricted';
+type Visibility = 'workspace' | 'private';
 interface Share {
   userId: string;
   name: string;
@@ -53,7 +53,9 @@ export default function PageShares({
         setShares([]);
         setDenied(true);
       });
-  useEffect(load, [pageId]);
+  useEffect(() => {
+    void load();
+  }, [pageId]);
   useEffect(() => {
     void api.listMembers(workspaceId).then(setMembers).catch(() => {});
   }, [workspaceId]);
@@ -62,9 +64,9 @@ export default function PageShares({
     try {
       await api.updatePage(pageId, { visibility: next });
       onVisibilityChange(next);
-      // Restricting alone hides the page from every non-admin, so the member
+      // Going private hides the page from every non-admin, so the member
       // list stays open — the intermediate state must not sit unnoticed.
-      if (next === 'restricted') load();
+      if (next === 'private') load();
     } catch {
       toast(t('Visibility not saved'));
     }
@@ -110,14 +112,14 @@ export default function PageShares({
             {(
               [
                 { id: 'workspace', label: t('Everyone in the workspace') },
-                { id: 'private', label: t('Only me') },
-                { id: 'restricted', label: t('Chosen members') },
+                { id: 'private', label: t('Only me and chosen members') },
               ] as { id: Visibility; label: string }[]
             ).map((m) => (
               <label key={m.id} className="user-row">
                 <input
                   type="radio"
                   name="page-access"
+                  value={m.id}
                   checked={visibility === m.id}
                   onChange={() => void setMode(m.id)}
                 />
@@ -125,10 +127,7 @@ export default function PageShares({
               </label>
             ))}
           </div>
-          {visibility === 'private' && (
-            <p className="prop-empty">{t('Only you and the workspace admins.')}</p>
-          )}
-          {visibility === 'restricted' &&
+          {visibility === 'private' &&
             (denied ? (
               <p>{t('Only workspace admins and the page owner can manage access.')}</p>
             ) : (
@@ -190,7 +189,7 @@ export default function PageShares({
             ))}
           <div className="share-actions share-actions-full">
             {shares?.length === 0 && (
-              <p className="prop-empty">{t('Nobody yet — the page is visible to nobody but you and the workspace admins.')}</p>
+              <p className="prop-empty">{t('Nobody yet. The page is visible to nobody but you and the workspace admins.')}</p>
             )}
             <button className="btn-sm" onClick={onClose}>
               {t('Done')}
