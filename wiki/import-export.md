@@ -525,31 +525,34 @@ Every `date` property, on every row, in every collection you can read, as an
 iCalendar feed. Apple Calendar, Google Calendar and Outlook can subscribe to it
 and re-poll it on their own schedule.
 
-Open the user menu and choose **Subscribe to calendar**. The dialog offers a
-scope under *What should the calendar contain?*:
+Open the user menu and choose **Subscribe to calendar**. The dialog holds
+**named links** and nothing else: one link per project or person, each with
+its own token, scope and history window. Creating one takes a scope under
+*What should the new subscription contain?*:
 
 | Scope | The feed holds |
 | --- | --- |
 | **Everything I can see** | every date property in every workspace you are a member of, plus any you currently hold emergency access to |
 | a workspace | the same, limited to that workspace |
-| a collection | the dates of that collection's rows |
+| a collection | the dates of that collection's rows, or one date property of it |
+| a view | one saved view's dates: only the rows its filters show, on its date property — one bar per row when the view names an end date |
 
 A collection is only offered once it has a date property (the dialog says
 *"A collection appears here once it has a date property."*) because a feed that
 can never contain anything is worse than no feed.
 
-**Open in calendar** hands the `webcal://` link to your calendar app; **Copy
-URL** copies the `https://` form for anything that wants to fetch it. The shape
-is your instance's public address followed by `/ics/<token>.ics`; a scoped feed
-is the same URL with `?workspace=<id>` or `?collection=<id>` on the end. That is
-enough to recognise one in a calendar app's settings, or to narrow a link you
-already have by hand.
+**Add to calendar** subscribes through the calendar app of your choice;
+**Copy URL** copies the `https://` form for anything that wants to fetch it.
+The shape is your instance's public address followed by
+`/ics/<token>.ics`.
 
 What lands in the calendar:
 
 - **One event per date value.** A row with two date properties produces two
   events. The summary is the row's title with the property's name in
-  parentheses, *Kickoff (Due)*, and the description is the collection's name.
+  parentheses, *Kickoff (Due)*, and the description is the collection's name
+  with a link back to the row. A view with an end date draws one bar per row
+  instead.
 - **A plain date becomes an all-day event.** A value carrying a time becomes a
   timed event written without a time zone, so it shows at that clock time
   wherever it is read.
@@ -558,9 +561,9 @@ What lands in the calendar:
   scoped feed, so several subscriptions stay distinguishable.
 
 **The link is the credential.** It needs no sign-in: anyone holding it sees
-what you see, which is why the dialog says not to share it. There is one token
-behind every scope, so **Reset the link** invalidates *all* your calendar links
-at once; that is what people mean by revoking them, and the button says so.
+what that link's scope sees, and nothing wider. Every link stays listed in the
+dialog for copying at any time. **Revoke** stops one link at once and
+touches nothing else; deactivating or deleting the account stops them all.
 
 The feed always reflects the permissions of the account it belongs to. A
 collection that is moved into a private area, or a workspace you are removed

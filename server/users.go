@@ -771,8 +771,10 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
-	// The calendar subscription link lives as an app_settings row and hangs off
-	// no foreign key — it would otherwise outlive the account.
+	// Calendar subscriptions go with the account (belt and braces next to the
+	// ON DELETE CASCADE on ics_feeds.user_id); the legacy token row hangs off
+	// no foreign key and would otherwise outlive the account.
+	s.db.Exec(`DELETE FROM ics_feeds WHERE user_id = ?`, id)
 	s.db.Exec(`DELETE FROM app_settings WHERE key = ?`, "ics_token_"+id)
 	s.applyDeletion(plan, id, me.ID, me.Name)
 	if target != nil {

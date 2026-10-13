@@ -116,9 +116,10 @@ CREATE TABLE IF NOT EXISTS collections (
 );
 -- Named calendar subscriptions (per-scope feeds): each row is one shareable
 -- link with its own token, so one subscription can be revoked without
--- touching the others. The legacy per-user token (ics_token_* settings)
--- keeps working alongside these. kind/ref_id/view_id mirror the feed query
--- scope: all | workspace(ref_id) | collection(ref_id) | view(ref_id+view_id).
+-- touching the others. The token is stored as-is, like upstream: the dialog
+-- shows every link for copying at any time. kind/ref_id/view_id mirror the
+-- feed query scope: all | workspace(ref_id) | collection(ref_id) |
+-- view(ref_id+view_id).
 CREATE TABLE IF NOT EXISTS ics_feeds (
 	id TEXT PRIMARY KEY,
 	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -127,6 +128,7 @@ CREATE TABLE IF NOT EXISTS ics_feeds (
 	ref_id TEXT NOT NULL DEFAULT '',
 	view_id TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
+	date_prop TEXT NOT NULL DEFAULT '',
 	past_days INTEGER NOT NULL DEFAULT 90,
 	created_at TEXT NOT NULL
 );
@@ -620,6 +622,15 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "ics_feeds", "past_days", `past_days INTEGER NOT NULL DEFAULT 90`); err != nil {
 		return nil, fmt.Errorf("migrate ics_feeds.past_days: %w", err)
 	}
+	// A collection subscription can narrow to one date property, so one
+	// collection with two dates becomes two subscriptions with two colors.
+	// Empty carries every date, which is also what old rows get.
+	if err := ensureColumn(db, "ics_feeds", "date_prop", `date_prop TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate ics_feeds.date_prop: %w", err)
+	}
+	// Dead single-token rows from before named subscriptions: no code reads
+	// them any more.
+	db.Exec(`DELETE FROM app_settings WHERE key LIKE 'ics_token_%'`)
 	// Record the schema/app version so an operator (and future migrations) can
 	// see what a data dir was last written by. Additive, idempotent.
 	db.Exec(`INSERT INTO schema_meta (key, value) VALUES ('version', ?)

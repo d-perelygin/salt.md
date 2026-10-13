@@ -207,18 +207,17 @@ export const api = {
     }),
   // scopes: the whole account, each workspace, each collection that has a
   // date property at all, and each saved view of those collections (a view
-  // feed follows the view's filters and its date property). url/webcal stay
-  // the unscoped pair.
+  // feed follows the view's filters and its date property). Links are never
+  // listed here: a raw token is shown once, in the creation response, and
+  // only its hash is stored.
   icsInfo: (rotate = false) =>
     req<{
-      url: string;
-      webcal: string;
       scopes: {
         id: string;
         viewId?: string;
         kind: 'all' | 'workspace' | 'collection' | 'view';
         name: string;
-        links: { url: string; webcal: string };
+        dates?: { id: string; name: string }[];
         count: number;
         nextTitle?: string;
         nextDay?: string;
@@ -231,6 +230,8 @@ export const api = {
         name: string;
         url: string;
         webcal: string;
+        dateProp?: string;
+        datePropName?: string;
         createdAt: string;
         count: number;
         nextTitle?: string;
@@ -248,8 +249,10 @@ export const api = {
       body: JSON.stringify(p),
     }),
   // Named calendar subscriptions: each is a link with its own token, so one
-  // can be shared or revoked without touching the others.
-  icsFeedCreate: (kind: string, refId: string, viewId: string, name: string) =>
+  // can be shared or revoked without touching the others. The raw link is
+  // shown once, in this response, and never again. dateProp narrows a
+  // collection subscription to one date property ("" carries every date).
+  icsFeedCreate: (kind: string, refId: string, viewId: string, name: string, dateProp = '') =>
     req<{
       id: string;
       kind: string;
@@ -259,7 +262,7 @@ export const api = {
       count: number;
     }>('/api/ics/feeds', {
       method: 'POST',
-      body: JSON.stringify({ kind, refId, viewId, name }),
+      body: JSON.stringify({ kind, refId, viewId, name, dateProp }),
     }),
   icsFeedDelete: (id: string) =>
     req<{ ok: boolean }>(`/api/ics/feeds/${id}`, { method: 'DELETE' }),
