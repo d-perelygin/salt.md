@@ -375,10 +375,12 @@ configures the current view sits on the right, in this order:
 | **⋯** (*View options*) | Rename, move and remove this view. |
 | **＋ New** | Creates an *Untitled* row and opens it in the side peek. Every view except a form has it. |
 
-The side peek is a second view of the workspace rather than a modal: clicking
-into the document beside it, or changing document tab, leaves it where it is.
-It closes on Escape, on its own close button, and on a click on the row it
-already shows — the panel toggles rather than reopening itself.
+The side peek is a second view of the workspace rather than a modal: changing
+document tab leaves it where it is. A click on empty space closes it — the
+padding of the page or of a view, an empty day cell — while a click on text, a
+control, or any row, card or bar keeps it open. It also closes on Escape, on
+its own close button, and on a click on the row it already shows — the panel
+toggles rather than reopening itself.
 
 The button beside that one — the expand arrow — carries a menu after a moment's
 hover: **Open full screen**, **Open in a new tab**, and **Pin**. A pinned panel
@@ -442,10 +444,12 @@ none of*. That is one condition with two boxes ticked, not two conditions that
 happen to be about the same column: "class is none of A, H" is a single thing to
 read and a single thing to change.
 
-One condition is not about a property at all. **Is a template** and **is not a
-template** filter by whether the row is a template, a fact about the page rather
-than about any column; the picker keeps it under its own **System** heading,
-away from the collection's **Columns**.
+Three conditions are not about a property at all. **Is a template** and **is
+not a template** filter by whether the row is a template; **Created** and
+**Updated** filter by when the row was made and last touched, with the date
+operators. All three are facts about the page rather than about any column, and
+the picker keeps them under their own **System** heading, away from the
+collection's **Columns**.
 
 **A condition with nothing filled in does not filter.** It waits, and says so.
 It used to compare against the empty string and therefore match nothing, so the
