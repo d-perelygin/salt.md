@@ -2759,11 +2759,14 @@ body:has(.icon-picker) .bn-side-menu {
 }
 /* The heading row stays put while the table scrolls: with a dozen columns it is
    the only thing that says which column you are looking at. A sticky row cannot
-   keep a collapsed border, so the line under it is a shadow instead. */
+   keep a collapsed border, so the line under it is a shadow instead. The paint
+   is opaque on purpose: without a background the rows sliding underneath show
+   straight through it. */
 .db-table thead th {
   position: sticky;
   top: 0;
   z-index: 3;
+  background: var(--sidebar-bg);
   box-shadow: inset 0 -1px 0 var(--border);
 }
 
@@ -2831,12 +2834,15 @@ body.is-col-resizing {
   z-index: 4;
   background: var(--sidebar-bg);
 }
+/* The pin sits 16px from the right edge of the heading: 6px of its own offset
+   plus the 10px the heading cell pads itself with. Clear of the resize grip
+   riding the very edge. */
 .col-stick {
   display: none;
   align-items: center;
   justify-content: center;
   position: absolute;
-  right: 9px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
   padding: 1px;
