@@ -563,7 +563,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     try {
       const created = await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
       if (created?.id) {
-        if (!peekPanel(created.id)) onNavigate(created.id);
+        // A row with no name yet: the caret belongs in its title.
+        if (!peekPanel(created.id, { focusTitle: true })) onNavigate(created.id);
       }
     } catch (e) {
       // Offline: show a temp row at once and journal the create. The flush
@@ -1869,12 +1870,19 @@ function FilterSortControls({
                 }}
               >
                 <option value="">{t('+ Add filter…')}</option>
-                {schema.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-                <option value={TEMPLATE_FILTER}>{t('Template')}</option>
+                <optgroup label={t('Columns')}>
+                  {schema.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </optgroup>
+                {/* Not a column of the collection: a fact about the page. It
+                    sits under its own heading so nobody goes looking for it
+                    among the properties. */}
+                <optgroup label={t('System')}>
+                  <option value={TEMPLATE_FILTER}>{t('Template')}</option>
+                </optgroup>
               </select>
               {groups.length > 1 && (
                 <button
@@ -1898,11 +1906,16 @@ function FilterSortControls({
               }}
             >
               <option value="">{t('+ Add filter…')}</option>
-              {schema.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              <optgroup label={t('Columns')}>
+                {schema.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label={t('System')}>
+                <option value={TEMPLATE_FILTER}>{t('Template')}</option>
+              </optgroup>
             </select>
           ) : (
             <button className="btn-sm fs-add-group" onClick={() => setGroups([...groups, []])}>
@@ -2019,12 +2032,26 @@ function BoardCardProps({
 
   // A card shows values without their names (the compact layout has no room for
   // labels), so hovering one names the property it belongs to.
-  const factRow = (p: PropDef) => (
-    <span key={p.id} className="card-fact" title={p.name}>
-      {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
-      <PropertyValue def={p} value={row.props[p.id]} readOnly compact onOpen={onOpen} openers={openers} />
-    </span>
-  );
+  const factRow = (p: PropDef) => {
+    // A checkbox or a checklist is something you tick, not something you read:
+    // it stays live in the compact row, where every other fact is display only
+    // — a disabled checkbox on a card reads as a broken one.
+    const tickable = p.type === 'checkbox' || p.type === 'checklist';
+    return (
+      <span key={p.id} className="card-fact" title={p.name}>
+        {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
+        <PropertyValue
+          def={p}
+          value={row.props[p.id]}
+          readOnly={!tickable}
+          compact
+          onOpen={onOpen}
+          openers={openers}
+          onChange={(nv) => onSetProp(row.id, p.id, nv)}
+        />
+      </span>
+    );
+  };
 
   const contactIcon = (p: PropDef) => {
     const kind = contactKind(p, row.props[p.id]);
@@ -2512,7 +2539,9 @@ function TableView({
       const cells = table.querySelectorAll<HTMLElement>(`[data-col="${key}"]`);
       if (stuckSet.has(key)) {
         cells.forEach((el) => {
-          el.style.left = `${Math.round(acc)}px`;
+          // The exact width, not a rounded one: rounding down leaves a sliver
+          // of the column behind showing between two pinned columns.
+          el.style.left = `${acc}px`;
         });
         acc += th.getBoundingClientRect().width;
       } else {
@@ -3958,7 +3987,11 @@ function TimelineView({
                         </svg>
                       </span>
                     )}
-                    {drag && drag.id === row.id && (
+                    {/* The live date hangs off an edge being pulled. A bar
+                        being carried does not need it: the bar itself is
+                        already under the pointer, and the date only got in the
+                        way of seeing where it would land. */}
+                    {drag && drag.id === row.id && drag.edge !== 'move' && (
                       <span
                         className="tl-drag-tip"
                         style={{
@@ -3968,14 +4001,7 @@ function TimelineView({
                               : `calc(${geom.left} + ${geom.width})`,
                         }}
                       >
-                        {formatDay(
-                          isoDay(
-                            drag.edge === 'move'
-                              ? (items.find((i) => i.row.id === drag.id)?.start ?? drag.day) + drag.day
-                              : drag.day,
-                          ),
-                          'dayMonth',
-                        )}
+                        {formatDay(isoDay(drag.day), 'dayMonth')}
                       </span>
                     )}
                   </div>
@@ -4342,6 +4368,9 @@ function CalendarView({
   // Dragging an entry to another day: the day under the pointer, and the click
   // the gesture ends in (which must not open the row it just moved).
   const [dropDay, setDropDay] = useState<string | null>(null);
+  // The entry itself, following the pointer: a tinted cell says where it will
+  // land, this says what is being carried.
+  const [ghost, setGhost] = useState<{ x: number; y: number; title: string } | null>(null);
   const dragGuard = useRef(0);
   // Swiping the calendar pages it, like the arrows: a trackpad's sideways scroll
   // and a finger's sideways drag both step one span. The timeline is left alone
@@ -4426,17 +4455,20 @@ function CalendarView({
     const y0 = e.clientY;
     let moved = false;
     let target: string | null = null;
+    const label = rows.find((r) => r.id === rowId)?.title || t('Untitled');
     const move = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - y0) < 4) return;
       moved = true;
       target = dayAtPoint(ev.clientX, ev.clientY);
       setDropDay(target);
+      setGhost({ x: ev.clientX, y: ev.clientY, title: label });
     };
     const finish = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);
       setDropDay(null);
+      setGhost(null);
       if (!moved || !target || target === r.from) return;
       dragGuard.current = Date.now();
       const delta = Math.round(
@@ -4667,6 +4699,7 @@ function CalendarView({
         <span className="calendar-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
         <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
+        <div className="cal-right">
         <div className="cal-settings-wrap">
           <button
             className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
@@ -4718,8 +4751,14 @@ function CalendarView({
             </AnchoredMenu>
           )}
         </div>
-        <ModePicker mode={mode} onChange={onModeChange} />
+          <ModePicker mode={mode} onChange={onModeChange} />
+        </div>
       </div>
+      {ghost && (
+        <div className="cal-ghost" style={{ left: ghost.x, top: ghost.y }} aria-hidden="true">
+          {ghost.title}
+        </div>
+      )}
       {mode === 'day' ? (
         <div className="cal-day-list">
           {(byDate.get(toDayString(cursor)) ?? []).map((r) => eventButton(r, cursor))}
