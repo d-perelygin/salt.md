@@ -8,8 +8,12 @@ import (
 	"time"
 )
 
-// Restricted pages with direct user grants (fork): the permission core, the
-// enumeration filters, the share endpoints and the private migration.
+// Private pages with direct user grants (fork): the permission core, the
+// enumeration filters, the share endpoints and the grant limits.
+//
+// Pages stay 'private': a grant opens them to chosen members on top ("private
+// plus these people"), with no migration, so every visibility = 'private'
+// check keeps matching and a rollback stays closed.
 
 // accessFixture builds one workspace: alice (admin), bob (member), carol
 // (viewer) and dave (outside). Returns the workspace and an open page in it.
@@ -45,20 +49,20 @@ func grant(t *testing.T, s *Server, page, user, access string) {
 	}
 }
 
-func restrict(t *testing.T, s *Server, page string) {
+func privatise(t *testing.T, s *Server, page string) {
 	t.Helper()
-	if _, err := s.db.Exec(`UPDATE pages SET visibility = 'restricted' WHERE id = ?`, page); err != nil {
-		t.Fatalf("restrict: %v", err)
+	if _, err := s.db.Exec(`UPDATE pages SET visibility = 'private' WHERE id = ?`, page); err != nil {
+		t.Fatalf("privatise: %v", err)
 	}
 }
 
-func TestRestrictedPageAccessMatrix(t *testing.T) {
+func TestPrivatePageAccessMatrix(t *testing.T) {
 	s := testServer(t)
 	ws, open, ids, _ := accessFixture(t, s)
 	alice, bob, carol, dave := ids["alice-pa@example.test"], ids["bob-pa@example.test"], ids["carol-pa@example.test"], ids["dave-pa@example.test"]
 
 	locked := s.makePage(t, ws, alice, "", "Locked", "{}")
-	restrict(t, s, locked)
+	privatise(t, s, locked)
 
 	// Baseline: the open page behaves exactly as before.
 	for _, u := range []string{alice, bob, carol} {
@@ -75,13 +79,13 @@ func TestRestrictedPageAccessMatrix(t *testing.T) {
 
 	// Nobody granted: only the owner and (below) the admin get in.
 	if !s.canRead(alice, locked) || !s.canWrite(alice, locked) {
-		t.Error("the owner lost their own restricted page")
+		t.Error("the owner lost their own private page")
 	}
 	if s.canRead(bob, locked) || s.canWrite(bob, locked) {
-		t.Error("an ungranted member reads a restricted page")
+		t.Error("an ungranted member reads a private page")
 	}
 	if s.canRead(dave, locked) {
-		t.Error("an outsider reads a restricted page")
+		t.Error("an outsider reads a private page")
 	}
 
 	// View grant: read yes, write no.
@@ -111,25 +115,25 @@ func TestRestrictedPageAccessMatrix(t *testing.T) {
 	}
 }
 
-func TestRestrictedInheritanceAndNarrowing(t *testing.T) {
+func TestPrivateInheritanceAndNarrowing(t *testing.T) {
 	s := testServer(t)
 	ws, _, ids, _ := accessFixture(t, s)
 	alice, bob := ids["alice-pa@example.test"], ids["bob-pa@example.test"]
 
 	root := s.makePage(t, ws, alice, "", "Root", "{}")
-	restrict(t, s, root)
+	privatise(t, s, root)
 	child := s.makePage(t, ws, alice, root, "Child", "{}")
 	nested := s.makePage(t, ws, alice, child, "Nested", "{}")
-	restrict(t, s, nested)
+	privatise(t, s, nested)
 
 	// A grant on the root covers the subtree…
 	grant(t, s, root, bob, grantEdit)
 	if !s.canRead(bob, child) || !s.canWrite(bob, child) {
 		t.Error("a root grant does not cover the child")
 	}
-	// …until a nested restricted page narrows it again.
+	// …until a nested private page narrows it again.
 	if s.canRead(bob, nested) || s.canWrite(bob, nested) {
-		t.Error("a root grant leaks through a nested restricted page")
+		t.Error("a root grant leaks through a nested private page")
 	}
 	grant(t, s, nested, bob, grantView)
 	if !s.canRead(bob, nested) {
@@ -140,13 +144,13 @@ func TestRestrictedInheritanceAndNarrowing(t *testing.T) {
 	}
 }
 
-func TestRestrictedHiddenFromListings(t *testing.T) {
+func TestPrivateHiddenFromListings(t *testing.T) {
 	s := testServer(t)
 	ws, _, ids, _ := accessFixture(t, s)
 	alice, bob := ids["alice-pa@example.test"], ids["bob-pa@example.test"]
 
 	locked := s.makePage(t, ws, alice, "", "Locked", "{}")
-	restrict(t, s, locked)
+	privatise(t, s, locked)
 
 	visible := func(u string) map[string]bool {
 		rows, err := s.db.Query(`SELECT id, parent_id, workspace_id, owner_id, visibility FROM pages WHERE workspace_id = ?`, ws)
@@ -171,7 +175,7 @@ func TestRestrictedHiddenFromListings(t *testing.T) {
 		t.Error("the owner lost the page in the list")
 	}
 	if visible(bob)[locked] {
-		t.Error("a restricted page leaks into a stranger's list")
+		t.Error("a private page leaks into a stranger's list")
 	}
 	grant(t, s, locked, bob, grantView)
 	if !visible(bob)[locked] {
@@ -179,7 +183,7 @@ func TestRestrictedHiddenFromListings(t *testing.T) {
 	}
 }
 
-func TestRestrictedRowsHiddenFromCollections(t *testing.T) {
+func TestPrivateCollectionRowsNeedAReadableCollection(t *testing.T) {
 	s := testServer(t)
 	ws, _, ids, _ := accessFixture(t, s)
 	alice, bob := ids["alice-pa@example.test"], ids["bob-pa@example.test"]
@@ -188,40 +192,42 @@ func TestRestrictedRowsHiddenFromCollections(t *testing.T) {
 	row := s.makePage(t, ws, alice, col, "Row", `{"status":"todo"}`)
 	_ = row
 
-	list, total, err := s.collectionRowsQuery(&user{ID: bob, Name: "Bob"}, col, nil, "", 100, 0)
+	// Privatising the collection closes the door at the handler level: the
+	// row query itself only ever hid row-private rows.
+	privatise(t, s, col)
+	if s.canRead(bob, col) {
+		t.Error("an ungranted member reads a private collection")
+	}
+	// A view grant on the collection opens its (non-private) rows.
+	grant(t, s, col, bob, grantView)
+	if !s.canRead(bob, col) {
+		t.Error("a grant does not open the collection")
+	}
+	list, total, err := s.collectionRowsQuery(&user{ID: bob, Name: "Bob"}, col, nil, nil, "", 100, 0)
 	if err != nil {
 		t.Fatalf("rows: %v", err)
 	}
 	if total != 1 || len(list) != 1 {
-		t.Fatalf("baseline rows = %d/%d, want 1/1", total, len(list))
+		t.Fatalf("granted rows = %d/%d, want 1/1", total, len(list))
 	}
-
-	// Restricting the collection hides its rows from the ungranted member…
-	restrict(t, s, col)
-	list, total, err = s.collectionRowsQuery(&user{ID: bob, Name: "Bob"}, col, nil, "", 100, 0)
-	if err != nil {
-		t.Fatalf("rows: %v", err)
+	// Row-private rows stay hidden from the granted reader: a grant opens the
+	// collection, not other people's private rows. Fail closed.
+	if _, err := s.db.Exec(`UPDATE pages SET visibility = 'private' WHERE id = ?`, row); err != nil {
+		t.Fatal(err)
 	}
-	if total != 0 || len(list) != 0 {
-		t.Errorf("restricted rows leak: total=%d len=%d", total, len(list))
-	}
-	// …while the owner still counts them.
-	list, total, err = s.collectionRowsQuery(&user{ID: alice, Name: "Alice"}, col, nil, "", 100, 0)
-	if err != nil {
-		t.Fatalf("rows: %v", err)
-	}
-	if total != 1 || len(list) != 1 {
-		t.Errorf("the owner lost restricted rows: total=%d len=%d", total, len(list))
+	if _, total, err := s.collectionRowsQuery(&user{ID: bob, Name: "Bob"}, col, nil, nil, "", 100, 0); err != nil || total != 0 {
+		t.Errorf("a private row leaks to a granted collection reader: total=%d err=%v", total, err)
 	}
 }
 
-func TestBreakGlassDoesNotOpenRestricted(t *testing.T) {
+func TestBreakGlassDoesNotOpenPrivate(t *testing.T) {
 	s := testServer(t)
 	ws, open, ids, _ := accessFixture(t, s)
 	alice, dave := ids["alice-pa@example.test"], ids["dave-pa@example.test"]
 
 	locked := s.makePage(t, ws, alice, "", "Locked", "{}")
-	restrict(t, s, locked)
+	privatise(t, s, locked)
+	grant(t, s, locked, alice, grantView)
 
 	expires := time.Now().UTC().Add(breakGlassTTL).Format(tsFixed)
 	if _, err := s.db.Exec(`INSERT INTO break_glass (id, workspace_id, user_id, reason, created_at, expires_at)
@@ -233,32 +239,44 @@ func TestBreakGlassDoesNotOpenRestricted(t *testing.T) {
 		t.Error("emergency access lost the open page")
 	}
 	if s.canRead(dave, locked) {
-		t.Error("emergency access opens a restricted page — it never opened private ones either")
+		t.Error("emergency access opens a granted private page, it never opened private ones either")
 	}
 	if s.canWrite(dave, open) {
 		t.Error("emergency access writes")
 	}
 }
 
-func TestPrivateStillMeansPrivate(t *testing.T) {
+// No migration: private pages stay private, and the account-deletion cleanup
+// that matches visibility = 'private' keeps matching them.
+func TestPrivateStaysPrivate(t *testing.T) {
 	s := testServer(t)
 	ws, _, ids, _ := accessFixture(t, s)
 	alice, bob := ids["alice-pa@example.test"], ids["bob-pa@example.test"]
 
-	// A fresh database holds no 'private' row: the migration converts them.
-	var left int
-	s.db.QueryRow(`SELECT COUNT(*) FROM pages WHERE visibility = 'private'`).Scan(&left)
-	if left != 0 {
-		t.Errorf("%d private pages survived the migration", left)
+	secret := s.makePage(t, ws, alice, "", "Secret", "{}")
+	privatise(t, s, secret)
+	grant(t, s, secret, bob, grantView)
+	if !s.canRead(bob, secret) {
+		t.Error("a grant does not read")
 	}
 
-	// And the value itself keeps its old meaning where it still occurs.
-	secret := s.makePage(t, ws, alice, "", "Secret", "{}")
-	if _, err := s.db.Exec(`UPDATE pages SET visibility = 'private' WHERE id = ?`, secret); err != nil {
-		t.Fatal(err)
+	// A grant whose user is gone deletes with it instead of failing startup.
+	if _, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, bob); err != nil {
+		t.Fatalf("delete user: %v", err)
 	}
-	if !s.canRead(alice, secret) || s.canRead(bob, secret) {
-		t.Error("private no longer means owner-only")
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM page_grants WHERE page_id = ?`, secret).Scan(&n)
+	if n != 0 {
+		t.Errorf("%d grants survived their user", n)
+	}
+	// The page itself is untouched and still private.
+	var vis string
+	s.db.QueryRow(`SELECT visibility FROM pages WHERE id = ?`, secret).Scan(&vis)
+	if vis != "private" {
+		t.Errorf("visibility = %q, want private", vis)
+	}
+	if !s.canRead(alice, secret) {
+		t.Error("the owner lost their page")
 	}
 }
 
@@ -283,7 +301,7 @@ func TestPageShareEndpoints(t *testing.T) {
 	}
 
 	locked := s.makePage(t, ws, alice, "", "Locked", "{}")
-	restrict(t, s, locked)
+	privatise(t, s, locked)
 
 	// Granting on an open page is refused: nothing to grant while all read it.
 	if rec := call("POST", "/api/pages/"+open+"/shares", aliceCookie,
@@ -329,14 +347,62 @@ func TestPageShareEndpoints(t *testing.T) {
 		t.Error("a revoked grant still reads")
 	}
 
-	// Unrestricting the page prunes its grants instead of leaving them armed.
+	// Opening the page prunes its grants instead of leaving them armed.
 	grant(t, s, locked, bob, grantView)
 	if rec := call("PATCH", "/api/pages/"+locked, aliceCookie, `{"visibility":"workspace"}`); rec.Code != 200 {
-		t.Fatalf("unrestrict = %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("open = %d: %s", rec.Code, rec.Body.String())
 	}
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM page_grants WHERE page_id = ?`, locked).Scan(&n)
 	if n != 0 {
-		t.Errorf("%d grants survived unrestricting", n)
+		t.Errorf("%d grants survived opening", n)
+	}
+}
+
+// An edit grant is content access, not management: its holder may read and
+// write the page, but may not change visibility, publish links, move the
+// page, or hand out grants.
+func TestEditGrantIsNotManagement(t *testing.T) {
+	s := testServer(t)
+	ws, open, ids, cookies := accessFixture(t, s)
+	aliceMail, bobMail := "alice-pa@example.test", "bob-pa@example.test"
+	alice, bob := ids[aliceMail], ids[bobMail]
+	bobCookie := cookies[bobMail]
+
+	call := func(method, url, cookie, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, url, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if cookie != "" {
+			req.Header.Set("Cookie", cookie)
+		}
+		s.ServeHTTP(rec, req)
+		return rec
+	}
+
+	locked := s.makePage(t, ws, alice, "", "Locked", "{}")
+	privatise(t, s, locked)
+	grant(t, s, locked, bob, grantEdit)
+
+	// Lifting the restriction is refused…
+	if rec := call("PATCH", "/api/pages/"+locked, bobCookie, `{"visibility":"workspace"}`); rec.Code != 403 {
+		t.Errorf("visibility change by edit grant = %d, want 403", rec.Code)
+	}
+	// …publishing a public link is refused…
+	if rec := call("POST", "/api/pages/"+locked+"/share", bobCookie, `{}`); rec.Code != 403 {
+		t.Errorf("share by edit grant = %d, want 403", rec.Code)
+	}
+	// …and moving a page without write access on it is refused, even under a
+	// parent they may write.
+	secret := s.makePage(t, ws, alice, "", "Secret", "{}")
+	privatise(t, s, secret)
+	if _, err := s.mcpMovePage(bob, secret, open); err == nil {
+		t.Error("moving a page without write access succeeded")
+	}
+	// Grant management stays with the owner.
+	if rec := call("POST", "/api/pages/"+locked+"/shares", bobCookie,
+		`{"userId":"`+alice+`","access":"view"}`); rec.Code != 404 {
+		t.Errorf("grant by edit grant = %d, want 404", rec.Code)
 	}
 }

@@ -395,10 +395,6 @@ export default function IndexView({
                       <span className="idx-src-priv">
                         <Lock size={11} /> {t('Private')}
                       </span>
-                    ) : page.visibility === 'restricted' ? (
-                      <span className="idx-src-priv">
-                        <Lock size={11} /> {t('Restricted')}
-                      </span>
                     ) : (
                       // No parent, not private: the workspace is where it comes
                       // from. Better than the empty cell that used to sit here.

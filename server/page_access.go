@@ -5,35 +5,43 @@ import (
 	"strings"
 )
 
-// Restricted pages with direct user grants (fork).
+// Direct per-user grants on private pages (fork).
 //
 // The workspace stays the primary isolation boundary: every check below runs
 // only after membership (or a running emergency grant) is established. A page
-// with visibility='restricted' then narrows further — readable only by its
-// owner, the workspace admins, and explicitly granted members. A grant covers
-// the whole subtree until a nested 'restricted' page narrows it again.
+// with visibility='private' then opens to its owner, the workspace admins,
+// and explicitly granted members on top of it: "private plus these people".
+// A grant covers the whole subtree until a nested private page narrows it
+// again.
+//
+// Pages stay 'private', so every check that tests visibility = 'private'
+// keeps matching them, a rollback to an older binary stays closed (it simply
+// ignores the grants table), and no migration can fail startup.
 //
 // Two deliberate limits, matching the workspace role table:
 //   - a grant never raises the workspace role: a viewer stays read-only;
-//   - an emergency grant (break_glass) reads open pages but not restricted
-//     ones, exactly like it never read other people's private pages.
+//   - an emergency grant (break_glass) reads open pages but not private ones,
+//     granted or not, exactly like it never read other people's private pages.
+// A grant is also not management: it lets its holder read (view) or read and
+// edit content (edit), never change visibility, publish links, move the page,
+// or hand out further grants. Those stay with the owner and the admins.
 
 const (
 	grantView = "view"
 	grantEdit = "edit"
 )
 
-// restrictedChain returns the restricted ancestors-or-self of pageID, each
-// with its owner and the caller's grant on it ("" when none). Empty when the
-// page sits under no restricted node. One query: the ancestor walk plus the
-// grant join, so the per-hit cost in search stays a single round trip.
-type restrictedNode struct {
+// grantedChain returns the private ancestors-or-self of pageID, each with its
+// owner and the caller's grant on it ("" when none). Empty when the page sits
+// under no private node. One query: the ancestor walk plus the grant join, so
+// the per-hit cost in search stays a single round trip.
+type grantedNode struct {
 	id    string
 	owner string
 	grant string
 }
 
-func (s *Server) restrictedChain(userID, pageID string) []restrictedNode {
+func (s *Server) grantedChain(userID, pageID string) []grantedNode {
 	rows, err := s.db.Query(`
 		WITH RECURSIVE anc(id, parent_id, visibility, owner_id) AS (
 			SELECT id, parent_id, visibility, owner_id FROM pages WHERE id = ?
@@ -43,14 +51,14 @@ func (s *Server) restrictedChain(userID, pageID string) []restrictedNode {
 		) SELECT anc.id, anc.owner_id, COALESCE(g.access, '')
 		FROM anc LEFT JOIN page_grants g
 			ON g.page_id = anc.id AND g.user_id = ? AND g.subject_type = 'user'
-		WHERE anc.visibility = 'restricted'`, pageID, userID)
+		WHERE anc.visibility = 'private'`, pageID, userID)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-	var out []restrictedNode
+	var out []grantedNode
 	for rows.Next() {
-		var n restrictedNode
+		var n grantedNode
 		if rows.Scan(&n.id, &n.owner, &n.grant) == nil {
 			out = append(out, n)
 		}
@@ -58,13 +66,13 @@ func (s *Server) restrictedChain(userID, pageID string) []restrictedNode {
 	return out
 }
 
-// restrictedReadable reports whether userID passes every restricted node on
-// the path: owner, workspace admin, or an explicit view-or-edit grant.
-func (s *Server) restrictedReadable(userID, pageID, ws string) bool {
+// grantedReadable reports whether userID passes every private node on the
+// path: owner, workspace admin, or an explicit view-or-edit grant.
+func (s *Server) grantedReadable(userID, pageID, ws string) bool {
 	if s.isWorkspaceAdmin(userID, ws) {
 		return true
 	}
-	for _, n := range s.restrictedChain(userID, pageID) {
+	for _, n := range s.grantedChain(userID, pageID) {
 		if n.owner == userID || n.grant == grantView || n.grant == grantEdit {
 			continue
 		}
@@ -73,29 +81,20 @@ func (s *Server) restrictedReadable(userID, pageID, ws string) bool {
 	return true
 }
 
-// restrictedWritable is the write half: owner or an explicit edit grant on
-// every restricted node. The workspace role cap (viewer stays read-only) and
-// the membership demand live in canWrite, not here.
-func (s *Server) restrictedWritable(userID, pageID, ws string) bool {
+// grantedWritable is the write half: owner or an explicit edit grant on every
+// private node. The workspace role cap (viewer stays read-only) and the
+// membership demand live in canWrite, not here.
+func (s *Server) grantedWritable(userID, pageID, ws string) bool {
 	if s.isWorkspaceAdmin(userID, ws) {
 		return true
 	}
-	for _, n := range s.restrictedChain(userID, pageID) {
+	for _, n := range s.grantedChain(userID, pageID) {
 		if n.owner == userID || n.grant == grantEdit {
 			continue
 		}
 		return false
 	}
 	return true
-}
-
-// hasRestrictedInWorkspace reports whether the workspace holds any restricted
-// page at all. The SQL filters consult it first so workspaces that never use
-// the feature pay nothing — no extra condition, no extra cost.
-func (s *Server) hasRestrictedInWorkspace(ws string) bool {
-	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM pages WHERE workspace_id = ? AND visibility = 'restricted'`, ws).Scan(&n)
-	return n > 0
 }
 
 // pageGrants lists the user grants on one page, newest last.
@@ -140,7 +139,7 @@ func (s *Server) canManageShares(userID, pageID string) bool {
 	return s.isWorkspaceAdmin(userID, ws) || owner == userID
 }
 
-// handleListPageShares lists who a restricted page is shared with. Managing
+// handleListPageShares lists who a private page is shared with. Managing
 // shares discloses the access list itself, so this is not a membership-wide
 // read — only the people who could change it see it.
 func (s *Server) handleListPageShares(w http.ResponseWriter, r *http.Request) {
@@ -153,8 +152,9 @@ func (s *Server) handleListPageShares(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGrantPageShare gives a workspace member view or edit access to a
-// restricted page (upsert). Granting on an open page is refused — there is
-// nothing to grant while everyone can already read it; restrict it first.
+// private page (upsert). Granting on an open page is refused: there is
+// nothing to grant while everyone can already read it; make it private
+// first.
 func (s *Server) handleGrantPageShare(w http.ResponseWriter, r *http.Request) {
 	pageID := r.PathValue("id")
 	me := requestUser(r)
@@ -177,8 +177,8 @@ func (s *Server) handleGrantPageShare(w http.ResponseWriter, r *http.Request) {
 	}
 	var ws, vis string
 	s.db.QueryRow(`SELECT workspace_id, visibility FROM pages WHERE id = ?`, pageID).Scan(&ws, &vis)
-	if vis != "restricted" {
-		httpErrorCode(w, 400, "not_restricted", "Only a restricted page can be shared — restrict it first.")
+	if vis != "private" {
+		httpErrorCode(w, 400, "not_private", "Only a private page can be shared: make it private first.")
 		return
 	}
 	if s.userByID(body.UserID) == nil || !s.isMember(body.UserID, ws) {
@@ -195,7 +195,7 @@ func (s *Server) handleGrantPageShare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-// handleRevokePageShare removes one member's access to a restricted page.
+// handleRevokePageShare removes one member's access to a private page.
 func (s *Server) handleRevokePageShare(w http.ResponseWriter, r *http.Request) {
 	pageID := r.PathValue("id")
 	target := r.PathValue("userId")

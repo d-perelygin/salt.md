@@ -274,16 +274,16 @@ link of its own; a visitor who clicks it lands on the sign-in screen.
 ## Sharing with chosen members
 
 A public link shares with whoever holds it. Sharing with chosen members shares
-with accounts: a page narrowed to named people in the same workspace, each as
-**Can view** or **Can edit**. The full rules are in
-[Permissions](permissions.md#restricted-pages); here is the mechanics.
+with accounts: a private page opened to named people in the same workspace
+(**Can view** or **Can edit** each). The full rules are in
+[Permissions](permissions.md#private-pages-shared-with-chosen-members); here
+is the mechanics.
 
-1. Open the page and pick **Page access…** from the ⋯ menu, or click the lock
-   button in the topbar.
-2. Choose **Chosen members** in the dialog. Pick a member, pick the access,
-   press **Share** — repeat for everybody who needs in. Nobody else can see
-   the page from that moment — not in the sidebar, not in search.
-3. **Everyone in the workspace** in the same dialog ends it and drops the
+1. Open the page and click the lock button in the topbar.
+2. Choose **Only me and chosen members** in the panel. Pick a member, pick the
+   access, press **Share**, repeat for everybody who needs in. Nobody else
+   can see the page from that moment: not in the sidebar, not in search.
+3. **Everyone in the workspace** in the same panel ends it and drops the
    access list, so nothing stays armed.
 
 Over HTTP the same acts are `GET /api/pages/{id}/shares` (the access list),

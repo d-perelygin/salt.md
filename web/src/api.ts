@@ -345,7 +345,7 @@ export const api = {
       propsPatch: Record<string, unknown>;
       parentId: string | null;
       position: number;
-      visibility: 'workspace' | 'private' | 'restricted';
+      visibility: 'workspace' | 'private';
       isTemplate: boolean;
       tags: string[];
       description: string;
@@ -611,7 +611,7 @@ export const api = {
     }),
   unsharePage: (id: string) =>
     req<{ ok: boolean }>(`/api/pages/${id}/share`, { method: 'DELETE' }),
-  // Restricted-page member shares (fork): who else may see this page subtree.
+  // Private-page member shares (fork): who else may see this page subtree.
   listPageShares: (id: string) =>
     req<{ userId: string; name: string; email: string; access: 'view' | 'edit' }[]>(
       `/api/pages/${id}/shares`,

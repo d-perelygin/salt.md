@@ -226,9 +226,8 @@ func (s *Server) handleICSFeed(w http.ResponseWriter, r *http.Request) {
 			}
 			crows.Close() // drain before per-collection row queries (single conn)
 
-			// Drop collections in private or restricted subtrees the subscriber
-			// can't read — membership alone is not enough (same rule
-			// handleListPages applies).
+			// Drop collections in private subtrees the subscriber can't read:
+			// membership alone is not enough (same rule handleListPages applies).
 			readable := colls[:0]
 			for _, c := range colls {
 				if s.canRead(userID, c.id) {

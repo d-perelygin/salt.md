@@ -13,7 +13,7 @@ export interface PageMeta {
   props: Record<string, unknown>;
   workspaceId: string;
   ownerId: string;
-  visibility: 'workspace' | 'private' | 'restricted';
+  visibility: 'workspace' | 'private';
   isTemplate: boolean;
   tags: string[];
   description: string;
