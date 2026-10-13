@@ -171,7 +171,7 @@ function isEmptyVal(v: unknown): boolean {
  *  value. Never both — the same rule the server applies (rowFilter.vals). */
 export function filterValues(f: Filter): string[] {
   if (f.values?.length) return f.values;
-  return f.value === '' ? [] : [f.value];
+  return f.value ? [f.value] : [];
 }
 
 /** Is this condition finished enough to mean anything? An unfinished one must
@@ -179,9 +179,9 @@ export function filterValues(f: Filter): string[] {
  *  somebody added "Date is …", before they had typed a thing, which is what
  *  made the date filter look broken. `is_empty` is the deliberate version. */
 export function filterIsArmed(f: Filter): boolean {
-  const op = f.op ?? (f.value === '' ? 'is_not_empty' : 'is');
+  const op = f.op ?? (f.value ? 'is' : 'is_not_empty');
   if (op === 'is_empty' || op === 'is_not_empty') return true;
-  if (op === 'between') return f.value !== '' && (f.value2 ?? '') !== '';
+  if (op === 'between') return !!f.value && (f.value2 ?? '') !== '';
   return filterValues(f).length > 0;
 }
 
@@ -200,13 +200,13 @@ function matchesFilter(row: Row, f: Filter): boolean {
       : f.property === SORT_UPDATED
         ? (row.updatedAt ?? '').slice(0, 10)
         : row.props[f.property];
-  const op = f.op ?? (f.value === '' ? 'is_not_empty' : 'is');
+  const op = f.op ?? (f.value ? 'is' : 'is_not_empty');
   if (!filterIsArmed(f)) return true;
   // A relative day names a different date every day. Resolve it now — the
   // same way the server resolves it per query — or the rows the server sent
   // and the rows shown here would disagree.
   const day = (s: string) => resolveSmartDate(s) ?? s;
-  const value = day(f.value);
+  const value = day(f.value ?? '');
   const vals = filterValues(f).map(day);
   // One value or several, the question is the same: does the cell hold any of
   // them. A cell may itself be a list (multiselect, relation).
@@ -1840,7 +1840,7 @@ function FilterSortControls({
           <div key={gi} className="fs-group">
           {gi > 0 && <div className="fs-or">OR</div>}
           {group.map((f, ci) => {
-            const op = f.op ?? (f.value === '' ? 'is_not_empty' : 'is');
+            const op = f.op ?? (f.value ? 'is' : 'is_not_empty');
             const options = valuesFor(f.property);
             const patch = (u: Partial<Filter>) => {
               const next = groups.map((g) => g.slice());

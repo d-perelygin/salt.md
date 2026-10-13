@@ -336,6 +336,23 @@ export interface CollectionConfig {
   newFromTemplate?: string;
 }
 
+/** Every condition in a config carries a `value`, even the ones whose question
+ *  is asked through `values` (a set) or through nothing at all (is_empty). The
+ *  interface writes it that way, and `checkViewFilter` fills it in for anything
+ *  an agent saves, so a filter without one is either older than that or came
+ *  from a client that did not know. The row matcher resolves relative days
+ *  through `value.toLowerCase()` — which is where a missing one took a whole
+ *  view down with "Cannot read properties of undefined" — so it is filled in
+ *  once, here, before any view reads it. */
+export function normalizeCollectionConfig(cfg: CollectionConfig): CollectionConfig {
+  const withValue = (f: Filter): Filter => ((f as Filter | undefined)?.value === undefined ? { ...f, value: '' } : f);
+  for (const view of cfg.views ?? []) {
+    if (view.filters) view.filters = view.filters.map(withValue);
+    if (view.filterGroups) view.filterGroups = view.filterGroups.map((g) => g.map(withValue));
+  }
+  return cfg;
+}
+
 // Public form config served (unauthenticated) at /api/public/form/{token} —
 // only the fillable field defs, never rows or the rest of the workspace.
 export interface PublicFormConfig {

@@ -28,7 +28,13 @@ function pad(n: number): string {
 /** The calendar day a filter value names, in YYYY-MM-DD form, or null for a
  *  plain date and for anything unrecognised — both pass through untouched. */
 export function resolveSmartDate(value: string, now?: Date): string | null {
-  const norm = value.toLowerCase().replace(/ /g, '');
+  // A filter that came from an agent need not carry a value at all (the server
+  // fills one in for anything it stores, see checkViewFilter, but older data
+  // predates that). Nothing here is a place to discover it: this is the
+  // relative-date path every row-matching read goes through.
+  const norm = String(value ?? '')
+    .toLowerCase()
+    .replace(/ /g, '');
   if (norm === 'today' || norm === 'yesterday' || norm === 'tomorrow') {
     return shift(norm, 0, 'd', now ?? new Date());
   }

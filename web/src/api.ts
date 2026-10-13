@@ -19,6 +19,7 @@ import type {
 } from './types';
 import { t } from './i18n';
 import type { Prefs } from './i18n';
+import { normalizeCollectionConfig } from './types';
 import { formatBytes } from './format';
 import { serverMessage } from './serverErrors';
 
@@ -427,7 +428,8 @@ export const api = {
   backlinks: (id: string) => req<Backlink[]>(`/api/pages/${id}/backlinks`),
   graph: () => req<{ edges: { source: string; target: string }[] }>('/api/graph'),
 
-  getCollection: (pageId: string) => req<CollectionConfig>(`/api/collections/${pageId}`),
+  getCollection: (pageId: string) =>
+    req<CollectionConfig>(`/api/collections/${pageId}`).then(normalizeCollectionConfig),
   // Who says they are working on what. Filtered per page on the server — the
   // live signal that triggers this carries no content for exactly that reason.
   presence: () =>
