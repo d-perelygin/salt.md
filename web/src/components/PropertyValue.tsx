@@ -7,7 +7,7 @@ import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
 import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
 import { showActivityFor } from './ActivityLogHost';
 import { initials, nameColor } from './CommentsPanel';
-import { Check, ExternalLink, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, ExternalLink, Link2 as LinkIcon, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import { t } from '../i18n';
 
@@ -26,6 +26,9 @@ interface Props {
   /** Open a related row when its chip is clicked. Absent, chips stay static
    *  text (unknown rows always do: there is nothing readable to open). */
   onOpen?: (id: string) => void;
+  /** Open a related row in a new tab. The open icon prefers this and falls
+   *  back to onOpen where the app cannot open tabs. */
+  onOpenInNewTab?: (id: string) => void;
 }
 
 // idList reads a list-shaped value (relation, multiselect). A single id stored
@@ -705,7 +708,7 @@ export function loadRelationOptions(colId: string, force = false): Promise<RelOp
   return relCache.get(colId)!;
 }
 
-function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen }: Props) {
+function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen, onOpenInNewTab }: Props) {
   const targetId = def.relationCollection;
   const ids = idList(value);
   const [options, setOptions] = useState<RelOption[]>([]);
@@ -769,12 +772,20 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // through PageIcon like everywhere else. Printed raw, a Lucide or MDI icon
   // arrived as the literal text "lucide:PhoneCall" — visible in the picker on
   // every row whose icon was not an emoji.
-  // The pencil on a chip opens this field's picker — the chip itself
-  // navigates, so editing needs its own affordance, like URL chips have.
+  // Clicking a chip EDITS the field (opens the picker below), the way URL
+  // chips edit on click: a filled cell must stay correctable. The icon beside
+  // the chip opens the row, like the URL chip's icon opens the link. The two
+  // are siblings, never nested: a button in a button is invalid HTML, and on
+  // cards a long title hid the hover pencil completely.
   const openPicker = () => {
     if (!open && targetId) void loadRelationOptions(targetId, true).then(setOptions);
     setOpen(true);
   };
+  // The open icon prefers a new tab and falls back to plain navigation where
+  // the app cannot open tabs, the same order row clicks use.
+  const openRow = (id: string) => (onOpenInNewTab ?? onOpen)?.(id);
+  const canOpen = onOpen !== undefined || onOpenInNewTab !== undefined;
+  const canEdit = !ro && !compact;
   const chips = (
     <span className="prop-multi">
       {shown.map((id) => {
@@ -792,57 +803,68 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
         const cls =
           'prop-chip relation-chip' + (title ? '' : loaded ? ' is-unknown' : ' is-pending');
         const tip = title || (loaded ? t('This row is not readable from here.') : undefined);
-        // A readable row opens in a new tab; an unknown one stays plain text.
-        // In the editor below the same chip is a span, not a button: it sits
-        // inside the picker toggle, and a button in a button is invalid HTML.
         const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
-        if (onOpen && title) {
-          if (ro) {
-            return (
-              <button
-                key={id}
-                type="button"
-                className={cls + ' relation-link'}
-                title={title}
-                style={chipStyle}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpen(id);
-                }}
-              >
-                {inner}
-              </button>
-            );
-          }
+        // Unknown rows stay plain text: there is nothing to open.
+        if (!title || !canOpen) {
           return (
-            <span
+            <span key={id} className={cls} title={tip} style={chipStyle}>
+              {inner}
+            </span>
+          );
+        }
+        if (!canEdit) {
+          return (
+            <button
               key={id}
-              className={cls + ' relation-link'}
+              type="button"
+              className={cls}
               title={title}
               style={chipStyle}
               onClick={(e) => {
                 e.stopPropagation();
-                onOpen(id);
+                openRow(id);
+              }}
+              onAuxClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                openRow(id);
               }}
             >
               {inner}
-              <button
-                type="button"
-                className="relation-edit-btn"
-                title={t('Edit relation')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openPicker();
-                }}
-              >
-                <Pencil size={12} />
-              </button>
-            </span>
+            </button>
           );
         }
         return (
-          <span key={id} className={cls} title={tip} style={chipStyle}>
-            {inner}
+          <span key={id} className="relation-chip-wrap" title={tip}>
+            <button
+              type="button"
+              className={cls}
+              style={chipStyle}
+              aria-label={t('Edit') + ': ' + def.name}
+              onClick={(e) => {
+                e.stopPropagation();
+                openPicker();
+              }}
+            >
+              {inner}
+            </button>
+            <button
+              type="button"
+              className="relation-open-btn"
+              aria-label={t('Open row')}
+              title={t('Open row')}
+              onClick={(e) => {
+                e.stopPropagation();
+                openRow(id);
+              }}
+              onAuxClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                openRow(id);
+              }}
+            >
+              <ExternalLink size={12} />
+            </button>
           </span>
         );
       })}
@@ -866,16 +888,20 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
 
   return (
     <div className="relation-value" ref={boxRef}>
-      <button
-        type="button"
-        className="relation-open"
-        onClick={() => {
-          if (!open && targetId) void loadRelationOptions(targetId, true).then(setOptions);
-          setOpen((v) => !v);
-        }}
-      >
-        {ids.length ? chips : <span className="prop-empty">{t('＋ Link')}</span>}
-      </button>
+      {ids.length ? (
+        chips
+      ) : (
+        <button
+          type="button"
+          className="relation-open"
+          onClick={() => {
+            if (!open && targetId) void loadRelationOptions(targetId, true).then(setOptions);
+            setOpen((v) => !v);
+          }}
+        >
+          <span className="prop-empty">{t('＋ Link')}</span>
+        </button>
+      )}
       {open && (
         <div className="menu relation-menu">
           <input
@@ -963,6 +989,7 @@ export default function PropertyValue({
   compact,
   maxChips,
   onOpen,
+  onOpenInNewTab,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const ro = readOnly || !onChange;
@@ -978,6 +1005,7 @@ export default function PropertyValue({
           compact={compact}
           maxChips={maxChips}
           onOpen={onOpen}
+          onOpenInNewTab={onOpenInNewTab}
         />
       );
     // A backrelation IS a relation to read — same ids, same titles, same
@@ -993,6 +1021,7 @@ export default function PropertyValue({
           compact={compact}
           maxChips={maxChips}
           onOpen={onOpen}
+          onOpenInNewTab={onOpenInNewTab}
         />
       );
     case 'lastActivity': {

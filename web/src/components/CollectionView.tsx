@@ -1535,6 +1535,7 @@ function BoardCardProps({
   onSetProp,
   onSetOptions,
   onOpen,
+  onOpenInNewTab,
 }: {
   schema: PropDef[];
   row: Row;
@@ -1544,6 +1545,7 @@ function BoardCardProps({
   onSetProp: (rowId: string, propId: string, value: unknown) => void;
   onSetOptions: (propId: string, options: PropOption[]) => void;
   onOpen?: (id: string) => void;
+  onOpenInNewTab?: (id: string) => void;
 }) {
   const defs = schema.filter((p) => p.id !== groupBy);
   const filled = defs.filter((p) => !isBlank(row.props[p.id]));
@@ -1559,7 +1561,7 @@ function BoardCardProps({
   const factRow = (p: PropDef) => (
     <span key={p.id} className="card-fact">
       {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
-      <PropertyValue def={p} value={row.props[p.id]} readOnly compact onOpen={onOpen} />
+      <PropertyValue def={p} value={row.props[p.id]} readOnly compact onOpen={onOpen} onOpenInNewTab={onOpenInNewTab} />
     </span>
   );
 
@@ -1590,6 +1592,7 @@ function BoardCardProps({
                 onChange={(nv) => onSetProp(row.id, p.id, nv)}
                 onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                 onOpen={onOpen}
+                onOpenInNewTab={onOpenInNewTab}
               />
             </div>
           ))}
@@ -1911,6 +1914,7 @@ function BoardView({
                   onSetProp={onSetProp}
                   onSetOptions={onSetOptions}
                   onOpen={onNavigate}
+                  onOpenInNewTab={onOpenInNewTab}
                 />
               </div>
             ))}
@@ -2176,6 +2180,7 @@ function TableView({
                     onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                     maxChips={2}
                     onOpen={onNavigate}
+                    onOpenInNewTab={onOpenInNewTab}
                   />
                 </td>
               ))}
