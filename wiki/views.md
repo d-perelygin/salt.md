@@ -116,6 +116,10 @@ would pick a card up instead. A floating copy follows the pointer, the target
 column lights up, and a column scrolls by itself when you hold a card near its
 top or bottom edge. A checkbox on a card can still be ticked: a click on the box
 is not taken as the start of a drag.
+A card can also be dropped *between* cards: a line marks the landing spot, and
+the card takes that place. This is the view's own order — it only exists while
+no sort is selected, and a sorted view keeps its order however the cards are
+dragged. The order is stored on the rows, so it survives reloads.
 
 Note what a drag onto a multi-select or relation board does: it **replaces** the
 value with that one option. It does not add to what is there. And dragging a card
