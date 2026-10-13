@@ -4671,8 +4671,12 @@ function CalendarView({
     return toDayString(d);
   };
   const dayAtPoint = (x: number, y: number): string | null => {
-    const el = document.elementFromPoint(x, y) as HTMLElement | null;
-    const cell = el?.closest('.calendar-cell') as HTMLElement | null;
+    // Every element under the pointer, not just the top one: a bar is drawn as
+    // one wide segment over the cells it covers, so the topmost element at a
+    // point inside the bar belongs to the day the range started on. The cell
+    // actually under the pointer is in the list too, one layer down.
+    const els = document.elementsFromPoint(x, y);
+    const cell = els.find((el) => el.classList.contains('calendar-cell')) as HTMLElement | undefined;
     return cell?.dataset.day ?? null;
   };
   // Carrying an entry to another day: it keeps its length and moves by the days
@@ -4881,6 +4885,13 @@ function CalendarView({
       if (!covers) return <div key={'l' + s.row.id} className="cal-lane" />;
       const isStart = s.from === key;
       const isEnd = s.to === key;
+      // A bar whose first day is in this row is drawn by that one wide segment
+      // (see below), so the cells it reaches past must not paint a segment of
+      // their own underneath it — two layers of a translucent colour is a
+      // visible step after the first day. They keep their lane's height only.
+      if (!isStart && rowKeys.includes(s.from)) {
+        return <div key={'l' + s.row.id} className="cal-lane" />;
+      }
       // How much room this bar has in THIS week row. The label belongs to the
       // whole bar, not to its first cell: a range crossing a week has the width
       // to say its name, where one 50px cell managed only "Дое…". The last day

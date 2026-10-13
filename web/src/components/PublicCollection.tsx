@@ -653,8 +653,14 @@ function PublicCalendar({
       const isStart = s.from === key;
       const isEnd = s.to === key;
       // The label gets the whole bar, not just its first cell — same as the
-      // signed-in calendar (see CollectionView): the last day of this week row
-      // bounds it, so a bar running into the next week stops at the edge.
+      // signed-in calendar (see CollectionView): this segment is as wide as the
+      // bar is in this row, and the cells it reaches past draw nothing, so a
+      // translucent colour is laid down once and the bar has no step in it.
+      if (!isStart && rowKeys.includes(s.from)) {
+        return <div key={'l' + s.row.id} className="cal-lane" />;
+      }
+      // The last day of this week row bounds it, so a bar running into the next
+      // week stops at the edge.
       let cells = 1;
       let endsHere = isEnd;
       if (isStart) {

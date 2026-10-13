@@ -3718,7 +3718,11 @@ body.is-col-resizing {
   box-sizing: border-box;
   line-height: 17px;
   padding: 2px 6px;
-  margin: 0 -4.5px;
+  /* How far a segment reaches past its own cell, so the pieces read as one bar
+     over the grid line. Named because a bar's first segment measures its own
+     width against it (see .cal-span.is-start). */
+  --span-bleed: 4.5px;
+  margin: 0 calc(-1 * var(--span-bleed));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3730,14 +3734,29 @@ body.is-col-resizing {
   border-radius: 5px 0 0 5px;
   /* The label belongs to the whole bar, not to its first cell: a range that
      crosses a week has the width to say its name, where one 50px cell managed
-     only "Дое…". The box is as many cells wide as the bar is in this week row
+     only "Дое…". This segment is as wide as the bar is in this week row
      (--span-cells, set by the view) and is painted above the cells to its
-     right, so the text is not cut off at the cell border; the segments it
-     covers are the same colour, so the bar still reads as one piece. N cells
-     of pitch = N × (the cell's content box + its own two paddings). */
+     right, which draw nothing of their own (see the view) — one layer of a
+     translucent colour, so the bar has no step in it. N cells of pitch, less
+     the grid line that follows the last one, measured from this cell's own
+     text edge. */
   position: relative;
   z-index: 1;
-  width: calc(var(--span-cells, 1) * (100% + var(--cell-pad, 4px) * 2));
+  width: calc(
+    var(--span-cells, 1) * 100% +
+    (var(--span-cells, 1) - 1) * (var(--cell-pad, 4px) * 2 + var(--cell-gap, 1px))
+  );
+}
+/* A bar that runs on into the next week bleeds half the grid line past its last
+   cell here, exactly as a middle segment does — without it the row edge cuts
+   the bar short of the line. A range that really ends in this row stops at the
+   cell's text edge, where its rounded end has always sat. */
+.cal-span.is-start:not(.is-end) {
+  width: calc(
+    var(--span-cells, 1) * 100% +
+    (var(--span-cells, 1) - 1) * (var(--cell-pad, 4px) * 2 + var(--cell-gap, 1px)) +
+    var(--span-bleed)
+  );
 }
 .cal-span.is-end {
   margin-right: 0;
@@ -3831,7 +3850,10 @@ button.cal-mini-day:hover {
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
+  /* Named because a bar's first segment measures its width in whole cells (see
+     .cal-span.is-start) and has to account for the line between them. */
+  --cell-gap: 1px;
+  gap: var(--cell-gap);
   background: var(--border);
   border: 1px solid var(--border);
   border-radius: 8px;
