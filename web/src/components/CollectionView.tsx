@@ -4189,7 +4189,18 @@ function TimelineView({
                   : null;
               const geom = dg ?? g0;
               // A row wholly outside the window keeps its label and loses only
-              // its bar (see the `rendered` comment above).
+              // its bar (see the `rendered` comment above) — but the track
+              // itself, with the weekend bands and the today line, stays: they
+              // belong to the window, not to the row, and a row without them
+              // reads as a hole cut out of the axis.
+              const trackChrome = (
+                <>
+                  {weekends.map((w, k) => (
+                    <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
+                  ))}
+                  {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
+                </>
+              );
               if (!geom) {
                 return (
                   <div
@@ -4198,6 +4209,7 @@ function TimelineView({
                     data-tl-row={row.id}
                   >
                     {!hideLabels && label}
+                    <div className="tl-track">{trackChrome}</div>
                   </div>
                 );
               }
@@ -4212,10 +4224,7 @@ function TimelineView({
                 >
                   {!hideLabels && label}
                   <div className="tl-track">
-                    {weekends.map((w, k) => (
-                      <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
-                    ))}
-                    {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
+                    {trackChrome}
                     <div
                       className={
                         'tl-bar' +
