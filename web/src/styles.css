@@ -8044,7 +8044,14 @@ a.btn {
 .tl-label {
   position: sticky;
   left: 0;
-  z-index: 2;
+  /* Above the dependency handle (3): when the axis scrolls a bar's end under
+     this column, the handle slides beneath it like everything else in the
+     track instead of printing over it. The corner keeps its own 4; the two
+     never overlap (no vertical stickiness), so the tie is inert. Lowering the
+     handle instead is not an option: it must stay above the arrows overlay
+     (1), whose fat invisible hit paths would otherwise steal the link-drag
+     from the dot wherever an arrow passes. */
+  z-index: 4;
   flex: none;
   display: flex;
   align-items: center;
@@ -8240,7 +8247,10 @@ body.is-tl-resizing {
    bar the overflow would cut it off. */
 .tl-dep-handle {
   position: absolute;
-  top: 20px;
+  /* The row's middle, not a fixed pixel: rows are 40px on desktop and 46px on
+     a phone, and a fixed top parked the dot 3px above the bar there. The track
+     spans the full row height, so 50% is the middle in every mode. */
+  top: 50%;
   width: 26px;
   height: 30px;
   transform: translate(-4px, -50%);
