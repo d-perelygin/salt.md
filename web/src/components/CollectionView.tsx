@@ -1592,12 +1592,31 @@ function BoardCardProps({
     (p) => (p.type === 'select' || p.type === 'multiselect') && isBlank(row.props[p.id]),
   );
 
-  const factRow = (p: PropDef) => (
-    <span key={p.id} className="card-fact">
-      {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
-      <PropertyValue def={p} value={row.props[p.id]} readOnly compact />
-    </span>
-  );
+  const factRow = (p: PropDef) => {
+    // A checkbox or a checklist is something you tick, not something you read:
+    // it stays live in the compact row, where every other fact is display only
+    // — a disabled checkbox on a card reads as a broken one.
+    const tickable = p.type === 'checkbox' || p.type === 'checklist';
+    return (
+      <span
+        key={p.id}
+        className="card-fact"
+        /* A tick is a tick. The card's own click opens the row, so without
+           this the tick and the open happen together. Only the tickable facts
+           claim the click — pressing any other one still opens the card. */
+        onClick={tickable ? (e) => e.stopPropagation() : undefined}
+      >
+        {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
+        <PropertyValue
+          def={p}
+          value={row.props[p.id]}
+          readOnly={!tickable}
+          compact
+          onChange={(nv) => onSetProp(row.id, p.id, nv)}
+        />
+      </span>
+    );
+  };
 
   const contactIcon = (p: PropDef) => {
     const kind = contactKind(p, row.props[p.id]);
