@@ -3359,6 +3359,168 @@ body.is-col-resizing {
   filter: brightness(0.95);
 }
 
+.cal-grids {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: stretch;
+}
+
+.cal-grids .calendar-grid {
+  min-width: 0;
+}
+
+.cal-grid-title {
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: capitalize;
+  margin: 2px 2px 8px;
+}
+
+/* One day's rows as a plain vertical list. */
+.cal-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px;
+}
+
+.cal-day-list .calendar-event {
+  text-align: left;
+}
+/* A row with an end date is drawn as one bar across the days it covers: a
+   segment in each cell it touches, bleeding over the cell's own padding and
+   over the 1px grid line so the pieces read as one bar, rounded only at the
+   real start and end. Lanes give a week's bars the same order in every cell,
+   so the segments line up instead of jumping between rows. */
+.cal-lane {
+  height: 21px;
+  flex: none;
+}
+.cal-span {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  /* A fixed height, not one grown from the text: the segments that carry no
+     label (everything but the first day of a range) would otherwise collapse to
+     their padding and the bar would look like a hairline. */
+  height: 21px;
+  box-sizing: border-box;
+  line-height: 17px;
+  padding: 2px 6px;
+  /* How far a segment reaches past its own cell, so the pieces read as one bar
+     over the grid line. Named because a bar's first segment measures its own
+     width against it (see .cal-span.is-start). */
+  --span-bleed: 4.5px;
+  margin: 0 calc(-1 * var(--span-bleed));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  cursor: pointer;
+}
+.cal-span.is-start {
+  margin-left: 0;
+  border-radius: 5px 0 0 5px;
+  /* The label belongs to the whole bar, not to its first cell: a range that
+     crosses a week has the width to say its name, where one 50px cell managed
+     only a stub. This segment is as wide as the bar is in this week row
+     (--span-cells, set by the view) and is painted above the cells to its
+     right, which draw nothing of their own (see the view) — one layer of a
+     translucent colour, so the bar has no step in it. N cells of pitch, less
+     the grid line that follows the last one, measured from this cell's own
+     text edge. */
+  position: relative;
+  z-index: 1;
+  width: calc(
+    var(--span-cells, 1) * 100% +
+    (var(--span-cells, 1) - 1) * (var(--cell-pad, 4px) * 2 + var(--cell-gap, 1px))
+  );
+}
+/* A bar that runs on into the next week bleeds half the grid line past its last
+   cell here, exactly as a middle segment does — without it the row edge cuts
+   the bar short of the line. A range that really ends in this row stops at the
+   cell's text edge, where its rounded end has always sat. */
+.cal-span.is-start:not(.is-end) {
+  width: calc(
+    var(--span-cells, 1) * 100% +
+    (var(--span-cells, 1) - 1) * (var(--cell-pad, 4px) * 2 + var(--cell-gap, 1px)) +
+    var(--span-bleed)
+  );
+}
+.cal-span.is-end {
+  margin-right: 0;
+  border-radius: 0 5px 5px 0;
+}
+.cal-span.is-start.is-end {
+  border-radius: 5px;
+}
+.cal-span:hover {
+  filter: brightness(1.07);
+}
+
+/* Year overview: twelve compact month grids. Days with rows read bolder;
+   today keeps its marker; the mini title drills into that month. */
+.cal-year {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 20px 24px;
+}
+
+.cal-mini {
+  min-width: 0;
+}
+
+.cal-mini-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  text-transform: capitalize;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--fg);
+}
+
+button.cal-mini-title:hover {
+  background: var(--hover);
+}
+
+.cal-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+
+.cal-mini-day {
+  font-size: 11.5px;
+  text-align: center;
+  padding: 3px 0;
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.cal-mini-day.empty {
+  visibility: hidden;
+}
+
+.cal-mini-day.dim {
+  opacity: 0.45;
+}
+
+.cal-mini-day.today {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.cal-mini-day.has-events {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+button.cal-mini-day:hover {
+  background: var(--hover);
+}
+
 @media (max-width: 640px) {
   .calendar-cell {
     min-height: 60px;
@@ -7035,6 +7197,60 @@ a.btn {
 
 /* ---- Timeline / Gantt view ---- */
 .timeline { width: 100%; }
+.tl-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tl-title {
+  font-weight: 600;
+  min-width: 160px;
+  text-transform: capitalize;
+}
+.tl-head-right {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tl-days {
+  display: grid;
+  border-bottom: 1px solid var(--border);
+}
+.tl-day {
+  box-sizing: border-box;
+  min-width: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 3px 0;
+}
+.tl-day.is-today {
+  color: var(--accent);
+  font-weight: 700;
+}
+/* Weekends get a slightly greyer column: a Gantt is read against them ("does
+   this land on a weekend?"). Before the span rules, so an event's own
+   highlight still wins on a weekend day. */
+.tl-day.is-weekend {
+  background: var(--hover);
+}
+.tl-day.is-span {
+  background: var(--accent-soft);
+}
+.tl-day.is-span-first {
+  border-radius: 8px 0 0 8px;
+}
+.tl-day.is-span-last {
+  border-radius: 0 8px 8px 0;
+}
+.tl-day.is-span-first.is-span-last {
+  border-radius: 8px;
+}
+/* The weekend column in the body, one band per weekend rather than per day. It
+   sits behind the bars, so a bar is read against the weekend it crosses. */
+.tl-weekend { position: absolute; top: 0; bottom: 0; background: var(--hover); }
 .tl-scroll { overflow-x: auto; overflow-y: hidden; }
 .tl-inner { position: relative; }
 .tl-header { display: flex; }
