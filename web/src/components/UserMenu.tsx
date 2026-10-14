@@ -442,11 +442,11 @@ export function ActivityModal({ onClose, pageId, pageTitle }: { onClose: () => v
                   <>
                     {' '}
                     <a
-                      href={pagePath(e.pageId)}
+                      href={pagePath(e.pageId, e.pageTitle)}
                       onClick={(ev) => {
                         ev.preventDefault();
                         onClose();
-                        window.location.assign(pagePath(e.pageId));
+                        window.location.assign(pagePath(e.pageId, e.pageTitle));
                       }}
                     >
                       {e.pageTitle}
