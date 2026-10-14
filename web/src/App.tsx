@@ -172,6 +172,29 @@ export default function App() {
       /* best-effort persistence */
     }
   }, [openTabs]);
+  // The last active page of each workspace, so switching workspaces returns to
+  // where you were instead of the workspace's first page. Written on every
+  // navigation (see the effect by pagesById below); read by switchWorkspace.
+  const [lastPerWs, setLastPerWs] = useState<Record<string, string>>(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('salt-last-active') ?? '{}');
+      if (s && typeof s === 'object' && !Array.isArray(s)) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(s)) if (typeof v === 'string') out[k] = v;
+        return out;
+      }
+    } catch {
+      /* localStorage unavailable — workspace switches fall back to first pages */
+    }
+    return {};
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('salt-last-active', JSON.stringify(lastPerWs));
+    } catch {
+      /* best-effort persistence */
+    }
+  }, [lastPerWs]);
   // Title lookup for building canonical URLs in pushTabHistory (declared
   // before pagesById, so it reads through a ref mirrored below).
   const pagesByIdRef = useRef<Map<string, PageMeta>>(new Map());
@@ -796,13 +819,20 @@ export default function App() {
   }, []);
 
   // openInNewTab adds `id` as a new tab right after the active one and focuses it.
-  const openInNewTab = useCallback((id: string) => {
+  // With atStart it goes first instead — the workspace switch lands the page
+  // you return to at the front of the strip. An already-open tab is only
+  // focused, never moved: it is where you left it.
+  const openInNewTab = useCallback((id: string, atStart = false) => {
     setIndexOpen(false);
     const prev = tabsRef.current;
     let nextTabs = prev;
     if (!prev.includes(id)) {
-      const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
-      nextTabs = i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+      if (atStart) {
+        nextTabs = [id, ...prev];
+      } else {
+        const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
+        nextTabs = i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+      }
     }
     pushTabHistory(nextTabs, id, false);
     setOpenTabs(nextTabs);
@@ -1199,6 +1229,15 @@ export default function App() {
   useEffect(() => {
     pagesByIdRef.current = pagesById;
   }, [pagesById]);
+  // Remember the active page under its OWN workspace (not the current one —
+  // the two disagree for a frame when switching). Runs again once pages load,
+  // so a page active before its meta arrived is still recorded.
+  useEffect(() => {
+    if (!currentId) return;
+    const ws = pagesById.get(currentId)?.workspaceId;
+    if (!ws) return;
+    setLastPerWs((prev) => (prev[ws] === currentId ? prev : { ...prev, [ws]: currentId }));
+  }, [currentId, pagesById]);
 
   // Canonical slug URL: keep /p/<slug>-<id> in the address bar without ever
   // reloading. The id identifies the page; the slug follows the title. Unknown
@@ -1315,20 +1354,29 @@ export default function App() {
   // document that belonged to the workspace you just left — the picker used
   // to be wired straight to setCurrentWs, so `currentId` never changed and
   // the previous workspace's content (and its /p/<slug>-<id> URL) just sat there.
-  // Land on the new workspace's first page instead, the same "pick a page"
-  // fallback already used when the active page is trashed — or the empty
-  // state if the workspace has none yet. If the page you're already on
-  // happens to live in the target workspace, leave it alone.
+  // Land on the page last active in the new workspace — in its tab if one is
+  // open, else in a new tab at the very front of the strip — rather than on
+  // the workspace's first page. A stale memory (trashed page, or one that
+  // moved workspaces) falls back to the first page, the same "pick a page" fallback
+  // already used when the active page is trashed — or the empty state if the
+  // workspace has none yet. If the page you're already on happens to live in
+  // the target workspace, leave it alone.
   const switchWorkspace = useCallback(
     (id: string) => {
       setCurrentWs(id);
       const cur = currentId ? pagesById.get(currentId) : undefined;
       if (cur && cur.workspaceId === id) return;
+      const last = lastPerWs[id];
+      const hit = last ? pagesById.get(last) : undefined;
+      if (hit && !hit.trashed && hit.workspaceId === id) {
+        openInNewTab(last, true);
+        return;
+      }
       const inWs = (p: PageMeta) => !p.trashed && p.workspaceId === id;
       const first = pages?.find((p) => inWs(p) && !p.parentId) ?? pages?.find(inWs);
       navigate(first ? first.id : null);
     },
-    [currentId, pages, pagesById, navigate],
+    [currentId, pages, pagesById, navigate, openInNewTab, lastPerWs],
   );
 
   const onAuthed = useCallback(
