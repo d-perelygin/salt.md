@@ -191,7 +191,6 @@
   "Could not post the comment": "Не удалось опубликовать комментарий",
   "Could not remove the member": "Не удалось удалить участника",
   "Could not save as template": "Не удалось сохранить как шаблон",
-  "Could not sync “{label}”: giving up": "Не получилось синхронизировать «{label}» — попытки закончились",
   "Could not sync “{label}”: {reason}": "Не получилось синхронизировать «{label}»: {reason}",
   "Cover": "Обложка",
   "Create a new user": "Создать нового пользователя",
