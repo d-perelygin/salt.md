@@ -490,8 +490,13 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       }
       return [...without, tagged];
     });
-    // Journals into the outbox offline, like every other row write.
-    await savePageUpdate(rowId, { position }, { label: t('Change') });
+    // Persisted like every other row write; a failure toasts but keeps the
+    // optimistic order on screen.
+    try {
+      await api.updatePage(rowId, { position });
+    } catch {
+      toast(t('Change not saved'));
+    }
   };
 
   if (!config || !view) return <div className="editor-loading" />;
