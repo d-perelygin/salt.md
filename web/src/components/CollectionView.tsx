@@ -1547,7 +1547,7 @@ function BoardCardProps({
   const factRow = (p: PropDef) => (
     <span key={p.id} className="card-fact">
       {needsLabel(p, plan.facts.length) && <span className="card-fact-label">{p.name}</span>}
-      <PropertyValue def={p} value={row.props[p.id]} readOnly compact onOpen={onOpen} onOpenInNewTab={onOpenInNewTab} />
+      <PropertyValue def={p} value={row.props[p.id]} readOnly compact onOpen={onOpen} openers={onOpen ? { onNavigate: onOpen, onOpenInNewTab } : undefined} />
     </span>
   );
 
@@ -1578,7 +1578,7 @@ function BoardCardProps({
                 onChange={(nv) => onSetProp(row.id, p.id, nv)}
                 onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                 onOpen={onOpen}
-                onOpenInNewTab={onOpenInNewTab}
+                openers={onOpen ? { onNavigate: onOpen, onOpenInNewTab } : undefined}
               />
             </div>
           ))}
@@ -2165,8 +2165,8 @@ function TableView({
                     onChange={(v) => onSetProp(r.id, p.id, v)}
                     onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                     maxChips={2}
-                    onOpen={onNavigate}
-                    onOpenInNewTab={onOpenInNewTab}
+                    onOpen={onOpenInNewTab ?? onNavigate}
+                    openers={{ onNavigate, onOpenInNewTab }}
                   />
                 </td>
               ))}

@@ -9,6 +9,7 @@ import { showActivityFor } from './ActivityLogHost';
 import { initials, nameColor } from './CommentsPanel';
 import { Check, ExternalLink, Link2 as LinkIcon, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
+import { openPage, openPageAux, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
 
 interface Props {
@@ -23,12 +24,15 @@ interface Props {
    *  table is not for. The rest is summarised as "+N" and stays one click
    *  away. Same reasoning as the one-line truncation of long text cells. */
   maxChips?: number;
-  /** Open a related row when its chip is clicked. Absent, chips stay static
-   *  text (unknown rows always do: there is nothing readable to open). */
+  /** Open a related row when its chip is clicked — always in a new tab, never
+   *  in place. Absent, chips stay static text (unknown rows always do: there
+   *  is nothing readable to open). */
   onOpen?: (id: string) => void;
-  /** Open a related row in a new tab. The open icon prefers this and falls
-   *  back to onOpen where the app cannot open tabs. */
-  onOpenInNewTab?: (id: string) => void;
+  /** Where the modifier rule lives (Ctrl/Cmd-click and the middle button go
+   *  through openPage/openPageAux; a plain click on the icon prefers a new
+   *  tab). Preferred over onOpen wherever both openers are in scope; onOpen
+   *  stays as the fallback for public views. */
+  openers?: PageOpeners;
 }
 
 // idList reads a list-shaped value (relation, multiselect). A single id stored
@@ -39,7 +43,13 @@ interface Props {
 // normalised on the server now; this keeps older rows readable.
 export function idList(value: unknown): string[] {
   if (Array.isArray(value)) return value as string[];
-  return typeof value === 'string' && value !== '' ? [value] : [];
+  if (typeof value === 'string' && value !== '') return [value];
+  // One row written as a bare value instead of a one-element list: a string is
+  // the common shape, an object ({"id": …}, what a read hands back) the other.
+  // The object used to fall through to nothing at all, so the cell showed no
+  // chip whatsoever — not even the empty one.
+  if (value && typeof value === 'object') return [value as unknown as string];
+  return [];
 }
 
 function chip(opt: PropOption | undefined, fallback: string) {
@@ -708,7 +718,7 @@ export function loadRelationOptions(colId: string, force = false): Promise<RelOp
   return relCache.get(colId)!;
 }
 
-function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen, onOpenInNewTab }: Props) {
+function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen, openers }: Props) {
   const targetId = def.relationCollection;
   const ids = idList(value);
   const [options, setOptions] = useState<RelOption[]>([]);
@@ -753,12 +763,44 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // window: a target collection past the 500 rows fetched here, a row somebody
   // may not read, a relation left pointing at something deleted. None of those
   // is a row called Untitled.
-  const titleOf = (id: string) => {
-    const hit = options.find((o) => o.id === id);
-    if (!hit) return '';
-    return hit.title || t('Untitled');
+  // A relation value is a page id. Older rows and hand-written ones may hold
+  // something else — the object a read handed back ({"id": …}), or a title —
+  // and reading one of those must not throw: a value nobody can parse is a
+  // value to SHOW, not a reason to take the whole view down. (It did throw:
+  // `value.trim is not a function` on every view holding one.)
+  const asText = (raw: unknown): string => {
+    if (typeof raw === 'string') return raw;
+    if (typeof raw === 'number') return String(raw);
+    if (raw && typeof raw === 'object') {
+      const o = raw as { id?: unknown; title?: unknown };
+      if (typeof o.id === 'string' && o.id) return o.id;
+      if (typeof o.title === 'string' && o.title) return o.title;
+      try {
+        return JSON.stringify(raw) ?? '';
+      } catch {
+        return '';
+      }
+    }
+    return '';
   };
-  const iconOf = (id: string) => options.find((o) => o.id === id)?.icon || '';
+
+  // A value that is not an id but matches exactly ONE row's title is resolved
+  // to that row. The stored value is wrong, but the row it names is not
+  // ambiguous, and hiding a working relation behind a data problem helps
+  // nobody. Two rows with the same title stay unresolved, because there is no
+  // answer to give.
+  const rowFor = (raw: unknown): RelOption | undefined => {
+    const text = asText(raw);
+    const byId = options.find((o) => o.id === text);
+    if (byId) return byId;
+    const wanted = text.trim().toLowerCase();
+    if (!wanted) return undefined;
+    const byTitle = options.filter((o) => {
+      const title = (o.title || '').trim().toLowerCase();
+      return title !== '' && title === wanted;
+    });
+    return byTitle.length === 1 ? byTitle[0] : undefined;
+  };
 
   if (!targetId) return <span className="prop-empty">{t('No target')}</span>;
 
@@ -783,31 +825,50 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   };
   // The open icon prefers a new tab and falls back to plain navigation where
   // the app cannot open tabs, the same order row clicks use.
-  const openRow = (id: string) => (onOpenInNewTab ?? onOpen)?.(id);
-  const canOpen = onOpen !== undefined || onOpenInNewTab !== undefined;
+  const openRow = (e: React.MouseEvent<HTMLButtonElement>, id: string) => {
+    e.stopPropagation();
+    if (openers) {
+      if (e.metaKey || e.ctrlKey) openPage(e, id, openers);
+      else (openers.onOpenInNewTab ?? openers.onNavigate)(id);
+    } else onOpen?.(id);
+  };
+  const openRowAux = (e: React.MouseEvent<HTMLButtonElement>, id: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (openers) openPageAux(e, id, openers);
+    else onOpen?.(id);
+  };
+  // An unreadable row has nothing to open, and a spot with no opener at all
+  // (a static render) keeps every chip as plain text. Only a writable,
+  // non-compact cell can edit: on cards the picker is not rendered at all.
+  const canOpen = onOpen !== undefined || openers !== undefined;
   const canEdit = !ro && !compact;
   const chips = (
     <span className="prop-multi">
-      {shown.map((id) => {
-        const title = titleOf(id);
+      {shown.map((raw, i) => {
+        const value = asText(raw);
+        const row = rowFor(raw);
+        // Nothing resolves: the chip says what the cell actually holds rather
+        // than showing an empty box. The tooltip says the rest.
+        const title = row ? row.title || t('Untitled') : loaded ? value : '';
         const inner = (
           <>
-            {iconOf(id) && (
+            {row?.icon && (
               <span className="relation-icon">
-                <PageIcon icon={iconOf(id)} size={14} />
+                <PageIcon icon={row.icon} size={14} />
               </span>
             )}
             {title}
           </>
         );
         const cls =
-          'prop-chip relation-chip' + (title ? '' : loaded ? ' is-unknown' : ' is-pending');
-        const tip = title || (loaded ? t('This row is not readable from here.') : undefined);
+          'prop-chip relation-chip' + (row ? '' : loaded ? ' is-unknown' : ' is-pending');
+        const tip = row ? title : loaded ? t('This row is not readable from here.') : undefined;
         const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
         // Unknown rows stay plain text: there is nothing to open.
-        if (!title || !canOpen) {
+        if (!row || !canOpen) {
           return (
-            <span key={id} className={cls} title={tip} style={chipStyle}>
+            <span key={i} className={cls} title={tip} style={chipStyle}>
               {inner}
             </span>
           );
@@ -815,27 +876,20 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
         if (!canEdit) {
           return (
             <button
-              key={id}
+              key={i}
               type="button"
               className={cls}
-              title={title}
+              title={tip}
               style={chipStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                openRow(id);
-              }}
-              onAuxClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                openRow(id);
-              }}
+              onClick={(e) => openRow(e, row.id)}
+              onAuxClick={(e) => openRowAux(e, row.id)}
             >
               {inner}
             </button>
           );
         }
         return (
-          <span key={id} className="relation-chip-wrap" title={tip}>
+          <span key={i} className="relation-chip-wrap" title={tip}>
             <button
               type="button"
               className={cls}
@@ -853,15 +907,8 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
               className="relation-open-btn"
               aria-label={t('Open row')}
               title={t('Open row')}
-              onClick={(e) => {
-                e.stopPropagation();
-                openRow(id);
-              }}
-              onAuxClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                openRow(id);
-              }}
+              onClick={(e) => openRow(e, row.id)}
+              onAuxClick={(e) => openRowAux(e, row.id)}
             >
               <ExternalLink size={12} />
             </button>
@@ -869,7 +916,10 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
         );
       })}
       {hidden > 0 && (
-        <span className="prop-chip relation-more" title={ids.map(titleOf).filter(Boolean).join(', ')}>
+        <span
+          className="prop-chip relation-more"
+          title={ids.map((v) => rowFor(v)?.title ?? asText(v)).filter(Boolean).join(', ')}
+        >
           {t('+{n} more', { n: hidden })}
         </span>
       )}
@@ -989,7 +1039,7 @@ export default function PropertyValue({
   compact,
   maxChips,
   onOpen,
-  onOpenInNewTab,
+  openers,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const ro = readOnly || !onChange;
@@ -1005,7 +1055,7 @@ export default function PropertyValue({
           compact={compact}
           maxChips={maxChips}
           onOpen={onOpen}
-          onOpenInNewTab={onOpenInNewTab}
+          openers={openers}
         />
       );
     // A backrelation IS a relation to read — same ids, same titles, same
@@ -1021,7 +1071,7 @@ export default function PropertyValue({
           compact={compact}
           maxChips={maxChips}
           onOpen={onOpen}
-          onOpenInNewTab={onOpenInNewTab}
+          openers={openers}
         />
       );
     case 'lastActivity': {
