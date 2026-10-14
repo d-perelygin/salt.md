@@ -183,7 +183,6 @@
   "Could not post the comment": "Kommentar fehlgeschlagen",
   "Could not remove the member": "Mitglied konnte nicht entfernt werden",
   "Could not save as template": "Als Vorlage speichern fehlgeschlagen",
-  "Could not sync “{label}”: giving up": "„{label}“ konnte nicht synchronisiert werden: Versuche aufgebraucht",
   "Could not sync “{label}”: {reason}": "„{label}“ konnte nicht synchronisiert werden: {reason}",
   "Cover": "Cover",
   "Create a new user": "Neuen Nutzer anlegen",

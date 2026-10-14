@@ -9,7 +9,7 @@ import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locale
 import { BlockNoteView } from '@blocknote/mantine';
 import { api, ApiError } from '../api';
 import * as Y from 'yjs';
-import { getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
+import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
 import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
@@ -289,6 +289,11 @@ export default function Editor(props: EditorProps) {
               // The server replaced the document under us (restore, agent
               // rewrite, import): our in-flight edits lost to the replacement.
               // The state before it survives as a revision — point there.
+              // The offline journal and snapshot die with it: replaying them
+              // onto the new document would resurrect exactly what was
+              // replaced.
+              void clearJournal(props.pageId);
+              void dropYDoc(props.pageId);
               toast(t('This page was replaced on the server. Open Version history to recover your text.'));
               setNonce((n) => n + 1);
             }}
@@ -2219,6 +2224,11 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
       pushPeers();
       document.addEventListener('visibilitychange', applyPresence);
       setProvider(p);
+      // A restored snapshot renders now, without waiting for a sync that may
+      // never come while offline: the body below reads the local doc, and the
+      // provider merges it with the server replay on connect. With no snapshot
+      // and no connection there is likewise nothing to wait for.
+      if ((initialUpdate && initialUpdate.length > 0) || !navigator.onLine) setReady(true);
     });
     return () => {
       cancelled = true;
