@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { eventually, withFixture } from './fixture.mjs';
 
-// Timeline: the mode menu opens at its button, rows outside the window keep
-// their labels, a click on a resize handle without dragging saves nothing,
-// and stretching a timed value keeps its time.
+// Timeline: rows outside the window keep their labels, the mode menu opens at
+// its button, stretching a timed value keeps its time, and a click on a resize
+// handle without dragging saves nothing.
 await withFixture(async ({ page, api, base, path }) => {
   page.setDefaultTimeout(15000);
   const collectionId = path.split('/').pop();
@@ -25,18 +25,23 @@ await withFixture(async ({ page, api, base, path }) => {
   await eventually(async () => (await rows.count()) >= 3);
 
   // Out-of-window rows keep their labels: January is listed although the
-  // window opens on the data around June.
+  // window opens on the data around June, and only its bar is gone.
   assert.equal(await rows.filter({ hasText: 'Winter' }).count(), 1);
-  assert.equal(await page.locator('.tl-row', { hasText: 'Winter' }).locator('.tl-bar').count(), 0);
+  assert.equal(
+    await page.locator('.tl-row', { hasText: 'Winter' }).locator('.tl-bar').count(),
+    0,
+    'a row outside the window must keep its label and lose only its bar',
+  );
 
   // The mode menu opens at its button, not far above it.
-  await page.locator('.tl-controls .cal-range-wrap > button').click();
-  const menu = page.locator('.tl-controls .view-tab-menu');
+  const rangeBtn = page.locator('.tl-right .cal-range-wrap > button');
+  await rangeBtn.click();
+  const menu = page.locator('.tl-right .view-tab-menu');
   await menu.waitFor();
-  const btn = await page.locator('.tl-controls .cal-range-wrap > button').boundingBox();
+  const btn = await rangeBtn.boundingBox();
   const box = await menu.boundingBox();
   assert(box.y >= btn.y + btn.height - 8, `menu at ${box.y}, button ends at ${btn.y + btn.height}`);
-  await page.locator('.tl-controls .fs-backdrop').click();
+  await page.locator('.fs-backdrop').first().click();
 
   // Stretching a timed value by about two days keeps its time.
   const handle = page.locator('.tl-row', { hasText: 'Timed' }).locator('.tl-resize-r');
@@ -62,5 +67,5 @@ await withFixture(async ({ page, api, base, path }) => {
   const plainRow = kept.rows.find((r) => r.title === 'Plain');
   assert.equal(plainRow.props.end, iso(2026, 6, 16), 'a click without drag must not rewrite the date');
 
-  console.log('Timeline: menu placement, label-only rows, click-safe handles, timed stretch.');
+  console.log('Timeline: label-only rows, menu placement, click-safe handles, timed stretch.');
 });
