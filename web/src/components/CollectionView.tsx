@@ -3160,6 +3160,15 @@ function TimelineView({
     return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
   };
   const isoDay = (n: number) => new Date(n * 86400000).toISOString().slice(0, 10);
+  // A date property may carry a time ("2026-06-12T14:30"). Stretching or
+  // carrying a bar changes the DAY only: the time the row already had must
+  // survive, or a 14:30 meeting dragged an afternoon silently becomes
+  // midnight. The day is written through this so the suffix rides along.
+  const isoDayKeepTime = (row: Row, propId: string, n: number) => {
+    const raw = row.props[propId];
+    const day = isoDay(n);
+    return typeof raw === 'string' && raw.length > 10 ? day + raw.slice(10) : day;
+  };
 
   type Item = { row: Row; start: number; end: number };
   const items: Item[] = [];
@@ -3549,13 +3558,14 @@ function TimelineView({
           return;
         }
         navGuard.current = Date.now();
-        void onSetDate(id, startProp, isoDay(it.start + reached.day));
+        void onSetDate(id, startProp, isoDayKeepTime(it.row, startProp, it.start + reached.day));
         // A move keeps whatever the row already had: a one-day row stays one
         // day instead of growing an end nobody asked for.
-        if (endProp && rowHasEnd) void onSetDate(id, endProp, isoDay(it.end + reached.day));
+        if (endProp && rowHasEnd) void onSetDate(id, endProp, isoDayKeepTime(it.row, endProp, it.end + reached.day));
         return;
       }
-      void onSetDate(id, reached.edge === 'start' ? startProp : endProp, isoDay(reached.day));
+      const movedProp = reached.edge === 'start' ? startProp : endProp;
+      void onSetDate(id, movedProp, isoDayKeepTime(it.row, movedProp, reached.day));
       // Pulling the start of a one-day row makes it a range: the end keeps the
       // day the row started on, so the bar grows rather than slides.
       if (reached.edge === 'start' && endProp && !rowHasEnd) {
@@ -3862,15 +3872,17 @@ function TimelineView({
   // x is in track percent, y in row pixels (ROW_H per row, bar center at 20).
   const ROW_H = 40;
   type Arrow = { key: string; from: number; to: number; pred: string; succ: string; x1: number; x2: number; bad: boolean };
-  // Only rows inside the window take up vertical space: arrow Y comes from
-  // the RENDERED order, not the data order. Using data indices puts every
-  // arrow too low as soon as one dated row falls outside the window.
-  const rendered: { it: Item; geom: { left: string; width: string }; fx: { l: number; r: number } }[] = [];
-  for (const it of liveItems) {
-    const g = barGeom(it);
-    const f = g ? fracGeom(it) : null;
-    if (g && f) rendered.push({ it, geom: g, fx: f });
-  }
+  // Arrow Y comes from the RENDERED order, not the data order: using data
+  // indices puts every arrow too low as soon as one dated row falls outside
+  // the window. Every row keeps its label; a row wholly outside the window
+  // loses only its bar. Dropping the row entirely hid entries the moment a
+  // saved timeline opened on a single month. The slot is still taken, so an
+  // out-of-window row keeps the arrows on the right row.
+  const rendered: { it: Item; geom: { left: string; width: string } | null; fx: { l: number; r: number } | null }[] =
+    liveItems.map((it) => {
+      const g = barGeom(it);
+      return { it, geom: g, fx: g ? fracGeom(it) : null };
+    });
   const renderIndex = new Map(rendered.map((r, k) => [r.it.row.id, k]));
   // Fractions of the track width here; pixels at render time (trackW), so
   // curves and heads never distort the way a stretched viewBox would.
@@ -4122,6 +4134,41 @@ function TimelineView({
           <div className="tl-body">
             {rendered.map(({ it, geom: g0, fx }) => {
               const { row } = it;
+              const blocked = effDep ? violationsOf(row.id) : [];
+              const label = (
+                <div
+                  className="tl-label"
+                  style={{ width: LABELW }}
+                  onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
+                  onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
+                  title={tipFor(row, it)}
+                >
+                  {row.icon && (
+                    <span className="inline-icon">
+                      <PageIcon icon={row.icon} size={14} />
+                    </span>
+                  )}
+                  <span className="tl-label-text">{row.title || 'Untitled'}</span>
+                  {blocked.length > 0 && (
+                    <button
+                      className="tl-warn"
+                      title={plural(
+                        blocked.length,
+                        'Blocked: starts before {n} blocker ends',
+                        'Blocked: starts before {n} blockers end',
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                        setAddBlockerFor(null);
+                      }}
+                    >
+                      ⚠{blocked.length > 1 ? blocked.length : ''}
+                    </button>
+                  )}
+                </div>
+              );
               // While dragging, the bar follows the pointer; the dates persist
               // on release only.
               const dg =
@@ -4133,7 +4180,19 @@ function TimelineView({
                     })
                   : null;
               const geom = dg ?? g0;
-              const blocked = effDep ? violationsOf(row.id) : [];
+              // A row wholly outside the window keeps its label and loses only
+              // its bar (see the `rendered` comment above).
+              if (!geom) {
+                return (
+                  <div
+                    key={row.id}
+                    className={'tl-row' + (linkFrom === row.id ? ' is-link-source' : '')}
+                    data-tl-row={row.id}
+                  >
+                    {!hideLabels && label}
+                  </div>
+                );
+              }
               return (
                 <div
                   key={row.id}
@@ -4143,40 +4202,7 @@ function TimelineView({
                   }
                   data-tl-row={row.id}
                 >
-                  {!hideLabels && (
-                    <div
-                      className="tl-label"
-                      style={{ width: LABELW }}
-                      onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
-                      onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                      title={tipFor(row, it)}
-                    >
-                      {row.icon && (
-                        <span className="inline-icon">
-                          <PageIcon icon={row.icon} size={14} />
-                        </span>
-                      )}
-                      <span className="tl-label-text">{row.title || 'Untitled'}</span>
-                      {blocked.length > 0 && (
-                        <button
-                          className="tl-warn"
-                          title={plural(
-                            blocked.length,
-                            'Blocked: starts before {n} blocker ends',
-                            'Blocked: starts before {n} blockers end',
-                          )}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
-                            setAddBlockerFor(null);
-                          }}
-                        >
-                          ⚠{blocked.length > 1 ? blocked.length : ''}
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  {!hideLabels && label}
                   <div className="tl-track">
                     {weekends.map((w, k) => (
                       <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
@@ -4242,7 +4268,7 @@ function TimelineView({
                         pulls onto another bar for this row to block that one.
                         It lives on the track: inside the bar the overflow
                         would cut it off. */}
-                    {effDep && (
+                    {effDep && fx && (
                       <span
                         className={
                           'tl-dep-handle' + (linkFrom === row.id ? ' is-active' : '')
