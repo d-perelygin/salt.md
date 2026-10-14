@@ -44,6 +44,7 @@ import {
   forgetViewScrolls,
   readPageScroll,
   readViewId,
+  setUiAccount,
   writePageScroll,
   writeViewId,
 } from './pageUiState';
@@ -391,6 +392,9 @@ export default function App() {
         // snapshot and outbox stores to whoever just signed in, so a second
         // person on the same browser never sees the first person's.
         setOfflineAccount(m.authenticated && m.user ? m.user.id : null);
+        // The view/scroll memory is per account too: two people on one browser
+        // must not land in each other's last opened view.
+        setUiAccount(m.authenticated && m.user ? m.user.id : null);
         // The account decides the language and time settings; initLocale only
         // had the localStorage cache to go on, which is a copy and may be
         // stale — somebody who changed the language on their phone gets it
@@ -405,13 +409,15 @@ export default function App() {
   }, [loadAll]);
 
   useEffect(() => {
-    const onUnauthorized = () =>
+    const onUnauthorized = () => {
+      setUiAccount(null);
       setMe((prev) => ({
         setupRequired: prev?.setupRequired ?? false,
         authenticated: false,
         user: null,
         version: prev?.version ?? BUILD_VERSION,
       }));
+    };
     // Back/forward: restore the exact tab set from the history entry's state
     // (set by pushTabHistory). Falls back to the URL id for entries with no
     // snapshot (e.g. the very first load), reopening a tab only then.

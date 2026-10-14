@@ -8,7 +8,7 @@ import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
 import { showActivityFor } from './ActivityLogHost';
 import { useChecklistFrac } from '../pageUiState';
 import { initials, nameColor } from './CommentsPanel';
-import { Check, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, ExternalLink, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
@@ -827,12 +827,20 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // through PageIcon like everywhere else. Printed raw, a Lucide or MDI icon
   // arrived as the literal text "lucide:PhoneCall" — visible in the picker on
   // every row whose icon was not an emoji.
-  // The pencil on a chip opens this field's picker — the chip itself
-  // navigates, so editing needs its own affordance, like URL chips have.
+  // Clicking a chip EDITS the field (opens the picker below), the way URL
+  // chips edit on click: a filled cell must stay correctable. The icon beside
+  // the chip opens the row, like the URL chip's icon opens the link. The two
+  // are siblings, never nested: a button in a button is invalid HTML, and on
+  // cards a long title hid the hover affordance completely.
   const openPicker = () => {
     if (!open && targetId) void loadRelationOptions(targetId, true).then(setOptions);
     setOpen(true);
   };
+  // An unreadable row has nothing to open, and a spot with no opener at all
+  // (a static render) keeps every chip as plain text. Only a writable,
+  // non-compact cell can edit: on cards the picker is not rendered at all.
+  const canOpen = onOpen !== undefined || openers !== undefined;
+  const canEdit = !ro && !compact;
   const chips = (
     <span className="prop-multi">
       {shown.map((raw, i) => {
@@ -854,59 +862,67 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
         const cls =
           'prop-chip relation-chip' + (row ? '' : loaded ? ' is-unknown' : ' is-pending');
         const tip = row ? title : loaded ? t('This row is not readable from here.') : undefined;
-        // A readable row opens in a new tab; an unknown one stays plain text.
-        // In the editor below the same chip is a span, not a button: it sits
-        // inside the picker toggle, and a button in a button is invalid HTML.
         const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
-        if (onOpen && row) {
-          if (ro) {
-            return (
-              <button
-                key={i}
-                type="button"
-                className={cls + ' relation-link'}
-                title={tip}
-                style={chipStyle}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (openers) openCollectionRow(e, row.id, openers);
-                  else if (onOpen && !peekPage(e, row.id)) onOpen(row.id);
-                }}
-              >
-                {inner}
-              </button>
-            );
-          }
+        // Unknown rows stay plain text: there is nothing to open.
+        if (!row || !canOpen) {
           return (
-            <span
-              key={i}
-              className={cls + ' relation-link'}
-              title={tip}
-              style={chipStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (openers) openCollectionRow(e, row.id, openers);
-                else if (onOpen && !peekPage(e, row.id)) onOpen(row.id);
-              }}
-            >
+            <span key={i} className={cls} title={tip} style={chipStyle}>
               {inner}
-              <button
-                type="button"
-                className="relation-edit-btn"
-                title={t('Edit relation')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openPicker();
-                }}
-              >
-                <Pencil size={12} />
-              </button>
             </span>
           );
         }
+        const openRow = (e: React.MouseEvent<HTMLButtonElement>) => {
+          e.stopPropagation();
+          if (openers) openCollectionRow(e, row.id, openers);
+          else if (onOpen && !peekPage(e, row.id)) onOpen(row.id);
+        };
+        // No edit affordance here (a card, or a read-only spot): the chip
+        // itself opens the row.
+        if (!canEdit) {
+          return (
+            <button
+              key={i}
+              type="button"
+              className={cls}
+              title={tip}
+              style={chipStyle}
+              onClick={openRow}
+              onAuxClick={(e) => {
+                e.preventDefault();
+                openRow(e);
+              }}
+            >
+              {inner}
+            </button>
+          );
+        }
         return (
-          <span key={i} className={cls} title={tip} style={chipStyle}>
-            {inner}
+          <span key={i} className="relation-chip-wrap" title={tip}>
+            <button
+              type="button"
+              className={cls}
+              style={chipStyle}
+              aria-label={t('Edit') + ': ' + def.name}
+              onClick={(e) => {
+                e.stopPropagation();
+                openPicker();
+              }}
+            >
+              {inner}
+            </button>
+            <button
+              type="button"
+              className="relation-open-btn"
+              aria-label={t('Open row')}
+              title={t('Open row')}
+              onClick={openRow}
+              onAuxClick={(e) => {
+                e.preventDefault();
+                openRow(e);
+              }}
+            >
+              <ExternalLink size={12} />
+            </button>
           </span>
         );
       })}
@@ -933,16 +949,20 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
 
   return (
     <div className="relation-value" ref={boxRef}>
-      <button
-        type="button"
-        className="relation-open"
-        onClick={() => {
-          if (!open && targetId) void loadRelationOptions(targetId, true).then(setOptions);
-          setOpen((v) => !v);
-        }}
-      >
-        {ids.length ? chips : <span className="prop-empty">{t('＋ Link')}</span>}
-      </button>
+      {ids.length ? (
+        chips
+      ) : (
+        <button
+          type="button"
+          className="relation-open"
+          onClick={() => {
+            if (!open && targetId) void loadRelationOptions(targetId, true).then(setOptions);
+            setOpen((v) => !v);
+          }}
+        >
+          <span className="prop-empty">{t('＋ Link')}</span>
+        </button>
+      )}
       {open && (
         <div className="menu relation-menu">
           <input
