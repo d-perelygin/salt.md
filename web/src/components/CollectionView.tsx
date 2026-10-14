@@ -4137,10 +4137,18 @@ function TimelineView({
               const blocked = effDep ? violationsOf(row.id) : [];
               const label = (
                 <div
-                  className="tl-label"
+                  className={'tl-label' + (hovered === row.id ? ' is-hovered' : '')}
                   style={{ width: LABELW }}
                   onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
                   onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
+                  // The mirror of the bar's hover below: lighting the title
+                  // lights the bar, so the pair reads as one thing from either
+                  // end. Same link guard — a lasso sweeping the labels must not
+                  // re-render mid-gesture either.
+                  onMouseEnter={() => {
+                    if (!linkActiveRef.current) setHovered(row.id);
+                  }}
+                  onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
                   title={tipFor(row, it)}
                 >
                   {row.icon && (
@@ -4212,7 +4220,8 @@ function TimelineView({
                       className={
                         'tl-bar' +
                         (drag && drag.id === row.id ? ' is-dragging' : '') +
-                        (blocked.length > 0 ? ' is-blocked' : '')
+                        (blocked.length > 0 ? ' is-blocked' : '') +
+                        (hovered === row.id ? ' is-hovered' : '')
                       }
                       style={{ left: geom.left, width: geom.width }}
                       onPointerDown={(e) => beginBarDrag(e, row.id, 'move')}

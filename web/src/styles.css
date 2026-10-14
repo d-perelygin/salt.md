@@ -8057,6 +8057,17 @@ a.btn {
   box-sizing: border-box;
 }
 .tl-label:hover { background: var(--hover); }
+/* Hovering a bar lights up its title in the label column, and hovering the
+   label lights up the bar: short bars carry no readable text, so the label is
+   the only place the name can be seen, and the pair reads as one thing from
+   either end. The bar takes the same brightness its own hover gives it; the
+   label takes an accent edge and accent text rather than a wash — a wash would
+   be translucent (see --accent-soft) and the track sliding underneath would
+   show through the sticky column. Neither shifts layout, so nothing jiggles
+   when the highlight lands. */
+.tl-bar.is-hovered { filter: brightness(1.07); }
+.tl-label.is-hovered { box-shadow: inset 2px 0 0 var(--accent); }
+.tl-label.is-hovered .tl-label-text { color: var(--accent); }
 .tl-label-text {
   overflow: hidden;
   text-overflow: ellipsis;
