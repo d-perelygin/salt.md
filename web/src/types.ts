@@ -284,6 +284,8 @@ export function normalizeCollectionConfig(cfg: CollectionConfig): CollectionConf
   }
   return cfg;
 }
+/** Visible span of calendar and timeline views. */
+export type SpanMode = 'day' | 'week' | 'month' | '2months' | 'year';
 
 /** Visible span of calendar and timeline views. */
 export type SpanMode = 'day' | 'week' | 'month' | '2months' | 'year';
@@ -298,6 +300,8 @@ export interface ViewDef {
   tlMode?: SpanMode;
   /** Timeline view: the sticky title column is collapsed, leaving the axis. */
   tlHideLabels?: boolean;
+  /** Calendar view: which span the grid shows. Defaults to a month. */
+  calMode?: SpanMode;
   endDateProp?: string; // timeline view: optional end-date property (else 1-day bar)
   hidden?: string[]; // property ids hidden in this view
   filters?: Filter[];
