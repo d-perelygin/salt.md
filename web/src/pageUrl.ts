@@ -57,20 +57,25 @@ export function pagePath(id: string, title?: string): string {
   return slug ? `/p/${slug}-${id}` : `/p/${id}`;
 }
 
-// The title a page may show in its URL: everything but private pages, whose
-// titles must never reach the address bar (it is copied into chats, tickets
-// and proxy logs). Private pages keep the bare /p/<id>.
+// The title a page may show in its URL: only a page the whole workspace sees.
+// A private page's title must never reach the address bar (it is copied into
+// chats, tickets and proxy logs), and the same holds for a restricted one;
+// both keep the bare /p/<id>.
 export function pageSlugTitle(meta?: Pick<PageMeta, 'title' | 'visibility'>): string {
-  if (!meta || meta.visibility === 'private') return '';
+  if (!meta || meta.visibility !== 'workspace') return '';
   return meta.title;
 }
 
 // The id is always the trailing 32 hex chars; anything before the last dash
 // is a slug and is ignored. Bare /p/<id> (old links, API messages) matches too.
+// Offline-created pages carry temp-<uuid> until the outbox flush swaps them
+// for server ids: never valid server-side, but the reload path must resolve
+// them, or the tab bounces to the first page and the draft strands.
 export function pageIdFromPathname(pathname: string): string | null {
   const m = pathname.match(/^\/p\/([A-Za-z0-9-]+)\/?$/);
   if (!m) return null;
   const tail = m[1].toLowerCase();
+  if (tail.startsWith('temp-') && tail.length <= 64) return tail;
   // Legacy bare ids of any length (the previous frontend accepted them).
   if (/^[0-9a-f]+$/.test(tail)) return tail;
   const id = tail.slice(-32);
