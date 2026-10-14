@@ -443,11 +443,15 @@ export const api = {
       filters?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[];
       filterGroups?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[][];
       sort?: { property: string; dir: 'asc' | 'desc' } | null;
+      // The viewer's day as YYYY-MM-DD: relative date words ("today",
+      // "today-1M") resolve against it, not the server's day.
+      today?: string;
     } = {},
   ) => {
     const p = new URLSearchParams();
     if (opts.limit) p.set('limit', String(opts.limit));
     if (opts.offset) p.set('offset', String(opts.offset));
+    if (opts.today) p.set('today', opts.today);
     const encode = (f: { property: string; op?: string; value: string; values?: string[]; value2?: string }) => {
       // A set of values and a range do not fit in a colon-separated string, so
       // anything beyond the simple case travels as JSON. The server reads both

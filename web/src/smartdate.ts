@@ -46,11 +46,17 @@ export function resolveSmartDate(value: string, now?: Date): string | null {
 }
 
 function shift(base: string, off: number, unit: 'd' | 'w' | 'm' | 'y', now: Date): string {
-  let y = now.getFullYear();
-  let m = now.getMonth();
-  let d = now.getDate();
-  if (base === 'yesterday') d -= 1;
-  else if (base === 'tomorrow') d += 1;
+  // Normalise the base day through the Date constructor first: yesterday on
+  // March 1 is February 28, and a month shift below must start from there,
+  // not from day zero.
+  const anchor = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + (base === 'yesterday' ? -1 : base === 'tomorrow' ? 1 : 0),
+  );
+  let y = anchor.getFullYear();
+  let m = anchor.getMonth();
+  let d = anchor.getDate();
   if (unit === 'w') {
     const t = new Date(y, m, d + off * 7);
     return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
@@ -68,4 +74,11 @@ function shift(base: string, off: number, unit: 'd' | 'w' | 'm' | 'y', now: Date
 /** True when the value is a relative day rather than a plain date. */
 export function isSmartDate(value: string): boolean {
   return resolveSmartDate(value) !== null;
+}
+
+/** A half-typed relative day ("today-"): the word and the sign are there, the
+ *  offset is not. Not a value yet — a condition holding one waits instead of
+ *  filtering (see filterIsArmed and the server's where()). */
+export function isUnfinishedRelativeDay(value: string): boolean {
+  return /^(today|yesterday|tomorrow)[+-]$/.test(String(value ?? '').toLowerCase().replace(/ /g, ''));
 }

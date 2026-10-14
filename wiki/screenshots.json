@@ -81,7 +81,7 @@
       "takenAt": {
         "web/src/components/Sidebar.tsx": "5f2310926e0b",
         "web/src/components/Editor.tsx": "c4263a9c31f1",
-        "web/src/App.tsx": "f4763b12596c",
+        "web/src/App.tsx": "2e9a17de10a7",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -299,7 +299,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "c101e476a257",
+        "web/src/components/CollectionView.tsx": "198315ec8191",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -333,7 +333,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "c101e476a257",
+        "web/src/components/CollectionView.tsx": "198315ec8191",
         "web/src/cardLayout.ts": "eb7f92584275",
         "web/src/theme.css": "b1c3dece61ce"
       }
@@ -367,7 +367,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "c101e476a257",
+        "web/src/components/CollectionView.tsx": "198315ec8191",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -585,7 +585,7 @@
       ],
       "takenAt": {
         "web/src/components/AgentConnect.tsx": "048c1dc5ffa2",
-        "server/mcp.go": "a9b5e44a32a5",
+        "server/mcp.go": "d5359beb374f",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"

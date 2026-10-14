@@ -112,7 +112,12 @@ func floorMod(a, b int) int {
 // resolveDates returns a copy of the condition with every relative day
 // replaced by the calendar day it names today, so the SQL below always
 // compares static values. Anything that is not a relative day keeps its
-// value — the resolver only ever rewrites what it recognises.
+// value: the resolver only ever rewrites what it recognises.
+//
+// Callers must only hand it conditions on DATE properties (see
+// resolveSmartDates): the same words are legal option ids and text, and
+// rewriting those would turn a search for a status named "Today" into a
+// search for a date that matches nothing.
 func (f rowFilter) resolveDates(now time.Time) rowFilter {
 	if v, ok := resolveSmartDate(f.Value, now); ok {
 		f.Value = v
@@ -131,4 +136,67 @@ func (f rowFilter) resolveDates(now time.Time) rowFilter {
 		f.Values = vs
 	}
 	return f
+}
+
+// todayParamRe is the shape of the browser's day: strict, so "tomorrow" or
+// "Oct 9" never slip through and silently become the server's day instead.
+var todayParamRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+
+// parseTodayParam reads the day the viewer is living in, sent by the
+// interface with every row query. ok is false for anything misshapen or
+// impossible (month 13, February 30): the caller then falls back to the
+// server's own day, which is also what agents get when they pass nothing.
+func parseTodayParam(v string) (day time.Time, ok bool) {
+	if !todayParamRe.MatchString(v) {
+		return time.Time{}, false
+	}
+	day, err := time.Parse("2006-01-02", v)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, time.UTC), true
+}
+
+// unfinishedRe is a relative day still being typed: the word and the sign
+// are there, the offset is not ("today-"). Comparing it literally would empty
+// the table mid-keystroke, so such a condition waits instead, on both sides
+// of the wire (see where() and filterIsArmed). A bare word is complete, and
+// "today-1" without a unit counts days: only the dangling sign waits.
+var unfinishedRe = regexp.MustCompile(`^(today|yesterday|tomorrow)[+-]$`)
+
+// isUnfinishedRelativeDay reports whether s is a half-typed relative day.
+func isUnfinishedRelativeDay(s string) bool {
+	return unfinishedRe.MatchString(strings.ToLower(strings.ReplaceAll(s, " ", "")))
+}
+
+// resolveSmartDates resolves relative days in filters on DATE properties of
+// the collection, and leaves every other condition untouched: a select option
+// named "Today" has the id `today`, and `status is today` must keep meaning
+// the option, not the date. now is the day relative days are resolved
+// against: the viewer's day when the caller knows it, the server's otherwise.
+func (s *Server) resolveSmartDates(collectionID string, filters []rowFilter, now time.Time) []rowFilter {
+	schema, _, err := s.loadCollection(collectionID)
+	if err != nil {
+		return filters
+	}
+	dates := map[string]bool{}
+	for _, p := range schema {
+		id, _ := p["id"].(string)
+		typ, _ := p["type"].(string)
+		if id != "" && typ == "date" {
+			dates[id] = true
+		}
+	}
+	// Created and Updated read the row's own timestamps as days and are
+	// filterable with the same operators, so a relative day works on them too.
+	dates[sortCreatedProp] = true
+	dates[sortUpdatedProp] = true
+	out := make([]rowFilter, len(filters))
+	for i, f := range filters {
+		if dates[f.Prop] {
+			f = f.resolveDates(now)
+		}
+		out[i] = f
+	}
+	return out
 }

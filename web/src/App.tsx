@@ -47,7 +47,7 @@ import {
   writePageScroll,
   writeViewId,
 } from './pageUiState';
-import { pageIdFromPathname, pagePath } from './pageUrl';
+import { pageIdFromPathname, pagePath, pageSlugTitle } from './pageUrl';
 import ShortcutSheet from './components/ShortcutSheet';
 import { guardDrops } from './dropFiles';
 
@@ -436,7 +436,7 @@ export default function App() {
       const id = typeof detail === 'string' ? detail : detail?.id;
       const newTab = typeof detail === 'object' && !!detail?.newTab;
       if (!id) return;
-      history.pushState(null, '', pagePath(id, pagesByIdRef.current.get(id)?.title));
+      history.pushState(null, '', pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))));
       setCurrentId(id);
       setSidebarOpen(false);
       setOpenTabs((prev) => {
@@ -796,7 +796,7 @@ export default function App() {
   // otherwise the effect below corrects it once pages arrive — replaceState,
   // so no extra history entry and never a reload.
   const pushTabHistory = (tabs: string[], id: string | null, replace: boolean) => {
-    const url = id ? pagePath(id, pagesByIdRef.current.get(id)?.title) : '/';
+    const url = id ? pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))) : '/';
     const state = { tabs, active: id };
     if (replace) history.replaceState(state, '', url);
     else history.pushState(state, '', url);
@@ -1253,7 +1253,7 @@ export default function App() {
     const meta = pagesById.get(currentId);
     if (!meta) return;
     const want =
-      pagePath(currentId, meta.title) + window.location.search + window.location.hash;
+      pagePath(currentId, pageSlugTitle(meta)) + window.location.search + window.location.hash;
     const cur = window.location.pathname + window.location.search + window.location.hash;
     if (cur !== want) history.replaceState(history.state, '', want);
   }, [currentId, pagesById]);

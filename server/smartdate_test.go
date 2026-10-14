@@ -48,7 +48,7 @@ func TestResolveSmartDate(t *testing.T) {
 
 func TestResolveSmartDateMonthClamp(t *testing.T) {
 	cases := []struct {
-		now        time.Time
+		now      time.Time
 		in, want string
 	}{
 		// March 31 minus a month is February 28, not March 3.
@@ -60,6 +60,11 @@ func TestResolveSmartDateMonthClamp(t *testing.T) {
 		// Across a year boundary.
 		{time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC), "today-1m", "2025-12-15"},
 		{time.Date(2025, 12, 15, 12, 0, 0, 0, time.UTC), "today+2m", "2026-02-15"},
+		// A base word off the month edge normalises first: yesterday on
+		// March 1 is February 28, minus a month is January 28.
+		{time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC), "yesterday-1m", "2026-01-28"},
+		// Tomorrow on January 31 is February 1, plus a month is March 1.
+		{time.Date(2026, 1, 31, 12, 0, 0, 0, time.UTC), "tomorrow+1m", "2026-03-01"},
 	}
 	for _, c := range cases {
 		if got := smartDay(t, c.now, c.in); got != c.want {
@@ -126,5 +131,119 @@ func TestSmartDateFilterEndToEnd(t *testing.T) {
 	// Exact match on a word: the row dated today.
 	if n := count(t, s, col, rowFilter{Prop: "datum", Op: "is", Value: "today"}); n != 1 {
 		t.Errorf("is today returned %d, want 1", n)
+	}
+}
+
+func countWithToday(t *testing.T, s *Server, col string, f rowFilter, today time.Time) int {
+	t.Helper()
+	_, total, err := s.collectionRowsQuery(&user{ID: "u"}, col, [][]rowFilter{{f}}, "", 100, 0, today)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	return total
+}
+
+// Relative days resolve on DATE properties only. A select option named
+// "Today" has the id `today`: `status is today` must keep meaning the
+// option, not the date. Likewise `note contains tomorrow` is a text search.
+func TestSmartDateOnlyOnDateProperties(t *testing.T) {
+	s := testServer(t)
+	_, _ = signedIn(t, s, "smartdate-gate@example.test")
+	var ws string
+	if err := s.db.QueryRow(`SELECT id FROM workspaces LIMIT 1`).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	col := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at)
+		VALUES (?, NULL, ?, 'Gated', 'collection', '{}', ?, ?)`, col, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, '[]')`, col,
+		`[{"id":"status","name":"Status","type":"select"},{"id":"note","name":"Note","type":"text"},{"id":"datum","name":"Datum","type":"date"}]`); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().Format("2006-01-02")
+	rows := []map[string]any{
+		{"status": "today", "note": "kickoff", "datum": day},
+		{"status": "open", "note": "see you tomorrow", "datum": day},
+	}
+	for i, props := range rows {
+		raw, _ := json.Marshal(props)
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'row', ?, ?, ?, ?)`,
+			newID(), col, ws, "Row", string(raw), i, now(), now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := count(t, s, col, rowFilter{Prop: "status", Op: "is", Value: "today"}); n != 1 {
+		t.Errorf("status is today returned %d, want 1: the word must stay an option id off date properties", n)
+	}
+	if n := count(t, s, col, rowFilter{Prop: "note", Op: "contains", Value: "tomorrow"}); n != 1 {
+		t.Errorf("note contains tomorrow returned %d, want 1: text is searched literally", n)
+	}
+	if n := count(t, s, col, rowFilter{Prop: "datum", Op: "is", Value: "today"}); n != 2 {
+		t.Errorf("datum is today returned %d, want 2", n)
+	}
+}
+
+// A half-typed word ("today-") is not a value yet: the condition waits
+// instead of comparing literally and emptying the table mid-keystroke.
+func TestSmartDateUnfinishedWaits(t *testing.T) {
+	s, col := filterFixture(t)
+	for _, f := range []rowFilter{
+		{Prop: "datum", Op: "is", Value: "today-"},
+		{Prop: "datum", Op: "is", Value: "tomorrow+"},
+		{Prop: "datum", Op: "between", Value: "today-", Value2: "today"},
+		{Prop: "datum", Op: "between", Value: "2026-01-01", Value2: "today+"},
+		{Prop: "datum", Op: "contains", Value: "today-"},
+	} {
+		if n := count(t, s, col, f); n != 4 {
+			t.Errorf("%+v returned %d rows, want all 4: an unfinished word must not filter", f, n)
+		}
+	}
+}
+
+// The viewer day travels with the query: with today set to tomorrow, the
+// word "today" names tomorrow's date.
+func TestSmartDateExplicitToday(t *testing.T) {
+	s := testServer(t)
+	_, _ = signedIn(t, s, "smartdate-today@example.test")
+	var ws string
+	if err := s.db.QueryRow(`SELECT id FROM workspaces LIMIT 1`).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	col := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at)
+		VALUES (?, NULL, ?, 'Anchored', 'collection', '{}', ?, ?)`, col, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, '[]')`, col,
+		`[{"id":"datum","name":"Datum","type":"date"}]`); err != nil {
+		t.Fatal(err)
+	}
+	nowDay := time.Now()
+	for i, off := range []int{0, 1} {
+		raw, _ := json.Marshal(map[string]any{"datum": nowDay.AddDate(0, 0, off).Format("2006-01-02")})
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'row', ?, ?, ?, ?)`,
+			newID(), col, ws, "Row", string(raw), i, now(), now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tomorrow := time.Date(nowDay.Year(), nowDay.Month(), nowDay.Day()+1, 12, 0, 0, 0, time.UTC)
+	if n := countWithToday(t, s, col, rowFilter{Prop: "datum", Op: "is", Value: "today"}, tomorrow); n != 1 {
+		t.Errorf("is today with viewer day tomorrow returned %d, want 1: the word follows the viewer, not the server", n)
+	}
+}
+
+func TestParseTodayParam(t *testing.T) {
+	day, ok := parseTodayParam("2026-10-09")
+	if !ok || day.Format("2006-01-02") != "2026-10-09" {
+		t.Errorf("2026-10-09 parsed to %v, %v", day, ok)
+	}
+	for _, bad := range []string{"", "today", "tomorrow", "2026-1-1", "2026-13-01", "2026-02-30", "Oct 9", "2026-10-09T00:00"} {
+		if _, ok := parseTodayParam(bad); ok {
+			t.Errorf("%q parsed as a day, want rejection", bad)
+		}
 	}
 }

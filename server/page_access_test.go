@@ -188,7 +188,7 @@ func TestRestrictedRowsHiddenFromCollections(t *testing.T) {
 	row := s.makePage(t, ws, alice, col, "Row", `{"status":"todo"}`)
 	_ = row
 
-	list, total, err := s.collectionRowsQuery(&user{ID: bob, Name: "Bob"}, col, nil, "", 100, 0)
+	list, total, err := s.collectionRowsQuery(&user{ID: bob, Name: "Bob"}, col, nil, "", 100, 0, time.Time{})
 	if err != nil {
 		t.Fatalf("rows: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestRestrictedRowsHiddenFromCollections(t *testing.T) {
 
 	// Restricting the collection hides its rows from the ungranted member…
 	restrict(t, s, col)
-	list, total, err = s.collectionRowsQuery(&user{ID: bob, Name: "Bob"}, col, nil, "", 100, 0)
+	list, total, err = s.collectionRowsQuery(&user{ID: bob, Name: "Bob"}, col, nil, "", 100, 0, time.Time{})
 	if err != nil {
 		t.Fatalf("rows: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestRestrictedRowsHiddenFromCollections(t *testing.T) {
 		t.Errorf("restricted rows leak: total=%d len=%d", total, len(list))
 	}
 	// …while the owner still counts them.
-	list, total, err = s.collectionRowsQuery(&user{ID: alice, Name: "Alice"}, col, nil, "", 100, 0)
+	list, total, err = s.collectionRowsQuery(&user{ID: alice, Name: "Alice"}, col, nil, "", 100, 0, time.Time{})
 	if err != nil {
 		t.Fatalf("rows: %v", err)
 	}

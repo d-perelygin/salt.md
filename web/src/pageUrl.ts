@@ -5,6 +5,8 @@
 // the title and is never used for lookup, so a stale slug still opens the
 // same page and is corrected to the fresh one via replaceState.
 
+import type { PageMeta } from './types';
+
 const RU: Record<string, string> = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo',
   ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm',
@@ -13,6 +15,14 @@ const RU: Record<string, string> = {
   ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
   // Ukrainian + Belarusian letters missing from the Russian set.
   і: 'i', ї: 'yi', є: 'ye', ґ: 'g', ў: 'u',
+};
+
+// Latin letters NFKD does not fold to ASCII: without these a word with a
+// sharp s would come out "gro-e". Applied before the NFKD pass, like the
+// Cyrillic map.
+const LATIN: Record<string, string> = {
+  ß: 'ss', æ: 'ae', œ: 'oe', ø: 'o', å: 'a', ł: 'l', // i18n-ok: transliteration table, not prose
+  đ: 'd', þ: 'th', ð: 'd', ħ: 'h', ı: 'i', ŋ: 'n', ſ: 's',
 };
 
 const MAX_SLUG = 80;
@@ -24,7 +34,7 @@ export function slugifyTitle(title: string): string {
   const raw = (title ?? '').toLowerCase();
   let latin = '';
   for (const ch of raw) {
-    const tr = RU[ch];
+    const tr = RU[ch] ?? LATIN[ch];
     latin += tr !== undefined ? tr : ch;
   }
   latin = latin.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
@@ -45,6 +55,15 @@ export function slugifyTitle(title: string): string {
 export function pagePath(id: string, title?: string): string {
   const slug = title ? slugifyTitle(title) : '';
   return slug ? `/p/${slug}-${id}` : `/p/${id}`;
+}
+
+// The title a page may show in its URL: only a page the whole workspace sees.
+// A private page's title must never reach the address bar (it is copied into
+// chats, tickets and proxy logs), and the same holds for a restricted one;
+// both keep the bare /p/<id>.
+export function pageSlugTitle(meta?: Pick<PageMeta, 'title' | 'visibility'>): string {
+  if (!meta || meta.visibility !== 'workspace') return '';
+  return meta.title;
 }
 
 // The id is always the trailing 32 hex chars; anything before the last dash

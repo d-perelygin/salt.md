@@ -8,8 +8,8 @@ import Portal from './Portal';
 import AnchoredMenu from './AnchoredMenu';
 import { useBoardDrag } from '../boardDrag';
 import { tagColorClass } from '../tags';
-import { compare, firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, weekdayNames } from '../format';
-import { resolveSmartDate } from '../smartdate';
+import { compare, firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, today, weekdayNames } from '../format';
+import { isUnfinishedRelativeDay, resolveSmartDate } from '../smartdate';
 import { plural, t } from '../i18n';
 import { confirm, promptText } from '../dialog';
 import type {
@@ -177,15 +177,23 @@ export function filterValues(f: Filter): string[] {
 /** Is this condition finished enough to mean anything? An unfinished one must
  *  not filter: comparing against the empty string emptied the table the moment
  *  somebody added "Date is …", before they had typed a thing, which is what
- *  made the date filter look broken. `is_empty` is the deliberate version. */
+ *  made the date filter look broken. `is_empty` is the deliberate version.
+ *  A half-typed relative day ("today-") waits the same way. */
 export function filterIsArmed(f: Filter): boolean {
   const op = f.op ?? (f.value ? 'is' : 'is_not_empty');
   if (op === 'is_empty' || op === 'is_not_empty') return true;
-  if (op === 'between') return !!f.value && (f.value2 ?? '') !== '';
-  return filterValues(f).length > 0;
+  if (op === 'between')
+    return (
+      !!f.value &&
+      (f.value2 ?? '') !== '' &&
+      !isUnfinishedRelativeDay(f.value ?? '') &&
+      !isUnfinishedRelativeDay(f.value2 ?? '')
+    );
+  const vals = filterValues(f);
+  return vals.length > 0 && vals.some((v) => !isUnfinishedRelativeDay(v));
 }
 
-function matchesFilter(row: Row, f: Filter): boolean {
+function matchesFilter(row: Row, f: Filter, isDate: boolean): boolean {
   // The one condition that is not about a column (see TEMPLATE_FILTER). The
   // server filters on it too; this is the same answer for the rows it sent.
   if (f.property === TEMPLATE_FILTER) {
@@ -204,10 +212,14 @@ function matchesFilter(row: Row, f: Filter): boolean {
   if (!filterIsArmed(f)) return true;
   // A relative day names a different date every day. Resolve it now — the
   // same way the server resolves it per query — or the rows the server sent
-  // and the rows shown here would disagree.
-  const day = (s: string) => resolveSmartDate(s) ?? s;
+  // and the rows shown here would disagree. Date properties only: a status
+  // option named "Today" must keep matching the option, not the date.
+  const day = (s: string) => (isDate ? (resolveSmartDate(s) ?? s) : s);
+  const live = (s: string) => !isUnfinishedRelativeDay(s);
   const value = day(f.value ?? '');
-  const vals = filterValues(f).map(day);
+  const vals = filterValues(f)
+    .filter(live)
+    .map(day);
   // One value or several, the question is the same: does the cell hold any of
   // them. A cell may itself be a list (multiselect, relation).
   const holdsAny = () =>
@@ -236,7 +248,7 @@ function matchesFilter(row: Row, f: Filter): boolean {
     case 'between': {
       // Inclusive at both ends — a range named by two dates contains them.
       // ISO dates compare correctly as text, so only numbers need Number().
-      const hi = f.value2 === undefined ? '' : (resolveSmartDate(f.value2) ?? f.value2);
+      const hi = f.value2 === undefined ? '' : isDate ? (resolveSmartDate(f.value2) ?? f.value2) : f.value2;
       const nv = Number(v);
       if (!Number.isNaN(nv) && !Number.isNaN(Number(value)) && !Number.isNaN(Number(hi))) {
         return nv >= Number(value) && nv <= Number(hi);
@@ -265,11 +277,16 @@ export function viewFilterGroups(view: Pick<ViewDef, 'filters' | 'filterGroups'>
 
 // Apply a view's filters and sort to the row set. A row passes when some group
 // passes wholly; groups with nothing armed in them do not filter.
-function applyView(rows: Row[], view: ViewDef): Row[] {
+function applyView(rows: Row[], view: ViewDef, schema: PropDef[]): Row[] {
+  const dateProps = new Set(schema.filter((p) => p.type === 'date').map((p) => p.id));
+  // Created and Updated read the row's own timestamps as days: date-like for
+  // resolution, like on the server.
+  dateProps.add(SORT_CREATED);
+  dateProps.add(SORT_UPDATED);
   const armed = viewFilterGroups(view)
     .map((g) => g.filter(filterIsArmed))
     .filter((g) => g.length > 0);
-  let out = armed.length === 0 ? rows : rows.filter((r) => armed.some((g) => g.every((f) => matchesFilter(r, f))));
+  let out = armed.length === 0 ? rows : rows.filter((r) => armed.some((g) => g.every((f) => matchesFilter(r, f, dateProps.has(f.property)))));
   const sort = view.sort;
   if (sort) {
     out = [...out].sort((a, b) => {
@@ -396,7 +413,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     .map((g) => g.filter(filterIsArmed).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })))
     .filter((g) => g.length > 0);
   const serverSort = view0?.sort ?? null;
-  const fsKey = JSON.stringify([serverGroups, serverSort]);
+  // The viewer's day travels with every row query, so "today" resolves
+  // against it and not the server's. Part of the key so a tab left open
+  // overnight reloads with the new day.
+  const todayStr = today();
+  const fsKey = JSON.stringify([serverGroups, serverSort, todayStr]);
 
   // Loads ALL rows, in steps of 200 one after another. It used to stop at the
   // first page plus a "Load more" button — with the result that a board of 656
@@ -415,6 +436,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           offset: acc.length,
           filterGroups: serverGroups,
           sort: serverSort,
+          today: todayStr,
         });
         if (epoch !== epochRef.current) return; // inzwischen neu geladen
         const mapped: Row[] = res.rows.map((r) => ({
@@ -884,7 +906,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     setAddViewOpen(false);
   };
 
-  const viewRows = applyView(rows, view);
+  const viewRows = applyView(rows, view, schema);
   const emptyLabel =
     rows.length > 0 && viewRows.length === 0
       ? t('No rows match the current filter.')
@@ -1702,6 +1724,23 @@ function FilterSortControls({
     }
   }, [open]);
   const groups = viewFilterGroups(view);
+  // Key each rendered condition by what it IS, not where it sits: keying by
+  // index moved the Exact/Relative toggle's sticky state onto the wrong row
+  // when a filter above was removed. The occurrence count keeps two
+  // conditions on the same property and operator apart — counted across the
+  // whole popover, so removing an earlier group does not shift keys either.
+  const rowKeyByPath = new Map<string, string>();
+  {
+    const seen = new Map<string, number>();
+    groups.forEach((g, gi) =>
+      g.forEach((f, ci) => {
+        const id = `${f.property}::${f.op ?? ''}`;
+        const occurrence = seen.get(id) ?? 0;
+        seen.set(id, occurrence + 1);
+        rowKeyByPath.set(`${gi}:${ci}`, `${id}::${occurrence}`);
+      }),
+    );
+  }
   const filterCount = groups.reduce((n, g) => n + g.length, 0);
   // Write both shapes at once: the flat list mirrors the first group, so
   // readers that only know the old shape still see something honest.
@@ -1860,7 +1899,7 @@ function FilterSortControls({
               patch({ values: next, value: '' });
             };
             return (
-              <div key={ci} className="fs-filter">
+              <div key={rowKeyByPath.get(`${gi}:${ci}`) ?? ci} className="fs-filter">
                 <div className="fs-filter-head">
                   <span className="fs-label">{propName(f.property)}</span>
                   {/* The template condition is a choice, not an operator plus a

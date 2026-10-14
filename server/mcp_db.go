@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Database-oriented MCP tools (Welle 9): they let an agent actually operate a
@@ -29,8 +30,9 @@ func (s *Server) mcpGetSchema(pageID string) (string, error) {
 
 // mcpQueryRows filters/sorts/paginates a database's rows server-side and returns
 // compact JSON including computed rollup/formula values. groups are ORed, the
-// conditions inside one group ANDed; a flat filter list is one group.
-func (s *Server) mcpQueryRows(u *user, pageID string, groups [][]rowFilter, sort string, limit, offset int) (string, error) {
+// conditions inside one group ANDed; a flat filter list is one group. today is
+// the viewer's day for relative date words; zero falls back to the server's.
+func (s *Server) mcpQueryRows(u *user, pageID string, groups [][]rowFilter, sort string, limit, offset int, today time.Time) (string, error) {
 	var isCollection int
 	if s.db.QueryRow(`SELECT COUNT(*) FROM collections WHERE page_id = ?`, pageID).Scan(&isCollection); isCollection == 0 {
 		return "", fmt.Errorf("page %q is not a database", pageID)
@@ -46,7 +48,7 @@ func (s *Server) mcpQueryRows(u *user, pageID string, groups [][]rowFilter, sort
 	for i, g := range groups {
 		resolved[i] = s.resolveFilterValues(pageID, g)
 	}
-	rows, total, err := s.collectionRowsQuery(u, pageID, resolved, sort, limit, offset)
+	rows, total, err := s.collectionRowsQuery(u, pageID, resolved, sort, limit, offset, today)
 	if err != nil {
 		return "", err
 	}

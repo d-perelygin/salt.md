@@ -979,7 +979,7 @@ func (s *Server) icsEventsFor(userID, scopeWS, scopeCol, scopeView, feedDateProp
 			// uses — what the view shows is what the feed carries.
 			// A flat filter list is one group (groups are ORed).
 			for offset := 0; ; {
-				list, total, err := s.collectionRowsQuery(feedUser, c.id, [][]rowFilter{viewFilters}, "", 500, offset)
+				list, total, err := s.collectionRowsQuery(feedUser, c.id, [][]rowFilter{viewFilters}, "", 500, offset, time.Time{})
 				if err != nil {
 					break
 				}

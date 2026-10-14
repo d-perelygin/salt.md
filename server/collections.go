@@ -213,9 +213,10 @@ func (f rowFilter) where() (string, []any) {
 	if !safePropID(f.Prop) && f.Prop != sortCreatedProp && f.Prop != sortUpdatedProp {
 		return "", nil
 	}
-	// A relative day ("today-1M") names a different date every day. Resolve
-	// it now, per query, so a saved view stays live (see smartdate.go).
-	f = f.resolveDates(time.Now())
+	// A relative day ("today-1M") names a different date every day. It is
+	// resolved per query in collectionRowsQuery (date properties only, so
+	// a status option named "Today" keeps working) — never here, where the
+	// property type is out of reach.
 	ex := "json_extract(props, '$." + f.Prop + "')"
 	// Created and Updated are not columns: they read the row’s own timestamps
 	// as days, so every operator below compares days to days.
@@ -237,6 +238,23 @@ func (f rowFilter) where() (string, []any) {
 		}
 	}
 	vals := f.vals()
+	// A half-typed relative day ("today-") is not a value yet. Comparing it
+	// literally would empty the table mid-keystroke, so the condition waits
+	// instead, under the same rule the interface applies before sending (see
+	// filterIsArmed). Finished words on non-date properties still compare
+	// literally; only the dangling sign is special.
+	if op != "is_empty" && op != "is_not_empty" {
+		if isUnfinishedRelativeDay(f.Value) || isUnfinishedRelativeDay(f.Value2) {
+			return "", nil
+		}
+		kept := make([]string, 0, len(vals))
+		for _, v := range vals {
+			if !isUnfinishedRelativeDay(v) {
+				kept = append(kept, v)
+			}
+		}
+		vals = kept
+	}
 	// A condition with nothing to compare against does not filter. It used
 	// to compare with the empty string and therefore match nothing, so the
 	// moment you added "Date is …" the table went blank before you had
@@ -311,9 +329,16 @@ func (f rowFilter) where() (string, []any) {
 //
 // groups are ORed; the conditions inside one group are ANDed. A flat filter
 // list is one group. Empty groups constrain nothing.
-func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter, sortParam string, limit, offset int) (list []map[string]any, total int, err error) {
+func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter, sortParam string, limit, offset int, today time.Time) (list []map[string]any, total int, err error) {
 	where := []string{"parent_id = ?", "trashed_at IS NULL"}
 	args := []any{colID}
+	now := today
+	if now.IsZero() {
+		now = time.Now()
+	}
+	// A relative day names a different date every day. Resolve it now, per
+	// query, so a saved view stays live — and only on date properties (see
+	// resolveSmartDates), so a status option named "Today" keeps working.
 	// Hide other people's private rows. The visibility switch in the page header
 	// applies to database rows too, but this query never honoured it: through the
 	// row list every workspace member read titles and properties of ALL rows,
@@ -347,6 +372,7 @@ func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter
 	}
 	ors := make([]string, 0, len(groups))
 	for _, g := range groups {
+		g = s.resolveSmartDates(colID, g, now)
 		ands := make([]string, 0, len(g))
 		for _, f := range g {
 			cond, cargs := f.where()
@@ -532,7 +558,13 @@ func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 		}
 		filters = append(filters, rowFilter{Prop: propID, Op: op, Value: value})
 	}
-	list, total, err := s.collectionRowsQuery(requestUser(r), colID, distributeFilters(filters, parseFilterGroups(q["filter_group"])), q.Get("sort"), limit, offset)
+	// The viewer's day, so "today" means their today and not the server's.
+	// Misshapen values fall back to the server's day (see parseTodayParam).
+	var today time.Time
+	if day, ok := parseTodayParam(q.Get("today")); ok {
+		today = day
+	}
+	list, total, err := s.collectionRowsQuery(requestUser(r), colID, distributeFilters(filters, parseFilterGroups(q["filter_group"])), q.Get("sort"), limit, offset, today)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return

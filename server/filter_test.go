@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // What a filter means, checked against real rows in a real database.
@@ -63,7 +64,7 @@ func count(t *testing.T, s *Server, col string, f rowFilter) int {
 
 func countGroups(t *testing.T, s *Server, col string, groups [][]rowFilter) int {
 	t.Helper()
-	_, total, err := s.collectionRowsQuery(&user{ID: "u"}, col, groups, "", 100, 0)
+	_, total, err := s.collectionRowsQuery(&user{ID: "u"}, col, groups, "", 100, 0, time.Time{})
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
@@ -268,7 +269,7 @@ func TestSystemSorts(t *testing.T) {
 		{sortUpdatedProp + ":asc", true},
 		{sortUpdatedProp + ":desc", false},
 	} {
-		list, _, err := s.collectionRowsQuery(u, col, nil, tc.sort, 10, 0)
+		list, _, err := s.collectionRowsQuery(u, col, nil, tc.sort, 10, 0, time.Time{})
 		if err != nil {
 			t.Fatalf("%s: %v", tc.sort, err)
 		}
@@ -327,7 +328,7 @@ func TestSystemDateFilters(t *testing.T) {
 		{"updated is not empty", rowFilter{Prop: sortUpdatedProp, Op: "is_not_empty"}, true, true},
 		{"updated is empty", rowFilter{Prop: sortUpdatedProp, Op: "is_empty"}, false, false},
 	} {
-		list, _, err := s.collectionRowsQuery(u, col, [][]rowFilter{{tc.filter}}, "", 10, 0)
+		list, _, err := s.collectionRowsQuery(u, col, [][]rowFilter{{tc.filter}}, "", 10, 0, time.Time{})
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
