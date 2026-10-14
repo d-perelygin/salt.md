@@ -8056,16 +8056,22 @@ a.btn {
   cursor: pointer;
   box-sizing: border-box;
 }
-.tl-label:hover { background: var(--hover); }
 /* Hovering a bar lights up its title in the label column, and hovering the
    label lights up the bar: short bars carry no readable text, so the label is
    the only place the name can be seen, and the pair reads as one thing from
-   either end. The bar takes the same brightness its own hover gives it; the
-   label takes the plain hover wash plus a neutral edge — deliberately no
-   accent anywhere, which read as shouting. Neither shifts layout, so nothing
-   jiggles when the highlight lands. */
+   either end. The bar takes the same brightness its own hover gives it. */
 .tl-bar.is-hovered { filter: brightness(1.07); }
-.tl-label.is-hovered { background: var(--hover); box-shadow: inset 2px 0 0 var(--border); }
+.tl-label:hover,
+.tl-label.is-hovered {
+  /* Opaque: the wash over an opaque base, not the wash alone. A bare
+     translucent wash let the bars sliding under this sticky column show
+     straight through it on hover — the whole event printed over the label.
+     Same language as the pinned table cells (see there). */
+  background:
+    linear-gradient(var(--hover), var(--hover)),
+    var(--bg);
+}
+.tl-label.is-hovered { box-shadow: inset 2px 0 0 var(--border); }
 .tl-label-text {
   overflow: hidden;
   text-overflow: ellipsis;
