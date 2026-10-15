@@ -4379,15 +4379,23 @@ function TimelineView({
   type Arrow = { key: string; from: number; to: number; pred: string; succ: string; x1: number; x2: number; bad: boolean };
   // Arrow Y comes from the RENDERED order, not the data order: using data
   // indices puts every arrow too low as soon as one dated row falls outside
-  // the window. Every row keeps its label; a row wholly outside the window
-  // loses only its bar. Dropping the row entirely hid entries the moment a
-  // saved timeline opened on a single month. The slot is still taken, so an
-  // out-of-window row keeps the arrows on the right row.
+  // the window. Rendered means VISIBLE here: a row whose event does not touch
+  // the window gets no row at all — neither start nor end in it, no overlap,
+  // no slot. Undated rows already live in the tray; dated-but-elsewhere rows
+  // are noise, not information. Arrows stay consistent by construction: their
+  // Y comes from this same list, and an endpoint outside the window has no
+  // geometry to draw to, so its arrows are skipped below.
   const rendered: { it: Item; geom: { left: string; width: string } | null; fx: { l: number; r: number } | null }[] =
-    liveItems.map((it) => {
-      const g = barGeom(it);
-      return { it, geom: g, fx: g ? fracGeom(it) : null };
-    });
+    liveItems
+      .map((it) => {
+        const g = barGeom(it);
+        return { it, geom: g, fx: g ? fracGeom(it) : null };
+      })
+      // barGeom is null exactly when the event and the window do not overlap
+      // (fracGeom clamps a partial overlap instead), and it already runs over
+      // the drag-live items — so a row mid-drag stays exactly while its bar,
+      // stored or carried, is on the diagram.
+      .filter((r) => r.geom);
   const renderIndex = new Map(rendered.map((r, k) => [r.it.row.id, k]));
   // Fractions of the track width here; pixels at render time (trackW), so
   // curves and heads never distort the way a stretched viewBox would.
@@ -4705,11 +4713,12 @@ function TimelineView({
                     })
                   : null;
               const geom = dg ?? g0;
-              // A row wholly outside the window keeps its label and loses only
-              // its bar (see the `rendered` comment above) — but the track
-              // itself, with the weekend bands and the today line, stays: they
-              // belong to the window, not to the row, and a row without them
-              // reads as a hole cut out of the axis.
+              // Reachable only in theory: rendered holds nothing without
+              // geometry, and the drag-live items above move with the pointer.
+              if (!geom) return null;
+              // The track chrome belongs to the window, not to the row: the
+              // weekend bands and the today line stay even where a bar does
+              // not start, or the axis reads as holes cut out of it.
               const trackChrome = (
                 <>
                   {weekends.map((w, k) => (
@@ -4718,18 +4727,6 @@ function TimelineView({
                   {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
                 </>
               );
-              if (!geom) {
-                return (
-                  <div
-                    key={row.id}
-                    className={'tl-row' + (linkFrom === row.id ? ' is-link-source' : '')}
-                    data-tl-row={row.id}
-                  >
-                    {!hideLabels && label}
-                    <div className="tl-track">{trackChrome}</div>
-                  </div>
-                );
-              }
               return (
                 <div
                   key={row.id}
@@ -4844,6 +4841,11 @@ function TimelineView({
                 </div>
               );
             })}
+            {/* No event touches this window: the rows above filtered down to
+                nothing. Undated rows are not this — they live in the tray. */}
+            {rendered.length === 0 && (
+              <div className="board-empty">{t('Nothing in this period.')}</div>
+            )}
             {/* The day column a carried tray card would land on: the row is
                 new, so there is no bar to follow — the column itself says
                 where the drop goes. */}
