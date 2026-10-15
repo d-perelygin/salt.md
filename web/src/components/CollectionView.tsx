@@ -358,6 +358,16 @@ function trayHasCustomFilters(view: Pick<ViewDef, 'filters' | 'filterGroups' | '
   return view.trayFilterGroups !== undefined || !!view.trayFilters?.length;
 }
 
+// Conditions on the view's start date, inherited into the tray: a tray row
+// has no start date by definition, so none of them can ever match it — except
+// by hiding every row the tray exists to show. Dropped from the inherited set
+// (a view filtered by date emptied the tray along with the grid); custom tray
+// filters are the user's explicit will and stay untouched.
+function stripStartDateGroups(groups: Filter[][], startProp: string): Filter[][] {
+  if (!startProp) return groups;
+  return groups.map((g) => g.filter((f) => f.property !== startProp));
+}
+
 // Same conditions, whatever the order or grouping: the funnel burns only
 // when the tray truly filters differently from the view. Unarmed (unfinished)
 // conditions count too — otherwise a freshly added row would collapse back
@@ -586,15 +596,28 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     (view0.type === 'calendar' || view0.type === 'timeline') &&
     trayHasCustomFilters(view0) &&
     !sameFilterGroups(trayEffGroups, viewFilterGroups(view0));
-  const trayServerGroups = trayEffGroups
+  // The view's start date, resolved exactly the way the calendar and timeline
+  // resolve it (their own setting, else the first date column): conditions on
+  // it can never match a tray row. Other views have no tray to break.
+  const trayStartProp =
+    view0 && (view0.type === 'calendar' || view0.type === 'timeline')
+      ? view0.dateProp || config?.schema.find((p) => p.type === 'date')?.id || ''
+      : '';
+  // What the tray actually queries: custom filters verbatim; inherited ones
+  // minus the start-date conditions (see stripStartDateGroups). A separate
+  // fetch only when that changes anything — otherwise the tray keeps reading
+  // the grid's rows, no extra query.
+  const trayFetchGroups = trayIsCustom ? trayEffGroups : stripStartDateGroups(trayEffGroups, trayStartProp);
+  const trayNeedsFetch = trayIsCustom || !sameFilterGroups(trayFetchGroups, trayEffGroups);
+  const trayServerGroups = trayFetchGroups
     .map((g) =>
       g.filter(filterIsArmed).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })),
     )
     .filter((g) => g.length > 0);
-  const trayKey = view0 && trayIsCustom ? JSON.stringify([trayServerGroups, view0.sort, todayStr]) : '';
+  const trayKey = view0 && trayNeedsFetch ? JSON.stringify([trayServerGroups, view0.sort, todayStr]) : '';
   const [trayExtra, setTrayExtra] = useState<{ key: string; rows: Row[] } | null>(null);
   useEffect(() => {
-    if (!trayIsCustom) return;
+    if (!trayNeedsFetch) return;
     let dead = false;
     const key = trayKey;
     (async () => {
@@ -1007,7 +1030,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // the extra query above (keyed by trayKey). While a fresh custom set loads,
   // keep showing the previous one rather than flashing the inherited set.
   const trayBase =
-    !trayIsCustom ? rows : trayExtra && trayExtra.key === trayKey ? sortRows(trayExtra.rows, view.sort) : (trayExtra?.rows ?? rows);
+    !trayNeedsFetch ? rows : trayExtra && trayExtra.key === trayKey ? sortRows(trayExtra.rows, view.sort) : (trayExtra?.rows ?? rows);
   const emptyLabel =
     rows.length > 0 && viewRows.length === 0
       ? t('No rows match the current filter.')
