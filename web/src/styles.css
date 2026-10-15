@@ -4233,10 +4233,15 @@ body.is-unsched-carry .unsched-card {
     animation: none;
   }
 }
-/* End-of-list breathing room while the tray is open (see tl-end-space): lets
-   a freshly scheduled row — even the last one — scroll up to the first third
-   of the screen instead of sticking to the bottom edge. */
+/* End-of-list breathing room while a tray card is carried (see tl-end-space):
+   lets a freshly scheduled row — even the last one — scroll up to the first
+   third of the screen instead of sticking to the bottom edge. Only mid-carry:
+   the room is needed to position the drop, and an idle open tray should not
+   hold a screen of empty space below the chart. */
 .tl-end-space {
+  height: 0;
+}
+body.is-unsched-carry .tl-end-space {
   height: 65vh;
   height: 65dvh;
 }

@@ -5162,9 +5162,10 @@ function TimelineView({
           isDrop={trayHover}
         />
       )}
-      {/* Spacer while the tray is open: a drop must be able to lift even the
-          last row to the first third of the screen, and that needs content
-          below it to scroll into. Gone with the tray, so it never litters. */}
+      {/* Spacer while a tray card is carried: a drop must be able to lift even
+          the last row to the first third of the screen, and that needs content
+          below it to scroll into. Zero otherwise — an idle open tray holds no
+          empty space below the chart. Gone with the tray, so it never litters. */}
       {trayOpen && <div className="tl-end-space" aria-hidden="true" />}
     </div>
   );
