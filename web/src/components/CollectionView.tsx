@@ -3231,15 +3231,21 @@ function ColumnsControl({
 const ymd = toDayString;
 
 // ---- Unscheduled tray ("бардачок") ----
-// Rows the view's date settings leave out: the start the view reads is empty.
-// An end on its own means nothing — without a start the row cannot be drawn,
-// so it always lands in the tray.
+// Rows the view's date settings leave out: neither the start the view reads
+// nor an end is set. An end on its own still schedules the row — a deadline
+// drawn as a single day on its end date (see the timeline items below) — so
+// only a row with no date at all belongs in the tray.
 // One shared island for the calendar and the timeline: a floating strip at the
 // bottom whose cards drag onto a day to schedule. A click without a drag opens
 // the row — there is deliberately no click-to-set.
-function isUnscheduledRow(row: Row, startProp: string): boolean {
+function isUnscheduledRow(row: Row, startProp: string, endProp?: string): boolean {
   const sv = row.props[startProp];
-  return !(typeof sv === 'string' && sv);
+  if (typeof sv === 'string' && sv) return false;
+  if (endProp) {
+    const ev = row.props[endProp];
+    if (typeof ev === 'string' && ev) return false;
+  }
+  return true;
 }
 
 // Is the pointer over the unscheduled island? A scheduled entry dropped there
@@ -3549,7 +3555,18 @@ function TimelineView({
   const items: Item[] = [];
   for (const r of rows) {
     const sv = r.props[startProp];
-    if (typeof sv !== 'string' || !sv) continue;
+    if (typeof sv !== 'string' || !sv) {
+      // An end on its own is a deadline, not an unscheduled row: a single day
+      // on its end date — the mirror of the start-only default below.
+      if (endProp) {
+        const ev0 = r.props[endProp];
+        if (typeof ev0 === 'string' && ev0) {
+          const d = dayNum(ev0);
+          items.push({ row: r, start: d, end: d });
+        }
+      }
+      continue;
+    }
     const start = dayNum(sv);
     let end = start;
     if (endProp) {
@@ -3560,7 +3577,7 @@ function TimelineView({
   }
   // The tray's rows: the precomputed base (its own server query when custom,
   // the grid's rows when inheriting), minus whatever already has a date.
-  const unsched = trayBase.filter((r) => isUnscheduledRow(r, startProp));
+  const unsched = trayBase.filter((r) => isUnscheduledRow(r, startProp, endProp));
 
   // Blockers, OUTGOING: a row lists the tasks IT blocks, read from a
   // self-relation prop. blockedBy is derived by reversing those edges: a row
@@ -4366,9 +4383,11 @@ function TimelineView({
   const tipFor = (row: Row, it: Item) => {
     const sv = typeof row.props[startProp] === 'string' ? (row.props[startProp] as string) : '';
     const ev = endProp && typeof row.props[endProp] === 'string' ? (row.props[endProp] as string) : '';
+    // An end on its own still names its day (see the items above).
+    const day = sv || ev;
     return (
       (row.title || t('Untitled')) +
-      (sv ? ' — ' + formatDay(sv) + (it.end !== it.start && ev ? ' → ' + formatDay(ev) : '') : '')
+      (day ? ' — ' + formatDay(day) + (sv && it.end !== it.start && ev ? ' → ' + formatDay(ev) : '') : '')
     );
   };
   const dateProps = schema.filter((p) => p.type === 'date');
@@ -5293,16 +5312,27 @@ function CalendarView({
   }
 
   // Bucket rows by their YYYY-MM-DD date value.
+  // The day a row lands on: its start — or, for a deadline with no start, its
+  // end as a single day. See isUnscheduledRow: the tray keeps only rows with
+  // neither.
+  const landingDay = (r: Row): string | undefined => {
+    const v = r.props[dateProp];
+    if (typeof v === 'string' && v) return v.slice(0, 10);
+    if (endDateProp) {
+      const e = r.props[endDateProp];
+      if (typeof e === 'string' && e) return e.slice(0, 10);
+    }
+    return undefined;
+  };
   const byDate = new Map<string, Row[]>();
   for (const r of rows) {
-    const v = r.props[dateProp];
-    if (typeof v !== 'string' || !v) continue;
-    const key = v.slice(0, 10);
+    const key = landingDay(r);
+    if (!key) continue;
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(r);
   }
   // The tray's rows: the precomputed base (its own server query when custom,
   // the grid's rows when inheriting), minus whatever already has a date.
-  const unsched = trayBase.filter((r) => isUnscheduledRow(r, dateProp));
+  const unsched = trayBase.filter((r) => isUnscheduledRow(r, dateProp, endDateProp));
 
   // A row with an end date covers days, and is drawn as ONE bar across them
   // rather than a chip in each cell — see the settings for the end property.
@@ -5310,9 +5340,8 @@ function CalendarView({
   type Span = { row: Row; from: string; to: string };
   const spans: Span[] = [];
   for (const r of rows) {
-    const v = r.props[dateProp];
-    if (typeof v !== 'string' || !v) continue;
-    const from = v.slice(0, 10);
+    const from = landingDay(r);
+    if (!from) continue;
     let to = from;
     if (endDateProp) {
       const e = r.props[endDateProp];
@@ -5328,9 +5357,8 @@ function CalendarView({
   // dates it started from, not the segment under the finger.
   const rangeOf = new Map<string, { from: string; to: string }>();
   for (const r of rows) {
-    const v = r.props[dateProp];
-    if (typeof v !== 'string' || !v) continue;
-    const from = v.slice(0, 10);
+    const from = landingDay(r);
+    if (!from) continue;
     let to = from;
     if (endDateProp) {
       const e = r.props[endDateProp];

@@ -541,11 +541,21 @@ function PublicCalendar({
     );
   }
 
+  // The day a row lands on: its start — or, for a deadline with no start, its
+  // end as a single day. Same rule as inside (see CollectionView).
+  const landingDay = (r: Row): string | undefined => {
+    const v = r.props[dateProp];
+    if (typeof v === 'string' && v) return v.slice(0, 10);
+    if (endDateProp) {
+      const e = r.props[endDateProp];
+      if (typeof e === 'string' && e) return e.slice(0, 10);
+    }
+    return undefined;
+  };
   const byDate = new Map<string, Row[]>();
   for (const r of rows) {
-    const v = r.props[dateProp];
-    if (typeof v !== 'string' || !v) continue;
-    const key = v.slice(0, 10);
+    const key = landingDay(r);
+    if (!key) continue;
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(r);
   }
 
@@ -554,9 +564,8 @@ function PublicCalendar({
   type Span = { row: Row; from: string; to: string };
   const spans: Span[] = [];
   for (const r of rows) {
-    const v = r.props[dateProp];
-    if (typeof v !== 'string' || !v) continue;
-    const from = v.slice(0, 10);
+    const from = landingDay(r);
+    if (!from) continue;
     let to = from;
     if (endDateProp) {
       const e = r.props[endDateProp];
@@ -830,7 +839,17 @@ function PublicTimeline({
   const items: Item[] = [];
   for (const r of rows) {
     const sv = r.props[startProp];
-    if (typeof sv !== 'string' || !sv) continue;
+    if (typeof sv !== 'string' || !sv) {
+      // An end on its own is a deadline: a single day on its end date.
+      if (endProp) {
+        const ev0 = r.props[endProp];
+        if (typeof ev0 === 'string' && ev0) {
+          const d = dayNum(ev0);
+          items.push({ row: r, start: d, end: d });
+        }
+      }
+      continue;
+    }
     const start = dayNum(sv);
     let end = start;
     if (endProp) {
