@@ -1249,5 +1249,7 @@
   "Drag onto a day to schedule": "Zum Planen auf einen Tag ziehen",
   "Clear “{field}” of “{title}”?": "„{field}“ von „{title}“ löschen?",
   "Clear “{field1}” and “{field2}” of “{title}”?": "„{field1}“ und „{field2}“ von „{title}“ löschen?",
-  "No unscheduled entries": "Nichts ohne Datum"
+  "No unscheduled entries": "Nichts ohne Datum",
+  "Tray filters": "Filter der Ablage",
+  "Reset to view filters": "Auf Ansichtsfilter zurücksetzen"
 }

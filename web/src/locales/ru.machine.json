@@ -1038,5 +1038,7 @@
   "Drag onto a day to schedule",
   "Clear “{field}” of “{title}”?",
   "Clear “{field1}” and “{field2}” of “{title}”?",
-  "No unscheduled entries"
+  "No unscheduled entries",
+  "Tray filters",
+  "Reset to view filters"
 ]

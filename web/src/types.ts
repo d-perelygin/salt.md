@@ -315,6 +315,13 @@ export interface ViewDef {  id: string;
    *  present it wins over `filters`; the flat list then mirrors the first
    *  group for older readers. Absent means the flat list is the whole filter. */
   filterGroups?: Filter[][];
+  /** The unscheduled tray's own filters (calendar/timeline views). Same shape
+   *  as the view's, but scoped to the tray: when present the tray shows rows
+   *  passing these instead of `filters`/`filterGroups`. Absent means inherit —
+   *  the tray follows the view. Editing them back to the view's collapses to
+   *  absent again, so there is never a stale copy to drift. */
+  trayFilters?: Filter[];
+  trayFilterGroups?: Filter[][];
   sort?: Sort | null;
   formTitle?: string; // form view: heading above the form
   formDesc?: string; // form view: description under the heading

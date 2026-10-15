@@ -1328,5 +1328,7 @@
   "Drag onto a day to schedule": "Перетащите на день, чтобы запланировать",
   "Clear “{field}” of “{title}”?": "Очистить «{field}» у «{title}»?",
   "Clear “{field1}” and “{field2}” of “{title}”?": "Очистить «{field1}» и «{field2}» у «{title}»?",
-  "No unscheduled entries": "Нет задач без даты"
+  "No unscheduled entries": "Нет задач без даты",
+  "Tray filters": "Фильтры бардачка",
+  "Reset to view filters": "Сбросить к фильтрам вида"
 }

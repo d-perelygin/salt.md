@@ -266,6 +266,36 @@ function matchesFilter(row: Row, f: Filter, isDate: boolean): boolean {
   }
 }
 
+// A server row in app shape. Shared by the grid's loader and the tray's own
+// query, so the two never disagree about what a row is.
+type ServerRow = {
+  id: string;
+  title: string;
+  icon: string;
+  cover: string;
+  position: number;
+  props: Record<string, unknown>;
+  tags?: string[];
+  isTemplate?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+function mapCollectionRow(r: ServerRow): Row {
+  return {
+    id: r.id,
+    title: r.title,
+    icon: r.icon,
+    cover: r.cover || '',
+    props: r.props || {},
+    position: r.position,
+    tags: r.tags ?? [],
+    isTemplate: r.isTemplate === true,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
 // The effective OR-of-AND groups of a view. Conditions inside one group are
 // ANDed, groups are ORed. filterGroups wins when present; the legacy flat list
 // reads as a single group, so older views keep their meaning exactly.
@@ -278,33 +308,69 @@ export function viewFilterGroups(view: Pick<ViewDef, 'filters' | 'filterGroups'>
 // Apply a view's filters and sort to the row set. A row passes when some group
 // passes wholly; groups with nothing armed in them do not filter.
 function applyView(rows: Row[], view: ViewDef, schema: PropDef[]): Row[] {
+  const out = filterRowsByGroups(rows, viewFilterGroups(view), schema);
+  return sortRows(out, view.sort);
+}
+
+// The filter half of applyView, reusable wherever a custom group set replaces
+// the view's (the tray runs its own filters over the same rows).
+function filterRowsByGroups(rows: Row[], groups: Filter[][], schema: PropDef[]): Row[] {
   const dateProps = new Set(schema.filter((p) => p.type === 'date').map((p) => p.id));
   // Created and Updated read the row's own timestamps as days: date-like for
   // resolution, like on the server.
   dateProps.add(SORT_CREATED);
   dateProps.add(SORT_UPDATED);
-  const armed = viewFilterGroups(view)
+  const armed = groups
     .map((g) => g.filter(filterIsArmed))
     .filter((g) => g.length > 0);
-  let out = armed.length === 0 ? rows : rows.filter((r) => armed.some((g) => g.every((f) => matchesFilter(r, f, dateProps.has(f.property)))));
-  const sort = view.sort;
-  if (sort) {
-    out = [...out].sort((a, b) => {
-      if (sort.property === SORT_CREATED || sort.property === SORT_UPDATED) {
-        const ak = sort.property === SORT_CREATED ? (a.createdAt ?? '') : (a.updatedAt ?? '');
-        const bk = sort.property === SORT_CREATED ? (b.createdAt ?? '') : (b.updatedAt ?? '');
-        const cmp = ak < bk ? -1 : ak > bk ? 1 : 0;
-        return sort.dir === 'desc' ? -cmp : cmp;
-      }
-      const av = a.props[sort.property];
-      const bv = b.props[sort.property];
-      const as = Array.isArray(av) ? av.join(',') : String(av ?? '');
-      const bs = Array.isArray(bv) ? bv.join(',') : String(bv ?? '');
-      const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : compare(as, bs);
+  return armed.length === 0 ? rows : rows.filter((r) => armed.some((g) => g.every((f) => matchesFilter(r, f, dateProps.has(f.property)))));
+}
+
+// The sort half of applyView: the tray inherits the view's order even under
+// its own filters.
+function sortRows(rows: Row[], sort: ViewDef['sort']): Row[] {
+  if (!sort) return rows;
+  return [...rows].sort((a, b) => {
+    if (sort.property === SORT_CREATED || sort.property === SORT_UPDATED) {
+      const ak = sort.property === SORT_CREATED ? (a.createdAt ?? '') : (a.updatedAt ?? '');
+      const bk = sort.property === SORT_CREATED ? (b.createdAt ?? '') : (b.updatedAt ?? '');
+      const cmp = ak < bk ? -1 : ak > bk ? 1 : 0;
       return sort.dir === 'desc' ? -cmp : cmp;
-    });
-  }
-  return out;
+    }
+    const av = a.props[sort.property];
+    const bv = b.props[sort.property];
+    const as = Array.isArray(av) ? av.join(',') : String(av ?? '');
+    const bs = Array.isArray(bv) ? bv.join(',') : String(bv ?? '');
+    const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : compare(as, bs);
+    return sort.dir === 'desc' ? -cmp : cmp;
+  });
+}
+
+// The tray's effective filter groups: its own when set, the view's otherwise.
+function trayFilterGroups(view: Pick<ViewDef, 'filters' | 'filterGroups' | 'trayFilters' | 'trayFilterGroups'>): Filter[][] {
+  if (view.trayFilterGroups !== undefined) return view.trayFilterGroups;
+  if (view.trayFilters?.length) return [view.trayFilters];
+  return viewFilterGroups(view);
+}
+
+// Whether the tray runs its own filters rather than inheriting the view's.
+function trayHasCustomFilters(view: Pick<ViewDef, 'filters' | 'filterGroups' | 'trayFilters' | 'trayFilterGroups'>): boolean {
+  return view.trayFilterGroups !== undefined || !!view.trayFilters?.length;
+}
+
+// Same conditions, whatever the order or grouping: the funnel burns only
+// when the tray truly filters differently from the view. Unarmed (unfinished)
+// conditions count too — otherwise a freshly added row would collapse back
+// to inherit the moment it is added, before anything can be picked in it.
+function sameFilterGroups(a: Filter[][], b: Filter[][]): boolean {
+  const norm = (gs: Filter[][]) =>
+    gs
+      .flatMap((g) => g)
+      .map((f) => JSON.stringify(f))
+      .sort();
+  const na = norm(a);
+  const nb = norm(b);
+  return na.length === nb.length && na.every((s, i) => s === nb[i]);
 }
 
 export default function CollectionView({ collectionId, pages, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, embed }: Props) {
@@ -439,18 +505,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           today: todayStr,
         });
         if (epoch !== epochRef.current) return; // inzwischen neu geladen
-        const mapped: Row[] = res.rows.map((r) => ({
-          id: r.id,
-          title: r.title,
-          icon: r.icon,
-          cover: r.cover || '',
-          props: r.props || {},
-          position: r.position,
-          tags: r.tags ?? [],
-          isTemplate: r.isTemplate === true,
-          createdAt: r.createdAt,
-          updatedAt: r.updatedAt,
-        }));
+        const mapped: Row[] = res.rows.map(mapCollectionRow);
         acc = [...acc, ...mapped];
         setTotal(res.total);
         setRows(acc);
@@ -522,6 +577,47 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   }, [collectionId, fsKey]);
 
   useEffect(loadConfig, [loadConfig]);
+
+  // The tray's own rows (hooks live up here, before the loader return below:
+  // a hook past that return would run on some renders and not others).
+  const trayEffGroups = view0 ? trayFilterGroups(view0) : [];
+  const trayIsCustom =
+    !!view0 &&
+    (view0.type === 'calendar' || view0.type === 'timeline') &&
+    trayHasCustomFilters(view0) &&
+    !sameFilterGroups(trayEffGroups, viewFilterGroups(view0));
+  const trayServerGroups = trayEffGroups
+    .map((g) =>
+      g.filter(filterIsArmed).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })),
+    )
+    .filter((g) => g.length > 0);
+  const trayKey = view0 && trayIsCustom ? JSON.stringify([trayServerGroups, view0.sort, todayStr]) : '';
+  const [trayExtra, setTrayExtra] = useState<{ key: string; rows: Row[] } | null>(null);
+  useEffect(() => {
+    if (!trayIsCustom) return;
+    let dead = false;
+    const key = trayKey;
+    (async () => {
+      let acc: Row[] = [];
+      for (;;) {
+        const res = await api.collectionRows(collectionId, {
+          limit: PAGE,
+          offset: acc.length,
+          filterGroups: trayServerGroups,
+          sort: view0?.sort,
+          today: todayStr,
+        });
+        if (dead) return;
+        acc = [...acc, ...res.rows.map(mapCollectionRow)];
+        if (acc.length >= res.total || res.rows.length === 0) break;
+      }
+      if (!dead) setTrayExtra({ key, rows: acc });
+    })().catch(() => {});
+    return () => {
+      dead = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectionId, trayKey]);
 
   const view = view0;
   const schema = config?.schema ?? [];
@@ -907,6 +1003,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   };
 
   const viewRows = applyView(rows, view, schema);
+  // The tray's rows: the grid's when it inherits the view's filters, otherwise
+  // the extra query above (keyed by trayKey). While a fresh custom set loads,
+  // keep showing the previous one rather than flashing the inherited set.
+  const trayBase =
+    !trayIsCustom ? rows : trayExtra && trayExtra.key === trayKey ? sortRows(trayExtra.rows, view.sort) : (trayExtra?.rows ?? rows);
   const emptyLabel =
     rows.length > 0 && viewRows.length === 0
       ? t('No rows match the current filter.')
@@ -1170,6 +1271,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       ) : view.type === 'calendar' ? (
         <CalendarView
           rows={viewRows}
+          trayBase={trayBase}
+          view={view}
           schema={visibleSchema}
           dateProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
           endDateProp={view.endDateProp || ''}
@@ -1196,6 +1299,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       ) : view.type === 'timeline' ? (
         <TimelineView
           rows={viewRows}
+          trayBase={trayBase}
+          view={view}
           schema={visibleSchema}
           collectionId={collectionId}
           startProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
@@ -1675,10 +1780,17 @@ function FilterSortControls({
   schema,
   view,
   onChange,
+  funnelButton,
+  dropUp,
 }: {
   schema: PropDef[];
   view: ViewDef;
   onChange: (patch: Partial<ViewDef>) => void;
+  /** Tray funnel mode: an icon button opening the filter tab directly, with
+      an externally computed active state. The popover opens upward for
+      islands pinned at the viewport bottom. */
+  funnelButton?: { active: boolean; title: string };
+  dropUp?: boolean;
 }) {
   const [open, setOpen] = useState<'filter' | 'sort' | 'group' | null>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
@@ -1714,6 +1826,11 @@ function FilterSortControls({
     const vh = window.innerHeight;
     if (vw <= 640) {
       setPos({ position: 'fixed', left: 8, right: 8, bottom: 8, maxHeight: vh * 0.72 });
+    } else if (dropUp) {
+      // The tray island sits at the viewport bottom: the popover grows upward.
+      const width = 340;
+      const left = Math.max(8, Math.min(r.right - width, vw - width - 8));
+      setPos({ position: 'fixed', left, width, bottom: vh - r.top + 6, maxHeight: r.top - 24 });
     } else {
       // Wider than it was: a tick list of option names and a pair of date
       // fields need the room, and the old 300 is what everything was being
@@ -1844,18 +1961,32 @@ function FilterSortControls({
 
   return (
     <div className="fs-controls" ref={controlsRef}>
-      <button
-        className={'btn-sm' + (filterCount ? ' active' : '')}
-        onClick={() => setOpen(open === 'filter' ? null : 'filter')}
-      >
-        <FilterIcon size={14} /> Filter{filterCount ? ` (${filterCount})` : ''}
-      </button>
-      <button
-        className={'btn-sm' + (sort ? ' active' : '')}
-        onClick={() => setOpen(open === 'sort' ? null : 'sort')}
-      >
-        <ArrowUpDown size={14} /> {t('Sort')}
-      </button>
+      {funnelButton ? (
+        <button
+          className={'icon-btn tray-funnel' + (funnelButton.active ? ' is-on' : '')}
+          onClick={() => setOpen(open === 'filter' ? null : 'filter')}
+          title={funnelButton.title}
+          aria-label={funnelButton.title}
+          aria-expanded={open === 'filter'}
+        >
+          <FilterIcon size={14} />
+        </button>
+      ) : (
+        <>
+          <button
+            className={'btn-sm' + (filterCount ? ' active' : '')}
+            onClick={() => setOpen(open === 'filter' ? null : 'filter')}
+          >
+            <FilterIcon size={14} /> Filter{filterCount ? ` (${filterCount})` : ''}
+          </button>
+          <button
+            className={'btn-sm' + (sort ? ' active' : '')}
+            onClick={() => setOpen(open === 'sort' ? null : 'sort')}
+          >
+            <ArrowUpDown size={14} /> {t('Sort')}
+          </button>
+        </>
+      )}
       {/* Only a board has columns to group into. The setting existed before
           this button did — it just took whatever select property came first,
           which is why nobody could put their tasks into one column per
@@ -3122,6 +3253,9 @@ function trayAtPoint(x: number, y: number): boolean {
 
 function UnscheduledTray({
   rows,
+  schema,
+  view,
+  onViewChange,
   onOpen,
   onAuxOpen,
   onTrayMove,
@@ -3129,6 +3263,9 @@ function UnscheduledTray({
   isDrop,
 }: {
   rows: Row[];
+  schema: PropDef[];
+  view: ViewDef;
+  onViewChange: (patch: Partial<ViewDef>) => void;
   onOpen: (e: React.MouseEvent, rowId: string) => void;
   onAuxOpen: (e: React.MouseEvent, rowId: string) => void;
   onTrayMove: (x: number, y: number) => void;
@@ -3136,6 +3273,27 @@ function UnscheduledTray({
   /** A scheduled entry is carried over the island (drop unschedules). */
   isDrop?: boolean;
 }) {
+  // The tray's own filters: set explicitly, or inherited from the view. The
+  // editor always shows the effective set; writing it back equal to the
+  // view's collapses to inherit again, so no stale copy ever lingers.
+  const viewGroups = viewFilterGroups(view);
+  const custom =
+    view.trayFilterGroups !== undefined
+      ? view.trayFilterGroups
+      : view.trayFilters?.length
+        ? [view.trayFilters]
+        : null;
+  const trayActive = custom !== null && !sameFilterGroups(custom, viewGroups);
+  const proxyView = { ...view, filters: (custom ?? viewGroups)[0] ?? [], filterGroups: custom ?? viewGroups };
+  const toTrayFilters = (patch: Partial<ViewDef>) => {
+    const next = patch.filterGroups ?? (patch.filters !== undefined ? [patch.filters] : []);
+    if (sameFilterGroups(next, viewGroups)) {
+      onViewChange({ trayFilters: undefined, trayFilterGroups: undefined });
+    } else {
+      onViewChange({ trayFilters: next[0] ?? [], trayFilterGroups: next });
+    }
+  };
+  const resetTrayFilters = () => onViewChange({ trayFilters: undefined, trayFilterGroups: undefined });
   // The card being carried, following the pointer; a click that follows a
   // carry must not open the row it just scheduled (same 700ms guard the
   // calendar's own drag uses).
@@ -3254,7 +3412,21 @@ function UnscheduledTray({
       role="list"
       aria-label={t('Unscheduled')}
     >
-      <div className="unsched-head">{t('Drag onto a day to schedule')}</div>
+      <div className="unsched-head">
+        <span>{t('Drag onto a day to schedule')}</span>
+        {trayActive && (
+          <button className="tray-reset" onClick={resetTrayFilters}>
+            {t('Reset to view filters')}
+          </button>
+        )}
+        <FilterSortControls
+          schema={schema}
+          view={proxyView}
+          onChange={toTrayFilters}
+          funnelButton={{ active: trayActive, title: t('Tray filters') }}
+          dropUp
+        />
+      </div>
       {rows.length === 0 && <div className="unsched-empty">{t('No unscheduled entries')}</div>}
       <div className="unsched-strip">
         {[rows.slice(0, Math.ceil(rows.length / 2)), rows.slice(Math.ceil(rows.length / 2))].map(
@@ -3304,6 +3476,8 @@ function UnscheduledTray({
 // sticky so it stays visible while the time axis scrolls.
 function TimelineView({
   rows,
+  trayBase,
+  view,
   schema,
   collectionId,
   startProp,
@@ -3325,6 +3499,8 @@ function TimelineView({
   onSettingsShown,
 }: {
   rows: Row[];
+  trayBase: Row[];
+  view: ViewDef;
   schema: PropDef[];
   collectionId: string;
   startProp: string;
@@ -3382,9 +3558,9 @@ function TimelineView({
     }
     items.push({ row: r, start, end });
   }
-  // Rows this view's date settings leave out: the tray ("бардачок") shows
-  // them in view order (rows arrive filtered and sorted).
-  const unsched = rows.filter((r) => isUnscheduledRow(r, startProp));
+  // The tray's rows: the precomputed base (its own server query when custom,
+  // the grid's rows when inheriting), minus whatever already has a date.
+  const unsched = trayBase.filter((r) => isUnscheduledRow(r, startProp));
 
   // Blockers, OUTGOING: a row lists the tasks IT blocks, read from a
   // self-relation prop. blockedBy is derived by reversing those edges: a row
@@ -4929,6 +5105,9 @@ function TimelineView({
       {trayOpen && (
         <UnscheduledTray
           rows={unsched}
+          schema={schema}
+          view={view}
+          onViewChange={onViewChange}
           onOpen={(e, rowId) => {
             if (swallowClick()) return;
             openCollectionRow(e, rowId, { onNavigate, onOpenInNewTab });
@@ -5017,6 +5196,8 @@ function ModePicker({ mode, onChange }: { mode: SpanMode; onChange: (m: SpanMode
 
 function CalendarView({
   rows,
+  trayBase,
+  view,
   schema,
   dateProp,
   endDateProp,
@@ -5030,6 +5211,8 @@ function CalendarView({
   onSetDate,
 }: {
   rows: Row[];
+  trayBase: Row[];
+  view: ViewDef;
   schema: PropDef[];
   dateProp: string;
   endDateProp: string;
@@ -5115,9 +5298,9 @@ function CalendarView({
     const key = v.slice(0, 10);
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(r);
   }
-  // Rows this view's date settings leave out: the tray shows them in view
-  // order (rows arrive filtered and sorted).
-  const unsched = rows.filter((r) => isUnscheduledRow(r, dateProp));
+  // The tray's rows: the precomputed base (its own server query when custom,
+  // the grid's rows when inheriting), minus whatever already has a date.
+  const unsched = trayBase.filter((r) => isUnscheduledRow(r, dateProp));
 
   // A row with an end date covers days, and is drawn as ONE bar across them
   // rather than a chip in each cell — see the settings for the end property.
@@ -5682,6 +5865,9 @@ function CalendarView({
       {trayOpen && (
         <UnscheduledTray
           rows={unsched}
+          schema={schema}
+          view={view}
+          onViewChange={onViewChange}
           onOpen={(e, rowId) => entryClick(e, rowId)}
           onAuxOpen={(e, rowId) => openPageAux(e, rowId, { onNavigate, onOpenInNewTab })}
           onTrayMove={(x, y) => setDropDay(dayAtPoint(x, y))}
