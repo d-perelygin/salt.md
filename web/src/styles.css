@@ -4053,6 +4053,11 @@ button.cal-mini-day:hover {
 .unsched-btn.is-open {
   color: var(--accent);
 }
+.unsched-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .unsched-count {
   font-weight: 700;
   font-size: 12px;
@@ -4068,6 +4073,19 @@ button.cal-mini-day:hover {
   border-radius: 14px;
   box-shadow: var(--shadow);
   padding: 8px 10px 10px;
+  /* Pops in fast on open; closing unmounts instantly by design — no exit
+     animation. Re-renders do not replay it (the property never changes). */
+  animation: unsched-in 0.18s ease-out;
+}
+@keyframes unsched-in {
+  from { opacity: 0; transform: translateY(8px); }
+  60% { opacity: 1; transform: translateY(-1px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .unsched-island {
+    animation: none;
+  }
 }
 /* A carried entry is over the island: dropping unschedules (after asking). */
 .unsched-island.is-drop {
@@ -4150,8 +4168,21 @@ body.is-unsched-carry .unsched-card {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The timeline day a carried card would land on. */
-.tl-day.is-drop {
+/* The day column a carried tray card would land on. Same positioning as the
+   arrows overlay (track area, full body height, never interactive so the
+   drop resolver beneath keeps seeing the tracks). */
+.tl-tray-drop {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.tl-tray-drop-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
   background: var(--accent-soft);
   border-radius: 8px;
 }
@@ -8189,6 +8220,13 @@ a.btn {
   border-radius: 0 8px 8px 0;
 }
 .tl-day.is-span-first.is-span-last {
+  border-radius: 8px;
+}
+/* The day a carried card would land on wins over every other day tint —
+   weekend grey included: during a carry this cell is a target first, a
+   weekend second. Hence after, never before, the rules above. */
+.tl-day.is-drop {
+  background: var(--accent-soft);
   border-radius: 8px;
 }
 .tl-label.tl-add {

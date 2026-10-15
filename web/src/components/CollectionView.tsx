@@ -4102,6 +4102,19 @@ function TimelineView({
     return `${((mi + (today - mStart) / mDays) / monthCols.length) * 100}%`;
   })();
 
+  // The day column a carried tray card would land on, in track percent —
+  // the same math the weekend bands use. Null outside the window (the drop
+  // resolver already clamps there, so this is just safety).
+  const trayDropGeom = ((): { left: string; width: string } | null => {
+    if (!trayDay) return null;
+    const n = dayNum(trayDay);
+    if (!isYear) {
+      if (dayCols.length === 0 || n < dayCols[0] || n > dayCols[dayCols.length - 1]) return null;
+      return { left: `${((n - dayCols[0]) / dayCols.length) * 100}%`, width: `${(1 / dayCols.length) * 100}%` };
+    }
+    const m = months.find((mm) => n >= mm.from && n <= mm.to);
+    return m ? { left: m.left, width: m.width } : null;
+  })();
   const title =
     mode === 'day'
       ? formatDay(isoDay(cursor))
@@ -4655,6 +4668,14 @@ function TimelineView({
                 </div>
               );
             })}
+            {/* The day column a carried tray card would land on: the row is
+                new, so there is no bar to follow — the column itself says
+                where the drop goes. */}
+            {trayDropGeom && (
+              <div className="tl-tray-drop" style={{ left: labelW }} aria-hidden="true">
+                <div className="tl-tray-drop-band" style={trayDropGeom} />
+              </div>
+            )}
             {/* Dependency arrows: one overlay SVG in track pixels, Notion-style.
                 Short horizontal stub out of the blocker, straight diagonal,
                 horizontal entry into the target with a chevron head that stops
