@@ -4046,6 +4046,149 @@ button.cal-mini-day:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Unscheduled tray: the island of dateless rows at the bottom of the calendar
+   and the timeline. Sticky, so it rides the viewport's bottom while the page
+   scrolls and settles into the flow at the very end — never burying content
+   under itself. Cards drag onto a day; a plain click opens the row. */
+.unsched-btn.is-open {
+  color: var(--accent);
+}
+.unsched-count {
+  font-weight: 700;
+  font-size: 12px;
+}
+.unsched-island {
+  position: sticky;
+  bottom: 12px;
+  z-index: 60;
+  margin: 12px auto 4px;
+  max-width: 760px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 8px 10px 10px;
+}
+/* A carried entry is over the island: dropping unschedules (after asking). */
+.unsched-island.is-drop {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.unsched-head {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 2px 6px;
+}
+.unsched-empty {
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 2px 2px 4px;
+}
+.unsched-strip {
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+/* Two plain rows that never align to each other: every card is only as wide
+   as its own title, gaps are uniform. */
+.unsched-strip-row {
+  display: flex;
+  gap: 8px;
+  width: max-content;
+}
+.unsched-strip-row + .unsched-strip-row {
+  margin-top: 8px;
+}
+.unsched-card {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  border: 1px solid var(--border);
+  background: var(--hover);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: grab;
+  touch-action: pan-x pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.unsched-card:hover {
+  border-color: var(--accent);
+}
+.unsched-card.is-carry {
+  opacity: 0.4;
+}
+.unsched-card-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* While a card is carried, nothing on the page may start a text selection. */
+body.is-unsched-carry {
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.is-unsched-carry .unsched-card {
+  cursor: grabbing;
+}
+.unsched-ghost {
+  position: fixed;
+  transform: translate(-50%, -130%);
+  pointer-events: none;
+  z-index: 400;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The timeline day a carried card would land on. */
+.tl-day.is-drop {
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+/* The row a tray drop just scheduled flashes twice, so eyes land on it
+   after the scroll carries it into view. Same gray wash as the hover, over
+   both the title cell and the track. */
+@keyframes tl-flash {
+  0%, 100% { background-color: var(--bg); }
+  50% { background-color: var(--hover); }
+}
+.tl-row.is-flash .tl-label,
+.tl-row.is-flash .tl-track {
+  animation: tl-flash 0.9s ease-in-out 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tl-row.is-flash .tl-label,
+  .tl-row.is-flash .tl-track {
+    animation: none;
+  }
+}
+/* End-of-list breathing room while the tray is open (see tl-end-space): lets
+   a freshly scheduled row — even the last one — scroll up to the first third
+   of the screen instead of sticking to the bottom edge. */
+.tl-end-space {
+  height: 65vh;
+  height: 65dvh;
+}
+@media (max-width: 640px) {
+  .unsched-island {
+    left: 8px;
+    right: 8px;
+    max-width: none;
+  }
+  .unsched-card {
+    max-width: 160px;
+  }
+}
 .calendar-event {
   border: none;
   background: var(--accent-soft);
@@ -7937,7 +8080,11 @@ a.btn {
 
 /* ---- Timeline / Gantt view ---- */
 .timeline { width: 100%; }
-.tl-scroll { overflow-x: auto; overflow-y: hidden; }
+/* overflow-y: clip (not hidden): a hidden axis still makes this box a scroll
+   container, so the sticky axis below would stick to the box — which itself
+   slides up the page — instead of to the page. Clip does not trap sticky, so
+   the axis pins to the page while still scrolling sideways with the grid. */
+.tl-scroll { overflow-x: auto; overflow-y: clip; }
 .tl-inner { position: relative; width: 100%; }
 .tl-controls {
   display: flex;
@@ -7954,6 +8101,23 @@ a.btn {
   text-transform: capitalize;
 }
 .tl-header { display: flex; }
+/* The month/day axis stays put while the rows scroll underneath: on a long
+   plan it is the only thing saying which column you are looking at. It docks
+   below the collection toolbar (one fixed-height row: 8px + 8px of padding
+   around ~30px buttons = 46px) instead of sliding under it like the table's
+   heading row does — a Gantt you cannot read the dates off is decoration.
+   The paint is opaque so rows never show through. */
+.timeline .tl-header {
+  position: sticky;
+  top: 46px;
+  z-index: 3;
+  background: var(--bg);
+}
+/* With a cover the toolbar itself docks below the compact strip, so the
+   axis keeps its place under it. */
+.page-body.has-cover .timeline .tl-header {
+  top: calc(var(--cover-compact) + 46px);
+}
 .tl-corner {
   position: sticky;
   left: 0;

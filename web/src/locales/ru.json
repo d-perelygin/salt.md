@@ -1323,5 +1323,10 @@
   "starts {d}": "начинается {d}",
   "Remove link": "Убрать связь",
   "Is a template": "Это шаблон",
-  "Is not a template": "Это не шаблон"
+  "Is not a template": "Это не шаблон",
+  "Unscheduled": "Без даты",
+  "Drag onto a day to schedule": "Перетащите на день, чтобы запланировать",
+  "Clear “{field}” of “{title}”?": "Очистить «{field}» у «{title}»?",
+  "Clear “{field1}” and “{field2}” of “{title}”?": "Очистить «{field1}» и «{field2}» у «{title}»?",
+  "No unscheduled entries": "Нет задач без даты"
 }

@@ -1033,5 +1033,10 @@
   "⚠ This is the URL of the running quick tunnel — it changes on every start. For OAuth that lasts, use a named tunnel or your own domain and enter it as the base URL.",
   "✓ Resolved",
   "＋ Link",
-  "＋ Person"
+  "＋ Person",
+  "Unscheduled",
+  "Drag onto a day to schedule",
+  "Clear “{field}” of “{title}”?",
+  "Clear “{field1}” and “{field2}” of “{title}”?",
+  "No unscheduled entries"
 ]

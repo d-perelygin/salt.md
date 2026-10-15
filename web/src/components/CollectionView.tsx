@@ -76,7 +76,7 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
-  ArrowRight, ChevronDown, History, PanelLeftClose, PanelLeftOpen, Pin} from 'lucide-react';
+  ArrowRight, ChevronDown, History, Inbox, PanelLeftClose, PanelLeftOpen, Pin} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
 function propTypeIcon(t: PropDef['type']) {
@@ -3099,6 +3099,205 @@ function ColumnsControl({
 
 const ymd = toDayString;
 
+// ---- Unscheduled tray ("бардачок") ----
+// Rows the view's date settings leave out: the start the view reads is empty.
+// An end on its own means nothing — without a start the row cannot be drawn,
+// so it always lands in the tray.
+// One shared island for the calendar and the timeline: a floating strip at the
+// bottom whose cards drag onto a day to schedule. A click without a drag opens
+// the row — there is deliberately no click-to-set.
+function isUnscheduledRow(row: Row, startProp: string): boolean {
+  const sv = row.props[startProp];
+  return !(typeof sv === 'string' && sv);
+}
+
+// Is the pointer over the unscheduled island? A scheduled entry dropped there
+// unschedules (after asking); a swipe starting there belongs to the island's
+// own scroll, never to the view behind it.
+function trayAtPoint(x: number, y: number): boolean {
+  return document
+    .elementsFromPoint(x, y)
+    .some((el) => (el as HTMLElement).closest?.('.unsched-island'));
+}
+
+function UnscheduledTray({
+  rows,
+  onOpen,
+  onAuxOpen,
+  onTrayMove,
+  onTrayDrop,
+  isDrop,
+}: {
+  rows: Row[];
+  onOpen: (e: React.MouseEvent, rowId: string) => void;
+  onAuxOpen: (e: React.MouseEvent, rowId: string) => void;
+  onTrayMove: (x: number, y: number) => void;
+  onTrayDrop: (rowId: string, x: number, y: number) => void;
+  /** A scheduled entry is carried over the island (drop unschedules). */
+  isDrop?: boolean;
+}) {
+  // The card being carried, following the pointer; a click that follows a
+  // carry must not open the row it just scheduled (same 700ms guard the
+  // calendar's own drag uses).
+  const [carry, setCarry] = useState<{ id: string; title: string; x: number; y: number; moved: boolean } | null>(null);
+  const carryRef = useRef<typeof carry>(null);
+  const setCarryBoth = (v: typeof carry) => {
+    carryRef.current = v;
+    setCarry(v);
+  };
+  const guard = useRef(0);
+  useEffect(() => () => {
+    document.body.classList.remove('is-unsched-carry');
+  }, []);
+
+  const beginCarry = (e: React.PointerEvent, row: Row) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const press = { x: e.clientX, y: e.clientY, pointerType: e.pointerType };
+    // On a finger the carry starts with a hold, like a timeline bar or a
+    // calendar entry: a swipe starting on a card scrolls the strip, and the
+    // fingers that scroll must never feel a card stick to them.
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      const x0 = press.x;
+      const y0 = press.y;
+      let settled = false;
+      const disarm = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        window.removeEventListener('pointermove', watch);
+        window.removeEventListener('pointerup', giveUp);
+        window.removeEventListener('pointercancel', giveUp);
+      };
+      const watch = (ev: PointerEvent) => {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 10) disarm();
+      };
+      const giveUp = () => disarm();
+      const timer = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('pointermove', watch);
+        window.removeEventListener('pointerup', giveUp);
+        window.removeEventListener('pointercancel', giveUp);
+        armCarry(press, row);
+      }, 320);
+      window.addEventListener('pointermove', watch);
+      window.addEventListener('pointerup', giveUp);
+      window.addEventListener('pointercancel', giveUp);
+      return;
+    }
+    armCarry(press, row);
+  };
+
+  // What a mouse starts at once and a finger starts after the hold above.
+  const armCarry = (press: { x: number; y: number; pointerType: string }, row: Row) => {
+    const title = row.title || t('Untitled');
+    setCarryBoth({ id: row.id, title, x: press.x, y: press.y, moved: false });
+    document.body.classList.add('is-unsched-carry');
+    const touchArmed = press.pointerType === 'touch' || press.pointerType === 'pen';
+    const onTouchMove = (ev: TouchEvent) => {
+      ev.preventDefault();
+    };
+    if (touchArmed) window.addEventListener('touchmove', onTouchMove, { passive: false });
+    const move = (ev: PointerEvent) => {
+      const cur = carryRef.current;
+      if (!cur || cur.id !== row.id) return;
+      if (!cur.moved && Math.abs(ev.clientX - press.x) < 4 && Math.abs(ev.clientY - press.y) < 4) return;
+      setCarryBoth({ ...cur, x: ev.clientX, y: ev.clientY, moved: true });
+      onTrayMove(ev.clientX, ev.clientY);
+      // Edge scroll: near the viewport's sides the timeline axis follows the
+      // pointer, near the top/bottom the page does.
+      const edge = 56;
+      if (ev.clientX < edge || ev.clientX > window.innerWidth - edge) {
+        const dx = ev.clientX < edge ? -16 : 16;
+        for (const el of document.querySelectorAll('.tl-scroll')) el.scrollBy(dx, 0);
+      }
+      if (ev.clientY < edge + 32 || ev.clientY > window.innerHeight - edge) {
+        window.scrollBy(0, ev.clientY < edge + 32 ? -16 : 16);
+      }
+    };
+    const finish = (ev: PointerEvent) => {
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onKey);
+      document.body.classList.remove('is-unsched-carry');
+      const cur = carryRef.current && carryRef.current.id === row.id ? carryRef.current : null;
+      setCarryBoth(null);
+      if (!cur || !cur.moved) return;
+      guard.current = Date.now();
+      onTrayDrop(row.id, ev.clientX, ev.clientY);
+    };
+    const onUp = (ev: PointerEvent) => finish(ev);
+    const onCancel = () => {
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onKey);
+      document.body.classList.remove('is-unsched-carry');
+      setCarryBoth(null);
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') onCancel();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onKey);
+  };
+
+  return (
+    <div
+      className={'unsched-island' + (isDrop ? ' is-drop' : '')}
+      role="list"
+      aria-label={t('Unscheduled')}
+    >
+      <div className="unsched-head">{t('Drag onto a day to schedule')}</div>
+      {rows.length === 0 && <div className="unsched-empty">{t('No unscheduled entries')}</div>}
+      <div className="unsched-strip">
+        {[rows.slice(0, Math.ceil(rows.length / 2)), rows.slice(Math.ceil(rows.length / 2))].map(
+          (line, li) =>
+            line.length > 0 && (
+              <div key={li} className="unsched-strip-row">
+                {line.map((r) => (
+                  <button
+                    key={r.id}
+                    role="listitem"
+                    className={'unsched-card' + (carry?.id === r.id && carry.moved ? ' is-carry' : '')}
+                    onPointerDown={(e) => beginCarry(e, r)}
+                    onClick={(e) => {
+                      if (Date.now() - guard.current < 700) return;
+                      onOpen(e, r.id);
+                    }}
+                    onAuxClick={(e) => onAuxOpen(e, r.id)}
+                    onContextMenu={(e) => {
+                      if (carry) e.preventDefault();
+                    }}
+                    title={r.title || t('Untitled')}
+                  >
+                    {r.icon && (
+                      <span className="inline-icon">
+                        <PageIcon icon={r.icon} size={14} />{' '}
+                      </span>
+                    )}
+                    <span className="unsched-card-text">{r.title || t('Untitled')}</span>
+                  </button>
+                ))}
+              </div>
+            ),
+        )}
+      </div>
+      {carry?.moved && (
+        <div className="unsched-ghost" style={{ left: carry.x, top: carry.y }} aria-hidden="true">
+          {carry.title}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Timeline / Gantt view ----
 // Rows are positioned on a horizontal day-grid by a start date property, and
 // span to an optional end date (else a single-day bar). The title column is
@@ -3183,6 +3382,9 @@ function TimelineView({
     }
     items.push({ row: r, start, end });
   }
+  // Rows this view's date settings leave out: the tray ("бардачок") shows
+  // them in view order (rows arrive filtered and sorted).
+  const unsched = rows.filter((r) => isUnscheduledRow(r, startProp));
 
   // Blockers, OUTGOING: a row lists the tasks IT blocks, read from a
   // self-relation prop. blockedBy is derived by reversing those edges: a row
@@ -3200,6 +3402,30 @@ function TimelineView({
     today < dataMin - 3 ? dataMin : today > dataMax + 4 ? dataMax : today,
   );
   const [hovered, setHovered] = useState<string | null>(null);
+  // The unscheduled tray: closed until its toolbar button opens it, the day
+  // a carried card is over right now (for the drop highlight), and whether a
+  // carried bar is over the island (drop = unschedule).
+  const [trayOpen, setTrayOpen] = useState(false);
+  const [trayDay, setTrayDay] = useState<string | null>(null);
+  const [trayHover, setTrayHover] = useState(false);
+  // Dropping a scheduled bar back onto the island clears its dates — only
+  // after asking, naming the exact fields, because there is no undo for
+  // "when was that".
+  const confirmUnschedule = async (rowId: string) => {
+    const row = rows.find((r) => r.id === rowId);
+    const title = row?.title || t('Untitled');
+    const startName = schema.find((p) => p.id === startProp)?.name ?? t('Date');
+    const endName = endProp ? (schema.find((p) => p.id === endProp)?.name ?? t('Date')) : '';
+    const message = endName
+      ? t('Clear “{field1}” and “{field2}” of “{title}”?', { field1: startName, field2: endName, title })
+      : t('Clear “{field}” of “{title}”?', { field: startName, title });
+    const ok = await confirm(message, {
+      danger: true,
+    });
+    if (!ok) return;
+    void onSetDate(rowId, startProp, '');
+    if (endProp) void onSetDate(rowId, endProp, '');
+  };
   const [settingsOpen, setSettingsOpen] = useState(!!startWithSettings);
   const [settingsHint, settingsSeen] = useSettingsHint('timeline-settings');
   // A click outside the settings popover closes it — the wrap holds the button
@@ -3377,7 +3603,10 @@ function TimelineView({
     );
   }
 
-  if (items.length === 0) {
+  // An empty grid still renders its toolbar and tray: with no bars the tray
+  // is the only way to schedule anything, so a dead-end message here would
+  // strand every dateless row. Only a view with nothing at all keeps it.
+  if (items.length === 0 && unsched.length === 0) {
     return (
       <div className="board-empty">
         {t('No entries with a date yet. Set a start date so they appear on the timeline.')}
@@ -3418,6 +3647,77 @@ function TimelineView({
   // the full width: day columns share the track equally (never narrower than
   // 26px — below that the track scrolls), year columns split it in twelve.
   const gridMin = isYear ? monthCols.length * YEARW : dayCols.length * DAY;
+  // The day a carried tray card is over: the track under the pointer says
+  // which column the x falls in (the same math an edge drag uses). In year
+  // mode the month strip says which month, and the drop lands on its first.
+  const tlDayAtPoint = (x: number, y: number): string | null => {
+    const els = document.elementsFromPoint(x, y);
+    if (dayCols.length > 0) {
+      const track = els.find((el) => (el as HTMLElement).classList?.contains('tl-track')) as
+        | HTMLElement
+        | undefined;
+      if (!track) return null;
+      const rect = track.getBoundingClientRect();
+      if (rect.width <= 0) return null;
+      const n = Math.min(
+        dayCols[dayCols.length - 1],
+        Math.max(dayCols[0], dayCols[0] + Math.floor(((x - rect.left) / rect.width) * dayCols.length)),
+      );
+      return isoDay(n);
+    }
+    const strip = els.find((el) => (el as HTMLElement).classList?.contains('tl-months')) as
+      | HTMLElement
+      | undefined;
+    if (!strip || monthCols.length === 0) return null;
+    const rect = strip.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const idx = Math.min(
+      monthCols.length - 1,
+      Math.max(0, Math.floor(((x - rect.left) / rect.width) * monthCols.length)),
+    );
+    const mc = monthCols[idx];
+    return isoDay(Math.floor(Date.UTC(mc.y, mc.mo, 1) / 86400000));
+  };
+  // Scheduling from the tray writes the start only — a carried card has no
+  // span yet, so there is nothing to keep. The time a row already had rides
+  // along, exactly like an edge drag.
+  const dropTrayCard = (rowId: string, x: number, y: number) => {
+    const day = tlDayAtPoint(x, y);
+    setTrayDay(null);
+    if (!day) return;
+    const row = rows.find((r) => r.id === rowId);
+    if (!row) return;
+    navGuard.current = Date.now();
+    void onSetDate(rowId, startProp, isoDayKeepTime(row, startProp, dayNum(day)));
+    // Sorting can land the new bar far from the drop point (or off-screen):
+    // bring its row into view once the refresh has drawn it — aimed at the
+    // first third of the screen, so there is context above and below. The
+    // refresh is a server roundtrip, so poll generously — a missed reveal
+    // looks exactly like "the scroll does not work".
+    let tries = 0;
+    const reveal = () => {
+      let el: Element | null = null;
+      try {
+        el = document.querySelector(`[data-tl-row="${CSS.escape(rowId)}"]`);
+      } catch {
+        el = null;
+      }
+      if (el) {
+        const top = el.getBoundingClientRect().top;
+        const dy = top - window.innerHeight / 3;
+        // .page-body is the vertical scroller (window.scrollBy would no-op).
+        const scroller = document.querySelector('.page-body');
+        if (scroller) scroller.scrollBy(0, dy);
+        else window.scrollBy(0, dy);
+        // Blink the whole row twice so eyes land on what the drop scheduled.
+        el.classList.add('is-flash');
+        window.setTimeout(() => el.classList.remove('is-flash'), 2000);
+        return;
+      }
+      if (++tries < 40) window.setTimeout(reveal, 150);
+    };
+    window.setTimeout(reveal, 100);
+  };
   // Handles live only on day-granular spans of a ranged timeline: without an
   // end property there is nothing to stretch to, and month columns are too
   // coarse for day precision.
@@ -3507,6 +3807,11 @@ function TimelineView({
     const x0 = press.x;
     setDragBoth({ id, edge, day: edge === 'move' ? 0 : edge === 'start' ? it.start : it.end });
     const move = (ev: PointerEvent) => {
+      // Over the island the bar stays where it was: the drop unschedules
+      // instead of moving, so there is nothing to preview.
+      const over = trayAtPoint(ev.clientX, ev.clientY);
+      setTrayHover(over);
+      if (over) return;
       if (edge === 'move') {
         const perDay = rect.width / dayCols.length;
         setDragBoth({ id, edge, day: Math.round((ev.clientX - x0) / perDay) });
@@ -3529,7 +3834,7 @@ function TimelineView({
     //
     // `blur` and a hidden document are the same story one level down: the gesture
     // is over the moment the app stops being what the finger is on.
-    const finish = (armGuard: boolean) => {
+    const finish = (armGuard: boolean, ev?: PointerEvent) => {
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', onEnd);
@@ -3550,7 +3855,13 @@ function TimelineView({
       // NEXT gesture has put in the state in the meantime.
       const reached = dragRef.current && dragRef.current.id === id ? dragRef.current : null;
       setDragBoth(null);
+      setTrayHover(false);
       if (!reached) return;
+      if (ev && trayAtPoint(ev.clientX, ev.clientY)) {
+        navGuard.current = Date.now();
+        void confirmUnschedule(reached.id);
+        return;
+      }
       if (reached.edge === 'move') {
         // Nothing moved: the click that follows is an honest one.
         if (reached.day === 0) {
@@ -3572,7 +3883,12 @@ function TimelineView({
         void onSetDate(id, endProp, isoDay(it.start));
       }
     };
-    const onEnd = () => finish(true);
+    const onEnd = (ev: Event) => {
+      // Blur and visibility loss end the gesture without coordinates: there
+      // is no drop point, so only pointer events can land on the island.
+      const pe = ev as Partial<PointerEvent>;
+      finish(true, typeof pe.clientX === 'number' ? (pe as PointerEvent) : undefined);
+    };
     const onHide = () => {
       if (document.hidden) finish(true);
     };
@@ -3994,6 +4310,17 @@ function TimelineView({
           </div>
         )}
         <div className="tl-right">
+          {/* Always visible, even at zero: an empty island is still a drop
+              target for unscheduling. */}
+          <button
+            className={'btn-sm unsched-btn' + (trayOpen ? ' is-open' : '')}
+            onClick={() => setTrayOpen((o) => !o)}
+            aria-expanded={trayOpen}
+            title={t('Unscheduled')}
+          >
+            <Inbox size={14} />
+            <span className="unsched-count">{unsched.length}</span>
+          </button>
           <div className="tl-settings-wrap" ref={tlSettingsRef}>
             <button
               className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
@@ -4119,6 +4446,7 @@ function TimelineView({
                         'tl-day' +
                         (isWeekend(n) ? ' is-weekend' : '') +
                         (n === today ? ' is-today' : '') +
+                        (trayDay && isoDay(n) === trayDay ? ' is-drop' : '') +
                         (spanItem && covers(spanItem, n) ? ' is-span' : '') +
                         (spanItem && covers(spanItem, n) && !covers(spanItem, n - 1) ? ' is-span-first' : '') +
                         (spanItem && covers(spanItem, n) && !covers(spanItem, n + 1) ? ' is-span-last' : '')
@@ -4577,6 +4905,23 @@ function TimelineView({
           </div>
         </Portal>
       )}
+      {trayOpen && (
+        <UnscheduledTray
+          rows={unsched}
+          onOpen={(e, rowId) => {
+            if (swallowClick()) return;
+            openCollectionRow(e, rowId, { onNavigate, onOpenInNewTab });
+          }}
+          onAuxOpen={(e, rowId) => openPageAux(e, rowId, { onNavigate, onOpenInNewTab })}
+          onTrayMove={(x, y) => setTrayDay(tlDayAtPoint(x, y))}
+          onTrayDrop={dropTrayCard}
+          isDrop={trayHover}
+        />
+      )}
+      {/* Spacer while the tray is open: a drop must be able to lift even the
+          last row to the first third of the screen, and that needs content
+          below it to scroll into. Gone with the tray, so it never litters. */}
+      {trayOpen && <div className="tl-end-space" aria-hidden="true" />}
     </div>
   );
 }
@@ -4691,6 +5036,28 @@ function CalendarView({
   // Dragging an entry to another day: the day under the pointer, and the click
   // the gesture ends in (which must not open the row it just moved).
   const [dropDay, setDropDay] = useState<string | null>(null);
+  // The unscheduled tray: closed until its toolbar button opens it, and
+  // whether a carried entry is over it right now (drop = unschedule).
+  const [trayOpen, setTrayOpen] = useState(false);
+  const [trayHover, setTrayHover] = useState(false);
+  // Dropping a scheduled entry back onto the island clears its dates — only
+  // after asking, naming the exact fields, because there is no undo for
+  // "when was that".
+  const confirmUnschedule = async (rowId: string) => {
+    const row = rows.find((r) => r.id === rowId);
+    const title = row?.title || t('Untitled');
+    const startName = schema.find((p) => p.id === dateProp)?.name ?? t('Date');
+    const endName = endDateProp ? (schema.find((p) => p.id === endDateProp)?.name ?? t('Date')) : '';
+    const message = endName
+      ? t('Clear “{field1}” and “{field2}” of “{title}”?', { field1: startName, field2: endName, title })
+      : t('Clear “{field}” of “{title}”?', { field: startName, title });
+    const ok = await confirm(message, {
+      danger: true,
+    });
+    if (!ok) return;
+    void onSetDate(rowId, dateProp, '');
+    if (endDateProp) void onSetDate(rowId, endDateProp, '');
+  };
   // The entry itself, following the pointer: a tinted cell says where it will
   // land, this says what is being carried.
   const [ghost, setGhost] = useState<{ x: number; y: number; title: string } | null>(null);
@@ -4727,6 +5094,9 @@ function CalendarView({
     const key = v.slice(0, 10);
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(r);
   }
+  // Rows this view's date settings leave out: the tray shows them in view
+  // order (rows arrive filtered and sorted).
+  const unsched = rows.filter((r) => isUnscheduledRow(r, dateProp));
 
   // A row with an end date covers days, and is drawn as ONE bar across them
   // rather than a chip in each cell — see the settings for the end property.
@@ -4826,11 +5196,14 @@ function CalendarView({
     const y0 = e.clientY;
     let moved = false;
     let target: string | null = null;
+    let overTray = false;
     const label = rows.find((r) => r.id === rowId)?.title || t('Untitled');
     const move = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - x0) < 4 && Math.abs(ev.clientY - y0) < 4) return;
       moved = true;
-      target = dayAtPoint(ev.clientX, ev.clientY);
+      overTray = trayAtPoint(ev.clientX, ev.clientY);
+      setTrayHover(overTray);
+      target = overTray ? null : dayAtPoint(ev.clientX, ev.clientY);
       setDropDay(target);
       setGhost({ x: ev.clientX, y: ev.clientY, title: label });
     };
@@ -4849,8 +5222,15 @@ function CalendarView({
       window.removeEventListener('pointercancel', finish);
       setDropDay(null);
       setGhost(null);
+      setTrayHover(false);
       carryingEntry.current = false;
-      if (!moved || !target || target === r.from) return;
+      if (!moved) return;
+      if (overTray) {
+        dragGuard.current = Date.now();
+        void confirmUnschedule(rowId);
+        return;
+      }
+      if (!target || target === r.from) return;
       dragGuard.current = Date.now();
       const delta = Math.round(
         (new Date(target + 'T00:00:00').getTime() - new Date(r.from + 'T00:00:00').getTime()) / 86400000,
@@ -5081,9 +5461,17 @@ function CalendarView({
       className="calendar"
       onWheel={(e) => {
         if (carryingEntry.current) return;
+        // The island's strip scrolls itself: a sideways wheel there must not
+        // page the month behind it. (Vertical scroll is the browser's own and
+        // is never touched here.)
+        if ((e.target as HTMLElement).closest?.('.unsched-island')) return;
+        // A tray card being carried owns the gesture, same as an entry.
+        if (document.body.classList.contains('is-unsched-carry')) return;
         if (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 16) pageBy(e.deltaX > 0);
       }}
       onPointerDown={(e) => {
+        // Swipes starting on the island scroll the island, never the month.
+        if ((e.target as HTMLElement).closest?.('.unsched-island')) return;
         swipe.current = { x: e.clientX, y: e.clientY, done: false };
       }}
       onPointerMove={(e) => {
@@ -5109,6 +5497,17 @@ function CalendarView({
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
         <button className="btn-sm" onClick={goToday}>{t('Today')}</button>
         <div className="cal-right">
+        {/* Always visible, even at zero: an empty island is still a drop
+            target for unscheduling. */}
+        <button
+          className={'btn-sm unsched-btn' + (trayOpen ? ' is-open' : '')}
+          onClick={() => setTrayOpen((o) => !o)}
+          aria-expanded={trayOpen}
+          title={t('Unscheduled')}
+        >
+          <Inbox size={14} />
+          <span className="unsched-count">{unsched.length}</span>
+        </button>
         <div className="cal-settings-wrap" ref={calSettingsRef}>
           <button
             className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
@@ -5258,6 +5657,22 @@ function CalendarView({
             );
           })}
         </div>
+      )}
+      {trayOpen && (
+        <UnscheduledTray
+          rows={unsched}
+          onOpen={(e, rowId) => entryClick(e, rowId)}
+          onAuxOpen={(e, rowId) => openPageAux(e, rowId, { onNavigate, onOpenInNewTab })}
+          onTrayMove={(x, y) => setDropDay(dayAtPoint(x, y))}
+          onTrayDrop={(rowId, x, y) => {
+            const day = dayAtPoint(x, y);
+            setDropDay(null);
+            if (!day) return;
+            dragGuard.current = Date.now();
+            void onSetDate(rowId, dateProp, day);
+          }}
+          isDrop={trayHover}
+        />
       )}
     </div>
   );
