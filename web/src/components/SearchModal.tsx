@@ -277,6 +277,12 @@ export default function SearchModal({
     }
   }, [picked, rememberWs]);
 
+  // The modifier printed on the footer keycaps: what is on the keycap.
+  const modLabel =
+    typeof navigator === 'undefined' || /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent)
+      ? '⌘'
+      : 'Ctrl';
+
   const toggleWs = (id: string) =>
     setPicked((prev) => (prev.includes(id) ? prev.filter((w) => w !== id) : [...prev, id]));
 
@@ -480,6 +486,7 @@ export default function SearchModal({
           onClick={() => previewId && (onOpenInNewTab ?? onNavigate)(previewId)}
           disabled={!previewId}
         >
+          <span className="search-footer-key">{modLabel}</span>
           <span className="search-footer-key">↵</span> {t('Open in new tab')}
         </button>
         <div className="search-settings">
