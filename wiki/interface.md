@@ -338,8 +338,9 @@ Four things, top to bottom:
    Empty: **No files**. See [Files](files.md).
 4. ***Linked from***: the pages that link here. Empty: **Nothing links here**.
 
-Clicking a **PDF** opens it full-screen in a preview with **Download** and
-**Close**; Escape closes it too. Every other kind of file opens in a new tab.
+Clicking a **PDF**, a Word document (**.docx**) or a spreadsheet (**.xlsx**)
+opens it full-screen in a preview with **Download** and **Close**; Escape
+closes it too. Every other kind of file opens in a new tab.
 
 The structure panel and the comment panel share the same strip on the right, so
 opening one closes the other. Both remember whether they were open, in this

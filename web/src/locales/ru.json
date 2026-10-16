@@ -1344,5 +1344,10 @@
   "Clear “{field1}” and “{field2}” of “{title}”?": "Очистить «{field1}» и «{field2}» у «{title}»?",
   "No unscheduled entries": "Нет задач без даты",
   "Tray filters": "Фильтры бардачка",
-  "Reset to view filters": "Сбросить к фильтрам вида"
+  "Reset to view filters": "Сбросить к фильтрам вида",
+  "Quick preview — formatting may differ from Word": "Быстрый просмотр — оформление может отличаться от Word",
+  "This file is large ({size}). Rendering may be slow.": "Файл большой ({size}). Просмотр может работать медленно.",
+  "Render anyway": "Все равно показать",
+  "Could not render this file.": "Не удалось показать файл.",
+  "Showing first {shown} of {total} rows": "Показаны первые {shown} из {total} строк"
 }

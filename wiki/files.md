@@ -126,7 +126,8 @@ coloured extension badge, the size, and (when the file hangs off a sub-page
 rather than the page you are looking at) the name of the page it came from.
 Empty, it says "No files".
 
-Clicking a PDF opens it in a viewer. Anything else opens in a new tab.
+Clicking a PDF, a Word document (.docx) or a spreadsheet (.xlsx) opens it in
+a viewer. Anything else opens in a new tab.
 
 ### The file list
 
@@ -174,18 +175,27 @@ is restored.
 ## Previewing and downloading
 
 Clicking the name of a file block in a document normally sends it to your
-downloads folder. PDFs open in a viewer instead: a bar with the file's name, a
-**Download** button and **Close**, and the document itself filling the rest.
-Escape closes it, as does clicking outside.
+downloads folder. PDFs, Word documents (.docx) and spreadsheets (.xlsx) open
+in a viewer instead: a bar with the file's name, a **Download** button and
+**Close**, and the document itself filling the rest. Escape closes it, as does
+clicking outside.
 
-The viewer is the browser's own PDF renderer, which means it costs no
-conversion on the server and nothing leaves the machine. It applies only to
-PDFs, and only to files stored in this instance: a file block made with the
-**Embed** tab points at a foreign address and keeps opening the normal way.
+The PDF viewer is the browser's own PDF renderer, which means it costs no
+conversion on the server and nothing leaves the machine. Word and spreadsheet
+previews are rendered locally in the browser too (lazy loaded libraries, same
+origin files only), with a note that the layout is a quick preview and may
+differ from Word. Files over 10 MB ask first — **Render anyway** or
+**Download** — so a huge spreadsheet cannot freeze a phone. A spreadsheet with
+many rows shows the first 500 with a note saying so; the whole file is one
+Download away. A file the preview cannot read says so and offers the Download.
 
-Office formats (`.docx`, `.xlsx`, `.pptx`) deliberately have no preview. No
-browser reads them natively, and the two ways to change that are shipping an
-office suite inside the server or handing your documents to somebody else's
+The viewer applies only to files stored in this instance: a file block made
+with the **Embed** tab points at a foreign address and keeps opening the
+normal way.
+
+Old binary Word (.doc) and presentations (.pptx) deliberately have no preview:
+no browser reads them natively, and the two ways to change that are shipping
+an office suite inside the server or handing your documents to somebody else's
 online viewer. Neither is worth it.
 
 **Download** keeps the readable file name rather than the random id it is stored
@@ -352,5 +362,5 @@ See [Workspaces](workspaces.md) for import and export of a whole workspace, and
 | Parallel PDF extractions | 1 to 3, by memory |
 | Extension length kept (browser upload) | 12 characters including the dot |
 | Depth of a "files in this subtree" walk | 20 levels |
-| Formats with a built-in preview | PDF |
+| Formats with a built-in preview | PDF, Word (.docx), spreadsheet (.xlsx) |
 | Formats whose text is indexed | PDF |

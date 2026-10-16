@@ -1265,5 +1265,10 @@
   "Clear “{field1}” and “{field2}” of “{title}”?": "„{field1}“ und „{field2}“ von „{title}“ löschen?",
   "No unscheduled entries": "Nichts ohne Datum",
   "Tray filters": "Filter der Ablage",
-  "Reset to view filters": "Auf Ansichtsfilter zurücksetzen"
+  "Reset to view filters": "Auf Ansichtsfilter zurücksetzen",
+  "Quick preview — formatting may differ from Word": "Schnellvorschau — Darstellung kann von Word abweichen",
+  "This file is large ({size}). Rendering may be slow.": "Diese Datei ist groß ({size}). Die Vorschau kann langsam sein.",
+  "Render anyway": "Trotzdem anzeigen",
+  "Could not render this file.": "Diese Datei konnte nicht angezeigt werden.",
+  "Showing first {shown} of {total} rows": "Erste {shown} von {total} Zeilen werden angezeigt"
 }
