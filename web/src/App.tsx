@@ -1728,6 +1728,8 @@ export default function App() {
               return [];
             }
           })()}
+          workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+          currentWs={currentWs}
           onClose={() => setSearchOpen(false)}
           onNavigate={(id) => {
             setSearchOpen(false);
