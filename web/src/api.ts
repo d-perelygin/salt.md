@@ -429,7 +429,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ parentId, workspaceId }),
     }),
-  search: (q: string) => req<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`),
+  search: (q: string, ws?: string[]) => {
+    const p = new URLSearchParams({ q });
+    if (ws?.length) p.set('ws', ws.join(','));
+    return req<SearchResult[]>(`/api/search?${p.toString()}`);
+  },
   backlinks: (id: string) => req<Backlink[]>(`/api/pages/${id}/backlinks`),
   graph: () => req<{ edges: { source: string; target: string }[] }>('/api/graph'),
 

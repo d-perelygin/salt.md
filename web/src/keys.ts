@@ -245,6 +245,23 @@ export function hint(label: string, id: string): string {
   return chord ? `${label} (${chord})` : label;
 }
 
+/** Run the highest-ranked binding for `id`, the way a keypress would.
+ *
+ *  What the command palette uses: pressing Enter on a row must do what the
+ *  chord does, including the `when` guard and the let-through `false`. The
+ *  caller synthesizes the event — most runs ignore it, and the ones that read
+ *  it (page.new's dead-key guard) treat a plain Enter as a real press. */
+export function runCommand(id: string, e: KeyboardEvent): boolean | void {
+  let best: Entry | null = null;
+  for (const entry of entries) {
+    if (entry.id !== id) continue;
+    if (entry.when && !entry.when()) continue;
+    if (!best || rankOf(entry) > rankOf(best)) best = entry;
+  }
+  if (!best) return false;
+  return best.run(e);
+}
+
 /** Everything bound HERE, for the help sheet, sorted by group then label.
  *
  *  Both filters follow from the sheet's promise — "what can I press on this

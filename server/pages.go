@@ -1103,14 +1103,25 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	userID := requestUser(r).ID
 	ws := s.scopeWorkspacesFor(requestUser(r), s.visibleWorkspaces(userID))
+	// Optional workspace filter (?ws=id1,id2): empty means everywhere the
+	// caller may see. Requested ids are intersected with the visible set, so
+	// a foreign id narrows to nothing rather than leaking across the boundary.
+	if raw := strings.TrimSpace(r.URL.Query().Get("ws")); raw != "" {
+		allow := map[string]bool{}
+		for _, w := range ws {
+			allow[w] = true
+		}
+		filtered := make([]string, 0, len(ws))
+		for _, w := range strings.Split(raw, ",") {
+			if w = strings.TrimSpace(w); w != "" && allow[w] {
+				filtered = append(filtered, w)
+			}
+		}
+		ws = filtered
+	}
 	if len(ws) == 0 {
 		writeJSON(w, results)
 		return
-	}
-	wargs := make([]any, 0, len(ws)+1)
-	wargs = append(wargs, match)
-	for _, v := range ws {
-		wargs = append(wargs, v)
 	}
 	// The search runs over the PASSAGES, not over whole pages (see chunks.go):
 	// the excerpt then comes from the paragraph that actually matches, and carries

@@ -1728,6 +1728,22 @@ export default function App() {
               return [];
             }
           })()}
+          workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+          currentWs={currentWs}
+          pagesById={pagesById}
+          user={me.user}
+          theme={theme}
+          tagColors={tagColors}
+          favorites={favorites}
+          onSetTagColor={setTagColor}
+          onToggleFavorite={toggleFavorite}
+          onMetaChange={updateMeta}
+          onTrash={trashPage}
+          onPagesChanged={loadPages}
+          onCreatePage={createPage}
+          onMenu={openSidebar}
+          onMissing={handleMissing}
+          onSwitchWorkspace={switchWorkspace}
           onClose={() => setSearchOpen(false)}
           onNavigate={(id) => {
             setSearchOpen(false);
