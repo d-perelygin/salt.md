@@ -265,7 +265,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/SearchModal.tsx": "46c92fa3a5ed",
+        "web/src/components/SearchModal.tsx": "4ee039741bb0",
         "server/searchindex.go": "6a53bf830dc4",
         "web/src/theme.css": "b1c3dece61ce"
       }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ExternalLink, PanelRight, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
 import type { SearchResult } from '../types';
 import Portal from './Portal';
@@ -62,8 +63,38 @@ type NavItem =
 export default function SearchModal({ recent, workspaces, currentWs, onClose, onNavigate, onOpenInNewTab }: Props) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
+  // The preview pane: on unless explicitly hidden, remembered across sessions.
+  const [showPreview, setShowPreview] = useState(() => {
+    try {
+      return localStorage.getItem('salt-search-preview') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [rememberWs, setRememberWs] = useState(() => {
+    try {
+      return localStorage.getItem('salt-search-remember-ws') === '1';
+    } catch {
+      return false;
+    }
+  });
   // Empty means everywhere; otherwise only the picked workspaces are searched.
-  const [picked, setPicked] = useState<string[]>(() => (currentWs ? [currentWs] : []));
+  const [picked, setPicked] = useState<string[]>(() => {
+    try {
+      if (localStorage.getItem('salt-search-remember-ws') === '1') {
+        const saved = JSON.parse(localStorage.getItem('salt-search-ws') ?? '[]') as unknown;
+        if (Array.isArray(saved)) {
+          return (saved as unknown[]).filter(
+            (x): x is string => typeof x === 'string' && workspaces.some((w) => w.id === x),
+          );
+        }
+      }
+    } catch {
+      /* corrupted cache — fall through to the default */
+    }
+    return currentWs ? [currentWs] : [];
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sel, setSel] = useState(0);
   const [preview, setPreview] = useState<{ id: string; title: string; ws: string; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -194,6 +225,40 @@ export default function SearchModal({ recent, workspaces, currentWs, onClose, on
     }
   };
 
+  const togglePreview = () =>
+    setShowPreview((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('salt-search-preview', next ? '1' : '0');
+      } catch {
+        /* private mode — the pane still toggles for this session */
+      }
+      return next;
+    });
+
+  const toggleRememberWs = () =>
+    setRememberWs((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('salt-search-remember-ws', next ? '1' : '0');
+        if (next) localStorage.setItem('salt-search-ws', JSON.stringify(picked));
+        else localStorage.removeItem('salt-search-ws');
+      } catch {
+        /* private mode — the choice still applies for this session */
+      }
+      return next;
+    });
+
+  // The remembered scope follows the picks while remembering is on.
+  useEffect(() => {
+    if (!rememberWs) return;
+    try {
+      localStorage.setItem('salt-search-ws', JSON.stringify(picked));
+    } catch {
+      /* private mode */
+    }
+  }, [picked, rememberWs]);
+
   const toggleWs = (id: string) =>
     setPicked((prev) => (prev.includes(id) ? prev.filter((w) => w !== id) : [...prev, id]));
 
@@ -208,15 +273,27 @@ export default function SearchModal({ recent, workspaces, currentWs, onClose, on
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={'search-modal' + (previewId ? ' has-preview' : '')} onKeyDown={onKey}>
+      <div className={'search-modal' + (showPreview ? ' has-preview' : '')} onKeyDown={onKey}>
+        <div className="search-body">
         <div className="search-main">
-          <input
-            ref={inputRef}
-            className="search-input"
-            placeholder={t('Search all pages…')}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
+          <div className="search-topbar">
+            <input
+              ref={inputRef}
+              className="search-input"
+              placeholder={t('Search all pages…')}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <button
+              type="button"
+              className={'search-icon-btn' + (showPreview ? ' is-on' : '')}
+              onClick={togglePreview}
+              title={t('Preview')}
+              aria-label={t('Preview')}
+            >
+              <PanelRight size={17} />
+            </button>
+          </div>
           {workspaces.length > 1 && (
             <div className="search-scopes" role="group" aria-label={t('Workspaces')}>
               <button
@@ -318,19 +395,57 @@ export default function SearchModal({ recent, workspaces, currentWs, onClose, on
             )}
           </div>
         </div>
-        {previewId && (
-          <div
-            className="search-preview"
-            onClick={() => (onOpenInNewTab ?? onNavigate)(previewId)}
-            title={t('Open in new tab')}
-            role="button"
-            tabIndex={-1}
-          >
-            <div className="search-preview-ws">{preview?.ws ?? ''}</div>
-            <div className="search-preview-title">{preview?.title || t('Untitled')}</div>
-            {preview?.text && <div className="search-preview-text">{preview.text}</div>}
+        {showPreview && (
+          <div className="search-preview">
+            <div className="search-preview-head">
+              <button
+                type="button"
+                className="search-icon-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (previewId) (onOpenInNewTab ?? onNavigate)(previewId);
+                }}
+                disabled={!previewId}
+                title={t('Open in new tab')}
+                aria-label={t('Open in new tab')}
+              >
+                <ExternalLink size={15} />
+              </button>
+            </div>
+            <div
+              className="search-preview-body"
+              onClick={() => previewId && (onOpenInNewTab ?? onNavigate)(previewId)}
+              title={previewId ? t('Open in new tab') : undefined}
+              role={previewId ? 'button' : undefined}
+              tabIndex={-1}
+            >
+              <div className="search-preview-ws">{preview?.ws ?? ''}</div>
+              <div className="search-preview-title">{preview?.title || (previewId ? t('Untitled') : '')}</div>
+              {preview?.text && <div className="search-preview-text">{preview.text}</div>}
+            </div>
           </div>
         )}
+        </div>
+      <div className="search-footer">
+        <span className="search-footer-hint">↵ {t('Open in new tab')}</span>
+        <div className="search-settings">
+          {settingsOpen && (
+            <label className="search-settings-pop">
+              <input type="checkbox" checked={rememberWs} onChange={toggleRememberWs} />
+              {t('Remember workspace filter')}
+            </label>
+          )}
+          <button
+            type="button"
+            className={'search-icon-btn' + (settingsOpen ? ' is-on' : '')}
+            onClick={() => setSettingsOpen((v) => !v)}
+            title={t('Search settings')}
+            aria-label={t('Search settings')}
+          >
+            <SlidersHorizontal size={15} />
+          </button>
+        </div>
+      </div>
       </div>
     </div>
     </Portal>

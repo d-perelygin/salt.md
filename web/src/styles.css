@@ -1674,12 +1674,33 @@ body:has(.icon-picker) .bn-side-menu {
 }
 
 .search-modal {
-  width: min(600px, 92vw);
+  width: min(720px, 94vw);
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow);
   overflow: hidden;
+}
+
+.search-modal.has-preview {
+  width: min(1040px, 96vw);
+}
+
+.search-body {
+  display: flex;
+}
+
+.search-topbar {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-right: 8px;
+}
+
+.search-topbar .search-input {
+  flex: 1;
+  width: auto;
+  border-bottom: none;
 }
 
 .search-input {
@@ -1692,6 +1713,63 @@ body:has(.icon-picker) .bn-side-menu {
   padding: 16px 18px;
   font-family: inherit;
   border-bottom: 1px solid var(--border);
+}
+
+.search-icon-btn {
+  display: inline-flex;
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.search-icon-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.search-icon-btn.is-on {
+  color: var(--accent);
+}
+
+.search-icon-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.search-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.search-footer-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.search-settings {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-settings-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 8px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .search-results {
@@ -1795,29 +1873,30 @@ body:has(.icon-picker) .bn-side-menu {
 }
 
 /* Read-only preview beside the results, Notion-style: small type, and the
-   whole pane opens the page in a new tab rather than editing in place. */
-.search-modal.has-preview {
-  width: min(960px, 94vw);
-  display: flex;
-}
-
+   page opens in a new tab rather than editing in place. */
 .search-main {
   flex: 1;
   min-width: 0;
 }
 
 .search-preview {
-  width: 340px;
+  width: 380px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
-  padding: 18px;
+  padding: 12px 18px 18px;
   overflow-y: auto;
   max-height: 60vh;
-  cursor: pointer;
+  min-height: 240px;
 }
 
-.search-preview:hover .search-preview-title {
-  text-decoration: underline;
+.search-preview-head {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 2px;
+}
+
+.search-preview-body {
+  cursor: pointer;
 }
 
 .search-preview-ws {
