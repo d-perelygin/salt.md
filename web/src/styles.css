@@ -1915,12 +1915,12 @@ body:has(.icon-picker) .bn-side-menu {
    exactly like the page — a click on plain content opens it (see openPreview),
    while the editor's own controls and links answer for themselves. */
 .search-main {
-  flex: 0 1 400px;
+  flex: 0 1 450px;
   min-width: 0;
 }
 
 .search-preview {
-  width: 450px;
+  width: 400px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   padding: 12px 14px 18px;
