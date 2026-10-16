@@ -1724,8 +1724,12 @@ body:has(.icon-picker) .bn-side-menu {
 }
 
 .office-docx .docx-wrapper > section.docx {
-  background: var(--card);
-  border: 1px solid var(--border);
+  /* Paper stays paper in every theme — Word and Google Docs keep the page
+     white in dark mode too. docx-preview draws black default text, so a
+     themed dark background here meant black on dark and an unreadable page. */
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #d7d7d7;
   border-radius: 8px;
   box-shadow: var(--shadow);
   margin-bottom: 16px !important;
