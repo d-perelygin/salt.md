@@ -1871,28 +1871,28 @@ body:has(.icon-picker) .bn-side-menu {
   font-size: 13.5px;
 }
 
-/* Workspace scope chips: a vertical scrollable list rather than a wrapping
-   row, so ten workspaces cost a slim rail instead of the whole first screen. */
+/* Workspace scope chips: one horizontal scrollable row, so ten workspaces
+   cost a slim rail instead of the whole first screen. */
 .search-scopes {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  padding: 10px 14px 2px;
-  max-height: 118px;
-  overflow-y: auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 10px 14px 6px;
+  overflow-x: auto;
 }
 
 .search-scope {
+  flex-shrink: 0;
   font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
   border: 1px solid var(--border);
   color: var(--muted);
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
 }
 
 .search-scope.is-on {

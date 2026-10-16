@@ -153,8 +153,8 @@ export default function SearchModal({
   const allCmds = [...paletteCommands(), ...workspaceSwitchCommands(workspaces)];
   const matchedCmds = useMemo(() => matchCommands(cmdQuery, allCmds), [cmdQuery, allCmds]);
   // In command mode (`>`) only commands; otherwise server hits first and the
-  // matching commands after them. An empty query shows recents, then commands.
-  // Workspace rows always lead: switching scope precedes switching pages.
+  // matching commands after them. An empty query shows recents first, then
+  // workspaces, then commands; a typed query leads with workspaces.
   const items: NavItem[] = useMemo(() => {
     const isWs = (c: PaletteCommand & { aliases: string[] }) => c.id.startsWith('ws:');
     if (cmdOnly) {
@@ -163,15 +163,17 @@ export default function SearchModal({
       return [...ws, ...rest].map((c) => ({ kind: 'command' as const, c }));
     }
     const ws = matchedCmds.filter(isWs);
+    const rest = (list: (PaletteCommand & { aliases: string[] })[]) => list.filter((c) => !isWs(c));
+    if (q.trim() === '') {
+      const out: NavItem[] = [];
+      for (const r of recent ?? []) out.push({ kind: 'recent' as const, r });
+      for (const c of ws) out.push({ kind: 'command' as const, c });
+      for (const c of rest(allCmds)) out.push({ kind: 'command' as const, c });
+      return out;
+    }
     const out: NavItem[] = ws.map((c) => ({ kind: 'command' as const, c }));
     for (const r of results) out.push({ kind: 'result' as const, r });
-    if (q.trim() === '') {
-      for (const r of recent ?? []) out.push({ kind: 'recent' as const, r });
-      for (const c of allCmds.filter((c) => !isWs(c))) out.push({ kind: 'command' as const, c });
-    } else {
-      for (const c of matchedCmds.filter((c) => !isWs(c)).slice(0, 5))
-        out.push({ kind: 'command' as const, c });
-    }
+    for (const c of rest(matchedCmds).slice(0, 5)) out.push({ kind: 'command' as const, c });
     return out;
     // allCmds/matchedCmds are fresh arrays per render; identity deps would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -330,6 +332,32 @@ export default function SearchModal({
       ? allCmds.filter((c) => !isWsRow(c))
       : matchedCmds.filter((c) => !isWsRow(c)).slice(0, 5);
 
+  // Shared by both placements below: on a typed query it leads the list, on
+  // an empty one it follows recents (see the two call sites).
+  const wsSection = wsRows.length > 0 && (
+    <>
+      <div className="search-section-label">{t('Workspaces')}</div>
+      {wsRows.map((c) => {
+        const idx = items.findIndex((i) => i.kind === 'command' && i.c.id === c.id);
+        return (
+          <button
+            key={c.id}
+            className={'search-result search-command' + (idx === sel ? ' selected' : '')}
+            onMouseEnter={() => idx >= 0 && setSel(idx)}
+            onClick={() => {
+              const it = items[idx];
+              if (it) openItem(it);
+            }}
+          >
+            <span className="result-body">
+              <span className="result-title">{c.label}</span>
+            </span>
+          </button>
+        );
+      })}
+    </>
+  );
+
   return (
     <Portal>
     <div
@@ -382,29 +410,7 @@ export default function SearchModal({
             </div>
           )}
           <div className="search-results">
-            {wsRows.length > 0 && (
-              <>
-                <div className="search-section-label">{t('Workspaces')}</div>
-                {wsRows.map((c) => {
-                  const idx = items.findIndex((i) => i.kind === 'command' && i.c.id === c.id);
-                  return (
-                    <button
-                      key={c.id}
-                      className={'search-result search-command' + (idx === sel ? ' selected' : '')}
-                      onMouseEnter={() => idx >= 0 && setSel(idx)}
-                      onClick={() => {
-                        const it = items[idx];
-                        if (it) openItem(it);
-                      }}
-                    >
-                      <span className="result-body">
-                        <span className="result-title">{c.label}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </>
-            )}
+            {q.trim() !== '' && wsSection}
             {showResults &&
               results.map((r) => {
                 const idx = items.findIndex((i) => (i.kind === 'result' || i.kind === 'recent') && i.r.id === r.id);
@@ -457,6 +463,7 @@ export default function SearchModal({
                 })}
               </>
             )}
+            {q.trim() === '' && !cmdOnly && wsSection}
             {(cmdOnly || showCmdLabel || (q.trim() === '' && !cmdOnly)) && regCmds.length > 0 && (
               <>
                 <div className="search-section-label">{t('Commands')}</div>
