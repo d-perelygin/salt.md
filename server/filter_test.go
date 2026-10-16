@@ -227,6 +227,67 @@ func TestTemplateFilter(t *testing.T) {
 	}
 }
 
+// A checklist is an array of objects, not of strings — and every operator was
+// written for the second. `is` compared the filter text against whole elements,
+// so it matched nothing (an object is never equal to "Buy milk"); `is_not`
+// matched everything for the same reason. `contains` searched the raw JSON,
+// so it matched ids, keys and booleans ("true" found every row with a ticked
+// box). The rule, on both sides of the wire: a checklist filters as the
+// multiselect of its item texts.
+func TestChecklistFiltersMatchItemTexts(t *testing.T) {
+	s := testServer(t)
+	_, _ = signedIn(t, s, "checklist@example.com")
+	var ws string
+	if err := s.db.QueryRow(`SELECT id FROM workspaces LIMIT 1`).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	col := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at)
+		VALUES (?, NULL, ?, 'Einkauf', 'collection', '{}', ?, ?)`, col, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	schema := `[{"id":"cl","name":"Checkliste","type":"checklist"}]`
+	if _, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, '[]')`, col, schema); err != nil {
+		t.Fatal(err)
+	}
+	rows := []struct {
+		title, props string
+	}{
+		{"Milch", `{"cl": [{"id":"a","text":"Buy milk","done":true},{"id":"b","text":"Eggs","done":false}]}`},
+		{"Lose", `{"cl": ["Loose ends"]}`},
+		{"Leer", `{"cl": []}`},
+		{"Keine", `{}`},
+	}
+	for i, r := range rows {
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'row', ?, ?, ?, ?)`,
+			newID(), col, ws, r.title, r.props, i, now(), now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name string
+		f    rowFilter
+		want int
+	}{
+		{"is object text", rowFilter{Prop: "cl", Op: "is", Value: "Buy milk"}, 1},
+		{"is legacy string", rowFilter{Prop: "cl", Op: "is", Value: "Loose ends"}, 1},
+		{"is any of set", rowFilter{Prop: "cl", Op: "is", Values: []string{"Eggs", "Loose ends"}}, 2},
+		{"is none of", rowFilter{Prop: "cl", Op: "is_not", Value: "Buy milk"}, 3},
+		{"contains text", rowFilter{Prop: "cl", Op: "contains", Value: "milk"}, 1},
+		{"contains legacy", rowFilter{Prop: "cl", Op: "contains", Value: "loose"}, 1},
+		{"contains must not match keys", rowFilter{Prop: "cl", Op: "contains", Value: "done"}, 0},
+		{"contains must not match booleans", rowFilter{Prop: "cl", Op: "contains", Value: "true"}, 0},
+		{"contains must not match ids", rowFilter{Prop: "cl", Op: "contains", Value: "\"id\""}, 0},
+		{"empty", rowFilter{Prop: "cl", Op: "is_empty"}, 2},
+		{"not empty", rowFilter{Prop: "cl", Op: "is_not_empty"}, 2},
+	}
+	for _, c := range cases {
+		if n := count(t, s, col, c.f); n != c.want {
+			t.Errorf("%s: got %d rows, want %d", c.name, n, c.want)
+		}
+	}
+}
 func TestSystemSorts(t *testing.T) {
 	s, col := filterFixture(t)
 	// Two rows with known timestamps: the older one must come first ascending.

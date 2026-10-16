@@ -273,8 +273,16 @@ func (f rowFilter) where() (string, []any) {
 		anyOf[i] = v
 	}
 	// The value may be stored as a scalar or inside a list (multiselect, a
-	// relation): both spellings have to answer the same question.
-	inList := "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE value IN (" + holders + "))"
+	// relation): both spellings have to answer the same question. A checklist
+	// stores objects ({id, text, done}), so the comparison runs against each
+	// element's text — falling back to the element itself, which is what
+	// scalars and legacy plain-string items are. That fallback is what keeps
+	// every other property type answering exactly as before. The validity
+	// guard is load-bearing: json_extract errors on a plain string, it does
+	// not return NULL, so extracting blindly broke every filter on every
+	// text-valued property.
+	textOf := "CASE WHEN json_valid(value) THEN COALESCE(json_extract(value, '$.text'), value) ELSE value END"
+	inList := "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE " + textOf + " IN (" + holders + "))"
 	// A system timestamp is neither a scalar in props nor a list: one value the
 	// row always has, so the list half of the question is always false.
 	if sysCol != "" {
@@ -300,8 +308,13 @@ func (f rowFilter) where() (string, []any) {
 		}
 		return "(" + ex + " IS NULL OR (" + ex + " NOT IN (" + holders + ") AND NOT " + inList + "))", append(anyOf, anyOf...)
 	case "contains":
+		// Matched against each element's text (see above), never against the
+		// raw JSON: searching the blob itself matched ids, keys and booleans,
+		// so "true" found every row with a ticked box. A scalar yields itself
+		// from json_each, so plain text columns answer through the same
+		// expression — no separate branch.
 		like := "%" + f.Value + "%"
-		return "(" + ex + " LIKE ? OR EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE value LIKE ?))", []any{like, like}
+		return "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE " + textOf + " LIKE ?)", []any{like}
 	case "gt", "lt":
 		cmp := ">"
 		if op == "lt" {

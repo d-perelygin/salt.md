@@ -193,8 +193,17 @@ export function filterIsArmed(f: Filter): boolean {
   return vals.length > 0 && vals.some((v) => !isUnfinishedRelativeDay(v));
 }
 
-function matchesFilter(row: Row, f: Filter, isDate: boolean): boolean {
-  // The one condition that is not about a column (see TEMPLATE_FILTER). The
+/** A list cell as the texts a filter compares: plain-string arrays (a select
+ *  with several values, a relation) come back unchanged, while a checklist
+ *  holds objects and compares by each item's text — legacy plain-string
+ *  items count as their own text. The same rule the server applies
+ *  (see rowFilter), so the two never disagree about a row. */
+function cellTexts(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => (typeof x === 'string' ? x : typeof x?.text === 'string' ? x.text : ''));
+}
+
+function matchesFilter(row: Row, f: Filter, isDate: boolean): boolean {  // The one condition that is not about a column (see TEMPLATE_FILTER). The
   // server filters on it too; this is the same answer for the rows it sent.
   if (f.property === TEMPLATE_FILTER) {
     if (!filterIsArmed(f)) return true;
@@ -224,7 +233,7 @@ function matchesFilter(row: Row, f: Filter, isDate: boolean): boolean {
   // them. A cell may itself be a list (multiselect, relation).
   const holdsAny = () =>
     Array.isArray(v)
-      ? vals.some((x) => v.includes(x))
+      ? vals.some((x) => cellTexts(v).includes(x))
       : vals.some((x) =>
           x === 'true' || x === 'false' ? String(v === true) === x : String(v ?? '') === x,
         );
@@ -235,7 +244,7 @@ function matchesFilter(row: Row, f: Filter, isDate: boolean): boolean {
       return !isEmptyVal(v);
     case 'contains': {
       const needle = value.toLowerCase();
-      if (Array.isArray(v)) return v.some((x) => String(x).toLowerCase().includes(needle));
+      if (Array.isArray(v)) return cellTexts(v).some((t) => t.toLowerCase().includes(needle));
       return String(v ?? '').toLowerCase().includes(needle);
     }
     case 'gt':
@@ -1166,7 +1175,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             ))}
           </select>
         )}
-        {view.type !== 'form' && <FilterSortControls schema={schema} view={view} onChange={updateView} />}
+        {view.type !== 'form' && <FilterSortControls schema={schema} view={view} onChange={updateView} rows={rows} />}
         {/* What the collection IS — its columns, its properties, its views —
             is edited on its own page. An embed is a window onto the rows, and
             carrying the whole toolbar into a document made it look like a
@@ -1805,6 +1814,7 @@ function FilterSortControls({
   onChange,
   funnelButton,
   dropUp,
+  rows,
 }: {
   schema: PropDef[];
   view: ViewDef;
@@ -1814,6 +1824,10 @@ function FilterSortControls({
       islands pinned at the viewport bottom. */
   funnelButton?: { active: boolean; title: string };
   dropUp?: boolean;
+  /** Loaded rows, so a checklist filter can offer the item texts that exist —
+      they live in row data, not in the schema. Optional: without it the
+      checklist falls back to a free-text box. */
+  rows?: Row[];
 }) {
   const [open, setOpen] = useState<'filter' | 'sort' | 'group' | null>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
@@ -1913,6 +1927,23 @@ function FilterSortControls({
         { value: 'false', label: 'Unchecked' },
       ];
     }
+    // A checklist filters as the multiselect of its item texts — but those
+    // live in row data, not in the schema, so the choices are collected from
+    // the loaded rows. Objects contribute their text, legacy plain strings
+    // themselves; empties never name anything. No extra query: the rows are
+    // already here for the grid, and the list scrolls (see .fs-checks).
+    if (prop.type === 'checklist') {
+      const seen = new Set<string>();
+      for (const r of rows ?? []) {
+        const v = r.props[propId];
+        if (!Array.isArray(v)) continue;
+        for (const item of v) {
+          const text = typeof item === 'string' ? item : String(item?.text ?? '');
+          if (text.trim() !== '') seen.add(text);
+        }
+      }
+      return [...seen].sort(compare).map((t) => ({ value: t, label: t }));
+    }
     // A relation stores page ids. Offering a free-text box here meant filtering
     // "System is salt.md" required typing a 32-character id nobody can see —
     // the property was filterable in theory and unusable in practice.
@@ -1963,7 +1994,7 @@ function FilterSortControls({
         { value: 'lt', label: t('before') },
         { value: 'between', label: t('between') },
       );
-    } else if (ty === 'text' || ty === 'person' || ty === undefined) {
+    } else if (ty === 'text' || ty === 'person' || ty === 'checklist' || ty === undefined) {
       base.push({ value: 'contains', label: t('contains') });
     }
     base.push({ value: 'is_empty', label: t('is empty') }, { value: 'is_not_empty', label: t('is not empty') });
@@ -1978,7 +2009,13 @@ function FilterSortControls({
   function takesSeveral(propId: string): boolean {
     const ty = schema.find((p) => p.id === propId)?.type;
     return (
-      ty === 'select' || ty === 'multiselect' || ty === 'relation' || ty === 'backrelation'
+      ty === 'select' ||
+      ty === 'multiselect' ||
+      ty === 'relation' ||
+      ty === 'backrelation' ||
+      // A checklist filters as the multiselect of its item texts (see
+      // valuesFor below): one condition can name several of them.
+      ty === 'checklist'
     );
   }
 
@@ -2099,7 +2136,7 @@ function FilterSortControls({
                 </div>
                 {hasValueInput(op) && (
                   <div className="fs-filter-value">
-                    {several && options.length > 0 ? (
+                    {several && options.length > 0 && (op === 'is' || op === 'is_not') ? (
                       <div className="fs-checks">
                         {options.map((o) => (
                           <label key={o.value} className={'fs-check' + (picked.includes(o.value) ? ' on' : '')}>
@@ -2136,7 +2173,7 @@ function FilterSortControls({
                           />
                         </div>
                       )
-                    ) : options.length > 0 ? (
+                    ) : options.length > 0 && op !== 'contains' ? (
                       <select
                         className="prop-select"
                         value={f.value}
@@ -3454,6 +3491,7 @@ function UnscheduledTray({
           onChange={toTrayFilters}
           funnelButton={{ active: trayActive, title: t('Tray filters') }}
           dropUp
+          rows={rows}
         />
       </div>
       {rows.length === 0 && <div className="unsched-empty">{t('No unscheduled entries')}</div>}
