@@ -35,7 +35,7 @@ import (
 
 // ftsVersion is the version this build expects. Raise it whenever the
 // tokenizer line or the column layout changes.
-const ftsVersion = "3"
+const ftsVersion = "4"
 
 // foldQuery folds a search term exactly the way the index does.
 //
@@ -54,6 +54,9 @@ func foldQuery(s string) string {
 		"é", "e", "è", "e", "ê", "e", "á", "a", "à", "a", "â", "a",
 		"í", "i", "ì", "i", "ó", "o", "ò", "o", "ô", "o", "ú", "u", "ù", "u",
 		"ç", "c", "ñ", "n", "å", "a", "ø", "o",
+		// FORK-ONLY: Russian yo folds to ye, the way the index stores it.
+		// Upstream keeps no Russian stemming; do not carry this hunk there.
+		"ё", "е",
 	)
 	return r.Replace(strings.ToLower(s))
 }
@@ -86,6 +89,39 @@ func stemLite(w string) string {
 	return w
 }
 
+// FORK-ONLY Russian endings, longest first. Upstream keeps no Russian
+// stemming; do not carry this hunk there.
+//
+// Same bargain as stemLite: the stem joins as an additional variant, so a
+// wrongly guessed cut only adds noise that BM25 sorts to the back. Only
+// applies to words holding Cyrillic, so Latin terms pass through untouched.
+var russianSuffixes = []string{
+	"иями", "ями", "ами", "ией", "иям", "ям", "ам", "иях", "ях", "ах",
+	"ать", "ять", "еть", "ить", "ение", "ание", "ость", "есть",
+	"ий", "ый", "ой", "ей", "ую", "юю", "ая", "яя", "ое", "ее", "ые", "ие",
+	"ов", "ев", "ию", "ью", "ом", "ем", "им", "ым", "его", "ого", "их", "ых",
+	"ете", "ите", "ешь", "ишь", "ют", "ят", "ат", "ут", "ет", "ит",
+	"ла", "ло", "ли", "ти", "чь",
+	"а", "о", "е", "и", "ы", "у", "ю", "я", "ь", "й",
+}
+
+const russianLetters = "абвгдеежзийклмнопрстуфхцчшщъыьэюя"
+
+func stemRu(w string) string {
+	if !strings.ContainsAny(w, russianLetters) {
+		return w
+	}
+	if len([]rune(w)) < 6 {
+		return w
+	}
+	for _, suf := range russianSuffixes {
+		if strings.HasSuffix(w, suf) && len([]rune(w))-len([]rune(suf)) >= 4 {
+			return strings.TrimSuffix(w, suf)
+		}
+	}
+	return w
+}
+
 // ftsMatch builds the MATCH pattern out of an input.
 //
 // Each word yields up to three variants, joined by OR:
@@ -94,6 +130,9 @@ func stemLite(w string) string {
 //	stem              "vertrag"*       — connects inflection and compounding
 //	ss/ß swap         "straße"*        — because the index keeps the ß while
 //	                                     the keyboard often will not produce it
+//
+// Russian words additionally yield a fork-only stem variant ("договоры"* beside
+// "договор"*), same mechanism, same reason.
 //
 // The words stay AND-joined among themselves: whoever types two terms means
 // both.
@@ -112,6 +151,8 @@ func ftsMatch(q string) string {
 		}
 		add(raw)
 		add(stemLite(raw))
+		// FORK-ONLY: Russian stem variant. Do not carry this line upstream.
+		add(stemRu(raw))
 		// Both directions: a typed "strasse" should find "straße" and the other
 		// way round.
 		if strings.Contains(raw, "ss") {
@@ -144,6 +185,7 @@ func (s *Server) migrateSearchIndex() error {
 	}
 	// Version 3: the passages join in. Both indexes are filled by reindexPage,
 	// so emptying them is enough.
+	// Version 4: fork-only Russian stemming in ftsMatch (see stemRu).
 	s.db.Exec(`DELETE FROM chunks_fts`)
 	s.db.Exec(`DELETE FROM page_chunks`)
 	if _, err := s.db.Exec(`CREATE VIRTUAL TABLE pages_fts USING fts5(
