@@ -463,6 +463,12 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "share_links", "mode", `mode TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate share_links.mode: %w", err)
 	}
+	// Per-share secret signing the public file URLs (public_files.go). Shares
+	// minted before this backfill it on first use; rotating it kills every
+	// file URL the share ever minted.
+	if err := ensureColumn(db, "share_links", "file_key", `file_key TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate share_links.file_key: %w", err)
+	}
 	// Notes-list preview metadata, derived from content on save (notes.go).
 	if err := ensureColumn(db, "pages", "snippet", `snippet TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate pages.snippet: %w", err)

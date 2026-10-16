@@ -31,8 +31,9 @@ account or an API token**. Three things follow from how it is served:
   nosniff`. An uploaded HTML or SVG file can never run a script on the
   application's origin.
 - An anonymous visitor to a [publicly shared page](sharing.md) is not signed
-  in, so images uploaded into that page do not load for them. Shared pages are
-  text and structure; the uploads behind them stay behind the sign-in.
+  in, so `/files/…` answers them 401. The shared page does not point there:
+  it rewrites its uploads to signed addresses under its own link, which the
+  visitor's browser opens without an account.
 
 ## Adding a file to a page
 

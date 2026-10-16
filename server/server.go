@@ -315,6 +315,10 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("GET /api/public/c/{token}/row/{rowId}", s.handlePublicCollectionRow)
 	m.HandleFunc("GET /public/{token}", s.handlePublicView)
 	m.HandleFunc("POST /public/{token}", s.handlePublicView)
+	// Uploads referenced by a shared document, through signed URLs minted at
+	// render time (public_files.go). The token alone opens nothing here — the
+	// signature is the proof the page was opened legitimately.
+	m.HandleFunc("GET /public/{token}/files/{name}", s.handlePublicFile)
 
 	m.HandleFunc("GET /api/pages/{id}/revisions", s.auth(s.handleListRevisions))
 	m.HandleFunc("GET /api/pages/{id}/revisions/{revId}", s.auth(s.handleGetRevision))

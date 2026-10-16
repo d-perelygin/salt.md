@@ -573,6 +573,7 @@ them:
 | `GET /api/public/{token}` | a shared page: title, icon, cover, content and type; that page alone, never its children |
 | `GET /api/public/form/{token}` | a public form's fillable fields, and nothing else about the database |
 | `POST /api/public/form/{token}/submit` | create a row from an anonymous submission |
+| `GET /public/{token}/files/{name}?exp=…&sig=…` | one upload referenced by the shared page, through a signed address the page mints at render time; only that page's files, never the rest of `/files/` |
 
 A share protected by a password wants it in the `X-Share-Password` header and
 answers `403` without it. An expired link is deleted the moment it is asked for

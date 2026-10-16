@@ -191,6 +191,17 @@ heading, the description underneath it if the page has one, then the content.
 The browser tab shows the page title. There is no navigation and no sign-in
 prompt.
 
+The page opens as one continuous column — plain text on white, no top bar.
+An outline of its headings sits on the side (it hides itself when the page
+has no headings) and collapses behind a floating button at the top left. A
+small island at the bottom center holds the view switch and printing: the
+first two icons flip between the continuous page and the A4 sheet layout (for
+checking page breaks), the printer goes through that layout, which is where
+page numbers live. One click on the printer opens the dialog straight away
+and returns to the view it came from afterwards. On a narrow screen the outline becomes a drawer over the
+page. The chosen layout travels in the link (`?view=paged`), so a link can
+point at either one.
+
 There is no salt.md branding **on the document**. The two gates in front of it
 are the exception, and both name the product in the browser tab: the password
 prompt's tab reads "salt.md — protected page", the "Not found" page's tab reads
@@ -216,24 +227,23 @@ What is **not** in the document:
 | Sub-pages | Nothing. Only the page you shared |
 | Links to other pages of your instance | A link into the app, which lands on the sign-in screen |
 | An embedded collection | A link into the app, labelled `▦ Datenbank` (fixed text, not the collection's name, and not the rows) |
-| Files uploaded into this instance (images, attachments) | A broken image or a dead link: they sit at an address that needs a signed-in account. An image whose address points at another website loads normally |
+| Files uploaded into this instance (images, attachments) | They load: the page rewrites them to signed addresses bound to this link (below) |
 | The cover image | Nothing |
 | Properties of a database row | Nothing; only the row's title and body |
 | Comments, notes, version history | Nothing. They are never part of a share |
 | A table of contents block | Nothing; it is built by the app |
 | A table's header row | Ordinary cells. The document has no header row, so the first row is not set apart |
 
-The file limitation is the one that catches people out. An image you dropped
-into a page is stored at an address that requires a signed-in account, and a
-public page's `<img>` points at that address, so the picture that is there for
-you is missing for the visitor.
+Uploads referenced by the page travel with it. Every `/files/…` address in
+the document is rewritten to a signed address under the link itself
+(`/public/<token>/files/<name>?exp=…&sig=…`), valid for up to thirty days and
+never past the link's own expiry — each visit mints fresh ones, so saved
+copies of the page go stale on their own. Only files this page references
+open: the token is not a key to the rest of the uploads. Changing the link's
+password or revoking the link kills every address it ever minted; the password
+itself never appears in them.
 
-If the images matter, use **⋯ → Print / as PDF** and send the PDF. That view
-opens in a tab of the app, where you are still signed in, so the pictures are
-in the document you print. **⋯ → Web page (.html)** does not help: the
-downloaded file goes through the same renderer and points at the same internal
-addresses, so it shows the same gaps as the public page
-([Import and export](import-export.md)).
+An image whose address points at another website loads as before.
 
 ### Publishing a collection
 
