@@ -38,7 +38,7 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
   const [busy, setBusy] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [instanceName, setInstanceName] = useState('');
-  const [oauth, setOauth] = useState<{ google: boolean; microsoft: boolean }>({ google: false, microsoft: false });
+  const [oauth, setOauth] = useState<{ google: boolean; microsoft: boolean; oidc: boolean; oidcName: string }>({ google: false, microsoft: false, oidc: false, oidcName: 'SSO' });
 
   useEffect(() => {
     void api
@@ -47,7 +47,7 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
         setSignupOpen(p.mode === 'open' || p.mode === 'domain');
         setInstanceName(p.instanceName || '');
         if (p.instanceName) document.title = p.instanceName;
-        setOauth({ google: p.oauthGoogle, microsoft: p.oauthMicrosoft });
+        setOauth({ google: p.oauthGoogle, microsoft: p.oauthMicrosoft, oidc: p.oauthOIDC, oidcName: p.oauthOIDCName || 'SSO' });
       })
       .catch(() => {});
     // Surface an error handed back by an aborted OAuth redirect. The server
@@ -155,7 +155,7 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
         <button className="btn primary" type="submit" disabled={busy}>
           {mode === 'signup' ? t('Create account') : t('Sign in')}
         </button>
-        {(oauth.google || oauth.microsoft) && (
+        {(oauth.google || oauth.microsoft || oauth.oidc) && (
           <>
             <div className="login-divider"><span>{t('or')}</span></div>
             {oauth.google && (
@@ -178,6 +178,15 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
                   <rect x="12" y="12" width="10" height="10" fill="#FFBA08" />
                 </svg>
                 {t('Sign in with Microsoft')}
+              </a>
+            )}
+            {oauth.oidc && (
+              <a className="btn oauth-btn" href={'/api/oauth/oidc/start' + oauthNextParam()}>
+                <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="8" cy="15" r="4" />
+                  <path d="M11.5 11.5 21 2" />
+                </svg>
+                {t('Sign in with {name}', { name: oauth.oidcName })}
               </a>
             )}
           </>

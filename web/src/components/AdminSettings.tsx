@@ -78,7 +78,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
   const [pa, setPa] = useState<Awaited<ReturnType<typeof api.publicAccess>> | null>(null);
   const [tunnelToken, setTunnelToken] = useState('');
   const [tunnelBusy, setTunnelBusy] = useState(false);
-  const [oauthSet, setOauthSet] = useState({ google: false, ms: false });
+  const [oauthSet, setOauthSet] = useState({ google: false, ms: false, oidc: false });
   const [mail, setMail] = useState({ provider: '', address: '' });
   const [mailBusy, setMailBusy] = useState(false);
 
@@ -106,6 +106,10 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
           googleClientSecret: '',
           msClientId: v.msClientId,
           msClientSecret: '',
+          oidcIssuer: v.oidcIssuer,
+          oidcClientId: v.oidcClientId,
+          oidcClientSecret: '',
+          oidcName: v.oidcName,
         });
         setTrustProxy(v.trustProxy);
         setPdf({
@@ -115,7 +119,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
         });
         setAllowUserWs(v.allowUserWorkspaces !== false);
         setHttpsEnabled(v.httpsEnabled);
-        setOauthSet({ google: v.googleSecretSet, ms: v.msSecretSet });
+        setOauthSet({ google: v.googleSecretSet, ms: v.msSecretSet, oidc: v.oidcSecretSet });
         setMail({ provider: v.mailProvider, address: v.mailAddress });
         setPassSet(v.smtpPassSet);
         setLoaded(true);
@@ -236,6 +240,10 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
         googleClientSecret: s.googleClientSecret,
         msClientId: s.msClientId,
         msClientSecret: s.msClientSecret,
+        oidcIssuer: s.oidcIssuer,
+        oidcClientId: s.oidcClientId,
+        oidcClientSecret: s.oidcClientSecret,
+        oidcName: s.oidcName,
       });
       toast(t('Settings saved'));
       onClose();
@@ -374,7 +382,7 @@ ingress:
                       )}
                     </p>
 
-                    <h3>{t('Sign in with Google / Microsoft (OAuth)')}</h3>
+                    <h3>{t('Sign in with Google / Microsoft / OIDC (OAuth)')}</h3>
                     <p className="dialog-hint settings-hint">
                       {t(
                         'Once client ID and secret are stored, the sign-in page shows the button automatically. New accounts follow the registration policy above (under “by invitation only”, OAuth signs in existing accounts and nothing else). Redirect URIs for the provider console:',
@@ -390,6 +398,8 @@ ingress:
                           <input className="prop-input" readOnly value={base + '/api/oauth/google/callback'} onFocus={(e) => e.currentTarget.select()} />
                           <label>Microsoft</label>
                           <input className="prop-input" readOnly value={base + '/api/oauth/microsoft/callback'} onFocus={(e) => e.currentTarget.select()} />
+                          <label>{t('Custom provider (OIDC)')}</label>
+                          <input className="prop-input" readOnly value={base + '/api/oauth/oidc/callback'} onFocus={(e) => e.currentTarget.select()} />
                           {insecure && (
                             <p className="dialog-hint settings-hint pa-warn">
                               {t(
@@ -432,6 +442,22 @@ ingress:
                       <input className="prop-input" placeholder="00000000-0000-…" value={s.msClientId} onChange={(e) => set('msClientId', e.target.value)} />
                       <label>{t('Client secret')}</label>
                       <input className="prop-input" type="password" placeholder={oauthSet.ms ? t('•••••• (stored)') : t('secret value')} value={s.msClientSecret} onChange={(e) => set('msClientSecret', e.target.value)} />
+                    </div>
+                    <div className="pa-card">
+                      <strong>{t('Custom identity provider (OIDC)')}</strong>
+                      <p className="dialog-hint settings-hint">
+                        {t(
+                          'Any OpenID Connect provider (Authelia, Keycloak, Authentik, Zitadel): register the callback URI above, then enter the issuer URL, client ID and secret here.',
+                        )}
+                      </p>
+                      <label>{t('Issuer URL')}</label>
+                      <input className="prop-input" placeholder="https://auth.example.com" value={s.oidcIssuer} onChange={(e) => set('oidcIssuer', e.target.value)} />
+                      <label>{t('Client ID')}</label>
+                      <input className="prop-input" value={s.oidcClientId} onChange={(e) => set('oidcClientId', e.target.value)} />
+                      <label>{t('Client secret')}</label>
+                      <input className="prop-input" type="password" placeholder={oauthSet.oidc ? t('•••••• (stored)') : t('secret value')} value={s.oidcClientSecret} onChange={(e) => set('oidcClientSecret', e.target.value)} />
+                      <label>{t('Button label')}</label>
+                      <input className="prop-input" placeholder="SSO" value={s.oidcName} onChange={(e) => set('oidcName', e.target.value)} />
                     </div>
                   </>
                 )}

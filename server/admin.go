@@ -140,6 +140,12 @@ type appSettings struct {
 	GoogleSecretSet bool   `json:"googleSecretSet"`
 	MSClientID      string `json:"msClientId"`
 	MSSecretSet     bool   `json:"msSecretSet"`
+	// The generic OIDC provider (see oidc.go): any issuer plus a client, with
+	// the button label the admin chooses.
+	OIDCIssuer    string `json:"oidcIssuer"`
+	OIDCClientID  string `json:"oidcClientId"`
+	OIDCSecretSet bool   `json:"oidcSecretSet"`
+	OIDCName      string `json:"oidcName"`
 	MailProvider    string `json:"mailProvider"`
 	MailAddress     string `json:"mailAddress"`
 	MailFrom        string `json:"mailFrom"`
@@ -179,6 +185,10 @@ func (s *Server) loadSettings() appSettings {
 		GoogleSecretSet:     s.setting("oauth_google_secret", "") != "",
 		MSClientID:          s.setting("oauth_ms_id", ""),
 		MSSecretSet:         s.setting("oauth_ms_secret", "") != "",
+		OIDCIssuer:          s.oidcIssuer(),
+		OIDCClientID:        strings.TrimSpace(s.setting("oauth_oidc_id", "")),
+		OIDCSecretSet:       s.setting("oauth_oidc_secret", "") != "",
+		OIDCName:            s.oidcDisplayName(),
 	}
 	res.MailProvider, res.MailAddress = s.mailProviderConfigured()
 	res.MailFrom = s.setting("mail_from_override", "")
@@ -228,6 +238,10 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		GoogleSecret        *string `json:"googleClientSecret"`
 		MSClientID          *string `json:"msClientId"`
 		MSSecret            *string `json:"msClientSecret"`
+		OIDCIssuer          *string `json:"oidcIssuer"`
+		OIDCClientID        *string `json:"oidcClientId"`
+		OIDCSecret          *string `json:"oidcClientSecret"`
+		OIDCName            *string `json:"oidcName"`
 		AllowUserWorkspaces *bool   `json:"allowUserWorkspaces"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
@@ -273,6 +287,13 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	set("mail_from_override", body.MailFrom)
 	set("oauth_google_id", body.GoogleClientID)
 	set("oauth_ms_id", body.MSClientID)
+	set("oauth_oidc_id", body.OIDCClientID)
+	set("oauth_oidc_name", body.OIDCName)
+	if body.OIDCIssuer != nil {
+		// Stored without a trailing slash, so discovery appends its
+		// well-known path onto the same string everywhere.
+		s.setSetting("oauth_oidc_issuer", strings.TrimRight(strings.TrimSpace(*body.OIDCIssuer), "/"))
+	}
 	setSecret := func(key string, v *string) {
 		if v != nil && *v != "" {
 			if *v == "\x00clear" {
@@ -284,6 +305,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	setSecret("oauth_google_secret", body.GoogleSecret)
 	setSecret("oauth_ms_secret", body.MSSecret)
+	setSecret("oauth_oidc_secret", body.OIDCSecret)
 	if body.HTTPSEnabled != nil {
 		v := ""
 		if *body.HTTPSEnabled {
@@ -745,6 +767,8 @@ func (s *Server) handleSignupPolicy(w http.ResponseWriter, r *http.Request) {
 		"instanceName":   s.setting("instance_name", ""),
 		"oauthGoogle":    g,
 		"oauthMicrosoft": m,
+		"oauthOIDC":      s.oidcConfigured(),
+		"oauthOIDCName":  s.oidcDisplayName(),
 	})
 }
 

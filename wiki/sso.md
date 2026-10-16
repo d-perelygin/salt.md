@@ -1,15 +1,17 @@
 # Single sign-on
 
-salt.md can hand sign-in to **Google** or **Microsoft**. People then press a
+salt.md can hand sign-in to **Google**, **Microsoft**, or **any OpenID Connect
+provider** (Authelia, Keycloak, Authentik, Zitadel, ...). People then press a
 button on the sign-in screen instead of remembering another password, and you
 stop keeping a second set of credentials. This page is for whoever sets that up:
 the exact fields, the address to register with the provider, how an account is
 matched or created, how long a sign-in lasts, and every error the flow can
 produce.
 
-Two providers, and only two. There is no generic OpenID Connect field, no SAML,
-and no way to point salt.md at a different identity provider. Setting it up is
-an instance admin's job and takes two values per provider.
+Three options: the two built-ins, plus one custom OIDC provider configured with
+an issuer URL. There is no SAML, and no second custom slot: one instance, one
+custom provider. Setting it up is an instance admin's job and takes two values
+per built-in provider, four for the custom one.
 
 ## What it does, and what it does not
 
@@ -35,8 +37,8 @@ Everything else stays with salt.md.
 ## What you enter in salt.md
 
 Account menu (your avatar) → **Instance settings** → the **Access** tab. Admin
-only. The section is headed **Sign in with Google / Microsoft (OAuth)** and
-holds two cards:
+only. The section is headed **Sign in with Google / Microsoft / OIDC (OAuth)** and
+holds three cards:
 
 | Card | Field | What goes in it |
 | --- | --- | --- |
@@ -44,34 +46,62 @@ holds two cards:
 | Google | **Client secret** | the secret created for that client |
 | Microsoft | **Client ID (application ID)** | the application (client) ID of the app registration, a UUID |
 | Microsoft | **Client secret** | the secret **value**, not its id |
+| Custom provider (OIDC) | **Issuer URL** | the provider's base address, e.g. `https://auth.example.com` |
+| Custom provider (OIDC) | **Client ID** | the client ID registered at that provider |
+| Custom provider (OIDC) | **Client secret** | the secret for that client |
+| Custom provider (OIDC) | **Button label** | the text on the sign-in button, e.g. `Authelia` (`SSO` if left empty) |
 
 Press **Save**. A toast says *Settings saved* and the dialog closes.
 
 Four things about these fields:
 
-- **Both values are needed before anything appears.** A provider's button shows
-  on the sign-in screen only when its client ID *and* its secret are stored. One
-  without the other does nothing at all.
+- **A provider's button shows on the sign-in screen only when it is fully
+  stored.** Google and Microsoft need their client ID *and* secret; the custom
+  provider needs all three of issuer URL, client ID and secret. Anything less
+  does nothing at all.
 - **A stored secret is never sent back to the browser.** The field then shows
   *•••••• (stored)* as its placeholder. Leaving it empty keeps what is stored;
   typing into it replaces it.
-- **The two providers are independent.** Configure one, both, or neither.
-- **The same client is reused for sending email.** If you later connect a
+- **The three providers are independent.** Configure one, all, or none.
+- **The same Google/Microsoft client is reused for sending email.** If you later connect a
   mailbox on the **Email** tab, it uses the client ID and secret from here,
   with a different consent, different permissions, and a different address to
-  register. See [Sending email](mail.md).
+  register. See [Sending email](mail.md). The custom provider is sign-in only
+  and is never used for mail.
+
+### The custom provider in detail
+
+The issuer URL is the provider's base address — the one whose
+`/.well-known/openid-configuration` answers the discovery document. salt.md
+reads the authorization, token, userinfo and JWKS endpoints from there and
+caches them for an hour, so there is nothing else to enter. The ID token's
+signature is checked against the issuer's keys (`RS256` or `ES256`); tokens
+that do not verify are refused outright.
+
+The email comes from the verified token's `email` claim (`preferred_username`
+if it holds an address and `email` is absent), falling back to the userinfo
+endpoint. Providers that state `email_verified: false` are refused: whoever
+runs the provider has to vouch for the address, since the address is the whole
+matching rule below. Providers that say nothing on the matter (Authelia among
+them) are accepted — a successful sign-in at the issuer is the verification.
+
+With Authelia specifically: create an OIDC client (client ID plus secret),
+register the callback address from the next section, and enter
+`https://auth.example.com` (your Authelia address) as the issuer URL. No group
+or role mapping happens: an account that arrives this way is an ordinary
+member, exactly as with Google and Microsoft.
 
 ## The address to register with the provider
 
-The provider needs to know where to send the browser back. salt.md shows both
-addresses ready to copy in the same section, under the labels **Google** and
-**Microsoft**; click one and it selects itself.
+The provider needs to know where to send the browser back. salt.md shows all
+three addresses ready to copy in the same section; click one and it selects itself.
 
 They are your instance's address plus:
 
 ```
 /api/oauth/google/callback
 /api/oauth/microsoft/callback
+/api/oauth/oidc/callback
 ```
 
 So for an instance at `https://notes.example.com`:
@@ -79,6 +109,7 @@ So for an instance at `https://notes.example.com`:
 ```
 https://notes.example.com/api/oauth/google/callback
 https://notes.example.com/api/oauth/microsoft/callback
+https://notes.example.com/api/oauth/oidc/callback
 ```
 
 Register it exactly as salt.md builds it: scheme, host, port, path. salt.md
@@ -138,8 +169,9 @@ restriction can live.
 ## What people see
 
 Once a provider is configured, the sign-in screen shows a divider reading **or**
-below the **Sign in** button, and then **Sign in with Google**, **Sign in with
-Microsoft**, or both.
+below the **Sign in** button, and then the buttons: **Sign in with Google**,
+**Sign in with Microsoft**, and **Sign in with {your label}** for the custom
+provider — each one only while its own card is fully stored.
 
 - **Google always asks which account to use**, even when only one is signed in
   in that browser.
@@ -334,13 +366,14 @@ out of the address bar, so a reload does not show it again.
 | *Token exchange failed.* | salt.md could not reach the provider (15-second limit): no outbound internet, DNS, or a firewall |
 | *Sign-in failed.* | the provider refused the exchange: wrong client secret, or a redirect address that does not match the registered one. Its explanation is in the brackets, or *token response unreadable* if it sent something salt.md could not parse |
 | *The provider did not supply an email address.* | no address in the token and none from the provider's userinfo endpoint |
+| *The provider did not verify this email address.* | custom provider only: it returned `email_verified: false` for this address |
 | *This Google address is not verified.* | Google only, and Google's own verdict on the address |
 | *This address belongs to an account that has not confirmed it. Please sign in with a password or contact your administrator.* | an account holds this address but it is not confirmed, **or the account is deactivated** |
 | *This address cannot create an account here.* | no account, and either the registration policy refuses or the account could not be written. The reason is in the brackets: *…registration here is by invitation* and *…may not register here* are the policy, *the account could not be created* is a database problem for the server log |
 | *The session could not be created.* | the sign-in worked and writing the session did not: a database problem, one for the server log |
 
-A link naming a provider that does not exist (anything but `google` and
-`microsoft`) does not come back to the sign-in screen at all: it answers 404
+A link naming a provider that does not exist (anything but `google`,
+`microsoft` and `oidc`) does not come back to the sign-in screen at all: it answers 404
 with the JSON body `{"error":"unknown provider"}`.
 
 **None of this is written to the audit log.** Sign-ins are not recorded there,
@@ -382,7 +415,8 @@ under its public base URL and the hop never happens.
 
 Clear the **Client ID** field for that provider and press **Save**. The button
 disappears from the sign-in screen at once: a provider counts as configured
-only when both values are there.
+only when all its values are there. For the custom provider, clearing any one
+of the issuer URL, client ID or secret is enough.
 
 The stored secret stays in the database: an empty secret field means *leave it
 alone*, and the dialog has no way to erase one. That is harmless without an ID,

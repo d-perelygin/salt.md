@@ -38,6 +38,13 @@ type Server struct {
 	tokenRate   *rateLimiter
 	formRate    *rateLimiter
 	stopCleanup chan struct{}
+	// Generic OIDC state (see oidc.go): the discovery and JWKS caches plus a
+	// test override for the HTTP client. Nil in every real build.
+	oidcDiscMu sync.Mutex
+	oidcDisc   *oidcEndpoints
+	oidcJWKSMu sync.Mutex
+	oidcJWKS   *oidcKeySet
+	oidcHTTP   *http.Client
 	// webhookTransport overrides how webhook deliveries reach the network. Nil
 	// in every real build; set only by tests, whose receiver lives on an address
 	// safeDial refuses by design (see webhooks.go).

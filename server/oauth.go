@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,9 +56,39 @@ func (s *Server) oauthClient(p string) (id, secret string) {
 		return s.setting("oauth_google_id", ""), s.setting("oauth_google_secret", "")
 	case "microsoft":
 		return s.setting("oauth_ms_id", ""), s.setting("oauth_ms_secret", "")
+	case "oidc":
+		return strings.TrimSpace(s.setting("oauth_oidc_id", "")), s.setting("oauth_oidc_secret", "")
 	}
 	return "", ""
 }
+
+// resolveLoginProvider returns the endpoints for a login provider: the two
+// built-ins come from a table, while "oidc" is the admin-configured generic
+// provider resolved through OIDC discovery (see oidc.go). generic is true for
+// the latter, whose ID token must be signature-checked rather than parsed.
+func (s *Server) resolveLoginProvider(pname string) (prov oauthProvider, generic bool, err error) {
+	if p, ok := oauthProviders[pname]; ok {
+		return p, false, nil
+	}
+	if pname == "oidc" {
+		if !s.oidcConfigured() {
+			return oauthProvider{}, false, errLoginNotConfigured
+		}
+		ep, derr := s.oidcDiscover()
+		if derr != nil {
+			return oauthProvider{}, false, derr
+		}
+		return oauthProvider{
+			key: pname, authURL: ep.authURL, tokenURL: ep.tokenURL, userinfoURL: ep.userinfoURL,
+		}, true, nil
+	}
+	return oauthProvider{}, false, errLoginUnknownProvider
+}
+
+var (
+	errLoginUnknownProvider = errors.New("unknown provider")
+	errLoginNotConfigured   = errors.New("not configured")
+)
 
 // oauthEnabled reports which providers are fully configured — the login page
 // only shows buttons for these.
@@ -132,9 +163,17 @@ func loginErrorRedirect(w http.ResponseWriter, r *http.Request, code, msg string
 
 func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	pname := r.PathValue("provider")
-	prov, ok := oauthProviders[pname]
-	if !ok {
-		httpError(w, 404, "unknown provider")
+	prov, _, err := s.resolveLoginProvider(pname)
+	if err != nil {
+		if errors.Is(err, errLoginUnknownProvider) {
+			httpError(w, 404, "unknown provider")
+			return
+		}
+		if errors.Is(err, errLoginNotConfigured) {
+			loginErrorRedirect(w, r, "oauth_not_configured", "This sign-in method is not configured.")
+			return
+		}
+		loginErrorRedirect(w, r, "oauth_failed", "Sign-in failed.", err.Error())
 		return
 	}
 	clientID, clientSecret := s.oauthClient(pname)
@@ -192,9 +231,13 @@ func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	pname := r.PathValue("provider")
-	prov, ok := oauthProviders[pname]
-	if !ok {
-		httpError(w, 404, "unknown provider")
+	prov, generic, err := s.resolveLoginProvider(pname)
+	if err != nil {
+		if errors.Is(err, errLoginUnknownProvider) {
+			httpError(w, 404, "unknown provider")
+			return
+		}
+		loginErrorRedirect(w, r, "oauth_failed", "Sign-in failed.", err.Error())
 		return
 	}
 
@@ -260,17 +303,34 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email, name, verified := parseIDToken(tok.IDToken)
+	email, name, tokenVerified := "", "", true
+	if generic {
+		// A generic issuer is only as good as its signature: the token is
+		// verified against the issuer's JWKS, never parsed raw.
+		var verr error
+		email, name, tokenVerified, verr = s.verifyOIDCIDToken(tok.IDToken)
+		if verr != nil {
+			loginErrorRedirect(w, r, "oauth_failed", "Sign-in failed.", "the sign-in could not be verified")
+			return
+		}
+		if !tokenVerified {
+			loginErrorRedirect(w, r, "oauth_unverified_email", "The provider did not verify this email address.")
+			return
+		}
+	} else {
+		var verified bool
+		email, name, verified = parseIDToken(tok.IDToken)
+		if pname == "google" && !verified {
+			loginErrorRedirect(w, r, "oauth_email_unverified", "This Google address is not verified.")
+			return
+		}
+	}
 	if email == "" && prov.userinfoURL != "" && tok.AccessToken != "" {
 		email, name = s.fetchUserinfo(prov.userinfoURL, tok.AccessToken, name)
 	}
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
 		loginErrorRedirect(w, r, "oauth_no_email", "The provider did not supply an email address.")
-		return
-	}
-	if pname == "google" && !verified {
-		loginErrorRedirect(w, r, "oauth_email_unverified", "This Google address is not verified.")
 		return
 	}
 

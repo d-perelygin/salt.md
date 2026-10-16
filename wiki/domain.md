@@ -81,12 +81,13 @@ Connecting a mailbox on the **Email** tab makes the same hop for the same reason
 
 ### The redirect URIs a provider console asks for
 
-**Instance settings → `Access` → `Sign in with Google / Microsoft (OAuth)`**
-prints both, read-only, and selects the whole value when you click into the
+**Instance settings → `Access` → `Sign in with Google / Microsoft / OIDC (OAuth)`**
+prints all three, read-only, and selects the whole value when you click into the
 field:
 
 - `/api/oauth/google/callback`
 - `/api/oauth/microsoft/callback`
+- `/api/oauth/oidc/callback`
 
 The prefix is the public base URL; failing that, a running **quick** tunnel;
 failing that, whatever address your browser is using. A named tunnel does not

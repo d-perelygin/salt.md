@@ -109,7 +109,7 @@ export const api = {
     req<User>('/api/signup', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
   // No allowedDomains here: which sender domains an instance counts as its own
   // is nobody's business before they have signed in.
-  signupPolicy: () => req<{ mode: string; instanceName: string; oauthGoogle: boolean; oauthMicrosoft: boolean }>('/api/signup-policy'),
+  signupPolicy: () => req<{ mode: string; instanceName: string; oauthGoogle: boolean; oauthMicrosoft: boolean; oauthOIDC: boolean; oauthOIDCName: string }>('/api/signup-policy'),
 
   getSettings: () =>
     req<{
@@ -142,6 +142,10 @@ export const api = {
       googleSecretSet: boolean;
       msClientId: string;
       msSecretSet: boolean;
+      oidcIssuer: string;
+      oidcClientId: string;
+      oidcSecretSet: boolean;
+      oidcName: string;
       mailProvider: string;
       mailAddress: string;
       mailFrom: string;

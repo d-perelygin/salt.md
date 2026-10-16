@@ -122,7 +122,7 @@ export function serverMessage(code: string, fallback: string, data?: ErrorData):
         pages: plural(n, '{n} private page', '{n} private pages'),
       });
 
-    // ---- signing in with Google / Microsoft ----
+    // ---- signing in with Google / Microsoft / OIDC ----
     // These do not arrive as JSON: the provider sends the browser back to a
     // URL, so the code rides in the query string instead. Same bargain.
     case 'oauth_not_configured':
@@ -143,6 +143,8 @@ export function serverMessage(code: string, fallback: string, data?: ErrorData):
       return t('The provider did not supply an email address.');
     case 'oauth_email_unverified':
       return t('This Google address is not verified.');
+    case 'oauth_unverified_email':
+      return t('The provider did not verify this email address.');
     case 'oauth_email_squatter':
       return t(
         'This address belongs to an account that has not confirmed it. Please sign in with a password or contact your administrator.',
