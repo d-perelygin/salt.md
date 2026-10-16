@@ -467,7 +467,7 @@ export default function App() {
     // claimed, so the click falls through to its normal meaning where no
     // peek exists to answer.
     const onPeek = (e: Event) => {
-      const detail = (e as CustomEvent<{ id?: string; focusTitle?: boolean }>).detail;
+      const detail = (e as CustomEvent<{ id?: string; focusTitle?: boolean; siblingIds?: string[] }>).detail;
       peekAskedRef.current = true;
       // A pinned panel keeps what it shows: another row's request neither
       // replaces it nor opens a tab beside it. The click is answered — with
@@ -478,6 +478,8 @@ export default function App() {
         return;
       }
       setPeekFocusTitle(!!detail?.focusTitle);
+      const sibs = Array.isArray(detail?.siblingIds) && detail.siblingIds.length > 0 ? detail.siblingIds : null;
+      setPeekOrder(sibs);
       const id = (e as CustomEvent<{ id: string }>).detail?.id;
       if (!id) return;
       e.preventDefault();
@@ -1279,6 +1281,10 @@ export default function App() {
   // opened with Shift-click wherever a page link opens one. It lives outside
   // the URL and the history — closing it changes nothing about the tabs.
   const [peekId, setPeekId] = useState<string | null>(null);
+  // Row order of the table the peek was opened from (visible order, including
+  // sort/filter/tree state). Lets the panel step to the previous/next row.
+  // Null where the opener knows no order (search, relation chip, sidebar).
+  const [peekOrder, setPeekOrder] = useState<string[] | null>(null);
   // A new row wants its title typed: the peek opens with the caret in it.
   const [peekFocusTitle, setPeekFocusTitle] = useState(false);
   // Pinned: nothing hides the panel but its own close button. Unpinned, it still
@@ -1296,6 +1302,7 @@ export default function App() {
   // next one — a silently pinned peek would ignore Escape with no way to know.
   const closePeek = useCallback(() => {
     setPeekId(null);
+    setPeekOrder(null);
     setPeekPinned(false);
   }, []);
   // The click that just asked for a peek, if any: a click on a row first opens
@@ -1469,6 +1476,20 @@ export default function App() {
       </>
     );
   if (!pages || !me?.user) return <div className="app-loading"><Logo size={40} /></div>;
+
+  // Step between table rows without closing the peek. The order is the one the
+  // table reported when the peek opened; stepping keeps it and only moves the
+  // id, so the arrows survive renames and edits made inside the panel.
+  const peekIndex = peekId && peekOrder ? peekOrder.indexOf(peekId) : -1;
+  const peekHasPrev = peekIndex > 0;
+  const peekHasNext = peekIndex >= 0 && peekIndex < (peekOrder?.length ?? 0) - 1;
+  const stepPeek = (d: 1 | -1) => {
+    if (!peekOrder || peekIndex < 0) return;
+    const next = peekOrder[peekIndex + d];
+    if (!next) return;
+    setPeekFocusTitle(false);
+    setPeekId(next);
+  };
 
   const toaster = <Toaster />;
 
@@ -1708,6 +1729,10 @@ export default function App() {
           }}
           onPagesChanged={loadPages}
           onClose={closePeek}
+          onPrev={peekHasPrev ? () => stepPeek(-1) : undefined}
+          onNext={peekHasNext ? () => stepPeek(1) : undefined}
+          hasPrev={peekHasPrev}
+          hasNext={peekHasNext}
           onOpenFull={(id) => {
             closePeek();
             navigate(id);

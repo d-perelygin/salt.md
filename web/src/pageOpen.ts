@@ -43,12 +43,12 @@ export function peekPage(
  *  it reads as a place you got stuck in rather than a preview — there rows
  *  open tabs, like everywhere else. Same breakpoint as the full-screen peek
  *  stylesheet below (see styles.css). */
-export function peekPanel(id: string, opts?: { focusTitle?: boolean }): boolean {
+export function peekPanel(id: string, opts?: { focusTitle?: boolean; siblingIds?: string[] }): boolean {
   if (typeof window === 'undefined') return false;
   if (window.matchMedia('(max-width: 768px)').matches) return false;
   return !window.dispatchEvent(
     new CustomEvent('salt:peek', {
-      detail: { id, focusTitle: !!opts?.focusTitle },
+      detail: { id, focusTitle: !!opts?.focusTitle, siblingIds: opts?.siblingIds },
       cancelable: true,
     }),
   );
@@ -89,7 +89,12 @@ export function openPageAux(
 // ones as everywhere else.
 
 /** A click on a collection row, with modifiers. */
-export function openCollectionRow(e: ClickMods, id: string, o: PageOpeners): void {
+export function openCollectionRow(
+  e: ClickMods,
+  id: string,
+  o: PageOpeners,
+  opts?: { siblingIds?: string[] },
+): void {
   if (peekPage(e, id)) return;
   if (e.altKey) {
     o.onNavigate(id);
@@ -99,5 +104,5 @@ export function openCollectionRow(e: ClickMods, id: string, o: PageOpeners): voi
     open(id, o);
     return;
   }
-  if (!peekPanel(id)) open(id, o);
+  if (!peekPanel(id, { siblingIds: opts?.siblingIds })) open(id, o);
 }

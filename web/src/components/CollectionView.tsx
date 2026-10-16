@@ -3124,7 +3124,11 @@ function TableView({
                   ) : null}
                   <button
                     className="db-title-link"
-                    onClick={(e) => openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab })}
+                    onClick={(e) =>
+                      openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab }, {
+                        siblingIds: ordered.map((o) => o.row.id),
+                      })
+                    }
                     onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                   >
                     {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}

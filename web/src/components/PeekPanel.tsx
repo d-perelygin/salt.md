@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import Editor, { type EditorProps } from './Editor';
 import { t } from '../i18n';
 
@@ -21,6 +22,11 @@ type Props = Omit<EditorProps, 'regionId' | 'primary'> & {
   /** Pinned: nothing hides the panel but its own close button. */
   pinned?: boolean;
   onTogglePin?: () => void;
+  /** Step between table rows: previous/next in the order the peek opened with. */
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
 };
 
 export default function PeekPanel({
@@ -30,6 +36,10 @@ export default function PeekPanel({
   focusTitleOnMount,
   pinned,
   onTogglePin,
+  onPrev,
+  onNext,
+  hasPrev,
+  hasNext,
   ...editorProps
 }: Props) {
   const closeRef = useRef(onClose);
@@ -54,6 +64,28 @@ export default function PeekPanel({
 
   return (
     <aside className="peek-panel" aria-label={t('Preview')}>
+      {(hasPrev || hasNext) && (
+        <div className="peek-nav" aria-label={t('Row navigation')}>
+          <button
+            className="peek-nav-btn"
+            onClick={onPrev}
+            disabled={!hasPrev}
+            title={t('Previous row')}
+            aria-label={t('Previous row')}
+          >
+            <ChevronUp size={16} />
+          </button>
+          <button
+            className="peek-nav-btn"
+            onClick={onNext}
+            disabled={!hasNext}
+            title={t('Next row')}
+            aria-label={t('Next row')}
+          >
+            <ChevronDown size={16} />
+          </button>
+        </div>
+      )}
       <Editor
         key={pageId}
         {...editorProps}

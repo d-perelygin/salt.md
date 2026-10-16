@@ -921,6 +921,51 @@ button {
   max-width: none;
 }
 
+/* Row stepping: two arrows stacked at the vertical center of the panel's left
+   edge, inside the document's own 56px side padding (--doc-pad). They sit
+   ABOVE the editor's floating side menu (BlockNote's + and drag handle, which
+   surface at the same left edge on hover) and cover it: solid background,
+   quiet until hovered. Below the panel's own dropdowns (310+). */
+.peek-nav {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--doc-pad);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.peek-nav-btn {
+  pointer-events: auto;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg-muted);
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.peek-nav-btn:hover:not(:disabled) {
+  opacity: 1;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+.peek-nav-btn:disabled {
+  opacity: 0.18;
+  cursor: default;
+}
+
 @media (max-width: 768px) {
   .peek-panel {
     width: 100vw;
