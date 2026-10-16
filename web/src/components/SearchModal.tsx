@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, PanelRight, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
-import type { SearchResult } from '../types';
+import type { PageMeta, SearchResult, User } from '../types';
 import Portal from './Portal';
+import Editor from './Editor';
 import { PageIcon } from '../pageIcon';
 import { useExclusiveModal } from '../modal';
 import { t } from '../i18n';
@@ -19,37 +20,23 @@ function snippetHtml(s: string) {
   return escapeHtml(s).replaceAll('\u0001', '<mark>').replaceAll('\u0002', '</mark>');
 }
 
-// Plain text out of BlockNote JSON for the read-only preview. Order matters,
-// ranking does not — unlike the index extractor this walks in document order.
-function previewText(content: unknown, budget = 600): string {
-  const out: string[] = [];
-  const walk = (blocks: unknown) => {
-    if (!Array.isArray(blocks)) return;
-    for (const raw of blocks) {
-      if (!raw || typeof raw !== 'object') continue;
-      const b = raw as { content?: unknown; children?: unknown };
-      if (Array.isArray(b.content)) {
-        for (const c of b.content) {
-          if (!c || typeof c !== 'object') continue;
-          const inline = c as { text?: unknown; props?: { label?: unknown } };
-          if (typeof inline.text === 'string') out.push(inline.text);
-          else if (typeof inline.props?.label === 'string') out.push(inline.props.label);
-          if (out.join(' ').length >= budget) return;
-        }
-      }
-      walk(b.children);
-      if (out.join(' ').length >= budget) return;
-    }
-  };
-  walk(content);
-  const s = out.join(' ').replace(/\s+/g, ' ').trim();
-  return s.length > budget ? s.slice(0, budget) + '…' : s;
-}
-
 interface Props {
   recent?: { id: string; title: string; icon: string }[];
   workspaces: { id: string; name: string }[];
   currentWs: string;
+  pagesById: Map<string, PageMeta>;
+  user: User;
+  theme: 'light' | 'dark';
+  tagColors: Record<string, string>;
+  favorites: string[];
+  onSetTagColor: (tag: string, color: string) => void;
+  onToggleFavorite: (id: string) => void;
+  onMetaChange: (id: string, patch: Partial<PageMeta>) => void;
+  onTrash: (id: string) => void;
+  onPagesChanged: () => void;
+  onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
+  onMenu: () => void;
+  onMissing: (id: string) => void;
   onClose: () => void;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
@@ -60,7 +47,27 @@ type NavItem =
   | { kind: 'recent'; r: { id: string; title: string; icon: string } }
   | { kind: 'command'; c: PaletteCommand & { aliases: string[] } };
 
-export default function SearchModal({ recent, workspaces, currentWs, onClose, onNavigate, onOpenInNewTab }: Props) {
+export default function SearchModal({
+  recent,
+  workspaces,
+  currentWs,
+  pagesById,
+  user,
+  theme,
+  tagColors,
+  favorites,
+  onSetTagColor,
+  onToggleFavorite,
+  onMetaChange,
+  onTrash,
+  onPagesChanged,
+  onCreatePage,
+  onMenu,
+  onMissing,
+  onClose,
+  onNavigate,
+  onOpenInNewTab,
+}: Props) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   // The preview pane: on unless explicitly hidden, remembered across sessions.
@@ -94,9 +101,21 @@ export default function SearchModal({ recent, workspaces, currentWs, onClose, on
     }
     return currentWs ? [currentWs] : [];
   });
+  // How a preview click opens the page: in the current tab (default) or in
+  // a new one. Remembered across sessions, next to the scope memory.
+  const [previewNewTab, setPreviewNewTab] = useState(() => {
+    try {
+      return localStorage.getItem('salt-search-preview-newtab') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sel, setSel] = useState(0);
-  const [preview, setPreview] = useState<{ id: string; title: string; ws: string; text: string } | null>(null);
+  // The page the preview Editor shows. Trails the selection on a short delay
+  // so arrowing through results does not remount (and reconnect) an editor
+  // per row; the stale page stays mounted meanwhile instead of flickering.
+  const [previewPageId, setPreviewPageId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const seq = useRef(0);
   useExclusiveModal(onClose);
@@ -148,40 +167,28 @@ export default function SearchModal({ recent, workspaces, currentWs, onClose, on
     setSel((s) => Math.min(s, Math.max(items.length - 1, 0)));
   }, [items.length]);
 
-  // Read-only preview of the selected page, Notion-style: small type, and a
-  // click opens the page in a new tab rather than editing in place.
+  // The selected page, if the selection sits on one rather than on a command.
   const previewId = (() => {
     const it = items[sel];
     if (!it || it.kind === 'command') return null;
     return it.r.id;
   })();
+
+  // A preview click lands in the current tab; the icon beside it opens a new
+  // one — unless remembered otherwise in the footer settings.
+  const openPreview = () => {
+    if (!previewId) return;
+    if (previewNewTab) (onOpenInNewTab ?? onNavigate)(previewId);
+    else onNavigate(previewId);
+  };
   useEffect(() => {
     if (!previewId) {
-      setPreview(null);
+      setPreviewPageId(null);
       return;
     }
-    let alive = true;
-    const timer = window.setTimeout(() => {
-      void api
-        .getPage(previewId)
-        .then((p) => {
-          if (!alive) return;
-          setPreview({
-            id: p.id,
-            title: p.title,
-            ws: workspaces.find((w) => w.id === p.workspaceId)?.name ?? '',
-            text: previewText(p.content),
-          });
-        })
-        .catch(() => {
-          if (alive) setPreview(null);
-        });
-    }, 200);
-    return () => {
-      alive = false;
-      window.clearTimeout(timer);
-    };
-  }, [previewId, workspaces]);
+    const timer = window.setTimeout(() => setPreviewPageId(previewId), 220);
+    return () => window.clearTimeout(timer);
+  }, [previewId]);
 
   const openItem = (it: NavItem, e?: React.KeyboardEvent | React.MouseEvent) => {
     if (it.kind === 'command') {
@@ -249,6 +256,17 @@ export default function SearchModal({ recent, workspaces, currentWs, onClose, on
       return next;
     });
 
+  const togglePreviewNewTab = () =>
+    setPreviewNewTab((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('salt-search-preview-newtab', next ? '1' : '0');
+      } catch {
+        /* private mode — the choice still applies for this session */
+      }
+      return next;
+    });
+
   // The remembered scope follows the picks while remembering is on.
   useEffect(() => {
     if (!rememberWs) return;
@@ -274,26 +292,26 @@ export default function SearchModal({ recent, workspaces, currentWs, onClose, on
       }}
     >
       <div className={'search-modal' + (showPreview ? ' has-preview' : '')} onKeyDown={onKey}>
+        <div className="search-topbar">
+          <input
+            ref={inputRef}
+            className="search-input"
+            placeholder={t('Search all pages…')}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <button
+            type="button"
+            className={'search-icon-btn' + (showPreview ? ' is-on' : '')}
+            onClick={togglePreview}
+            title={t('Preview')}
+            aria-label={t('Preview')}
+          >
+            <PanelRight size={17} />
+          </button>
+        </div>
         <div className="search-body">
         <div className="search-main">
-          <div className="search-topbar">
-            <input
-              ref={inputRef}
-              className="search-input"
-              placeholder={t('Search all pages…')}
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-            <button
-              type="button"
-              className={'search-icon-btn' + (showPreview ? ' is-on' : '')}
-              onClick={togglePreview}
-              title={t('Preview')}
-              aria-label={t('Preview')}
-            >
-              <PanelRight size={17} />
-            </button>
-          </div>
           {workspaces.length > 1 && (
             <div className="search-scopes" role="group" aria-label={t('Workspaces')}>
               <button
@@ -414,26 +432,68 @@ export default function SearchModal({ recent, workspaces, currentWs, onClose, on
             </div>
             <div
               className="search-preview-body"
-              onClick={() => previewId && (onOpenInNewTab ?? onNavigate)(previewId)}
+              onClick={(e) => {
+                // Editor chrome and links answer for themselves; a click on
+                // anything else opens the previewed page (see openPreview).
+                const el = e.target as Element | null;
+                if (el?.closest?.('button, a, input, select, textarea')) return;
+                openPreview();
+              }}
               title={previewId ? t('Open in new tab') : undefined}
               role={previewId ? 'button' : undefined}
               tabIndex={-1}
             >
-              <div className="search-preview-ws">{preview?.ws ?? ''}</div>
-              <div className="search-preview-title">{preview?.title || (previewId ? t('Untitled') : '')}</div>
-              {preview?.text && <div className="search-preview-text">{preview.text}</div>}
+              {previewPageId && (
+                <Editor
+                  key={previewPageId}
+                  pageId={previewPageId}
+                  pagesById={pagesById}
+                  user={user}
+                  theme={theme}
+                  canEdit={false}
+                  favorite={favorites.includes(previewPageId)}
+                  tagColors={tagColors}
+                  onSetTagColor={onSetTagColor}
+                  onMenu={onMenu}
+                  onToggleFavorite={onToggleFavorite}
+                  onMetaChange={onMetaChange}
+                  onMissing={(id) => onMissing(id)}
+                  onNavigate={(id) => {
+                    if (id) onNavigate(id);
+                  }}
+                  onOpenInNewTab={(id) => (onOpenInNewTab ?? onNavigate)(id)}
+                  onCreatePage={onCreatePage}
+                  onTrash={onTrash}
+                  onPagesChanged={onPagesChanged}
+                  regionId="search-preview"
+                  primary={false}
+                />
+              )}
             </div>
           </div>
         )}
         </div>
       <div className="search-footer">
-        <span className="search-footer-hint">↵ {t('Open in new tab')}</span>
+        <button
+          type="button"
+          className="search-footer-btn"
+          onClick={() => previewId && (onOpenInNewTab ?? onNavigate)(previewId)}
+          disabled={!previewId}
+        >
+          <span className="search-footer-key">↵</span> {t('Open in new tab')}
+        </button>
         <div className="search-settings">
           {settingsOpen && (
-            <label className="search-settings-pop">
-              <input type="checkbox" checked={rememberWs} onChange={toggleRememberWs} />
-              {t('Remember workspace filter')}
-            </label>
+            <div className="search-settings-pop">
+              <label>
+                <input type="checkbox" checked={rememberWs} onChange={toggleRememberWs} />
+                {t('Remember workspace filter')}
+              </label>
+              <label>
+                <input type="checkbox" checked={previewNewTab} onChange={togglePreviewNewTab} />
+                {t('Open preview in new tab')}
+              </label>
+            </div>
           )}
           <button
             type="button"
