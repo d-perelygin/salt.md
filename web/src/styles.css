@@ -1871,24 +1871,28 @@ body:has(.icon-picker) .bn-side-menu {
   font-size: 13.5px;
 }
 
-/* Workspace scope chips under the search field. */
+/* Workspace scope chips: a vertical scrollable list rather than a wrapping
+   row, so ten workspaces cost a slim rail instead of the whole first screen. */
 .search-scopes {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   padding: 10px 14px 2px;
+  max-height: 118px;
+  overflow-y: auto;
 }
 
 .search-scope {
   font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 999px;
+  padding: 4px 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   color: var(--muted);
-  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
 }
 
 .search-scope.is-on {
@@ -1915,12 +1919,14 @@ body:has(.icon-picker) .bn-side-menu {
    exactly like the page — a click on plain content opens it (see openPreview),
    while the editor's own controls and links answer for themselves. */
 .search-main {
-  flex: 0 1 450px;
+  flex: 2;
   min-width: 0;
 }
 
 .search-preview {
-  width: 400px;
+  flex: 1;
+  width: auto;
+  min-width: 0;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   padding: 12px 14px 18px;

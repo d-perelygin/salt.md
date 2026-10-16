@@ -107,6 +107,9 @@ export default function SearchModal({
   // a new one. Remembered across sessions, next to the scope memory.
   const [previewNewTab, setPreviewNewTab] = useState(() => {
     try {
+      // Renamed from salt-search-preview-newtab; the old key is honored once.
+      const cur = localStorage.getItem('salt-search-newtab');
+      if (cur !== null) return cur === '1';
       return localStorage.getItem('salt-search-preview-newtab') === '1';
     } catch {
       return false;
@@ -151,14 +154,23 @@ export default function SearchModal({
   const matchedCmds = useMemo(() => matchCommands(cmdQuery, allCmds), [cmdQuery, allCmds]);
   // In command mode (`>`) only commands; otherwise server hits first and the
   // matching commands after them. An empty query shows recents, then commands.
+  // Workspace rows always lead: switching scope precedes switching pages.
   const items: NavItem[] = useMemo(() => {
-    if (cmdOnly) return matchedCmds.map((c) => ({ kind: 'command' as const, c }));
-    const out: NavItem[] = results.map((r) => ({ kind: 'result' as const, r }));
+    const isWs = (c: PaletteCommand & { aliases: string[] }) => c.id.startsWith('ws:');
+    if (cmdOnly) {
+      const ws = matchedCmds.filter(isWs);
+      const rest = matchedCmds.filter((c) => !isWs(c));
+      return [...ws, ...rest].map((c) => ({ kind: 'command' as const, c }));
+    }
+    const ws = matchedCmds.filter(isWs);
+    const out: NavItem[] = ws.map((c) => ({ kind: 'command' as const, c }));
+    for (const r of results) out.push({ kind: 'result' as const, r });
     if (q.trim() === '') {
       for (const r of recent ?? []) out.push({ kind: 'recent' as const, r });
-      for (const c of allCmds) out.push({ kind: 'command' as const, c });
+      for (const c of allCmds.filter((c) => !isWs(c))) out.push({ kind: 'command' as const, c });
     } else {
-      for (const c of matchedCmds.slice(0, 5)) out.push({ kind: 'command' as const, c });
+      for (const c of matchedCmds.filter((c) => !isWs(c)).slice(0, 5))
+        out.push({ kind: 'command' as const, c });
     }
     return out;
     // allCmds/matchedCmds are fresh arrays per render; identity deps would loop.
@@ -193,6 +205,18 @@ export default function SearchModal({
     return () => window.clearTimeout(timer);
   }, [previewId]);
 
+  // When on, every plain activation opens a new tab: result rows, recents
+  // and preview clicks alike. Modified clicks keep their meaning.
+  const openPageId = (id: string) => (previewNewTab ? (onOpenInNewTab ?? onNavigate)(id) : onNavigate(id));
+
+  const openRowClick = (e: React.MouseEvent, id: string) => {
+    if (e.button === 0 && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+      openPageId(id);
+      return;
+    }
+    openPage(e, id, { onNavigate, onOpenInNewTab });
+  };
+
   const openItem = (it: NavItem, e?: React.KeyboardEvent | React.MouseEvent) => {
     if (it.kind === 'command') {
       const id = it.c.id;
@@ -217,14 +241,14 @@ export default function SearchModal({
         else onNavigate(id);
       } else if (e.altKey) onNavigate(id);
       else if (e.metaKey || e.ctrlKey) (onOpenInNewTab ?? onNavigate)(id);
-      else onNavigate(id);
+      else openPageId(id);
       return;
     }
     if (e && 'shiftKey' in e) {
-      openPage(e as React.MouseEvent, id, { onNavigate, onOpenInNewTab });
+      openRowClick(e as React.MouseEvent, id);
       return;
     }
-    onNavigate(id);
+    openPageId(id);
   };
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -269,7 +293,7 @@ export default function SearchModal({
     setPreviewNewTab((v) => {
       const next = !v;
       try {
-        localStorage.setItem('salt-search-preview-newtab', next ? '1' : '0');
+        localStorage.setItem('salt-search-newtab', next ? '1' : '0');
       } catch {
         /* private mode — the choice still applies for this session */
       }
@@ -297,6 +321,14 @@ export default function SearchModal({
 
   const showResults = !cmdOnly && q.trim() !== '' && results.length > 0;
   const showCmdLabel = !cmdOnly && q.trim() !== '' && items.some((i) => i.kind === 'command');
+  // Workspace rows render in their own leading section, mirroring nav order.
+  const isWsRow = (c: PaletteCommand & { aliases: string[] }) => c.id.startsWith('ws:');
+  const wsRows = (cmdOnly ? matchedCmds : q.trim() === '' ? allCmds : matchedCmds).filter(isWsRow);
+  const regCmds = cmdOnly
+    ? matchedCmds.filter((c) => !isWsRow(c))
+    : q.trim() === ''
+      ? allCmds.filter((c) => !isWsRow(c))
+      : matchedCmds.filter((c) => !isWsRow(c)).slice(0, 5);
 
   return (
     <Portal>
@@ -350,6 +382,29 @@ export default function SearchModal({
             </div>
           )}
           <div className="search-results">
+            {wsRows.length > 0 && (
+              <>
+                <div className="search-section-label">{t('Workspaces')}</div>
+                {wsRows.map((c) => {
+                  const idx = items.findIndex((i) => i.kind === 'command' && i.c.id === c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      className={'search-result search-command' + (idx === sel ? ' selected' : '')}
+                      onMouseEnter={() => idx >= 0 && setSel(idx)}
+                      onClick={() => {
+                        const it = items[idx];
+                        if (it) openItem(it);
+                      }}
+                    >
+                      <span className="result-body">
+                        <span className="result-title">{c.label}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </>
+            )}
             {showResults &&
               results.map((r) => {
                 const idx = items.findIndex((i) => (i.kind === 'result' || i.kind === 'recent') && i.r.id === r.id);
@@ -358,7 +413,7 @@ export default function SearchModal({
                     key={r.id}
                     className={'search-result' + (idx === sel ? ' selected' : '')}
                     onMouseEnter={() => idx >= 0 && setSel(idx)}
-                    onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+                    onClick={(e) => openRowClick(e, r.id)}
                     onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                   >
                     <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
@@ -390,7 +445,7 @@ export default function SearchModal({
                       key={r.id}
                       className={'search-result' + (idx === sel ? ' selected' : '')}
                       onMouseEnter={() => idx >= 0 && setSel(idx)}
-                      onClick={(e) => openPage(e, r.id, { onNavigate, onOpenInNewTab })}
+                      onClick={(e) => openRowClick(e, r.id)}
                       onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                     >
                       <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
@@ -402,10 +457,10 @@ export default function SearchModal({
                 })}
               </>
             )}
-            {(cmdOnly || showCmdLabel || (q.trim() === '' && !cmdOnly)) && (
+            {(cmdOnly || showCmdLabel || (q.trim() === '' && !cmdOnly)) && regCmds.length > 0 && (
               <>
                 <div className="search-section-label">{t('Commands')}</div>
-                {(cmdOnly ? matchedCmds : q.trim() === '' ? allCmds : matchedCmds.slice(0, 5)).map((c) => {
+                {regCmds.map((c) => {
                   const idx = items.findIndex((i) => i.kind === 'command' && i.c.id === c.id);
                   return (
                     <button
@@ -507,7 +562,7 @@ export default function SearchModal({
               </label>
               <label>
                 <input type="checkbox" checked={previewNewTab} onChange={togglePreviewNewTab} />
-                {t('Open preview in new tab')}
+                {t('Always open in new tab')}
               </label>
             </div>
           )}

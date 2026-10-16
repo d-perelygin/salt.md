@@ -84,13 +84,14 @@ export function matchCommands(
 /** One row per workspace: switching is not a shortcut, so the registry cannot
  *  carry it — these are built from the workspace list instead and run by id
  *  prefix (see openItem in SearchModal). The name IS the search text, in
- *  whatever language the workspace was named. */
+ *  whatever language the workspace was named; the prefix answers "show me
+ *  every workspace" in the reader's own language. */
 export function workspaceSwitchCommands(
   workspaces: { id: string; name: string }[],
 ): (PaletteCommand & { aliases: string[] })[] {
   return workspaces.map((w) => ({
     id: `ws:${w.id}`,
-    label: w.name,
+    label: t('Switch to {name}', { name: w.name }),
     group: t('Workspaces'),
     keys: '',
     aliases: [],
