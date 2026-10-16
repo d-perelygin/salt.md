@@ -1683,7 +1683,7 @@ body:has(.icon-picker) .bn-side-menu {
 }
 
 .search-modal.has-preview {
-  width: min(1120px, 96vw);
+  width: min(1000px, 96vw);
 }
 
 .search-body {
@@ -1915,12 +1915,12 @@ body:has(.icon-picker) .bn-side-menu {
    exactly like the page — a click on plain content opens it (see openPreview),
    while the editor's own controls and links answer for themselves. */
 .search-main {
-  flex: 0 1 420px;
+  flex: 0 1 400px;
   min-width: 0;
 }
 
 .search-preview {
-  width: 520px;
+  width: 450px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   padding: 12px 14px 18px;
