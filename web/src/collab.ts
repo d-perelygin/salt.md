@@ -20,8 +20,13 @@ export class SaltProvider {
   awareness: Awareness;
   synced = false;
   isNew = false;
-
   readonly pageId: string;
+
+  // Set when the server replaced the document under us (close code 4001:
+  // API/MCP rewrite, restore, import). The local doc is stale from that
+  // moment on: nothing derived from it may reach the server again, or the
+  // rewrite is silently reverted to the old copy.
+  reset = false;
 
   private ws: WebSocket | null = null;
   private closed = false;
@@ -63,6 +68,10 @@ export class SaltProvider {
 
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       if (origin === 'remote') return;
+      // Fenced after a server-side reset: this doc is stale, and sending,
+      // journaling or snapshotting its updates would resurrect exactly what
+      // the server replaced.
+      if (this.reset) return;
       this.send(FRAME_UPDATE, update);
       // While the channel is down the send above vanishes: journal the update
       // so the first sync can replay exactly what was typed, no more. (When
@@ -215,6 +224,9 @@ export class SaltProvider {
     if (this.closed) return;
     if (e?.code === 4001) {
       // Server-side doc was reset (API write): local state is stale.
+      // Fence it before notifying: the tab remounts onto the new document,
+      // and nothing stale may be written in between.
+      this.reset = true;
       this.onReset();
       return;
     }
@@ -229,6 +241,7 @@ export class SaltProvider {
   }
 
   private send(type: number, payload: Uint8Array) {
+    if (this.reset) return;
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     const buf = new Uint8Array(1 + payload.length);
     buf[0] = type;

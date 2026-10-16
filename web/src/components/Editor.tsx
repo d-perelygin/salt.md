@@ -272,7 +272,10 @@ export default function Editor(props: EditorProps) {
           />
         ) : (
           <CollabEditor
-            key={page.id}
+            // nonce remounts the whole collaboration stack after a
+            // server-side reset, so the tab re-seeds from the rewrite
+            // instead of sitting on (and saving from) the stale doc.
+            key={`${page.id}:${nonce}`}
             regionId={regionId}
             structureOpen={structureOpen}
             page={page}
@@ -2237,8 +2240,10 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
       clearPeers(page.id);
       setReady(false); // the next provider (StrictMode) gates itself again
       // Flush the latest state so a tab closed right now keeps its edits.
+      // Skipped after a server-side reset: the local doc is stale, and
+      // persisting it would resurrect exactly what was replaced.
       try {
-        if (p) {
+        if (p && !p.reset) {
           const cur = Y.encodeStateAsUpdate(p.doc);
           if (cur.length > 0) void putYDoc(page.id, cur);
         }
@@ -2648,6 +2653,13 @@ function BlockContent({
   useEffect(() => {
     const flush = (keepalive: boolean) => {
       if (seedFailed.current || !dirty.current) return;
+      // The server replaced the document under us (provider.reset): this
+      // copy is stale. Drop it instead of writing it over the rewrite —
+      // the pre-reset state survives as a revision.
+      if (provider.reset) {
+        dirty.current = false;
+        return;
+      }
       const doc = editor.document;
       // Guard against clobbering stored content with an accidentally-empty doc.
       if (hadContent && isEffectivelyEmpty(doc)) return;
@@ -2686,6 +2698,7 @@ function BlockContent({
       }
     };
     const persist = () => {
+      if (provider.reset) return;
       dirty.current = true;
       window.clearTimeout(matTimer.current);
       matTimer.current = window.setTimeout(() => flush(false), 1500);
