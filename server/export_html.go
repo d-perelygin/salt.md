@@ -473,7 +473,11 @@ a{color:#1a1a1a}
 // only puts them on paper. That is what a page number needs — and the reason
 // the print dialog no longer springs open on load, because every option is now
 // a class on <body> and changes nothing that needs the server.
-func (srv *Server) pageHTML(p *page, printMode bool, o printOptions) string {
+//
+// pub is nil for the internal export/print path and set for the public share
+// view (public_doc.go): signed file URLs, the continuous/paged switch, the
+// toolbar and the outline. Nil changes nothing that was there before.
+func (srv *Server) pageHTML(p *page, printMode bool, o printOptions, pub *pubView) string {
 	title := p.Title
 	if title == "" {
 		title = "Untitled"
@@ -484,11 +488,24 @@ func (srv *Server) pageHTML(p *page, printMode bool, o printOptions) string {
 		icon = h + " "
 	}
 
+	style := htmlDocStyle
+	bodyClass := o.classList()
+	view := ""
+	if pub != nil {
+		view = pub.View
+		if view != "paged" {
+			view = "continuous"
+		}
+		pub.View = view
+		style += pubDocStyle
+		bodyClass += " pub pub-" + view
+	}
+
 	var b strings.Builder
 	b.WriteString(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>`)
 	b.WriteString(esc(title))
-	b.WriteString("</title><style>" + htmlDocStyle + "</style></head>")
-	b.WriteString(`<body class="` + o.classList() + `">`)
+	b.WriteString("</title><style>" + style + "</style></head>")
+	b.WriteString(`<body class="` + bodyClass + `">`)
 
 	if printMode {
 		b.WriteString(sidePanelHTML())
@@ -497,23 +514,48 @@ func (srv *Server) pageHTML(p *page, printMode bool, o printOptions) string {
 	// The document, as one flow. The script takes it from here; without the
 	// script (or before it runs) this is still the whole document, readable and
 	// printable — just with the browser choosing where the pages fall.
-	b.WriteString(`<template id="doc-src">`)
-	b.WriteString("<h1>" + icon + esc(title) + "</h1>")
+	var inner strings.Builder
+	inner.WriteString("<h1>" + icon + esc(title) + "</h1>")
 	if d := strings.TrimSpace(p.Description); d != "" {
-		b.WriteString(`<p class="doc-desc">` + esc(d) + "</p>")
+		inner.WriteString(`<p class="doc-desc">` + esc(d) + "</p>")
 	}
-	b.WriteString(blocksToHTML(p.Content))
-	if len(o.CommentL) > 0 {
-		b.WriteString(`<section class="doc-comments"><h2>Comments</h2>`)
-		for _, c := range o.CommentL {
-			b.WriteString(`<p class="doc-comment"><span class="who">` + esc(c.AuthorName) + `</span>`)
-			if len(c.CreatedAt) >= 10 {
-				b.WriteString(`<span class="when">` + esc(c.CreatedAt[:10]) + `</span>`)
-			}
-			b.WriteString("<br>" + esc(c.Body) + "</p>")
+	// In the public flow the title page's workspace/instance/date lines have
+	// no sheet to live on, so they ride along as a meta paragraph instead —
+	// shown only when the title page is on, hidden in the paged mode where
+	// the cover carries them.
+	if pub != nil {
+		inner.WriteString(`<p class="flow-meta"><span class="cover-ws">`)
+		for _, line := range originLines(o) {
+			inner.WriteString(esc(line) + "<br>")
 		}
-		b.WriteString("</section>")
+		inner.WriteString(`</span><span class="flow-day"></span></p>`)
 	}
+	inner.WriteString(blocksToHTML(p.Content))
+	if len(o.CommentL) > 0 {
+		inner.WriteString(`<section class="doc-comments"><h2>Comments</h2>`)
+		for _, c := range o.CommentL {
+			inner.WriteString(`<p class="doc-comment"><span class="who">` + esc(c.AuthorName) + `</span>`)
+			if len(c.CreatedAt) >= 10 {
+				inner.WriteString(`<span class="when">` + esc(c.CreatedAt[:10]) + `</span>`)
+			}
+			inner.WriteString("<br>" + esc(c.Body) + "</p>")
+		}
+		inner.WriteString("</section>")
+	}
+	docHTML := inner.String()
+	var toc []tocEntry
+	if pub != nil {
+		docHTML = srv.rewriteShareFiles(docHTML, pub.Token)
+		docHTML, toc = addHeadingIDs(docHTML)
+		b.WriteString(pubChrome(view, len(toc) > 0))
+		b.WriteString(`<div class="pub-wrap">`)
+		if len(toc) > 0 {
+			b.WriteString(pubTOC(toc))
+		}
+		b.WriteString(`<div class="pub-main">`)
+	}
+	b.WriteString(`<template id="doc-src">`)
+	b.WriteString(docHTML)
 	b.WriteString(`</template>`)
 
 	// The cover, kept apart so paginating never has to reason about it.
@@ -531,17 +573,36 @@ func (srv *Server) pageHTML(p *page, printMode bool, o printOptions) string {
 	}
 	b.WriteString(`</span><span class="cover-day"></span></div></template>`)
 
+	if pub != nil {
+		// Continuous mode pours the template above into this; paged mode
+		// leaves it empty and cuts sheets instead.
+		b.WriteString(`<div class="pub-flow" id="pubflow"></div>`)
+	}
 	b.WriteString(`<div class="sheets" id="sheets"></div>`)
+	if pub != nil {
+		b.WriteString(`</div></div>`)
+	}
 	// The date travels as a plain calendar day and is written out in the
 	// browser, in the reader's own regional format — the same rule the rest of
 	// the product follows. Formatting it here would have shipped one spelling to
 	// everybody, and it would have been ISO, which no reader writes by hand.
-	b.WriteString(`<script>` + paginateJS + "\n" +
+	start := `saltStart();`
+	extra := ""
+	if pub != nil {
+		start = `pubStart(` + jsString(view) + `);`
+		extra = pubDocJS
+	}
+	autoprint := "false"
+	if pub != nil && pub.AutoPrint {
+		autoprint = "true"
+	}
+	b.WriteString(`<script>` + paginateJS + "\n" + extra +
 		`SALT_TITLE=` + jsString(title) + `;` +
 		`SALT_DAY=` + jsString(o.Date) + `;` +
 		`SALT_REGION=` + jsString(o.Region) + `;` +
 		`SALT_LANG=` + jsString(o.Language) + `;` +
-		`saltStart();</script>`)
+		`SALT_AUTOPRINT=` + autoprint + `;` +
+		start + `</script>`)
 	b.WriteString("</body></html>")
 	return b.String()
 }

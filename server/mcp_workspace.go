@@ -339,8 +339,8 @@ func (s *Server) mcpSharePage(r requestBase, pageID string, expiresInDays int, p
 		pwHash = hashPassword(password)
 	}
 	s.db.Exec(`DELETE FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID)
-	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, page_id, created_at, expires_at, password_hash) VALUES (?, ?, ?, ?, ?)`,
-		tokenHash(token), pageID, now(), expiresAt, pwHash); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, page_id, created_at, expires_at, password_hash, file_key) VALUES (?, ?, ?, ?, ?, ?)`,
+		tokenHash(token), pageID, now(), expiresAt, pwHash, newID()+newID()); err != nil {
 		return "", err
 	}
 	out, err := json.Marshal(map[string]any{

@@ -1078,7 +1078,7 @@ func (s *Server) handleSharePage(w http.ResponseWriter, r *http.Request) {
 	// with a new expiry/password doesn't leave the old token valid. Form-shares
 	// (mode='form') are independent and left untouched.
 	s.db.Exec(`DELETE FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID)
-	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, page_id, created_at, expires_at, password_hash, options) VALUES (?, ?, ?, ?, ?, ?)`, tokenHash(token), pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail)); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, page_id, created_at, expires_at, password_hash, options, file_key) VALUES (?, ?, ?, ?, ?, ?, ?)`, tokenHash(token), pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail), newID()+newID()); err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}
@@ -1209,6 +1209,10 @@ func (s *Server) handlePatchShare(w http.ResponseWriter, r *http.Request) {
 			}
 			hasPassword = true
 		}
+		// A new secret means new file URLs: anything minted under the old one
+		// dies with it, so a replaced password cannot be sidestepped through a
+		// saved copy of the page.
+		s.rotateShareFileKey(pageID)
 	} else {
 		var pwHash sql.NullString
 		s.db.QueryRow(`SELECT password_hash FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID).Scan(&pwHash)

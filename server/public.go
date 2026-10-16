@@ -130,7 +130,7 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sharePasswordForm(token, wrong)))
 		return
 	}
-	w.Write([]byte(s.pageHTML(p, false, s.printOptionsFor(p))))
+	w.Write([]byte(s.pageHTML(p, false, s.printOptionsFor(p), &pubView{Token: token, View: publicDocView(r), AutoPrint: r.URL.Query().Get("print") == "1"})))
 	// A ?pw= address that just opened must not keep the secret in the bar,
 	// and the tab should remember it like the gates do: the server verified
 	// it to render this page, so staging it into session storage is exact —
