@@ -9,7 +9,7 @@ import { useExclusiveModal } from '../modal';
 import { t } from '../i18n';
 import { compare } from '../format';
 import { openPage, openPageAux, peekPage } from '../pageOpen';
-import { matchCommands, paletteCommands, runPaletteCommand, type PaletteCommand } from '../commands';
+import { matchCommands, paletteCommands, runPaletteCommand, workspaceSwitchCommands, type PaletteCommand } from '../commands';
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -37,6 +37,7 @@ interface Props {
   onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
   onMenu: () => void;
   onMissing: (id: string) => void;
+  onSwitchWorkspace: (id: string) => void;
   onClose: () => void;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
@@ -64,6 +65,7 @@ export default function SearchModal({
   onCreatePage,
   onMenu,
   onMissing,
+  onSwitchWorkspace,
   onClose,
   onNavigate,
   onOpenInNewTab,
@@ -144,7 +146,8 @@ export default function SearchModal({
   const cmdOnly = q.trimStart().startsWith('>');
   const cmdQuery = cmdOnly ? q.trimStart().slice(1) : q;
   // Recomputed per render: labels follow the language, `when` follows the screen.
-  const allCmds = paletteCommands();
+  // (Deliberately not memoized: the registry answers for right now.)
+  const allCmds = [...paletteCommands(), ...workspaceSwitchCommands(workspaces)];
   const matchedCmds = useMemo(() => matchCommands(cmdQuery, allCmds), [cmdQuery, allCmds]);
   // In command mode (`>`) only commands; otherwise server hits first and the
   // matching commands after them. An empty query shows recents, then commands.
@@ -192,9 +195,15 @@ export default function SearchModal({
 
   const openItem = (it: NavItem, e?: React.KeyboardEvent | React.MouseEvent) => {
     if (it.kind === 'command') {
+      const id = it.c.id;
+      // Workspace rows are not registry shortcuts: switch directly.
+      if (id.startsWith('ws:')) {
+        onClose();
+        onSwitchWorkspace(id.slice('ws:'.length));
+        return;
+      }
       // Close first, then run on the next tick: command guards read modalOpen()
       // off the DOM, and the overlay is gone only after the unmount commits.
-      const id = it.c.id;
       onClose();
       window.setTimeout(() => void runPaletteCommand(id), 0);
       return;

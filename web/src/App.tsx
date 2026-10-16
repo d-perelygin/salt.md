@@ -1743,6 +1743,7 @@ export default function App() {
           onCreatePage={createPage}
           onMenu={openSidebar}
           onMissing={handleMissing}
+          onSwitchWorkspace={switchWorkspace}
           onClose={() => setSearchOpen(false)}
           onNavigate={(id) => {
             setSearchOpen(false);
