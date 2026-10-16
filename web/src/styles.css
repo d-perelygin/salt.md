@@ -1683,7 +1683,7 @@ body:has(.icon-picker) .bn-side-menu {
 }
 
 .search-modal.has-preview {
-  width: min(1040px, 96vw);
+  width: min(1120px, 96vw);
 }
 
 .search-body {
@@ -1915,12 +1915,12 @@ body:has(.icon-picker) .bn-side-menu {
    exactly like the page — a click on plain content opens it (see openPreview),
    while the editor's own controls and links answer for themselves. */
 .search-main {
-  flex: 1;
+  flex: 0 1 420px;
   min-width: 0;
 }
 
 .search-preview {
-  width: 400px;
+  width: 520px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   padding: 12px 14px 18px;
@@ -1937,10 +1937,14 @@ body:has(.icon-picker) .bn-side-menu {
 
 /* The editor root clips to its own height by default (see .editor-page), so
    without this the pane would show exactly one screen of a long page and no
-   scroll. Unset, the editor grows naturally and the pane scrolls it. */
+   scroll. Unset, the editor grows naturally and the pane scrolls it.
+   Miniature rendering on top: the preview reads as an overview, not a second
+   full page. zoom (not transform: scale) keeps layout, scroll and pointer
+   coordinates consistent — the pane still scrolls the scaled content. */
 .search-preview-body > .editor-page {
   height: auto;
   overflow: visible;
+  zoom: 0.8;
 }
 
 .search-preview-head {
