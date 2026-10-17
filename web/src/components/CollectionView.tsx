@@ -3039,13 +3039,29 @@ function TableView({
   const tableRef = useRef<HTMLTableElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   // The heading sticks against the page scroll natively (see .db-table
-  // thead), clearing the sticky toolbar by this variable: measured off the
-  // live bar rather than hard-coded, so fonts and themes cannot drift it
-  // apart. Same measure-after-layout pattern as the pinned columns below.
+  // thead): this measures what it needs — the live toolbar height it clears,
+  // and the live viewport width the toolbar holds while the table slides.
+  // Both are measured, never hard-coded, so fonts, themes and the sidebar
+  // cannot drift them apart. The class lets the page scroll sideways at all
+  // (see .page-body); a ResizeObserver, not a window resize, because the
+  // sidebar collapsing changes the width without one. Same
+  // measure-after-layout pattern as the pinned columns below.
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
+    const body = wrap?.closest<HTMLElement>('.page-body');
     const bar = wrap?.closest('.collection-scroll')?.querySelector<HTMLElement>('.collection-toolbar');
     if (wrap && bar) wrap.style.setProperty('--tbl-stick-top', `${bar.getBoundingClientRect().height}px`);
+    if (!body) return;
+    const setVw = () => body.style.setProperty('--page-vw', `${body.clientWidth}px`);
+    body.classList.add('allow-table-x');
+    setVw();
+    const ro = new ResizeObserver(setVw);
+    ro.observe(body);
+    return () => {
+      body.classList.remove('allow-table-x');
+      body.style.removeProperty('--page-vw');
+      ro.disconnect();
+    };
   });
   // Sticky needs a left offset per column, and only the browser knows how wide
   // an un-resized column came out — so the offsets are measured after layout and

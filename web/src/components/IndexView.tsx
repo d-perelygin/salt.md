@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { toast } from '../toast';
 import type { PageMeta, Workspace } from '../types';
@@ -87,6 +87,16 @@ export default function IndexView({
   // report as "half my pages are gone".
   const [wsFilter, setWsFilter] = useState<string>(currentWs);
   const [spaces, setSpaces] = useState<Map<string, string>>(new Map());
+  // The table below scrolls sideways at the page level (see .table-wrap):
+  // the class lets the page scroll at all. No toolbar here, so no measured
+  // variables — the heading sticks to the very top.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const body = rootRef.current?.closest('.page-body');
+    if (!body) return;
+    body.classList.add('allow-table-x');
+    return () => body.classList.remove('allow-table-x');
+  });
 
   useEffect(() => {
     void api.graph().then((g) => setEdges(g.edges)).catch(() => {});
@@ -253,7 +263,7 @@ export default function IndexView({
   if (mode === 'tree') renderSubtree('', 0);
 
   return (
-    <div className="index-view">
+    <div className="index-view" ref={rootRef}>
       <div className="index-head">
         <h1>
           <Library size={20} /> {t('Library')}

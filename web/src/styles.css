@@ -1078,11 +1078,19 @@ button {
 }
 /* A table view scrolls sideways at the page level, so the heading can stick
    against the page natively (see .table-wrap): the table outgrows the
-   viewport and the page carries it. Scoped to pages that actually hold a
-   table — documents keep their clipped overflow — and never to embeds, which
-   keep their own sideways scroller inside the document. */
-.page-body:has(.table-wrap:not(.bn-db-embed .table-wrap)) {
+   viewport and the page carries it. allow-table-x is set from the table view
+   itself (a class, not :has, so no modern selector is required) — documents
+   keep their clipped overflow, and embeds keep their own sideways scroller
+   inside the document. */
+.page-body.allow-table-x {
   overflow-x: auto;
+}
+/* Room for the toolbar to hold the left edge while the table slides (see
+   below): the strip grows to the table's width, never below the viewport.
+   Embeds are excluded — their strip stays narrow inside the document. */
+.page-body.allow-table-x .collection-scroll:not(.is-embed) {
+  width: max-content;
+  min-width: 100%;
 }
 
 /* Inside .page-body the editor area no longer scrolls itself — it grows with
@@ -2612,6 +2620,18 @@ body:has(.icon-picker) .bn-side-menu {
 
 .collection-toolbar > * {
   flex-shrink: 0;
+}
+/* On table pages the page scrolls sideways under the bar (see .page-body):
+   the bar holds the viewport's left edge instead of riding away with the
+   table — the tabs and New stay where they were, as with the bar's own inner
+   scroll before. Exactly the live viewport width (measured, not 100vw: the
+   sidebar is layout, not overlay), so it reads unchanged when nothing
+   scrolls. Narrow tables never engage this: the strip is viewport-wide and
+   there is no room to stick. */
+.page-body.allow-table-x .collection-toolbar {
+  width: var(--page-vw, 100%);
+  position: sticky;
+  left: 0;
 }
 
 .view-tabs {
