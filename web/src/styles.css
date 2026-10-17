@@ -282,8 +282,10 @@ button {
 
 .tree-drop-line {
   flex: none;
-  height: 2px;
-  margin: 1px 0;
+  height: 3px;
+  /* Wider than the row itself: it overhangs the pill on both sides instead
+     of stopping at its edge. */
+  margin: 0.5px -8px;
   border-radius: 2px;
   background: var(--accent);
 }
