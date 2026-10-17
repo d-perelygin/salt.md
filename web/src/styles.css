@@ -3412,9 +3412,9 @@ body.is-col-resizing {
   background-origin: border-box;
 }
 /* The line down a pinned column, and the line under its rows — the browser
-   paints neither. Not the left one except at the scrollport's edge
-   (is-stuck-first): between two pinned columns the left one's right line is
-   already there, and two lines read as a thicker grid. */
+   paints neither. The left one only at the scrollport's edge
+   (is-stuck-first); every other pinned column draws its own left line with
+   ::before below, so this stays right+bottom for all of them. */
 .db-table th.is-stuck::after,
 .db-table td.is-stuck::after {
   border-right: 1px solid var(--border);
@@ -3423,6 +3423,27 @@ body.is-col-resizing {
 .db-table th.is-stuck-first::after,
 .db-table td.is-stuck-first::after {
   border-left: 1px solid var(--border);
+}
+/* The separator between two pinned columns. Each stuck cell paints opaque
+   bands over its 1px edge zones (see above), and a later cell paints above
+   an earlier one — so the left cell's right line ends up buried under the
+   right cell's left band, and the columns stand undivided. The right cell
+   therefore draws the line itself, on top of its own bands: a 1px ::before
+   on the cell's left edge, above content paint (z-index) but clear of it
+   (padding keeps text 7px+ away). A border on ::after cannot do it — the
+   bands it would sit on must stay opaque, or the columns sliding underneath
+   shimmer through the slit. */
+.db-table th.is-stuck:not(.is-stuck-first)::before,
+.db-table td.is-stuck:not(.is-stuck-first)::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: 0;
+  width: 1px;
+  background: var(--border);
+  z-index: 1;
+  pointer-events: none;
 }
 /* The stuck heading draws the line under itself: the row below draws one while
    it is where it belongs, but not once it has slid up behind the heading. The

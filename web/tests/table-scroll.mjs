@@ -82,7 +82,7 @@ await withFixture(async ({ page, api, path }) => {
   // A pinned column pins the footer with it: the summary row's title cell
   // holds the edge while the aggregates slide.
   const cfg2 = await api('GET', path);
-  cfg2.views[0].stuckCols = ['__title'];
+  cfg2.views[0].stuckCols = ['__title', 'status'];
   await api('PUT', path, cfg2);
   await page.reload();
   await page.locator('.db-table tfoot td', { hasText: 'rows' }).waitFor();
@@ -98,6 +98,16 @@ await withFixture(async ({ page, api, path }) => {
   const bodyBox2 = await page.locator('.page-body').evaluate((el) => el.getBoundingClientRect().left);
   assert.ok(footPinned.stuck, 'footer title cell pinned with its column');
   assert.ok(Math.abs(footPinned.left - bodyBox2) < 2, `footer holds the edge (foot=${footPinned.left}, body=${bodyBox2})`);
+
+  // Two pinned columns stand divided: the second draws its own left line
+  // (the first one's is buried under its opaque bands — verified pixel by
+  // pixel during the fix).
+  const seam = await page.locator('.db-table thead th.is-stuck').nth(1).evaluate((el) => {
+    const b = getComputedStyle(el, '::before');
+    return { w: b.width, bg: b.backgroundColor };
+  });
+  assert.equal(seam.w, '1px');
+  assert.notEqual(seam.bg, 'rgba(0, 0, 0, 0)');
 
   // The row open in the peek keeps its title underlined; closing clears it.
   await page.evaluate(() => document.querySelector('.page-body')?.scrollTo(0, 0));
