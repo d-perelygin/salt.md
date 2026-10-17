@@ -1526,6 +1526,12 @@ export default function App() {
     setPeekOrder(null);
     setPeekPinned(false);
   }, []);
+  // Who is open in the peek, for whoever lists the page: table rows underline
+  // the open one's title (see TableView). One effect on the state, so no call
+  // site can change the peek without announcing it.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('salt:peek-open', { detail: { id: peekId } }));
+  }, [peekId]);
   // The click that just asked for a peek, if any: a click on a row first opens
   // the peek (synchronously, through salt:peek) and only then reaches the
   // document listener below — the flag tells the two apart, so opening never

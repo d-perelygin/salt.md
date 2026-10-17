@@ -3024,6 +3024,26 @@ function TableView({
   onSetOptions: (propId: string, options: PropOption[]) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // The row open in the side peek, if it is one of ours: its title stays
+  // underlined while it is open, so the eye finds the row behind the panel.
+  // Announced from App (salt:peek-open); a flushed offline create remaps the
+  // id under it (REMAP_EVENT), same as everywhere else.
+  const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    const onPeek = (e: Event) => {
+      setOpenId((e as CustomEvent<{ id?: string | null }>).detail?.id ?? null);
+    };
+    const onRemap = (e: Event) => {
+      const { tempId, realId } = (e as CustomEvent<{ tempId: string; realId: string }>).detail;
+      setOpenId((prev) => (prev === tempId ? realId : prev));
+    };
+    window.addEventListener('salt:peek-open', onPeek);
+    window.addEventListener(REMAP_EVENT, onRemap);
+    return () => {
+      window.removeEventListener('salt:peek-open', onPeek);
+      window.removeEventListener(REMAP_EVENT, onRemap);
+    };
+  }, []);
   // The width being dragged right now. Kept out of the stored widths so the
   // drag is local and instant: writing to the view on every pointermove would
   // put one request per pixel on the wire and re-render the whole table.
@@ -3265,7 +3285,7 @@ function TableView({
                     )
                   ) : null}
                   <button
-                    className="db-title-link"
+                    className={'db-title-link' + (r.id === openId ? ' is-open' : '')}
                     onClick={(e) =>
                       openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab }, {
                         siblingIds: ordered.map((o) => o.row.id),
@@ -3326,11 +3346,16 @@ function TableView({
                   string with an expression inside it, and one word without an
                   umlaut is below the line rule's threshold. It was found by
                   reading the code for the wiki. */}
-              <td className="db-title-col db-calc-cell">
+              <td className={'db-title-col db-calc-cell' + (stuckSet.has(TITLE_COL) ? ' is-stuck' : '')} data-col={TITLE_COL} style={colStyle(TITLE_COL)}>
                 {plural(rows.length, '{n} row', '{n} rows')}
               </td>
               {schema.map((p) => (
-                <td key={p.id} className="db-calc-cell">
+                <td
+                  key={p.id}
+                  data-col={p.id}
+                  className={'db-calc-cell' + (stuckSet.has(p.id) ? ' is-stuck' : '')}
+                  style={colStyle(p.id)}
+                >
                   {footer(p)}
                 </td>
               ))}

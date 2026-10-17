@@ -78,4 +78,34 @@ await withFixture(async ({ page, api, path }) => {
   assert.ok(Math.abs(barBox.width - bodyBox.width) < 2, `toolbar spans the viewport (bar=${barBox.width}, body=${bodyBox.width})`);
   const headBox = await page.locator('.page-head').evaluate((el) => el.getBoundingClientRect().toJSON());
   assert.ok(Math.abs(headBox.left - bodyBox.left) < 2, `page head holds the left edge (head=${headBox.left}, body=${bodyBox.left})`);
+
+  // A pinned column pins the footer with it: the summary row's title cell
+  // holds the edge while the aggregates slide.
+  const cfg2 = await api('GET', path);
+  cfg2.views[0].stuckCols = ['__title'];
+  await api('PUT', path, cfg2);
+  await page.reload();
+  await page.locator('.db-table tfoot td', { hasText: 'rows' }).waitFor();
+  await page.evaluate(() => document.querySelector('.page-body')?.scrollTo(99999, 0));
+  await eventually(async () => {
+    const x = await page.evaluate(() => document.querySelector('.page-body')?.scrollLeft ?? 0);
+    return x > 100;
+  });
+  const footPinned = await page.locator('.db-table tfoot td.db-title-col').evaluate((el) => ({
+    stuck: el.classList.contains('is-stuck'),
+    left: el.getBoundingClientRect().left,
+  }));
+  const bodyBox2 = await page.locator('.page-body').evaluate((el) => el.getBoundingClientRect().left);
+  assert.ok(footPinned.stuck, 'footer title cell pinned with its column');
+  assert.ok(Math.abs(footPinned.left - bodyBox2) < 2, `footer holds the edge (foot=${footPinned.left}, body=${bodyBox2})`);
+
+  // The row open in the peek keeps its title underlined; closing clears it.
+  await page.evaluate(() => document.querySelector('.page-body')?.scrollTo(0, 0));
+  await page.locator('.db-table tbody .db-title-link', { hasText: 'First row' }).click();
+  await eventually(async () => {
+    const open = await page.locator('.db-table tbody .db-title-link.is-open').allTextContents();
+    return open.some((s) => s.includes('First row'));
+  });
+  await page.keyboard.press('Escape');
+  await eventually(async () => (await page.locator('.db-table tbody .db-title-link.is-open').count()) === 0);
 });

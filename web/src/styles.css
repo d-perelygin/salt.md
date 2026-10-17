@@ -3466,6 +3466,13 @@ body.is-col-resizing {
 .db-title-link:hover {
   text-decoration: underline;
 }
+/* The row open in the side peek keeps its title underlined while it is
+   open — the hover language, made persistent, so the eye finds the row
+   behind the panel. */
+.db-title-link.is-open {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
 .db-empty {
   text-align: center;
@@ -4088,6 +4095,12 @@ button.relation-chip:hover {
   padding: 6px 10px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* A pinned footer cell keeps the footer's own paint, not the body's: the
+   generic stuck rule would wash it in --bg and the seams with it. */
+.db-table tfoot td.is-stuck {
+  background: var(--sidebar-bg);
+  --cell-bg: var(--sidebar-bg);
 }
 
 /* Error boundary fallback */

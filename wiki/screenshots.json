@@ -81,7 +81,7 @@
       "takenAt": {
         "web/src/components/Sidebar.tsx": "0bac4a405ae8",
         "web/src/components/Editor.tsx": "6604652d1659",
-        "web/src/App.tsx": "561ba8a24b7f",
+        "web/src/App.tsx": "711b11f2432f",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -299,7 +299,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "7be10566bb36",
+        "web/src/components/CollectionView.tsx": "daa1814c438e",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -333,7 +333,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "7be10566bb36",
+        "web/src/components/CollectionView.tsx": "daa1814c438e",
         "web/src/cardLayout.ts": "eb7f92584275",
         "web/src/theme.css": "b1c3dece61ce"
       }
@@ -367,7 +367,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "7be10566bb36",
+        "web/src/components/CollectionView.tsx": "daa1814c438e",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
