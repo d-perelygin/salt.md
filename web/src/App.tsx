@@ -1547,6 +1547,13 @@ export default function App() {
   // click bubbles to the document its target may hang off no parent at all —
   // and closest() on a detached node answers null, which reads as "outside".
   const downInsideRef = useRef(false);
+  // What the press started on, decided on pointerdown while the DOM is still
+  // intact: a button that unmounts itself on click (sidebar collapse/expand
+  // swaps its own button, so React redraws before the click reaches the
+  // document) leaves e.target detached, and closest() on a detached svg
+  // answers null — the PEEK_KEEPS_OPEN check in onClick would miss it and
+  // dismiss the peek. Same detached-node reason as downInsideRef above.
+  const downKeepsOpenRef = useRef(false);
   const OUTSIDE_OK =
     '.peek-panel, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
   // Content the peek stays open over: text being read or edited, controls, and
@@ -1564,10 +1571,13 @@ export default function App() {
     const onDown = (e: PointerEvent) => {
       const t = e.target as Element | null;
       downInsideRef.current = !!t?.closest?.(OUTSIDE_OK);
+      downKeepsOpenRef.current = !!t?.closest?.(PEEK_KEEPS_OPEN);
     };
     const onClick = (e: MouseEvent) => {
       const inside = downInsideRef.current;
       downInsideRef.current = false;
+      const keepsOpen = downKeepsOpenRef.current;
+      downKeepsOpenRef.current = false;
       if (peekAskedRef.current) {
         peekAskedRef.current = false;
         return;
@@ -1577,6 +1587,7 @@ export default function App() {
       const t = e.target as Element | null;
       if (t?.closest?.(OUTSIDE_OK)) return;
       if (t?.closest?.(PEEK_KEEPS_OPEN)) return;
+      if (keepsOpen) return;
       closePeek();
     };
     document.addEventListener('pointerdown', onDown, true);
