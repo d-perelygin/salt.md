@@ -1833,6 +1833,11 @@ function PageHeader({
           only the slim topbar stays. Crucial on mobile, where a static header
           left just a tiny scrolling window. */}
       <div className={'page-body' + (cover ? ' has-cover' : '')} ref={bodyRef} data-page-id={pageId}>
+      {/* Cover, icon row and head share a wrapper so all three can hold the
+          viewport's left edge on table pages, where the page scrolls sideways
+          under them (see .page-head-wrap in styles.css). display: contents by
+          default, so this changes no layout until that class lands. */}
+      <div className="page-head-wrap">
       {cover && (
         <div className="page-cover" style={coverStyle(cover)}>
           <div className="page-cover-actions">
@@ -2067,6 +2072,7 @@ function PageHeader({
         )}
       </div>
       {children}
+      </div>
       {/* The raw trail stays at the foot of the document. Comments moved to a
           panel beside it (CommentsPanel) because people WORK in them; the trail
           is read, rarely, when somebody doubts the written-up version — and

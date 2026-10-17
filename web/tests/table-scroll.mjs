@@ -71,8 +71,11 @@ await withFixture(async ({ page, api, path }) => {
   assert.ok(firstTh.left < bodyBox.left, 'heading travels with its columns');
 
   // The toolbar does not ride away with the table: it holds the viewport's
-  // left edge while the columns slide under it.
+  // left edge while the columns slide under it. Same for the page head —
+  // title and description stay put too.
   const barBox = await page.locator('.collection-toolbar').evaluate((el) => el.getBoundingClientRect().toJSON());
   assert.ok(Math.abs(barBox.left - bodyBox.left) < 2, `toolbar holds the left edge (bar=${barBox.left}, body=${bodyBox.left})`);
   assert.ok(Math.abs(barBox.width - bodyBox.width) < 2, `toolbar spans the viewport (bar=${barBox.width}, body=${bodyBox.width})`);
+  const headBox = await page.locator('.page-head').evaluate((el) => el.getBoundingClientRect().toJSON());
+  assert.ok(Math.abs(headBox.left - bodyBox.left) < 2, `page head holds the left edge (head=${headBox.left}, body=${bodyBox.left})`);
 });

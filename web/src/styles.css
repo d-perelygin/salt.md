@@ -2248,6 +2248,48 @@ body:has(.icon-picker) .bn-side-menu {
 
 /* ---------- Page head (shared by doc + collection) ---------- */
 
+/* No box of its own: the cover, icon row, head and content lay out exactly
+   as if it were not there. Under .allow-table-x (table pages) it becomes
+   the wide strip the chrome pins against while the table slides — flex, so
+   the content below keeps whatever flex behaviour it had. */
+.page-head-wrap {
+  display: contents;
+}
+/* Room to pin against: the strip grows to the table's width, never below
+   the viewport. */
+.page-body.allow-table-x .page-head-wrap {
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 100%;
+}
+/* The title and description hold the viewport's left edge while a wide table
+   slides — exactly the live viewport width (measured, like the toolbar), so
+   this reads unchanged until anything scrolls. */
+.page-body.allow-table-x .page-head {
+  width: var(--page-vw, 100%);
+  position: sticky;
+  left: 0;
+}
+/* Positioned before (it anchors the overlapping icon row) and positioned
+   still — sticky without a top lays out exactly as relative did vertically. */
+.page-body.allow-table-x .page-head.with-cover {
+  position: sticky;
+}
+.page-body.allow-table-x .page-icon-row {
+  width: var(--page-vw, 100%);
+  position: sticky;
+  left: 0;
+}
+/* The banner holds the edge too: sticky already where there is a cover
+   (collapsing strip), plain sticky here — without a top it lays out as
+   relative did. */
+.page-body.allow-table-x .page-cover {
+  width: var(--page-vw, 100%);
+  position: sticky;
+  left: 0;
+}
+
 .page-head {
   max-width: var(--doc-width);
   margin: 0 auto;
