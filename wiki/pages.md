@@ -218,9 +218,19 @@ document needs no tab bar. Each tab shows the page's icon and title; click one
 to switch, click its `×` or middle-click it to close. Closing the active tab
 lands you on the tab that slides into its place.
 
+Right-click a tab for its menu: **Pin tab** / **Unpin tab**, **Move left** /
+**Move right**, **Close tab**, **Close other tabs**, **Close tabs to the
+right**. Tabs can also be dragged along the strip. A pinned tab leads the
+strip, is never navigated in place — following a link from it opens the page
+after it instead — and survives *Close other tabs* and *Close tabs to the
+right*. Pins and the order are remembered in this browser together with the
+tabs themselves.
+
 `Ctrl+Alt+←` and `Ctrl+Alt+→` cycle through the open tabs. The shortcut is
 ignored while you are typing, and it deliberately does not use ⌘: on macOS
-`⌘⌥←/→` is the browser's own tab switch.
+`⌘⌥←/→` is the browser's own tab switch. `Ctrl+Alt+Shift+←/→` moves the active
+tab along the strip instead, `Ctrl+Alt+P` pins or unpins it, and `Ctrl+Alt+W`
+closes it.
 
 ## The sidebar ⋯ menu
 

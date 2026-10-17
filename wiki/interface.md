@@ -286,17 +286,25 @@ the second tab: one document needs no tab bar.
   collection view and a note in the notes column, and a board card's ⋯ menu
   carries the entry too.
 - A new tab opens directly after the active one and is focused.
-- **✕** closes a tab, and so does a **middle-click** on it.
+- **✕** closes a tab, and so does a **middle-click** on it. A right-click
+  opens the tab's menu: pin it, move it along the strip, close it, close
+  everything but it and the pins, or close everything to its right. Tabs can
+  also be dragged, and `Ctrl+Alt+Shift+←/→` moves the focused one.
+- A **pinned** tab leads the strip and keeps its place: following a link from
+  it opens the page after it instead of replacing it, and the bulk closes
+  leave it alone.
 - Closing the active tab activates the neighbour that slides into its place.
   Closing the last one does not leave you on an empty screen; a page is picked
   for you.
 - Back and forward restore the exact set of tabs that entry had, not just the
   address.
-- Switching workspace leaves the tabs alone. A tab can go on showing a page from
-  a workspace the sidebar is no longer displaying.
-- The set of open tabs is remembered in this browser. A tab whose page was
-  trashed or deleted elsewhere drops out on its own, within a moment of the
-  change arriving, so no ghost tabs pile up.
+- Switching workspace leaves the tabs alone: it focuses the tab you last had
+  open there, or opens that page in a new tab right after the current one —
+  never by replacing the tab you are leaving. A tab can go on showing a page
+  from a workspace the sidebar is no longer displaying.
+- The set of open tabs, their order and their pins are remembered in this
+  browser. A tab whose page was trashed or deleted elsewhere drops out on its
+  own, within a moment of the change arriving, so no ghost tabs pile up.
 
 ## The topbar
 
