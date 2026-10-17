@@ -3,6 +3,17 @@ import { api } from '../api';
 import { onRefresh } from '../pwa';
 import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
+import { useShortcut } from '../keys';
+import {
+  announceUndo,
+  clearActiveView,
+  clearUndo,
+  pushUndo,
+  redoView,
+  series,
+  setActiveView,
+  undoView,
+} from '../viewUndo';
 import { useOnline } from '../useOnline';
 import Portal from './Portal';
 import AnchoredMenu from './AnchoredMenu';
@@ -407,7 +418,17 @@ function sameFilterGroups(a: Filter[][], b: Filter[][]): boolean {
 
 export default function CollectionView({ collectionId, pages, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, embed }: Props) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
+  // Live config for undo: restoring a whole view object must read the config
+  // as it is when undo runs, not as it was when the step was pushed. Beside
+  // the other refs, above the loading guard — hooks after a conditional
+  // return crash the render (React #310).
+  const configRef = useRef<CollectionConfig | null>(null);
+  configRef.current = config;
   const [rows, setRows] = useState<Row[]>([]);
+  // Live rows for the same reason: a queued step reads what is there when it
+  // runs, not what was there when it was issued.
+  const rowsRef = useRef<Row[]>(rows);
+  rowsRef.current = rows;
   const [offlineSnapshot, setOfflineSnapshot] = useState(false);
   const online = useOnline();
   // A full page remembers its view across tab switches and reloads (see
@@ -862,6 +883,68 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     return () => window.removeEventListener(REMAP_EVENT, onRemap);
   }, []);
 
+  // Session undo: the stacks live here, the buttons in the topbar. The
+  // rendered, non-embed view registers itself as the collection's active
+  // one, so the buttons address what you are looking at; embeds share the
+  // same stacks but never answer orders (one handler per view, or every
+  // undo would run twice).
+  const seenViews = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!view || embed) return;
+    seenViews.current.add(view.id);
+    setActiveView(collectionId, view.id);
+    announceUndo(view.id);
+    return () => clearActiveView(collectionId, view.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectionId, view?.id, embed]);
+  useEffect(() => {
+    const ordered = (e: Event, redo: boolean) => {
+      const id = (e as CustomEvent<{ viewId?: string }>).detail?.viewId;
+      if (id && id === view?.id && !embed) void (redo ? redoView(id) : undoView(id));
+    };
+    const onUndo = (e: Event) => ordered(e, false);
+    const onRedo = (e: Event) => ordered(e, true);
+    window.addEventListener('salt:undo-request', onUndo);
+    window.addEventListener('salt:redo-request', onRedo);
+    return () => {
+      window.removeEventListener('salt:undo-request', onUndo);
+      window.removeEventListener('salt:redo-request', onRedo);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view?.id, embed]);
+  // Leaving the page drops its stacks: they are a session affair, and a
+  // stale stack from last week is a trap, not a feature.
+  useEffect(() => {
+    const seen = seenViews.current;
+    return () => {
+      for (const id of seen) clearUndo(id);
+    };
+  }, []);
+
+  // Mod+Z / Mod+Shift+Z over a collection view. Typing targets are skipped
+  // by the registry itself (whileTyping is off), so text keeps its native
+  // undo and the stack only answers where no text is being written.
+  useShortcut({
+    id: 'view.undo',
+    keys: ['mod+z', 'ctrl+z'],
+    scope: 'view',
+    label: () => t('Undo'),
+    group: () => t('View'),
+    run: () => {
+      if (view && !embed) void undoView(view.id);
+    },
+  });
+  useShortcut({
+    id: 'view.redo',
+    keys: ['mod+shift+z', 'ctrl+shift+z', 'ctrl+y'],
+    scope: 'view',
+    label: () => t('Redo'),
+    group: () => t('View'),
+    run: () => {
+      if (view && !embed) void redoView(view.id);
+    },
+  });
+
   // Persist an inline change to a select/multiselect property's options (create,
   // recolour, delete) — the cell editor edits the schema, not just the value.
   const setPropOptions = (propId: string, options: PropOption[]) => {
@@ -878,12 +961,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const boardGroupBy =
     view?.type === 'board' ? (view.groupBy || schema.find((p) => p.type === 'select')?.id || '') : '';
 
-  const setRowProp = async (
-    rowId: string,
-    propId: string,
-    value: unknown,
-    opts?: { keepPosition?: boolean },
-  ) => {
+  // Raw applicators: write through, journal offline, never touch the undo
+  // stack themselves. Everything below composes its steps out of these, so
+  // undoing writes exactly the way doing did (an amend, not a cancel).
+  const writeProp = async (rowId: string, propId: string, value: unknown) => {
     setRows((prev) =>
       prev.map((r) => (r.id === rowId ? { ...r, props: { ...r.props, [propId]: value } } : r)),
     );
@@ -900,19 +981,51 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         toast(t('Change not saved'));
       }
     }
-    // A board card whose group value changes moves columns without being put
-    // anywhere: top of the new one. A drag between cards places the card
-    // itself (see the board's onMoveCard) and says so with keepPosition; a
-    // sorted view has no positions worth keeping.
-    if (!opts?.keepPosition && view?.type === 'board' && !view.sort && boardGroupBy && propId === boardGroupBy) {
-      const optId = Array.isArray(value) ? (value[0] as string) : (value as string);
-      const siblings =
-        optId === undefined || optId === ''
-          ? boardColumnRows(rows, boardGroupBy, UNSET)
-          : boardColumnRows(rows, boardGroupBy, optId);
-      await placeRowOnTop(rowId, siblings);
-    }
   };
+
+  const writePos = async (rowId: string, position: number) => {
+    // The field only: the server order rules on the reload the write itself
+    // triggers, so undoing never has to rebuild the visible order by hand.
+    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, position } : r)));
+    await savePageUpdate(rowId, { position }, { label: t('Change') });
+  };
+
+  const setRowProp = (rowId: string, propId: string, value: unknown): Promise<void> =>
+    // Serialized with every other mutation of this view (see series): the
+    // olds are read inside, at execution, so a step queued behind a slow
+    // write still captures the world as the write left it.
+    series(view?.id, async () => {
+      const live = rowsRef.current;
+      const me = live.find((r) => r.id === rowId);
+      const oldVal = me?.props[propId];
+      const oldPos = me?.position;
+      await writeProp(rowId, propId, value);
+      // A board card whose group value changes moves columns without being put
+      // anywhere: top of the new one.
+      let newPos: number | undefined;
+      const v = view;
+      if (v?.type === 'board' && !v.sort && boardGroupBy && propId === boardGroupBy) {
+        const optId = Array.isArray(value) ? (value[0] as string) : (value as string);
+        const siblings =
+          optId === undefined || optId === ''
+            ? boardColumnRows(live, boardGroupBy, UNSET)
+            : boardColumnRows(live, boardGroupBy, optId);
+        newPos = await placeRowOnTop(rowId, siblings);
+      }
+      if (v && !isTempId(rowId) && JSON.stringify(oldVal) !== JSON.stringify(value)) {
+        pushUndo(v.id, {
+          label: t('Change'),
+          undo: async () => {
+            await writeProp(rowId, propId, oldVal);
+            if (newPos !== undefined && oldPos !== undefined) await writePos(rowId, oldPos);
+          },
+          redo: async () => {
+            await writeProp(rowId, propId, value);
+            if (newPos !== undefined) await writePos(rowId, newPos);
+          },
+        });
+      }
+    });
 
   // Setting the group property from a drag/preset respects the property type:
   // a multi-select stores an array, a select stores a scalar.
@@ -937,57 +1050,119 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     }
   };
 
-  const setGroupValue = async (rowId: string, propId: string, optId: string, opts?: { keepPosition?: boolean }) => {
+  const setGroupValue = async (rowId: string, propId: string, optId: string) => {
     const prop = schema.find((p) => p.id === propId);
     if (prop?.type === 'multiselect' || prop?.type === 'relation') {
-      await setRowProp(rowId, propId, optId === UNSET ? [] : [optId], opts);
+      await setRowProp(rowId, propId, optId === UNSET ? [] : [optId]);
     } else {
-      await setRowProp(rowId, propId, optId === UNSET ? '' : optId, opts);
+      await setRowProp(rowId, propId, optId === UNSET ? '' : optId);
     }
+  };
+
+  // The position a card takes inside an explicit order: a fraction between
+  // the neighbours, so no other row moves. Shared by moveCard and
+  // dropCardCrossColumn; undefined means the card stands alone and there is
+  // no position worth writing.
+  const positionFor = (newOrder: string[], rowId: string, allRows: Row[]): number | undefined => {
+    const posOf = new Map(allRows.map((r) => [r.id, r.position]));
+    const at = newOrder.indexOf(rowId);
+    if (at < 0) return undefined;
+    const prev = at > 0 ? newOrder[at - 1] : undefined;
+    const next = at < newOrder.length - 1 ? newOrder[at + 1] : undefined;
+    if (prev === undefined && next === undefined) return undefined; // alone in its column
+    const pv = prev !== undefined ? posOf.get(prev) : undefined;
+    const nv = next !== undefined ? posOf.get(next) : undefined;
+    return pv !== undefined && nv !== undefined ? (pv + nv) / 2 : nv !== undefined ? nv - 1 : (pv ?? 0) + 1;
+  };
+
+  // The visible shuffle for an explicit order: the card out, then ahead of
+  // `next` (or behind `prev` at the end). The server order rules on reload;
+  // this is only so the move reads instantly.
+  const orderSplice = (prevRows: Row[], rowId: string, newOrder: string[], position: number): Row[] => {
+    const without = prevRows.filter((r) => r.id !== rowId);
+    const moved = prevRows.find((r) => r.id === rowId);
+    if (!moved) return prevRows;
+    const tagged = { ...moved, position };
+    const at = newOrder.indexOf(rowId);
+    const next = at >= 0 && at < newOrder.length - 1 ? newOrder[at + 1] : undefined;
+    const prev = at > 0 ? newOrder[at - 1] : undefined;
+    if (next !== undefined) {
+      const i = without.findIndex((r) => r.id === next);
+      if (i >= 0) return [...without.slice(0, i), tagged, ...without.slice(i)];
+    } else if (prev !== undefined) {
+      const i = without.findIndex((r) => r.id === prev);
+      if (i >= 0) return [...without.slice(0, i + 1), tagged, ...without.slice(i + 1)];
+    }
+    return [...without, tagged];
   };
 
   // Moving a card between cards, in a view with no sort. The board hands over
   // the target column's order with the dragged card where it lands; the
   // position is a fraction between the neighbours, so no other row moves and
   // the order survives reloads, which a local shuffle would not.
-  const moveCard = async (rowId: string, curOrder: string[], newOrder: string[]) => {
-    if (curOrder.length === newOrder.length && curOrder.every((id, i) => newOrder[i] === id)) return;
-    const posOf = new Map(rows.map((r) => [r.id, r.position]));
-    const at = newOrder.indexOf(rowId);
-    if (at < 0) return;
-    const prev = at > 0 ? newOrder[at - 1] : undefined;
-    const next = at < newOrder.length - 1 ? newOrder[at + 1] : undefined;
-    if (prev === undefined && next === undefined) return; // alone in its column
-    const pv = prev !== undefined ? posOf.get(prev) : undefined;
-    const nv = next !== undefined ? posOf.get(next) : undefined;
-    const position =
-      pv !== undefined && nv !== undefined ? (pv + nv) / 2 : nv !== undefined ? nv - 1 : (pv ?? 0) + 1;
-    setRows((prevRows) => {
-      const without = prevRows.filter((r) => r.id !== rowId);
-      const moved = prevRows.find((r) => r.id === rowId);
-      if (!moved) return prevRows;
-      const tagged = { ...moved, position };
-      if (next !== undefined) {
-        const i = without.findIndex((r) => r.id === next);
-        if (i >= 0) return [...without.slice(0, i), tagged, ...without.slice(i)];
-      } else if (prev !== undefined) {
-        const i = without.findIndex((r) => r.id === prev);
-        if (i >= 0) return [...without.slice(0, i + 1), tagged, ...without.slice(i + 1)];
+  const moveCard = (rowId: string, curOrder: string[], newOrder: string[]): Promise<number | undefined> =>
+    series(view?.id, async () => {
+      if (curOrder.length === newOrder.length && curOrder.every((id, i) => newOrder[i] === id)) return undefined;
+      const position = positionFor(newOrder, rowId, rowsRef.current);
+      if (position === undefined) return undefined;
+      const oldPos = rowsRef.current.find((r) => r.id === rowId)?.position;
+      setRows((prevRows) => orderSplice(prevRows, rowId, newOrder, position));
+      // Journals into the outbox offline, like every other row write.
+      await savePageUpdate(rowId, { position }, { label: t('Change') });
+      if (view && !isTempId(rowId) && oldPos !== undefined && oldPos !== position) {
+        pushUndo(view.id, {
+          label: t('Change'),
+          undo: () => writePos(rowId, oldPos),
+          redo: () => writePos(rowId, position),
+        });
       }
-      return [...without, tagged];
+      return position;
     });
-    // Journals into the outbox offline, like every other row write.
-    await savePageUpdate(rowId, { position }, { label: t('Change') });
-  };
+
+  // A drag across columns with an explicit spot: the group value and the
+  // position land together, and undo takes both back together — one gesture,
+  // one step. (A drop onto the column itself never comes here: it goes
+  // through onDrop, which puts the card on top as its own step.)
+  const dropCardCrossColumn = (
+    rowId: string,
+    groupBy: string,
+    optId: string,
+    newOrder: string[],
+  ): Promise<void> =>
+    series(view?.id, async () => {
+      const live = rowsRef.current;
+      const me = live.find((r) => r.id === rowId);
+      const oldVal = me?.props[groupBy];
+      const oldPos = me?.position;
+      const newVal = groupValueFor(schema, groupBy, optId);
+      await writeProp(rowId, groupBy, newVal);
+      const position = positionFor(newOrder, rowId, live);
+      if (position !== undefined) {
+        setRows((prevRows) => orderSplice(prevRows, rowId, newOrder, position));
+        await savePageUpdate(rowId, { position }, { label: t('Change') });
+      }
+      if (!view || isTempId(rowId)) return;
+      pushUndo(view.id, {
+        label: t('Change'),
+        undo: async () => {
+          await writeProp(rowId, groupBy, oldVal);
+          if (position !== undefined && oldPos !== undefined) await writePos(rowId, oldPos);
+        },
+        redo: async () => {
+          await writeProp(rowId, groupBy, newVal);
+          if (position !== undefined) await writePos(rowId, position);
+        },
+      });
+    });
 
   // A card that lands in a column without being put somewhere — a fresh +,
   // a drop onto the column, a group value picked in the card — goes on top:
   // one less than the column's lowest position. An explicit between-cards
   // drop keeps its spot through moveCard instead; a column with nobody in it
   // needs nothing, the row is alone there either way.
-  const placeRowOnTop = async (rowId: string, siblings: Row[]) => {
+  const placeRowOnTop = async (rowId: string, siblings: Row[]): Promise<number | undefined> => {
     const known = siblings.filter((r) => r.id !== rowId).map((r) => r.position);
-    if (known.length === 0) return;
+    if (known.length === 0) return undefined;
     const position = Math.min(...known) - 1;
     setRows((prevRows) => {
       const without = prevRows.filter((r) => r.id !== rowId);
@@ -1002,13 +1177,26 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     });
     // Journals into the outbox offline, like every other row write.
     await savePageUpdate(rowId, { position }, { label: t('Change') });
+    return position;
   };
 
   if (!config || !view) return <div className="editor-loading" />;
 
+  // Undo restores a whole view object, not a patch: by the time it runs the
+  // config has moved on, so the live one is read through a ref (declared
+  // above the guard — hooks after a conditional return crash the render).
+  const restoreView = async (v: ViewDef) => {
+    const cur = configRef.current;
+    if (!cur) return;
+    const next = { ...cur, views: cur.views.map((x) => (x.id === v.id ? v : x)) };
+    setConfig(next);
+    await api.putCollection(collectionId, next);
+  };
+
   const updateView = (patch: Partial<ViewDef>) => {
     // An embed keeps its filters and sort to itself (#26): set inside a
     // document, they must not change the collection's view everywhere else.
+    // Embed-local changes stay out of the undo stack with them.
     if (embed && ('filters' in patch || 'filterGroups' in patch || 'sort' in patch)) {
       const { filters, filterGroups, sort, ...rest } = patch;
       embed.onView(view.id, {
@@ -1019,11 +1207,31 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       if (Object.keys(rest).length === 0) return;
       patch = rest;
     }
-    const next = {
-      ...config,
-      views: config.views.map((v) => (v.id === view.id ? { ...v, ...patch } : v)),
-    };
-    void saveConfig(next);
+    const viewId = view.id;
+    const prev = view;
+    const nextView = { ...view, ...patch };
+    // Optimistic and functional, so back-to-back gestures cannot lose each
+    // other the way a stale closure would: the UI answers at once, as before.
+    setConfig((cur) =>
+      cur ? { ...cur, views: cur.views.map((v) => (v.id === viewId ? { ...v, ...patch } : v)) } : cur,
+    );
+    // The server write and the step join the view's lane in issue order, so
+    // a redo pressed on its heels still finds the stack the undo left.
+    void series(viewId, async () => {
+      const cur = configRef.current;
+      if (!cur) return;
+      await api.putCollection(collectionId, {
+        ...cur,
+        views: cur.views.map((v) => (v.id === viewId ? nextView : v)),
+      });
+      if (JSON.stringify(prev) !== JSON.stringify(nextView)) {
+        pushUndo(viewId, {
+          label: t('Change'),
+          undo: () => restoreView(prev),
+          redo: () => restoreView(nextView),
+        });
+      }
+    });
   };
 
   // Renaming and removing a view. Both were MCP-only: the ＋ made views and
@@ -1374,8 +1582,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onOpenInNewTab={onOpenInNewTab}
           onSetProp={setRowProp}
           onSetOptions={setPropOptions}
-          onDrop={(rowId, groupBy, optId, opts) => {
-            void setGroupValue(rowId, groupBy, optId, opts);
+          onDrop={(rowId, groupBy, optId) => {
+            void setGroupValue(rowId, groupBy, optId);
+          }}
+          onDropCard={(rowId, groupBy, optId, _curOrder, newOrder) => {
+            void dropCardCrossColumn(rowId, groupBy, optId, newOrder);
           }}
           manualOrder={!view.sort}
           onMoveCard={(rowId, curOrder, newOrder) => {
@@ -2609,6 +2820,7 @@ function BoardView({
   onDrop,
   onTrashRow,
   onAddInColumn,
+  onDropCard,
   onMoveCard,
   manualOrder,
 }: {
@@ -2621,9 +2833,12 @@ function BoardView({
   onOpenInNewTab?: (id: string) => void;
   onSetProp: (rowId: string, propId: string, value: unknown) => void;
   onSetOptions: (propId: string, options: PropOption[]) => void;
-  onDrop: (rowId: string, groupBy: string, optId: string, opts?: { keepPosition?: boolean }) => void;
+  onDrop: (rowId: string, groupBy: string, optId: string) => void;
   onTrashRow: (id: string, title: string) => Promise<void>;
   onAddInColumn: (groupBy: string, optId: string) => void;
+  // A drag across columns with an explicit spot: the column value and the
+  // position land together (one undo step, see dropCardCrossColumn).
+  onDropCard: (rowId: string, groupBy: string, optId: string, curOrder: string[], newOrder: string[]) => void;
   // A drag that lands between cards: the target column's ids with the dragged
   // card where it was (curOrder) and where it lands (newOrder). Only fires
   // meaningfully when manualOrder is on; otherwise drops only ever change the
@@ -2643,23 +2858,21 @@ function BoardView({
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   // Zeiger-basiertes Ziehen statt des ruckeligen nativen Drags (siehe boardDrag).
   const { drag, armedRow, startDrag, consumeClick } = useBoardDrag((rowId, fromCol, toCol, beforeId, before, overSelf) => {
-    // The column always changes through onDrop; the position only moves when
-    // the view stands in manual order. curOrder/newOrder are the target
-    // column's ids with the dragged card where it was / where it lands.
-    if (toCol !== fromCol) {
-      if (beforeId) {
-        // Between cards in the new column: an intentional spot. The group
-        // changes without moving the card; the move below puts it where it
-        // was dropped.
-        onDrop(rowId, groupBy, toCol, { keepPosition: true });
-      } else {
-        // Onto the column itself: no spot picked — the card goes on top
-        // through onDrop, and there is no between-cards order to write.
-        onDrop(rowId, groupBy, toCol);
-        return;
-      }
+    // The column always changes through onDrop/onDropCard; the position only
+    // moves when the view stands in manual order. curOrder/newOrder are the
+    // target column's ids with the dragged card where it was / where it lands.
+    // Onto the column itself: no spot picked — the card goes on top through
+    // onDrop, and there is no between-cards order to write.
+    if (toCol !== fromCol && !beforeId) {
+      onDrop(rowId, groupBy, toCol);
+      return;
     }
-    if (!manualOrder) return;
+    // A sorted view keeps its order however the cards are dragged: only the
+    // column changes, through onDrop.
+    if (!manualOrder) {
+      if (toCol !== fromCol) onDrop(rowId, groupBy, toCol);
+      return;
+    }
     const ids = rowsFor(toCol).map((r) => r.id);
     const curOrder = toCol === fromCol ? ids : ids.filter((id) => id !== rowId);
     const without = ids.filter((id) => id !== rowId);
@@ -2667,7 +2880,10 @@ function BoardView({
     if (at < 0 || at > without.length) at = without.length;
     const newOrder = [...without.slice(0, at), rowId, ...without.slice(at)];
     if (overSelf && toCol === fromCol) return;
-    onMoveCard(rowId, curOrder, newOrder);
+    // Between cards in a new column the value and the spot land as one undo
+    // step; within a column only the spot moves.
+    if (toCol !== fromCol) onDropCard(rowId, groupBy, toCol, curOrder, newOrder);
+    else onMoveCard(rowId, curOrder, newOrder);
   });
   // When grouping by a relation, the columns are the rows of the target
   // collection. Loaded through the same cache the relation cells use, so the

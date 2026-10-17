@@ -421,6 +421,18 @@ button {
 .overflow-menu {
   min-width: 210px;
 }
+/* Undo and redo ride one row, half the menu each — the pair from every
+   editor that ever had one. */
+.menu-row {
+  display: flex;
+  gap: 2px;
+}
+.menu-row .menu-item {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
 .menu-sep {
   height: 1px;
   background: var(--border);

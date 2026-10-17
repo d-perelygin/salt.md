@@ -11,6 +11,7 @@ import { api, ApiError } from '../api';
 import * as Y from 'yjs';
 import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
 import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
+import { activeViewOf, canRedo, canUndo } from '../viewUndo';
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User } from '../types';
@@ -45,7 +46,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin} from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2} from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -782,6 +783,56 @@ function PageHeader({
     setShareAllowDetail(false);
   }, [pageId]);
   const [overflowOpen, setOverflowOpen] = useState(false);
+  // Undo/redo for the ⋯ menu below: the collection's session stacks (see
+  // viewUndo) or the document's BlockNote history, whichever this page is.
+  const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
+  const [docUndoState, setDocUndoState] = useState({ canUndo: false, canRedo: false });
+  useEffect(() => {
+    if (!isCollection || !overflowOpen) return;
+    const refresh = () => {
+      const vid = activeViewOf(page.id);
+      setUndoState(
+        vid ? { canUndo: canUndo(vid), canRedo: canRedo(vid) } : { canUndo: false, canRedo: false },
+      );
+    };
+    const onState = (e: Event) => {
+      const vid = (e as CustomEvent<{ viewId?: string }>).detail?.viewId;
+      if (vid && vid === activeViewOf(page.id)) refresh();
+    };
+    refresh();
+    window.addEventListener('salt:undo-state', onState);
+    return () => window.removeEventListener('salt:undo-state', onState);
+  }, [page.id, isCollection, overflowOpen]);
+  useEffect(() => {
+    if (isCollection || !overflowOpen) return;
+    const onState = (e: Event) => {
+      const d = (e as CustomEvent<{ pageId?: string; region?: string; canUndo?: boolean; canRedo?: boolean }>).detail;
+      if (d && d.pageId === page.id && d.region === regionId) {
+        setDocUndoState({ canUndo: !!d.canUndo, canRedo: !!d.canRedo });
+      }
+    };
+    window.addEventListener('salt:doc-undo-state', onState);
+    return () => window.removeEventListener('salt:doc-undo-state', onState);
+  }, [page.id, isCollection, regionId, overflowOpen]);
+  const fireUndo = () => {
+    setOverflowOpen(false);
+    if (isCollection) {
+      const vid = activeViewOf(page.id);
+      if (vid) window.dispatchEvent(new CustomEvent('salt:undo-request', { detail: { viewId: vid } }));
+    } else {
+      window.dispatchEvent(new CustomEvent('salt:doc-undo', { detail: { pageId: page.id, region: regionId } }));
+    }
+  };
+  const fireRedo = () => {
+    setOverflowOpen(false);
+    if (isCollection) {
+      const vid = activeViewOf(page.id);
+      if (vid) window.dispatchEvent(new CustomEvent('salt:redo-request', { detail: { viewId: vid } }));
+    } else {
+      window.dispatchEvent(new CustomEvent('salt:doc-redo', { detail: { pageId: page.id, region: regionId } }));
+    }
+  };
+  const undoCtl = isCollection ? undoState : docUndoState;
   // Dropdowns must close on an outside click / Escape, not just mouse-leave.
   const shareWrapRef = useRef<HTMLDivElement>(null);
   const overflowWrapRef = useRef<HTMLDivElement>(null);
@@ -1655,6 +1706,17 @@ function PageHeader({
             />
             {overflowOpen && (
               <div className="menu overflow-menu">
+                <>
+                  <div className="menu-row" role="group" aria-label={t('Undo and redo')}>
+                    <button className="menu-item" disabled={!undoCtl.canUndo} onClick={fireUndo}>
+                      <Undo2 size={15} /> {t('Undo')}
+                    </button>
+                    <button className="menu-item" disabled={!undoCtl.canRedo} onClick={fireRedo}>
+                      <Redo2 size={15} /> {t('Redo')}
+                    </button>
+                  </div>
+                  <div className="menu-sep" />
+                </>
                 {onPeekClose && (
                   <>
                     <button
@@ -2341,6 +2403,40 @@ function BlockContent({
     // Column layout: edge-drop cursor + its dictionary entries.
     dictionary: coreEn,
   });
+
+  // Doc undo for the ⋯ menu: BlockNote's own history, announced so the
+  // topbar (outside this tree) can offer the buttons beside the collection
+  // ones. Local edits only — remote ones are somebody else's to take back.
+  // The states self-correct: a no-op call (empty stack) switches its own
+  // side back off, and a fresh edit burns the redo tail, like everywhere.
+  const [docUndo, setDocUndo] = useState({ canUndo: false, canRedo: false });
+  useEffect(() => {
+    const off = editor.onChange(() => setDocUndo({ canUndo: true, canRedo: false }), false);
+    return off;
+  }, [editor]);
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent('salt:doc-undo-state', {
+        detail: { pageId, region: regionId, ...docUndo },
+      }),
+    );
+  }, [pageId, regionId, docUndo]);
+  useEffect(() => {
+    const ordered = (e: Event, redo: boolean) => {
+      const d = (e as CustomEvent<{ pageId?: string; region?: string }>).detail;
+      if (!d || d.pageId !== pageId || d.region !== regionId) return;
+      const ok = redo ? editor.redo() : editor.undo();
+      setDocUndo((s) => (redo ? { ...s, canRedo: ok } : { canUndo: ok, canRedo: true }));
+    };
+    const onUndo = (e: Event) => ordered(e, false);
+    const onRedo = (e: Event) => ordered(e, true);
+    window.addEventListener('salt:doc-undo', onUndo);
+    window.addEventListener('salt:doc-redo', onRedo);
+    return () => {
+      window.removeEventListener('salt:doc-undo', onUndo);
+      window.removeEventListener('salt:doc-redo', onRedo);
+    };
+  }, [editor, pageId, regionId]);
 
   // Ctrl+Enter, kept literal (not `mod`) on every platform — ⌘↩ already means
   // something to plenty of hands from other editors, and borrowing it here
