@@ -1419,9 +1419,11 @@ function PageHeader({
             </span>
           </span>
         )}
-        <button className="menu-btn topbar-menu" title={t('Menu')} onClick={onMenu}>
-          <Menu size={18} />
-        </button>
+        {!onPeekClose && (
+          <button className="menu-btn topbar-menu" title={t('Menu')} onClick={onMenu}>
+            <Menu size={18} />
+          </button>
+        )}
         <nav className="breadcrumbs">
           {breadcrumbs.map((b, i) => (
             <span key={b.id} className="crumb-wrap">

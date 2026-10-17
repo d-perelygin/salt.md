@@ -17,6 +17,9 @@ await withFixture(async ({ page }) => {
   await page.locator('.sidebar .collapse-btn').click();
   await eventually(async () => (await page.locator('.app.sidebar-collapsed').count()) === 1);
   assert.equal(await page.locator('.peek-panel').count(), 1);
+  // No hamburger in the peek: reopening the sidebar has its own pin button
+  // and shortcut, and a menu button over the preview is a misclick trap.
+  assert.equal(await page.locator('.peek-panel .topbar-menu').count(), 0);
 
   // Expand (pin) back: the collapse click leaves the pointer over the
   // sidebar, and the hover-lock hides the rail until it leaves — so move
