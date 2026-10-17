@@ -31,6 +31,10 @@ const PALETTE_IDS = new Set([
   'page.favorite',
   'tabs.next',
   'tabs.prev',
+  'tabs.moveLeft',
+  'tabs.moveRight',
+  'tabs.pin',
+  'tabs.close',
   'template.new',
   'page.trash',
   'comments.toggle',
@@ -48,6 +52,10 @@ const COMMAND_ALIASES: Record<string, string[]> = {
   'page.favorite': ['favorite', 'favorit', 'избранное', 'в избранное'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
   'tabs.next': ['next tab', 'nächster tab', 'следующая вкладка'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
   'tabs.prev': ['previous tab', 'vorheriger tab', 'предыдущая вкладка'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
+  'tabs.moveLeft': ['move tab left', 'tab nach links', 'переместить вкладку влево'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
+  'tabs.moveRight': ['move tab right', 'tab nach rechts', 'переместить вкладку вправо'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
+  'tabs.pin': ['pin tab', 'tab anheften', 'закрепить вкладку'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
+  'tabs.close': ['close tab', 'tab schließen', 'закрыть вкладку'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
   'template.new': ['template', 'vorlage', 'шаблон', 'из шаблона'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
   'page.trash': ['trash', 'papierkorb', 'корзина', 'удалить', 'в корзину'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
   'comments.toggle': ['comments', 'kommentare', 'комментарии'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)

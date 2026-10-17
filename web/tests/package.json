@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node callout-colors.mjs && node property-order.mjs && node select-options.mjs && node menus-and-arrows.mjs && node shortcuts.mjs && node embeds.mjs && node people.mjs && node tabs.mjs && node relation-chips.mjs && node page-url.mjs && node smart-dates.mjs && node timeline.mjs && node offline.mjs && node api-rewrite.mjs"
+    "test": "node callout-colors.mjs && node property-order.mjs && node select-options.mjs && node menus-and-arrows.mjs && node shortcuts.mjs && node embeds.mjs && node people.mjs && node tabs.mjs && node tab-strip.mjs && node relation-chips.mjs && node page-url.mjs && node smart-dates.mjs && node timeline.mjs && node offline.mjs && node api-rewrite.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"

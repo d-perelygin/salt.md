@@ -173,6 +173,35 @@ export default function App() {
       /* best-effort persistence */
     }
   }, [openTabs]);
+  // Pinned document tabs (browser-style): pinned ids lead the strip, survive
+  // "close others" and "close to the right", and are never navigated in place —
+  // following a link from a pinned tab opens after it instead. The order
+  // invariant is that pins form the strip's prefix; pin/unpin/move keep it so.
+  const [pinnedTabs, setPinnedTabs] = useState<string[]>(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('salt-pinned-tabs') ?? '[]');
+      if (Array.isArray(s)) return s.filter((x): x is string => typeof x === 'string');
+    } catch {
+      /* localStorage unavailable — pins fall back to none */
+    }
+    return [];
+  });
+  const pinnedRef = useRef<string[]>(pinnedTabs);
+  useEffect(() => {
+    pinnedRef.current = pinnedTabs;
+    try {
+      localStorage.setItem('salt-pinned-tabs', JSON.stringify(pinnedTabs));
+    } catch {
+      /* best-effort persistence */
+    }
+  }, [pinnedTabs]);
+  // A pin without its tab is meaningless: closed or trashed pages drop it.
+  useEffect(() => {
+    setPinnedTabs((prev) => {
+      const next = prev.filter((id) => openTabs.includes(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [openTabs]);
   // The last active page of each workspace, so switching workspaces returns to
   // where you were instead of the workspace's first page. Written on every
   // navigation (see the effect by pagesById below); read by switchWorkspace.
@@ -810,16 +839,22 @@ export default function App() {
 
   // navigate activates `id`. Like a browser tab, it reuses an already-open tab
   // if `id` is open, otherwise it navigates the *active* tab in place (or opens
-  // the first tab if none is active). Use openInNewTab to add a background tab.
+  // the first tab if none is active) — unless the active tab is pinned, which
+  // is never navigated in place: the page opens after it instead. Use
+  // openInNewTab to always add a tab.
   const navigate = useCallback((id: string | null, replace = false) => {
     setIndexOpen(false); // any navigation leaves the full-screen index overlay
     let nextTabs = tabsRef.current;
     if (id && !tabsRef.current.includes(id)) {
       const active = activeRef.current;
-      nextTabs =
-        active && tabsRef.current.includes(active)
-          ? tabsRef.current.map((t) => (t === active ? id : t)) // navigate active tab
-          : [...tabsRef.current, id];
+      if (active && tabsRef.current.includes(active) && !pinnedRef.current.includes(active)) {
+        nextTabs = tabsRef.current.map((t) => (t === active ? id : t)); // navigate active tab
+      } else if (active && tabsRef.current.includes(active)) {
+        const i = tabsRef.current.indexOf(active); // pinned active: open after it
+        nextTabs = [...tabsRef.current.slice(0, i + 1), id, ...tabsRef.current.slice(i + 1)];
+      } else {
+        nextTabs = [...tabsRef.current, id];
+      }
     }
     pushTabHistory(nextTabs, id, replace);
     setOpenTabs(nextTabs);
@@ -828,21 +863,16 @@ export default function App() {
     if (id && !replace) rememberRecent(id);
   }, []);
 
-  // openInNewTab adds `id` as a new tab right after the active one and focuses it.
-  // With atStart it goes first instead — the workspace switch lands the page
-  // you return to at the front of the strip. An already-open tab is only
-  // focused, never moved: it is where you left it.
-  const openInNewTab = useCallback((id: string, atStart = false) => {
+  // openInNewTab adds `id` as a new tab right after the active one and focuses
+  // it. An already-open tab is only focused, never moved: it is where you
+  // left it.
+  const openInNewTab = useCallback((id: string) => {
     setIndexOpen(false);
     const prev = tabsRef.current;
     let nextTabs = prev;
     if (!prev.includes(id)) {
-      if (atStart) {
-        nextTabs = [id, ...prev];
-      } else {
-        const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
-        nextTabs = i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
-      }
+      const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
+      nextTabs = i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
     }
     pushTabHistory(nextTabs, id, false);
     setOpenTabs(nextTabs);
@@ -850,6 +880,85 @@ export default function App() {
     setSidebarOpen(false);
     rememberRecent(id);
   }, []);
+
+  // Reorder/pin bookkeeping never touches the browser history: the URL stays
+  // what it was, so back/forward keep meaning "where I was".
+  const replaceTabs = useCallback((next: string[]) => {
+    pushTabHistory(next, activeRef.current, true);
+    setOpenTabs(next);
+  }, []);
+
+  // pinTab moves `id` to the end of the pinned prefix; unpinTab moves it to
+  // the head of the unpinned rest. Both keep the pins-are-the-prefix invariant
+  // the strip renders and moveTab relies on.
+  const pinTab = useCallback(
+    (id: string) => {
+      const tabs = tabsRef.current;
+      if (!tabs.includes(id) || pinnedRef.current.includes(id)) return;
+      const pinned = [...pinnedRef.current, id];
+      const rest = tabs.filter((x) => x !== id && !pinned.includes(x));
+      setPinnedTabs(pinned);
+      replaceTabs([...pinned, ...rest]);
+    },
+    [replaceTabs],
+  );
+
+  const unpinTab = useCallback(
+    (id: string) => {
+      if (!pinnedRef.current.includes(id)) return;
+      const tabs = tabsRef.current;
+      const pinned = pinnedRef.current.filter((x) => x !== id);
+      const rest = tabs.filter((x) => x !== id && !pinned.includes(x));
+      setPinnedTabs(pinned);
+      replaceTabs([...pinned, id, ...rest]);
+    },
+    [replaceTabs],
+  );
+
+  const togglePinTab = useCallback(
+    (id: string) => {
+      if (pinnedRef.current.includes(id)) unpinTab(id);
+      else pinTab(id);
+    },
+    [pinTab, unpinTab],
+  );
+
+  // moveTab steps `id` within its own block: a pinned tab shuffles inside the
+  // pinned prefix, an unpinned one inside the rest, so neither move can break
+  // the prefix invariant (or smuggle a tab across it by accident).
+  const moveTab = useCallback(
+    (id: string, delta: -1 | 1) => {
+      const tabs = tabsRef.current;
+      const at = tabs.indexOf(id);
+      if (at < 0) return;
+      const pinnedCount = pinnedRef.current.filter((x) => tabs.includes(x)).length;
+      const lo = pinnedRef.current.includes(id) ? 0 : pinnedCount;
+      const hi = (pinnedRef.current.includes(id) ? pinnedCount : tabs.length) - 1;
+      const to = at + delta;
+      if (to < lo || to > hi) return;
+      const next = [...tabs];
+      [next[at], next[to]] = [next[to], next[at]];
+      replaceTabs(next);
+    },
+    [replaceTabs],
+  );
+
+  // moveTabTo drops `id` at an absolute position (tab-strip drag and drop),
+  // clamped into its own block the way moveTab is.
+  const moveTabTo = useCallback(
+    (id: string, to: number) => {
+      const tabs = tabsRef.current;
+      if (!tabs.includes(id)) return;
+      const pinned = pinnedRef.current.includes(id);
+      const rest = tabs.filter((x) => x !== id);
+      const pinnedCount = pinnedRef.current.filter((x) => rest.includes(x)).length;
+      const lo = pinned ? 0 : pinnedCount;
+      const hi = pinned ? pinnedCount : rest.length;
+      const at = Math.max(lo, Math.min(hi, to));
+      replaceTabs([...rest.slice(0, at), id, ...rest.slice(at)]);
+    },
+    [replaceTabs],
+  );
 
   // closeTab removes a tab; if it was active, the neighbour that slides into its
   // slot (else the previous one, else nothing) becomes active.
@@ -859,6 +968,9 @@ export default function App() {
     if (i < 0) return;
     const next = prev.filter((x) => x !== id);
     setOpenTabs(next);
+    if (pinnedRef.current.includes(id)) {
+      setPinnedTabs((p) => p.filter((x) => x !== id));
+    }
     // A row's meta was fetched for its tab alone; the tab is gone, so is the
     // reason to keep it.
     setExtraPages((p) => {
@@ -877,6 +989,64 @@ export default function App() {
       setCurrentId(neighbour);
     }
   }, []);
+
+  // Forget the interface state of tabs that are going away in bulk. The active
+  // tab and the pins stay — this only runs for the tabs being closed.
+  const forgetTabs = useCallback((ids: Set<string>) => {
+    if (ids.size === 0) return;
+    setExtraPages((p) => {
+      let next: Map<string, PageMeta> | null = null;
+      for (const id of ids) {
+        if (p.has(id)) {
+          next ??= new Map(p);
+          next.delete(id);
+        }
+      }
+      return next ?? p;
+    });
+    for (const id of ids) {
+      forgetPageScroll(id);
+      forgetViewScrolls(id);
+    }
+  }, []);
+
+  // closeOtherTabs keeps `id` and every pinned tab; the kept tab is focused.
+  // Pinned tabs survive on purpose — that is half of what pinning is for.
+  const closeOtherTabs = useCallback(
+    (id: string) => {
+      const tabs = tabsRef.current;
+      if (!tabs.includes(id)) return;
+      const keep = new Set([id, ...pinnedRef.current]);
+      const gone = new Set(tabs.filter((x) => !keep.has(x)));
+      if (gone.size === 0) return;
+      forgetTabs(gone);
+      const next = tabs.filter((x) => keep.has(x));
+      pushTabHistory(next, id, true);
+      setOpenTabs(next);
+      setCurrentId(id);
+    },
+    [forgetTabs],
+  );
+
+  // closeTabsToRight closes every unpinned tab after `id`; pinned ones stay,
+  // and so does `id` itself. If the active tab was among the closed, focus
+  // falls back to `id`.
+  const closeTabsToRight = useCallback(
+    (id: string) => {
+      const tabs = tabsRef.current;
+      const i = tabs.indexOf(id);
+      if (i < 0) return;
+      const gone = new Set(tabs.slice(i + 1).filter((x) => !pinnedRef.current.includes(x)));
+      if (gone.size === 0) return;
+      forgetTabs(gone);
+      const next = tabs.filter((x) => !gone.has(x));
+      const active = activeRef.current && !gone.has(activeRef.current) ? activeRef.current : id;
+      pushTabHistory(next, active, true);
+      setOpenTabs(next);
+      setCurrentId(active);
+    },
+    [forgetTabs],
+  );
 
   // Ctrl+Alt+←/→ cycles open tabs. `ctrl` literally rather than `mod`: on macOS
   // ⌘⌥←/→ is the browser's own tab switch and has to stay the browser's.
@@ -905,6 +1075,57 @@ export default function App() {
     label: () => t('Previous tab'),
     group: () => t('Tabs'),
     run: () => cycleTab(-1),
+  });
+
+  // Ctrl+Alt+Shift+←/→ moves the active tab along the strip rather than
+  // switching to the neighbour: inside the pinned prefix for a pinned tab,
+  // inside the rest otherwise. Ignored while typing, like the cycling above.
+  useShortcut({
+    id: 'tabs.moveLeft',
+    keys: ['ctrl+alt+shift+arrowleft'],
+    label: () => t('Move left'),
+    group: () => t('Tabs'),
+    run: () => {
+      if (modalOpen() || !activeRef.current) return false;
+      moveTab(activeRef.current, -1);
+    },
+  });
+
+  useShortcut({
+    id: 'tabs.moveRight',
+    keys: ['ctrl+alt+shift+arrowright'],
+    label: () => t('Move right'),
+    group: () => t('Tabs'),
+    run: () => {
+      if (modalOpen() || !activeRef.current) return false;
+      moveTab(activeRef.current, 1);
+    },
+  });
+
+  // Ctrl+Alt+P pins the active tab (or unpins it). Ctrl+Alt+W closes it —
+  // plain ⌘W/Ctrl+W stays the browser's.
+  useShortcut({
+    id: 'tabs.pin',
+    keys: ['ctrl+alt+p'],
+    when: () => activeRef.current !== null,
+    label: () => t('Pin or unpin tab'),
+    group: () => t('Tabs'),
+    run: () => {
+      if (modalOpen() || !activeRef.current) return false;
+      togglePinTab(activeRef.current);
+    },
+  });
+
+  useShortcut({
+    id: 'tabs.close',
+    keys: ['ctrl+alt+w'],
+    when: () => activeRef.current !== null,
+    label: () => t('Close tab'),
+    group: () => t('Tabs'),
+    run: () => {
+      if (modalOpen() || !activeRef.current) return false;
+      closeTab(activeRef.current);
+    },
   });
 
   // A create queued offline resolves its temp id here: swap the tree entry,
@@ -1364,13 +1585,13 @@ export default function App() {
   // document that belonged to the workspace you just left — the picker used
   // to be wired straight to setCurrentWs, so `currentId` never changed and
   // the previous workspace's content (and its /p/<slug>-<id> URL) just sat there.
-  // Land on the page last active in the new workspace — in its tab if one is
-  // open, else in a new tab at the very front of the strip — rather than on
-  // the workspace's first page. A stale memory (trashed page, or one that
-  // moved workspaces) falls back to the first page, the same "pick a page" fallback
-  // already used when the active page is trashed — or the empty state if the
-  // workspace has none yet. If the page you're already on happens to live in
-  // the target workspace, leave it alone.
+  // Land on the page last active in the new workspace: focus its tab if one is
+  // open, else open it in a new tab right after the current one — never by
+  // navigating the current tab in place, which would destroy the tab of the
+  // workspace you are leaving. A stale memory (trashed page, or one that
+  // moved workspaces) falls back to the first page the same way — or the empty
+  // state if the workspace has none yet. If the page you're already on happens
+  // to live in the target workspace, leave it alone.
   const switchWorkspace = useCallback(
     (id: string) => {
       setCurrentWs(id);
@@ -1379,12 +1600,13 @@ export default function App() {
       const last = lastPerWs[id];
       const hit = last ? pagesById.get(last) : undefined;
       if (hit && !hit.trashed && hit.workspaceId === id) {
-        openInNewTab(last, true);
+        openInNewTab(last);
         return;
       }
       const inWs = (p: PageMeta) => !p.trashed && p.workspaceId === id;
       const first = pages?.find((p) => inWs(p) && !p.parentId) ?? pages?.find(inWs);
-      navigate(first ? first.id : null);
+      if (first) openInNewTab(first.id);
+      else navigate(null);
     },
     [currentId, pages, pagesById, navigate, openInNewTab, lastPerWs],
   );
@@ -1585,10 +1807,16 @@ export default function App() {
           <>
             <TabBar
               tabs={openTabs}
+              pinned={pinnedTabs}
               activeId={currentId}
               pagesById={pagesById}
               onSelect={navigate}
               onClose={closeTab}
+              onCloseOthers={closeOtherTabs}
+              onCloseToRight={closeTabsToRight}
+              onTogglePin={togglePinTab}
+              onMove={moveTab}
+              onMoveTo={moveTabTo}
             />
             <Editor
               key={currentId}

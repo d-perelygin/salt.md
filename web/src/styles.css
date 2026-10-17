@@ -570,7 +570,9 @@ button {
   display: flex;
   align-items: stretch;
   gap: 2px;
-  padding: 4px 6px 0;
+  /* Equal insets on top and left: the tab's own radius reads as concentric
+     with the sheet's 16px corners only when both gaps match (16 − 6 = 10). */
+  padding: 6px 6px 0;
   overflow-x: auto;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
@@ -583,7 +585,7 @@ button {
   max-width: 200px;
   min-width: 96px;
   padding: 6px 8px 6px 10px;
-  border-radius: 8px 8px 0 0;
+  border-radius: 10px 10px 0 0;
   font-size: 13px;
   color: var(--muted);
   cursor: pointer;
@@ -628,6 +630,32 @@ button {
 .tab-close:hover {
   opacity: 1;
   background: var(--hover);
+}
+/* A pinned tab leads the strip, keeps its place and shows the pin. Its × is
+   hidden (unpin from the menu first) but middle-click still closes it. */
+.tab.pinned {
+  background: var(--hover);
+  border-color: var(--border);
+  border-bottom: none;
+}
+.tab-pin {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted);
+}
+/* Where the dragged tab will land: a slim caret between tabs, in the accent
+   colour — the same shape as the board's drop line, not a highlight painted
+   on the neighbouring tab. */
+.tab-drop-line {
+  flex: none;
+  align-self: center;
+  width: 2px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.tab-menu {
+  min-width: 220px;
 }
 
 .new-page {
@@ -7228,24 +7256,6 @@ body.is-unsched-carry .tl-end-space {
   width: 2.5px;
   border-radius: 2px;
   background: var(--accent);
-}
-
-/* ---- Dokument-Tabs: weicher einfarbiger Unterstrich ---- */
-
-.tab {
-  position: relative;
-}
-
-.tab.active::after {
-  content: '';
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 0;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: var(--accent);
-  opacity: 0.7;
 }
 
 /* ---- Topbar-Icons: dezente Farb-Hovers ---- */
