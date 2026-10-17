@@ -273,17 +273,19 @@ button {
   color: inherit;
 }
 
+/* Dropping onto a row tints it; dropping between rows draws a slim caret in
+   the gap — the same shape as the board's drop line. Neither outlines the
+   row's own edge. */
 .tree-item.drop-inside {
   background-color: var(--accent-soft);
-  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
-.tree-item.drop-before {
-  border-top-color: var(--accent);
-}
-
-.tree-item.drop-after {
-  border-bottom-color: var(--accent);
+.tree-drop-line {
+  flex: none;
+  height: 2px;
+  margin: 1px 10px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 
 .chevron {

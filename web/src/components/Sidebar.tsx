@@ -644,13 +644,12 @@ function TreeItem({
   useMenuDismiss(ctx.addFor === p.id, actionsRef, () => ctx.setAddFor(null));
   return (
     <div>
+      {dt === 'before' && <div className="tree-drop-line" aria-hidden="true" />}
       <div
         className={
           'tree-item' +
           (p.id === ctx.currentId ? ' active' : '') +
-          (dt === 'inside' ? ' drop-inside' : '') +
-          (dt === 'before' ? ' drop-before' : '') +
-          (dt === 'after' ? ' drop-after' : '')
+          (dt === 'inside' ? ' drop-inside' : '')
         }
         style={{ paddingLeft: 6 + depth * 14 }}
         // A step for the arrow keys, and an element a keyboard can reach at
@@ -725,6 +724,7 @@ function TreeItem({
           )}
         </span>
       </div>
+      {dt === 'after' && <div className="tree-drop-line" aria-hidden="true" />}
       {isExpanded && (
         <div className="tree-children" style={guideAt(depth)}>
           {isDb ? (
