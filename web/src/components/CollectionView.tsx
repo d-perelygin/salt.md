@@ -160,6 +160,19 @@ function groupValueFor(schema: PropDef[], propId: string, optId: string): unknow
   return prop?.type === 'multiselect' || prop?.type === 'relation' ? [optId] : optId;
 }
 
+// The rows standing in a board column: a scalar equal to the option, an
+// array containing it, blanks in UNSET. Same rule the board groups by, minus
+// the removed-option catch-all — for placing a card it is the column the
+// value names that counts, not where a stale value is shown.
+function boardColumnRows(rows: Row[], groupBy: string, optId: string): Row[] {
+  return rows.filter((r) => {
+    const v = r.props[groupBy];
+    if (optId === UNSET) return v === undefined || v === '' || v === null || (Array.isArray(v) && v.length === 0);
+    if (Array.isArray(v)) return v.includes(optId);
+    return v === optId;
+  });
+}
+
 function isEmptyVal(v: unknown): boolean {
   if (Array.isArray(v)) return v.length === 0;
   return v === undefined || v === '' || v === null || v === false;
@@ -724,7 +737,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     await api.putCollection(collectionId, next);
   };
 
-  const addRow = async (presetProps?: Record<string, unknown>) => {
+  const addRow = async (
+    presetProps?: Record<string, unknown>,
+    opts?: { prependBefore?: number },
+  ): Promise<string | undefined> => {
     // A new row opens in the side peek right away: pressing + means "I want to
     // write one", so the writing surface should be there. Where no peek answers
     // — a phone, a public view — it opens in a new tab, exactly as a row does
@@ -735,6 +751,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // the column on a board, the day on a calendar — and everything else keeps
     // what the template had. A template that is gone falls back to a blank
     // row rather than failing the press.
+    // A board with no sort stands in manual order, and a card made by its +
+    // belongs on top of its column, not at the bottom of the collection: the
+    // caller hands over the column's lowest position and the row takes one
+    // less. Anywhere else the server default — MAX+1, the bottom — stays.
+    const topPos = opts?.prependBefore !== undefined ? opts.prependBefore - 1 : undefined;
     const tpl = config?.newFromTemplate;
     if (tpl) {
       try {
@@ -749,14 +770,21 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             if (colWs && from.workspaceId && from.workspaceId !== colWs) {
               await api.updatePage(dup.id, { workspaceId: colWs });
             }
-            await api.updatePage(dup.id, { parentId: collectionId, propsPatch: presetProps ?? {} });
+            await api.updatePage(dup.id, {
+              parentId: collectionId,
+              propsPatch: presetProps ?? {},
+              ...(topPos !== undefined ? { position: topPos } : {}),
+            });
+            if (topPos !== undefined) {
+              setRows((prev) => prev.map((r) => (r.id === dup.id ? { ...r, position: topPos } : r)));
+            }
           } catch {
             // The copy exists but did not land in the collection: open what
             // was made rather than failing the press, let alone making two.
             toast(t('The template could not be used'));
           }
           if (!peekPanel(dup.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(dup.id);
-          return;
+          return dup.id;
         }
       } catch (e) {
         // Offline, or a template that is gone: the blank row below.
@@ -766,8 +794,13 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     try {
       const created = await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
       if (created?.id) {
+        if (topPos !== undefined) {
+          setRows((prev) => prev.map((r) => (r.id === created.id ? { ...r, position: topPos } : r)));
+          await savePageUpdate(created.id, { position: topPos }, { label: t('Change') });
+        }
         // A row with no name yet: the caret belongs in its title.
         if (!peekPanel(created.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(created.id);
+        return created.id;
       }
     } catch (e) {
       // Offline: show a temp row at once and journal the create. The flush
@@ -775,18 +808,18 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       // against the temp id and remap with it.
       if (!isOfflineError(e)) throw e;
       const tempId = newTempId();
-      setRows((prev) => [
-        ...prev,
-        {
-          id: tempId,
-          title: t('Untitled'),
-          icon: '',
-          cover: '',
-          props: presetProps ?? {},
-          position: Date.now(),
-          tags: [],
-        },
-      ]);
+      const tempRow = {
+        id: tempId,
+        title: t('Untitled'),
+        icon: '',
+        cover: '',
+        props: presetProps ?? {},
+        position: topPos ?? Date.now(),
+        tags: [],
+      };
+      // Onto the top when the caller asked for it, like it will stand after
+      // the sync: the position patch below journals behind the create.
+      setRows((prev) => (topPos !== undefined ? [tempRow, ...prev] : [...prev, tempRow]));
       setTotal((n) => n + 1);
       await enqueue({
         kind: 'create-page',
@@ -795,10 +828,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         payload: { title: 'Untitled', type: 'doc', props: presetProps ?? {} },
         label: t('Untitled'),
       });
+      if (topPos !== undefined) {
+        await savePageUpdate(tempId, { position: topPos }, { label: t('Change') });
+      }
       toast(t('Will sync when the connection is back'));
-      return;
+      return tempId;
     }
     onPagesChanged();
+    return undefined;
   };
 
   // A queued create resolving: swap the temp row id for the real one so the
@@ -822,7 +859,18 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     });
   };
 
-  const setRowProp = async (rowId: string, propId: string, value: unknown) => {
+  // The board's grouping property, if this view is one: the same default
+  // the BoardView gets below (the first select), so a group change through
+  // any editor — not just a drag — lands in the right column.
+  const boardGroupBy =
+    view?.type === 'board' ? (view.groupBy || schema.find((p) => p.type === 'select')?.id || '') : '';
+
+  const setRowProp = async (
+    rowId: string,
+    propId: string,
+    value: unknown,
+    opts?: { keepPosition?: boolean },
+  ) => {
     setRows((prev) =>
       prev.map((r) => (r.id === rowId ? { ...r, props: { ...r.props, [propId]: value } } : r)),
     );
@@ -838,6 +886,18 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       } else {
         toast(t('Change not saved'));
       }
+    }
+    // A board card whose group value changes moves columns without being put
+    // anywhere: top of the new one. A drag between cards places the card
+    // itself (see the board's onMoveCard) and says so with keepPosition; a
+    // sorted view has no positions worth keeping.
+    if (!opts?.keepPosition && view?.type === 'board' && !view.sort && boardGroupBy && propId === boardGroupBy) {
+      const optId = Array.isArray(value) ? (value[0] as string) : (value as string);
+      const siblings =
+        optId === undefined || optId === ''
+          ? boardColumnRows(rows, boardGroupBy, UNSET)
+          : boardColumnRows(rows, boardGroupBy, optId);
+      await placeRowOnTop(rowId, siblings);
     }
   };
 
@@ -864,12 +924,12 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     }
   };
 
-  const setGroupValue = async (rowId: string, propId: string, optId: string) => {
+  const setGroupValue = async (rowId: string, propId: string, optId: string, opts?: { keepPosition?: boolean }) => {
     const prop = schema.find((p) => p.id === propId);
     if (prop?.type === 'multiselect' || prop?.type === 'relation') {
-      await setRowProp(rowId, propId, optId === UNSET ? [] : [optId]);
+      await setRowProp(rowId, propId, optId === UNSET ? [] : [optId], opts);
     } else {
-      await setRowProp(rowId, propId, optId === UNSET ? '' : optId);
+      await setRowProp(rowId, propId, optId === UNSET ? '' : optId, opts);
     }
   };
 
@@ -902,6 +962,30 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         if (i >= 0) return [...without.slice(0, i + 1), tagged, ...without.slice(i + 1)];
       }
       return [...without, tagged];
+    });
+    // Journals into the outbox offline, like every other row write.
+    await savePageUpdate(rowId, { position }, { label: t('Change') });
+  };
+
+  // A card that lands in a column without being put somewhere — a fresh +,
+  // a drop onto the column, a group value picked in the card — goes on top:
+  // one less than the column's lowest position. An explicit between-cards
+  // drop keeps its spot through moveCard instead; a column with nobody in it
+  // needs nothing, the row is alone there either way.
+  const placeRowOnTop = async (rowId: string, siblings: Row[]) => {
+    const known = siblings.filter((r) => r.id !== rowId).map((r) => r.position);
+    if (known.length === 0) return;
+    const position = Math.min(...known) - 1;
+    setRows((prevRows) => {
+      const without = prevRows.filter((r) => r.id !== rowId);
+      const moved = prevRows.find((r) => r.id === rowId);
+      if (!moved) return prevRows;
+      const tagged = { ...moved, position };
+      // Top of the column: ahead of its first row standing in the list.
+      const firstId = siblings.find((r) => r.id !== rowId)?.id;
+      const i = firstId !== undefined ? without.findIndex((r) => r.id === firstId) : -1;
+      if (i >= 0) return [...without.slice(0, i), tagged, ...without.slice(i)];
+      return [tagged, ...without];
     });
     // Journals into the outbox offline, like every other row write.
     await savePageUpdate(rowId, { position }, { label: t('Change') });
@@ -1277,17 +1361,24 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onOpenInNewTab={onOpenInNewTab}
           onSetProp={setRowProp}
           onSetOptions={setPropOptions}
-          onDrop={(rowId, groupBy, optId) => {
-            void setGroupValue(rowId, groupBy, optId);
+          onDrop={(rowId, groupBy, optId, opts) => {
+            void setGroupValue(rowId, groupBy, optId, opts);
           }}
           manualOrder={!view.sort}
           onMoveCard={(rowId, curOrder, newOrder) => {
             void moveCard(rowId, curOrder, newOrder);
           }}
           onTrashRow={trashRow}
-          onAddInColumn={(groupBy, optId) =>
-            void addRow(optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) })
-          }
+          onAddInColumn={(groupBy, optId) => {
+            // A board + makes the card for this column, on its top: one less
+            // than the column's lowest position. A sorted view orders by its
+            // sort, so positions stay out of it.
+            const col = !view.sort ? boardColumnRows(viewRows, groupBy, optId) : [];
+            return void addRow(
+              optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) },
+              col.length > 0 ? { prependBefore: Math.min(...col.map((r) => r.position)) } : undefined,
+            );
+          }}
         />
       ) : view.type === 'gallery' ? (
         <GalleryView
@@ -2517,7 +2608,7 @@ function BoardView({
   onOpenInNewTab?: (id: string) => void;
   onSetProp: (rowId: string, propId: string, value: unknown) => void;
   onSetOptions: (propId: string, options: PropOption[]) => void;
-  onDrop: (rowId: string, groupBy: string, optId: string) => void;
+  onDrop: (rowId: string, groupBy: string, optId: string, opts?: { keepPosition?: boolean }) => void;
   onTrashRow: (id: string, title: string) => Promise<void>;
   onAddInColumn: (groupBy: string, optId: string) => void;
   // A drag that lands between cards: the target column's ids with the dragged
@@ -2542,7 +2633,19 @@ function BoardView({
     // The column always changes through onDrop; the position only moves when
     // the view stands in manual order. curOrder/newOrder are the target
     // column's ids with the dragged card where it was / where it lands.
-    if (toCol !== fromCol) onDrop(rowId, groupBy, toCol);
+    if (toCol !== fromCol) {
+      if (beforeId) {
+        // Between cards in the new column: an intentional spot. The group
+        // changes without moving the card; the move below puts it where it
+        // was dropped.
+        onDrop(rowId, groupBy, toCol, { keepPosition: true });
+      } else {
+        // Onto the column itself: no spot picked — the card goes on top
+        // through onDrop, and there is no between-cards order to write.
+        onDrop(rowId, groupBy, toCol);
+        return;
+      }
+    }
     if (!manualOrder) return;
     const ids = rowsFor(toCol).map((r) => r.id);
     const curOrder = toCol === fromCol ? ids : ids.filter((id) => id !== rowId);
