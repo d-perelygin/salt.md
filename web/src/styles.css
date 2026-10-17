@@ -3289,10 +3289,14 @@ body:has(.icon-picker) .bn-side-menu {
    straight through it. The table has no scroller of its own, so this sticks
    against the page scroll natively — clearing the sticky toolbar by
    --tbl-stick-top, measured off the live bar (see TableView); where there is
-   no bar (public views, the library) it sticks to the very top. */
+   no bar (public views, the library) it sticks to the very top. One pixel up
+   into the bar: the collapsed top border would otherwise leave a 1px seam
+   between the bar's own border and the heading (same collapsed-border
+   rounding the shadow below works around). The bar paints above (z-index),
+   so the border hides behind it and the heading reads as one surface. */
 .db-table thead th {
   position: sticky;
-  top: var(--tbl-stick-top, 0px);
+  top: calc(var(--tbl-stick-top, 0px) - 1px);
   z-index: 3;
   background: var(--sidebar-bg);
   box-shadow: inset 0 -1px 0 var(--border);
