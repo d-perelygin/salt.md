@@ -1076,6 +1076,14 @@ button {
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
+/* A table view scrolls sideways at the page level, so the heading can stick
+   against the page natively (see .table-wrap): the table outgrows the
+   viewport and the page carries it. Scoped to pages that actually hold a
+   table — documents keep their clipped overflow — and never to embeds, which
+   keep their own sideways scroller inside the document. */
+.page-body:has(.table-wrap:not(.bn-db-embed .table-wrap)) {
+  overflow-x: auto;
+}
 
 /* Inside .page-body the editor area no longer scrolls itself — it grows with
    its content and still stretches to fill the viewport when short (keeps the
@@ -3090,16 +3098,20 @@ body:has(.icon-picker) .bn-side-menu {
      Keep the phone rule below in step: same values, same property. */
   padding: 0;
   margin: 12px 48px 40px;
-  /* The table scrolls inside its own box rather than with the page, because a
-     heading row can only stay put within the scroller it lives in: an
-     `overflow-x: auto` box is a scroll container in BOTH axes, so the sticky
-     heading stuck to a box that was itself sliding up the page and appeared
-     not to stick at all. */
-  overflow: auto;
-  flex: 1;
-  max-height: calc(100vh - 190px);
-  max-height: calc(100dvh - 190px);
-  overscroll-behavior: contain;
+  /* No scroller of its own: the table grows with the page, like the calendar
+     and the board — the page header scrolls away and the toolbar sticks.
+     Sideways it is the PAGE that scrolls (see .page-body below), so the
+     heading can stick against the page natively: any wrapper with a sideways
+     scrollbar between the heading and the page would become the sticky's
+     scroll container and the heading would never engage vertically. */
+  overflow: visible;
+}
+/* An embed is a window inside a document, not a page: the document must not
+   gain a sideways scroll because of it, so the embed keeps its own sideways
+   scroller. Its heading does not stick (same as calendar embeds) — the price
+   of staying out of the page's way. */
+.bn-db-embed .table-wrap {
+  overflow-x: auto;
 }
 
 .db-table {
@@ -3212,10 +3224,13 @@ body:has(.icon-picker) .bn-side-menu {
    the only thing that says which column you are looking at. A sticky row cannot
    keep a collapsed border, so the line under it is a shadow instead. The paint
    is opaque on purpose: without a background the rows sliding underneath show
-   straight through it. */
+   straight through it. The table has no scroller of its own, so this sticks
+   against the page scroll natively — clearing the sticky toolbar by
+   --tbl-stick-top, measured off the live bar (see TableView); where there is
+   no bar (public views, the library) it sticks to the very top. */
 .db-table thead th {
   position: sticky;
-  top: 0;
+  top: var(--tbl-stick-top, 0px);
   z-index: 3;
   background: var(--sidebar-bg);
   box-shadow: inset 0 -1px 0 var(--border);

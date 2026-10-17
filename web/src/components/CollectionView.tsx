@@ -689,7 +689,13 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     const restore = () => {
       const left = readViewScroll(collectionId, viewId);
       if (!left) return;
-      const sc = root.querySelector<HTMLElement>('.board, .table-wrap, .tl-scroll');
+      // The table scrolls sideways at the page level (see .table-wrap), so
+      // its position lives on .page-body; every other view keeps its own
+      // inner scroller.
+      const sc =
+        view?.type === 'table'
+          ? root.closest<HTMLElement>('.page-body')
+          : root.querySelector<HTMLElement>('.board, .tl-scroll');
       if (sc && sc.scrollWidth > sc.clientWidth) {
         sc.scrollLeft = left;
         return;
@@ -711,12 +717,18 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       const t = e.target as HTMLElement | null;
       if (
         t instanceof HTMLElement &&
-        (t.classList.contains('board') || t.classList.contains('table-wrap') || t.classList.contains('tl-scroll'))
+        (t.classList.contains('board') ||
+          t.classList.contains('tl-scroll') ||
+          (view?.type === 'table' && t.classList.contains('page-body')))
       ) {
         if (Date.now() - lastGesture < 2000) writeViewScroll(collectionId, viewId, t.scrollLeft);
       }
     };
+    // The table's sideways scroller is .page-body, outside this root: listen
+    // there too. Capture on the root still sees the inner scrollers'.
+    const pageBody = view?.type === 'table' ? root.closest('.page-body') : null;
     root.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    pageBody?.addEventListener('scroll', onScroll, { passive: true });
     root.addEventListener('wheel', markGesture, { passive: true });
     root.addEventListener('touchmove', markGesture, { passive: true });
     root.addEventListener('pointerdown', markGesture);
@@ -724,13 +736,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     return () => {
       cancelAnimationFrame(raf);
       root.removeEventListener('scroll', onScroll, { capture: true });
+      pageBody?.removeEventListener('scroll', onScroll);
       root.removeEventListener('wheel', markGesture);
       root.removeEventListener('touchmove', markGesture);
       root.removeEventListener('pointerdown', markGesture);
       root.removeEventListener('keydown', markGesture);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collectionId, viewId, viewReady, rowsArrived]);
+  }, [collectionId, viewId, viewReady, rowsArrived, view?.type]);
 
   const saveConfig = async (next: CollectionConfig) => {
     setConfig(next);
@@ -3024,6 +3037,16 @@ function TableView({
   // the table scrolls sideways.
   const stuckSet = new Set(stuckCols ?? []);
   const tableRef = useRef<HTMLTableElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // The heading sticks against the page scroll natively (see .db-table
+  // thead), clearing the sticky toolbar by this variable: measured off the
+  // live bar rather than hard-coded, so fonts and themes cannot drift it
+  // apart. Same measure-after-layout pattern as the pinned columns below.
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current;
+    const bar = wrap?.closest('.collection-scroll')?.querySelector<HTMLElement>('.collection-toolbar');
+    if (wrap && bar) wrap.style.setProperty('--tbl-stick-top', `${bar.getBoundingClientRect().height}px`);
+  });
   // Sticky needs a left offset per column, and only the browser knows how wide
   // an un-resized column came out — so the offsets are measured after layout and
   // written straight onto the cells.
@@ -3168,7 +3191,7 @@ function TableView({
   };
 
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" ref={wrapRef}>
       <table className="db-table" ref={tableRef}>
         <thead>
           <tr>
