@@ -444,9 +444,18 @@ func (s *Server) handleCollab(w http.ResponseWriter, r *http.Request) {
 	// above realistic doc sizes while still bounding a malicious client.
 	ws.SetReadLimit(wsReadLimit)
 	ctx := r.Context()
-	conn := &collabConn{ws: ws, out: make(chan outMsg, outBuffer), done: make(chan struct{}), aware: map[uint64]uint64{}, userID: requestUser(r).ID}
+	// The replay below queues every stored update at once, and a queue that
+	// fills up closes the socket as a slow consumer. Sized to the outBuffer
+	// alone, a page with more updates than that could not be opened in any
+	// editor at all: anybody with write access could get it there with a few
+	// hundred one-character updates and by ignoring the snapshot request,
+	// and the honest editor that would have compacted it never got in.
+	var stored int
+	s.db.QueryRow(`SELECT COUNT(*) FROM yjs_updates WHERE page_id = ?`, pageID).Scan(&stored)
+	conn := &collabConn{ws: ws, out: make(chan outMsg, outBuffer+stored), done: make(chan struct{}), aware: map[uint64]uint64{}, userID: requestUser(r).ID}
 	go conn.writeLoop(ctx)
 	go conn.pingLoop(ctx)
+	go s.recheckCollabAccess(ctx, r, conn, pageID)
 
 	room := s.collab.join(pageID, conn)
 
@@ -625,4 +634,32 @@ func (s *Server) applySnapshot(room *collabRoom, conn *collabConn, data []byte) 
 	room.pending = remaining
 	room.compacting = false
 	room.compactConn = nil
+}
+
+// collabRecheck is how often an open editor's right to the page is asked
+// again. A variable so a test does not have to wait for it.
+var collabRecheck = 15 * time.Second
+
+// recheckCollabAccess ends an editor connection once its reader may no longer
+// read the page. Writes were checked on every frame, but what arrives was not:
+// a page made private, a member removed from the workspace, a session that
+// ended or a key revoked, and the open tab went on receiving every edit live.
+// The credential is read again from the request, so a revoked one counts too.
+func (s *Server) recheckCollabAccess(ctx context.Context, r *http.Request, conn *collabConn, pageID string) {
+	t := time.NewTicker(collabRecheck)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-conn.done:
+			return
+		case <-t.C:
+		}
+		u := s.currentUser(r)
+		if u == nil || u.Disabled || !s.canRead(u.ID, pageID) || !s.credentialMayEnter(u, s.pageWorkspace(pageID)) {
+			conn.shutdown(websocket.StatusPolicyViolation, "access ended")
+			return
+		}
+	}
 }
