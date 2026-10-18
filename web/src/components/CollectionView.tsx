@@ -964,6 +964,12 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Raw applicators: write through, journal offline, never touch the undo
   // stack themselves. Everything below composes its steps out of these, so
   // undoing writes exactly the way doing did (an amend, not a cancel).
+  //
+  // Absent is null, never undefined: JSON drops undefined keys, which the
+  // server reads as "no change" — but undoing a first-time write must CLEAR
+  // the key (a scheduled-from-tray row goes back to dateless), and the
+  // server deletes exactly the keys sent as null (see the propsPatch merge).
+  const cleared = (v: unknown) => (v === undefined ? null : v);
   const writeProps = async (rowId: string, patch: Record<string, unknown>) => {
     if (Object.keys(patch).length === 0) return;
     setRows((prev) =>
@@ -999,7 +1005,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         return;
       }
       const olds: Record<string, unknown> = {};
-      for (const k of Object.keys(patch)) olds[k] = me.props[k];
+      for (const k of Object.keys(patch)) olds[k] = cleared(me.props[k]);
       await writeProps(rowId, patch);
       const v = view;
       if (v && JSON.stringify(olds) !== JSON.stringify(patch)) {
@@ -1025,7 +1031,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     series(view?.id, async () => {
       const live = rowsRef.current;
       const me = live.find((r) => r.id === rowId);
-      const oldVal = me?.props[propId];
+      const oldVal = cleared(me?.props[propId]);
       const oldPos = me?.position;
       await writeProp(rowId, propId, value);
       // A board card whose group value changes moves columns without being put
@@ -1160,7 +1166,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     series(view?.id, async () => {
       const live = rowsRef.current;
       const me = live.find((r) => r.id === rowId);
-      const oldVal = me?.props[groupBy];
+      const oldVal = cleared(me?.props[groupBy]);
       const oldPos = me?.position;
       const newVal = groupValueFor(schema, groupBy, optId);
       await writeProp(rowId, groupBy, newVal);

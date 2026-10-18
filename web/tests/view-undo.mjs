@@ -6,6 +6,7 @@ import { eventually, withFixture } from './fixture.mjs';
 // shortcut does the same — one gesture, one step, this tab only.
 await withFixture(async ({ page, api, path }) => {
   page.setDefaultTimeout(15000);
+  const collectionId = path.split('/').pop();
 
   const statusOf = async (title) => {
     const { rows } = await api('GET', `${path}/rows`);
@@ -54,6 +55,36 @@ await withFixture(async ({ page, api, path }) => {
   await undo().click();
   await eventually(async () => (await page.locator('.toaster').getByText('Sort reverted').count()) === 1);
   await eventually(async () => (await api('GET', path)).views[0].sort == null);
+
+  // Undoing a first-time write clears the key instead of leaving the value:
+  // JSON drops undefined, which the server reads as "no change", so the old
+  // is captured as null (the server deletes null keys). A row that never had
+  // labels loses them again, key and all — the tray-scheduling case.
+  const fresh = await api('POST', '/api/pages', {
+    parentId: collectionId,
+    title: 'No labels row',
+    props: { status: 'todo' },
+  });
+  await eventually(async () => {
+    const { rows } = await api('GET', `${path}/rows`);
+    return rows.some((r) => r.title === 'No labels row');
+  });
+  await page.locator('.db-table tbody tr', { hasText: 'No labels row' }).locator('td[data-col=labels] .select-cell-value').click();
+  await page.locator('.select-menu').getByRole('button', { name: 'To do', exact: true }).click();
+  // Multiselect stays open (focus sits on the option, so Escape would miss
+  // the search box that owns it): dismiss through the backdrop.
+  await page.locator('.select-backdrop').click();
+  await eventually(async () => {
+    const { rows } = await api('GET', `${path}/rows`);
+    return (rows.find((r) => r.title === 'No labels row')?.props.labels ?? []).length === 1;
+  });
+  await more().click();
+  await eventually(async () => (await undo().isDisabled()) === false);
+  await undo().click();
+  await eventually(async () => {
+    const { rows } = await api('GET', `${path}/rows`);
+    return !('labels' in (rows.find((r) => r.title === 'No labels row')?.props ?? {}));
+  });
 
   // Hiding a column is a view change: gone, then back.
   await page.getByRole('button', { name: 'Columns' }).click();
