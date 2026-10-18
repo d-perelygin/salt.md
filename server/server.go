@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
@@ -9,6 +10,7 @@ import (
 	"errors"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -388,7 +390,66 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	// Every request gets one log line: method, path, status, who, how long.
+	// Slow ones (>slowRequestThreshold) are marked so a week's log answers
+	// "what stalls" without wading through the fast ones. Skipped: hashed
+	// assets (immutable noise), the event stream (long-lived by design —
+	// every disconnect would read as slow), and hijacked websockets (the
+	// handshake duration says nothing about the connection). Query strings
+	// are never logged: share links carry passwords in them.
+	if r.URL.Path == "/api/events" || strings.HasPrefix(r.URL.Path, "/assets/") {
+		s.mux.ServeHTTP(w, r)
+		return
+	}
+	start := time.Now()
+	sc := &statusCatcher{ResponseWriter: w, status: 200}
+	s.mux.ServeHTTP(sc, r)
+	if sc.hijacked {
+		return
+	}
+	d := time.Since(start)
+	// currentUser, not requestUser: the auth middleware puts the user into
+	// the request context downstream, which this wrapper never sees.
+	who := "-"
+	if u := s.currentUser(r); u != nil && u.Email != "" {
+		who = u.Email
+	}
+	if d >= slowRequestThreshold {
+		log.Printf("slow http: %s %s status=%d user=%s took=%s", r.Method, r.URL.Path, sc.status, who, d)
+	} else {
+		log.Printf("http: %s %s status=%d user=%s took=%s", r.Method, r.URL.Path, sc.status, who, d)
+	}
+}
+
+// Requests slower than this get the slow mark in the log.
+const slowRequestThreshold = 500 * time.Millisecond
+
+// statusCatcher records the status for the access log while forwarding the
+// interfaces streaming endpoints need: without Flush the SSE stream breaks,
+// without Hijack the collab websocket does. Both are probed, never assumed.
+type statusCatcher struct {
+	http.ResponseWriter
+	status   int
+	hijacked bool
+}
+
+func (w *statusCatcher) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusCatcher) Flush() {
+	if fl, ok := w.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
+}
+
+func (w *statusCatcher) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	w.hijacked = true
+	if hj, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, errors.New("hijack not supported")
 }
 
 func newID() string {
