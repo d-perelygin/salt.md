@@ -5045,6 +5045,21 @@ function TimelineView({
                       </button>
                     </div>
                   ))}
+                  {/* The toggle lives here, under the list, rather than in the
+                      view settings: it changes nothing but what these Shift
+                      buttons land on — a Saturday target becomes the Monday. */}
+                  <div className="menu-sep" />
+                  <label className="tl-settings-row">
+                    <span>{t('Skip weekends')}</span>
+                    <input
+                      type="checkbox"
+                      checked={!!skipWeekends}
+                      onChange={(e) => onViewChange({ tlSkipWeekends: e.target.checked })}
+                    />
+                  </label>
+                  <div className="tl-menu-hint">
+                    {t("Shifting a task out of its blockers' way lands on a working day.")}
+                  </div>
                 </div>
               </>
             )}
@@ -5136,21 +5151,6 @@ function TimelineView({
                 )}
                 {!effDep && selfRels.length > 0 && (
                   <div className="tl-menu-hint">{t('Pick which relation blocks tasks to draw arrows.')}</div>
-                )}
-                {effDep && (
-                  <>
-                    <label className="tl-settings-row">
-                      <span>{t('Skip weekends')}</span>
-                      <input
-                        type="checkbox"
-                        checked={!!skipWeekends}
-                        onChange={(e) => onViewChange({ tlSkipWeekends: e.target.checked })}
-                      />
-                    </label>
-                    <div className="tl-menu-hint">
-                      {t("Shifting a task out of its blockers' way lands on a working day.")}
-                    </div>
-                  </>
                 )}
               </AnchoredMenu>
             )}

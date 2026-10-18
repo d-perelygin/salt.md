@@ -271,9 +271,11 @@ pickers, and so do the timeline's settings:
 | **Start:** | **Start: (none)**, or any date property | Where the bar begins. Choosing (none) clears the choice, and the timeline falls back to the first date property in the schema. |
 | **End:** | **End: (none)**, or any date property | Where the bar ends. With none, every bar is one day wide. |
 
-Beside them sits one checkbox, **Skip weekends**: a row shifted clear of the
-tasks blocking it then lands on the nearest working day, so a Saturday or Sunday
-becomes the Monday. Dragging a bar is not affected.
+When a task starts before its blockers end, a ⚠ button in the head lists the
+conflicts, each with a **Shift to …** button that moves the task clear of what
+blocks it. Under that list sits one checkbox, **Skip weekends**: with it on, a
+shift that would land on a Saturday or Sunday lands on the Monday instead.
+Dragging a bar is not affected.
 
 That button wears a dot until you have opened this kind of view's settings once:
 a view reads a date property and spans a range, and nothing on screen says so.
