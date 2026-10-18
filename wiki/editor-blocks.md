@@ -487,7 +487,7 @@ included; for a whole tree see [Import and export](import-export.md).
 | Video, audio, file | `[name](url)` |
 | Callout | `> 💡 text` (a quote led by its emoji) |
 | Bookmark | a link to the address |
-| Embedded collection | a link to the collection page, labelled `Datenbank` |
+| Embedded collection | a link to the collection page, labelled `Collection` |
 | Table of contents | nothing |
 | Columns | the contents, flattened into one sequence |
 | Page link | `[label](/p/<id>)` |

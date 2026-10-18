@@ -1272,7 +1272,14 @@ func (s *Server) resolveShare(token, password string) (pageID string, needPW, pw
 }
 
 func (s *Server) handlePublicPage(w http.ResponseWriter, r *http.Request) {
-	pageID, needPW, pwOK, found := s.resolveShare(r.PathValue("token"), r.Header.Get("X-Share-Password"))
+	// Same rule as the HTML view: a revoked link must not live on in a cache.
+	w.Header().Set("Cache-Control", "private, no-store")
+	password := r.Header.Get("X-Share-Password")
+	if password != "" && !s.sharePwRate.allow(sharePwKey(r.PathValue("token"), s.clientIP(r))) {
+		httpErrorCode(w, http.StatusTooManyRequests, "too_many_attempts", "Too many password attempts for this link. Wait a minute and try again.")
+		return
+	}
+	pageID, needPW, pwOK, found := s.resolveShare(r.PathValue("token"), password)
 	if !found {
 		httpError(w, 404, "not found")
 		return

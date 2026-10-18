@@ -97,6 +97,8 @@ func (s *Server) runCleanup() {
 	s.mcpRate.evict()
 	s.loginRate.evict()
 	s.tokenRate.evict()
+	s.formRate.evict()
+	s.sharePwRate.evict()
 	s.sweepOAuth()
 	// Once a day at most, and it returns immediately on the other 47 ticks.
 	// Inline rather than in its own goroutine so it cannot outlive shutdown.

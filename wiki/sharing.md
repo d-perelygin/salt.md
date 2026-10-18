@@ -170,6 +170,12 @@ consumed (scrubbed from the bar) on load. The share menu has
 **Copy link with password** for exactly that address — it shows while the
 password is at hand, typed but not yet applied, or just applied.
 
+Guessing is limited per link and per address: after five attempts in quick
+succession the form answers **Too many attempts. Wait a minute and try again.**,
+and after that ten attempts a minute get through. The limit is checked before
+the password is, so the right one waits too. Somebody else opening the same link
+from another address is not affected.
+
 Three properties of this that surprise people:
 
 - **There is no session — almost.** The server remembers nothing, so a new
@@ -212,13 +218,11 @@ checklist items (as ticked boxes that cannot be clicked), quotes, code blocks,
 tables, dividers, callouts, toggles (which open and close), columns, bookmarks
 and links.
 
-Links behave in two different ways, which matters if the page was written by
-somebody else:
-
-- A link carried by a **file, image or bookmark block** is checked. Anything
-  that is not `http`, `https` or `mailto` is replaced by a dead link.
-- A link written **inside the text** goes out exactly as it was typed. It is not
-  checked and not rewritten.
+Every link is checked on the way out, whether a file, image or bookmark block
+carries it or it is written inside the text: anything that is not `http`,
+`https`, `mailto` or an address on the instance itself becomes a dead link. The
+page also tells the browser to run no script but its own layout script, so
+whatever a page's author typed, a visitor's click runs nothing.
 
 What is **not** in the document:
 
@@ -226,8 +230,13 @@ What is **not** in the document:
 | --- | --- |
 | Sub-pages | Nothing. Only the page you shared |
 | Links to other pages of your instance | A link into the app, which lands on the sign-in screen |
+<<<<<<< HEAD
 | An embedded collection | A link into the app, labelled `▦ Datenbank` (fixed text, not the collection's name, and not the rows) |
 | Files uploaded into this instance (images, attachments) | They load: the page rewrites them to signed addresses bound to this link (below) |
+=======
+| An embedded collection | A link into the app, labelled `▦ Collection` (fixed text, not the collection's name, and not the rows) |
+| Files uploaded into this instance (images, attachments) | A broken image or a dead link: they sit at an address that needs a signed-in account. An image whose address points at another website loads normally |
+>>>>>>> 66e9992 (Shared pages and the print view run no script but their own)
 | The cover image | Nothing |
 | Properties of a database row | Nothing; only the row's title and body |
 | Comments, notes, version history | Nothing. They are never part of a share |

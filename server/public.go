@@ -12,12 +12,6 @@ import (
 // API existed and the share URL fell through to the app shell, which showed a
 // login screen to anonymous visitors. Password-protected shares render a
 // minimal form that POSTs back to the same URL.
-
-// The standalone password gate for server-rendered document shares. It
-// mirrors the SPA lock dialog (PublicCollection) so a password prompt looks
-// the same on every public link: centered card, lock heading, full-width
-// password field and green Open button, with a dark mode. Documents keep the
-// working no-JS POST flow — only the look matches the app.
 func sharePasswordForm(token string, wrong bool) string {
 	msg := ""
 	if wrong {
@@ -95,9 +89,20 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		// the gate script records the failure and does not loop it.
 		password = publicPassword(r)
 	}
-	pageID, needPW, pwOK, found := s.resolveShare(token, password)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Robots-Tag", "noindex")
+	// Stop sharing has to end the page everywhere at once. Without a word on
+	// caching, a proxy or the tunnel's edge may keep a copy of a page whose link
+	// was revoked, which is exactly the report in #68.
+	w.Header().Set("Cache-Control", "private, no-store")
+	// Before the comparison, so a guess past the limit costs nothing and tells
+	// nothing, the right password included.
+	if password != "" && !s.sharePwRate.allow(sharePwKey(token, s.clientIP(r))) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(sharePasswordForm(token, true)))
+		return
+	}
+	pageID, needPW, pwOK, found := s.resolveShare(token, password)
 	if !found {
 		w.WriteHeader(404)
 		w.Write([]byte(`<!doctype html><html><head><meta charset="utf-8"><title>salt.md</title><style>` + htmlDocStyle + `</style></head><body><h1>Not found</h1><p>This link is invalid or has expired.</p></body></html>`))
@@ -181,4 +186,11 @@ func publicPrintOptions(o printOptions) printOptions {
 		o.WSName, o.Instance = "", ""
 	}
 	return o
+}
+
+// sharePwKey keys the password limit by link and address together: by address
+// alone one guesser would lock everybody behind the same proxy out of every
+// protected page, by link alone a stranger could lock the link for everyone.
+func sharePwKey(token, ip string) string {
+	return tokenHash(token)[:16] + "|" + ip
 }

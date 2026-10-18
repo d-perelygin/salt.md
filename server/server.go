@@ -39,6 +39,7 @@ type Server struct {
 	loginRate   *rateLimiter
 	tokenRate   *rateLimiter
 	formRate    *rateLimiter
+	sharePwRate *rateLimiter
 	stopCleanup chan struct{}
 	// Generic OIDC state (see oidc.go): the discovery and JWKS caches plus a
 	// test override for the HTTP client. Nil in every real build.
@@ -119,6 +120,9 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 		// Fed by REJECTED tokens only, so a working agent never touches it.
 		tokenRate:   newRateLimiter(60, 20),
 		formRate:    newRateLimiter(20, 8), // 20 public form submits/min per IP, burst 8
+		// Passwords on shared pages, per link and address. A share password was
+		// checked as fast as anybody could send guesses.
+		sharePwRate: newRateLimiter(10, 5),
 		stopCleanup: make(chan struct{}),
 		dist:        dist,
 	}
