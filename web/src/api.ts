@@ -493,7 +493,8 @@ export const api = {
       limit: number;
     }>(`/api/collections/${pageId}/rows?${p.toString()}`);
   },
-  putCollection: (pageId: string, config: CollectionConfig) =>
+  // Either half alone is fine; the server keeps the other as stored.
+  putCollection: (pageId: string, config: Partial<CollectionConfig>) =>
     req<CollectionConfig>(`/api/collections/${pageId}`, {
       method: 'PUT',
       body: JSON.stringify(config),

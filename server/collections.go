@@ -66,7 +66,13 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "invalid JSON")
 		return
 	}
-	if len(body.Schema) == 0 || !json.Valid(body.Schema) || len(body.Views) == 0 || !json.Valid(body.Views) {
+	// Either half may come alone, and the half that was not sent stays as it is
+	// stored. A browser tab saved both on every view change, the schema as it
+	// had loaded it, so changing a column width in a tab opened before an agent
+	// added a property took the property away again.
+	sent := func(raw json.RawMessage) bool { return len(raw) > 0 && string(raw) != "null" }
+	hasSchema, hasViews := sent(body.Schema), sent(body.Views)
+	if (!hasSchema && !hasViews) || (hasSchema && !json.Valid(body.Schema)) || (hasViews && !json.Valid(body.Views)) {
 		httpError(w, 400, "schema and views must be valid JSON")
 		return
 	}
@@ -75,25 +81,35 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "page not found")
 		return
 	}
-	tpl := ""
+	tplCol, tplHolder, tplSet := "", "", ""
+	tplArgs := []any{}
 	if body.NewFromTemplate != nil {
-		// A template that is gone (or never was one) clears the choice rather
-		// than pointing new rows at a dead page.
+		tplCol, tplHolder = ", new_from_template", ", ?"
+		tplSet = ", new_from_template = excluded.new_from_template"
+		tpl := ""
 		if *body.NewFromTemplate != "" {
 			var isTpl int
 			if err := s.db.QueryRow(`SELECT COUNT(*) FROM pages WHERE id = ? AND is_template = 1 AND trashed_at IS NULL`, *body.NewFromTemplate).Scan(&isTpl); err == nil && isTpl > 0 {
 				tpl = *body.NewFromTemplate
 			}
 		}
+		tplArgs = []any{tpl}
 	}
-	sets := "schema = excluded.schema, views = excluded.views"
-	args := []any{id, string(body.Schema), string(body.Views)}
-	if body.NewFromTemplate != nil {
-		sets += ", new_from_template = excluded.new_from_template"
+	var err error
+	switch {
+	case hasSchema && hasViews:
+		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views`+tplCol+`) VALUES (?, ?, ?`+tplHolder+`)
+			ON CONFLICT(page_id) DO UPDATE SET schema = excluded.schema, views = excluded.views`+tplSet,
+			append([]any{id, string(body.Schema), string(body.Views)}, tplArgs...)...)
+	case hasSchema:
+		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views`+tplCol+`) VALUES (?, ?, '[]'`+tplHolder+`)
+			ON CONFLICT(page_id) DO UPDATE SET schema = excluded.schema`+tplSet,
+			append([]any{id, string(body.Schema)}, tplArgs...)...)
+	default:
+		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views`+tplCol+`) VALUES (?, '[]', ?`+tplHolder+`)
+			ON CONFLICT(page_id) DO UPDATE SET views = excluded.views`+tplSet,
+			append([]any{id, string(body.Views)}, tplArgs...)...)
 	}
-	_, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views, new_from_template) VALUES (?, ?, ?, ?)
-		ON CONFLICT(page_id) DO UPDATE SET `+sets,
-		append(args, tpl)...)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -107,7 +123,9 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	// view changes it for everyone, and an open view on a second screen kept
 	// drawing the old shape.
 	s.rowsChanged(id)
-	writeJSON(w, map[string]json.RawMessage{"schema": body.Schema, "views": body.Views})
+	var stored struct{ schema, views string }
+	s.db.QueryRow(`SELECT schema, views FROM collections WHERE page_id = ?`, id).Scan(&stored.schema, &stored.views)
+	writeJSON(w, map[string]json.RawMessage{"schema": json.RawMessage(stored.schema), "views": json.RawMessage(stored.views)})
 }
 
 // handleCollectionRows returns a collection's child rows filtered, sorted and

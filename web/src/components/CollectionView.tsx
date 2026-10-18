@@ -624,7 +624,13 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     const onRows = (e: Event) => {
       if ((e as CustomEvent<string>).detail !== collectionId) return;
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => void loadRows(), 400);
+      // The schema and the views too: the event also stands for a new
+      // property or a changed view, and a tab that kept its first copy of
+      // those drew the database as it was when it opened.
+      timer = window.setTimeout(() => {
+        void loadRows();
+        loadConfig();
+      }, 400);
     };
     window.addEventListener('salt:rows', onRows);
     // Somebody pulled down, or pressed sync. Not debounced and not conditional:
@@ -778,9 +784,17 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId, viewId, viewReady, rowsArrived, view?.type]);
 
+  // Only the half that changed goes to the server. Sending both put this tab's
+  // copy of the schema back on every view change, and that copy is as old as
+  // the tab: a property an agent or a colleague added meanwhile vanished again
+  // the moment somebody here resized a column.
   const saveConfig = async (next: CollectionConfig) => {
+    const patch: Partial<CollectionConfig> = {};
+    if (!config || next.schema !== config.schema) patch.schema = next.schema;
+    if (!config || next.views !== config.views) patch.views = next.views;
     setConfig(next);
-    await api.putCollection(collectionId, next);
+    if (!patch.schema && !patch.views) return;
+    await api.putCollection(collectionId, patch);
   };
 
   const addRow = async (
@@ -1245,7 +1259,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     if (!cur) return;
     const next = { ...cur, views: cur.views.map((x) => (x.id === v.id ? v : x)) };
     setConfig(next);
-    await api.putCollection(collectionId, next);
+    // Views only: the schema half stays as stored, so a property an agent
+    // added meanwhile survives the undo (see saveConfig).
+    await api.putCollection(collectionId, { views: next.views });
   };
 
   const updateView = (patch: Partial<ViewDef>) => {
@@ -1275,8 +1291,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     void series(viewId, async () => {
       const cur = configRef.current;
       if (!cur) return;
+      // Views only: the schema half stays as stored (see saveConfig).
       await api.putCollection(collectionId, {
-        ...cur,
         views: cur.views.map((v) => (v.id === viewId ? nextView : v)),
       });
       if (JSON.stringify(prev) === JSON.stringify(nextView)) return;

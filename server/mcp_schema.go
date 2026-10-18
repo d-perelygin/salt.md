@@ -176,6 +176,10 @@ func (s *Server) saveCollection(pageID string, schema []map[string]any, views []
 		return err
 	}
 	s.pagesChanged()
+	// Open views of this collection learn about it the way they learn about a
+	// change from another browser: an agent's new property used to stay
+	// invisible there until a reload.
+	s.rowsChanged(pageID)
 	return nil
 }
 

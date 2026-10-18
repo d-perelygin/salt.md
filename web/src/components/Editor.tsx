@@ -632,7 +632,8 @@ function RowProperties({
     };
     setConfig(next);
     try {
-      await api.putCollection(parentId, next);
+      // The schema alone: this copy of the views is as old as the open page.
+      await api.putCollection(parentId, { schema: next.schema });
     } catch {
       toast(t('Options not saved'));
     }

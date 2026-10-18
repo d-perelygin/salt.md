@@ -336,11 +336,12 @@ thing under two names.
 | Method and path | What it does |
 | --- | --- |
 | `GET /api/collections/{id}` | the schema (its properties) and its saved views |
-| `PUT /api/collections/{id}` | replace both |
+| `PUT /api/collections/{id}` | replace `schema`, `views` or both; a half left out stays as stored |
 | `GET /api/collections/{id}/rows` | rows, filtered, sorted and paginated |
 
-`PUT` needs **both** `schema` and `views` in the body; sending one alone is a
-`400`. Read first, change what you need, send the pair back.
+`PUT` takes `schema`, `views` or both. The half you leave out stays as it is
+stored, so changing a view never puts back an older copy of the schema, and the
+other way round. An empty body is a `400`. The answer is the stored pair.
 
 Rows are filtered in the database rather than in your script, so a table with
 50 000 rows costs one page of results:
