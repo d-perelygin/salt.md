@@ -226,9 +226,9 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		parent = *body.ParentID
 		workspaceID = pws
 	} else {
-		workspaceID = s.userDefaultWorkspace(u.ID)
+		workspaceID = s.createWorkspaceFor(u)
 		if workspaceID == "" {
-			httpError(w, 400, "no workspace")
+			httpErrorCode(w, 403, "no_writable_workspace", "There is no workspace this account may create pages in.")
 			return
 		}
 	}

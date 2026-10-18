@@ -1309,6 +1309,12 @@
   "Claude in the browser and in the desktop app calls from Anthropic’s addresses. Claude Code and other agents running on your own computer call from your address, so add that too if you use them.": "Claude im Browser und in der Desktop-App greift von Anthropics Adressen aus zu. Claude Code und andere Agenten auf deinem eigenen Rechner kommen von deiner Adresse; trag sie mit ein, wenn ihr sie nutzt.",
   "Line {line} of the address list is neither an address nor a network: {entry}": "Zeile {line} der Adressliste ist weder eine Adresse noch ein Netz: {entry}",
   "Add at least one address or network before switching this on.": "Trag mindestens eine Adresse oder ein Netz ein, bevor du das einschaltest.",
+<<<<<<< HEAD
   "This instance accepts agent keys only from listed addresses, and {address} is not one of them.": "Diese Instanz nimmt Agenten-Schlüssel nur von eingetragenen Adressen an, und {address} gehört nicht dazu."
 >>>>>>> e92456b (Agent keys can be limited to listed addresses)
+=======
+  "This instance accepts agent keys only from listed addresses, and {address} is not one of them.": "Diese Instanz nimmt Agenten-Schlüssel nur von eingetragenen Adressen an, und {address} gehört nicht dazu.",
+  "You can only read this workspace, so nothing can be created or reordered in it.": "Diesen Workspace darfst du nur lesen, darum lässt sich darin nichts anlegen oder umsortieren.",
+  "There is no workspace this account may create pages in.": "Es gibt keinen Workspace, in dem dieses Konto Seiten anlegen darf."
+>>>>>>> c626ba5 (Writing follows the same gates as reading)
 }

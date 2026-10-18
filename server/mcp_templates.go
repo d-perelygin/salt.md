@@ -71,7 +71,9 @@ func (s *Server) mcpCreateFromTemplate(u *user, templateID, title string) (strin
 	if templateID == "" {
 		return "", fmt.Errorf("template_id is required — call list with kind=\"templates\" for the ids")
 	}
-	if !s.canRead(u.ID, templateID) {
+	// The copy lands in the template's workspace, so the credential has to be
+	// allowed there: a token for one workspace instantiated templates of others.
+	if !s.canRead(u.ID, templateID) || !s.credentialMayEnter(u, s.pageWorkspace(templateID)) {
 		return "", fmt.Errorf("template %q not found", templateID)
 	}
 	var isTemplate int

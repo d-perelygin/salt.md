@@ -200,8 +200,8 @@ generous than the screens are:
   is reached through **Workspace settings**, so in the browser only a workspace
   admin gets to it.
 - **Export the whole workspace.** `/api/workspaces/{id}/export` accepts any
-  member, but both entries (**Export workspace**, **Export as Markdown**) live in
-  **Workspace settings**. A member or a viewer can still export one page at a
+  member (an agent's key only for a workspace it may enter), but both entries
+  (**Export workspace**, **Export as Markdown**) live in **Workspace settings**. A member or a viewer can still export one page at a
   time: ⋯ menu → **Export** → **Markdown (.md)**, **Web page (.html)** or
   **Print / as PDF**. See [Import and export](import-export.md).
 - **View and end emergency grants.** The server lets a workspace admin read the
@@ -438,9 +438,11 @@ settings → What agents may do here**:
 | **Only signed-in connections** | a permanent API token is refused, even one naming this workspace; only a credential somebody signed in for gets through |
 | **No agents at all** | browser sessions only |
 
-A browser session is never limited by this: the person setting it is the one it
-would be turned against. Over MCP, a workspace an agent may not enter does not
-appear in its workspace list at all; the agent is told only how many were
+It covers writing as much as reading: an agent kept out of a workspace can
+neither read a page there nor change, create, export or take back anything in
+it, over MCP and over the REST API. A browser session is never limited by this:
+the person setting it is the one it would be turned against. Over MCP, a
+workspace an agent may not enter does not appear in its workspace list at all; the agent is told only how many were
 withheld, never their names. See [Agent access](agent-access.md).
 
 ### Signing an agent in instead of handing it a key

@@ -453,12 +453,11 @@ func (s *Server) mcpSetTagColor(u *user, wsID, tag, color string) (string, error
 // permission is mandatory — read access is not enough to create.
 func (s *Server) mcpCreateWorkspaceTarget(u *user, wsID string) (string, error) {
 	if wsID == "" {
-		wsID = s.defaultWorkspaceFor(u)
+		// The default only where this caller may create, the viewer rule
+		// included: a viewer's default used to be taken as it came.
+		wsID = s.createWorkspaceFor(u)
 		if wsID == "" {
-			return "", fmt.Errorf("no workspace available")
-		}
-		if !s.credentialMayEnter(u, wsID) {
-			return "", fmt.Errorf("this token cannot create top-level pages in the default workspace; pass workspace_id (see list with kind=\"workspaces\") or a parent_id inside an allowed workspace")
+			return "", fmt.Errorf("there is no workspace this credential may create top-level pages in; pass a parent_id inside one, or see list with kind=\"workspaces\"")
 		}
 		return wsID, nil
 	}

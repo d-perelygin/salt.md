@@ -322,11 +322,11 @@ func (s *Server) handleAuditRevert(w http.ResponseWriter, r *http.Request) {
 		httpErrorCode(w, 400, "not_revertible", "This entry records no property change that could be taken back.")
 		return
 	}
-	u := requestUser(r)
-	if !s.canWrite(u.ID, pageID) {
+	if !s.canWriteReq(r, pageID) {
 		httpErrorCode(w, 403, "forbidden", "You cannot write to that page.")
 		return
 	}
+	u := requestUser(r)
 
 	var diff map[string]propChange
 	if err := json.Unmarshal([]byte(changes), &diff); err != nil {

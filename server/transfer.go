@@ -91,6 +91,12 @@ func (s *Server) handleExportWorkspace(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "workspace not found")
 		return
 	}
+	// A whole workspace, files included: the credential has to be allowed there
+	// like for any page in it. A read token for one workspace exported others.
+	if !s.credentialMayEnter(u, wsID) {
+		httpError(w, 404, "workspace not found")
+		return
+	}
 	var wsName, wsIcon, wsImage, wsRules string
 	if err := s.db.QueryRow(`SELECT name, icon, image, COALESCE(rules, '') FROM workspaces WHERE id = ?`, wsID).
 		Scan(&wsName, &wsIcon, &wsImage, &wsRules); err != nil {

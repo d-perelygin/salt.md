@@ -1318,7 +1318,11 @@ export default function App() {
       try {
         p = await api.createPage(parentId, '', type, undefined, parentId ? undefined : currentWs);
       } catch (e) {
-        if (!isOfflineError(e)) throw e;
+        if (!isOfflineError(e)) {
+          // A refusal (a read-only workspace, say) used to end here unseen.
+          toast((e as Error).message || t('Could not be created'));
+          return;
+        }
         // Offline: create locally with a temp id and journal the create. The
         // page renders from the snapshot cache at once; flush() swaps the temp
         // id for the real one (REMAP_EVENT below) once the server answers.

@@ -306,7 +306,8 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	userID := requestUser(r).ID
+	u := requestUser(r)
+	userID := u.ID
 
 	// Exactly-once creates for retried requests (offline outbox flushes from
 	// two tabs replay the same op): a repeated key returns the first answer
@@ -320,7 +321,8 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// A child inherits its parent's workspace; a root page uses the requested
-	// (or the user's default) workspace. Membership is enforced either way.
+	// (or the user's default) workspace. Membership is enforced either way, and
+	// so is the credential: its workspaces and the workspace's rule for agents.
 	var workspaceID string
 	if body.ParentID != nil {
 		var pws string
@@ -329,7 +331,7 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 			httpError(w, 400, "parent page not found")
 			return
 		}
-		if !s.canWrite(userID, *body.ParentID) {
+		if !s.canWriteReq(r, *body.ParentID) {
 			httpError(w, 403, "forbidden")
 			return
 		}
@@ -337,14 +339,14 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		workspaceID = body.WorkspaceID
 		if workspaceID == "" {
-			workspaceID = s.userDefaultWorkspace(userID)
+			workspaceID = s.createWorkspaceFor(u)
 		}
-		if !s.isMember(userID, workspaceID) {
+		if !s.isMember(userID, workspaceID) || !s.credentialMayEnter(u, workspaceID) {
 			httpError(w, 403, "not a member of that workspace")
 			return
 		}
 		if s.workspaceRole(userID, workspaceID) == "viewer" {
-			httpError(w, 403, "workspace is read-only")
+			httpErrorCode(w, 403, "workspace_read_only", "You can only read this workspace, so nothing can be created in it.")
 			return
 		}
 	}
@@ -816,8 +818,13 @@ func (s *Server) handleReindexSiblings(w http.ResponseWriter, r *http.Request) {
 		if wsFilter == "" {
 			wsFilter = s.defaultWorkspaceFor(me)
 		}
-		if !s.isMember(me.ID, wsFilter) || !s.tokenReachesWorkspace(r, wsFilter) {
+		if !s.isMember(me.ID, wsFilter) || !s.credentialMayEnter(me, wsFilter) {
 			httpError(w, 404, "workspace not found")
+			return
+		}
+		// Reordering the top level rewrites every root page's position: a write.
+		if !s.mayCreateIn(me, wsFilter) {
+			httpErrorCode(w, 403, "workspace_read_only", "You can only read this workspace, so its pages cannot be reordered.")
 			return
 		}
 	}

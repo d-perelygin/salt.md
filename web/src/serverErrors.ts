@@ -37,6 +37,12 @@ export function serverMessage(code: string, fallback: string, data?: ErrorData):
 =======
       return t('This account has been deactivated. Talk to an admin.');
 
+    // ---- read-only workspaces ----
+    case 'workspace_read_only':
+      return t('You can only read this workspace, so nothing can be created or reordered in it.');
+    case 'no_writable_workspace':
+      return t('There is no workspace this account may create pages in.');
+
     // ---- agent keys from listed addresses only ----
     case 'agent_addresses_invalid':
       return t('Line {line} of the address list is neither an address nor a network: {entry}', {

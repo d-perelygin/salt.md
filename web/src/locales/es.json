@@ -1109,5 +1109,7 @@
   "Claude in the browser and in the desktop app calls from Anthropic’s addresses. Claude Code and other agents running on your own computer call from your address, so add that too if you use them.": "Claude en el navegador y en la aplicación de escritorio se conecta desde las direcciones de Anthropic. Claude Code y otros agentes que se ejecutan en tu ordenador se conectan desde tu dirección; añádela también si los usas.",
   "Line {line} of the address list is neither an address nor a network: {entry}": "La línea {line} de la lista no es ni una dirección ni una red: {entry}",
   "Add at least one address or network before switching this on.": "Añade al menos una dirección o red antes de activarlo.",
-  "This instance accepts agent keys only from listed addresses, and {address} is not one of them.": "Esta instancia solo acepta claves de agentes desde direcciones de la lista, y {address} no es una de ellas."
+  "This instance accepts agent keys only from listed addresses, and {address} is not one of them.": "Esta instancia solo acepta claves de agentes desde direcciones de la lista, y {address} no es una de ellas.",
+  "You can only read this workspace, so nothing can be created or reordered in it.": "Solo puedes leer este espacio de trabajo, así que no se puede crear ni reordenar nada en él.",
+  "There is no workspace this account may create pages in.": "No hay ningún espacio de trabajo en el que esta cuenta pueda crear páginas."
 }

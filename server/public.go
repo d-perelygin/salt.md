@@ -135,14 +135,16 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sharePasswordForm(token, wrong)))
 		return
 	}
-	w.Write([]byte(s.pageHTML(p, false, publicPrintOptions(s.printOptionsFor(p)), &pubView{Token: token, View: publicDocView(r), AutoPrint: r.URL.Query().Get("print") == "1"})))
+	opts := publicPrintOptions(s.printOptionsFor(p))
+	docCSP(w, &opts)
+	w.Write([]byte(s.pageHTML(p, false, opts, &pubView{Token: token, View: publicDocView(r), AutoPrint: r.URL.Query().Get("print") == "1"})))
 	// A ?pw= address that just opened must not keep the secret in the bar,
 	// and the tab should remember it like the gates do: the server verified
 	// it to render this page, so staging it into session storage is exact —
 	// a reload reopens through the gate script without asking again.
 	if r.Method != http.MethodPost && password != "" {
 		if pwJSON, err := json.Marshal(password); err == nil {
-			w.Write([]byte(`<script>(function(){try{` +
+			w.Write([]byte(`<script nonce="` + opts.Nonce + `">(function(){try{` +
 				`var m=location.pathname.match(/^\/public\/([a-f0-9]+)$/);if(!m)return;` +
 				`var k='salt:share-pw:'+m[1];` +
 				`try{sessionStorage.setItem(k,` + string(pwJSON) + `);sessionStorage.removeItem(k+':failed')}catch(e){}` +
