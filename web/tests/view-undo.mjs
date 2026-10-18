@@ -85,6 +85,13 @@ await withFixture(async ({ page, api, path }) => {
     const { rows } = await api('GET', `${path}/rows`);
     return !('labels' in (rows.find((r) => r.title === 'No labels row')?.props ?? {}));
   });
+  // The resurrection check: nothing may rewrite the cleared key afterwards.
+  await page.waitForTimeout(6000);
+  const after = await api('GET', `${path}/rows`);
+  assert.ok(
+    !('labels' in (after.rows.find((r) => r.title === 'No labels row')?.props ?? {})),
+    'cleared key stays cleared',
+  );
 
   // Hiding a column is a view change: gone, then back.
   await page.getByRole('button', { name: 'Columns' }).click();
