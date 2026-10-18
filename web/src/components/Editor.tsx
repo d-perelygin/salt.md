@@ -1460,7 +1460,7 @@ function PageHeader({
                   <button onClick={() => onPeekOpenFull?.(pageId)}>
                     <Maximize2 size={14} /> {t('Open full screen')}
                   </button>
-                  <button onClick={() => onOpenInNewTab?.(pageId)}>
+                  <button onClick={() => { onOpenInNewTab?.(pageId); onPeekClose?.(); }}>
                     <SquareArrowOutUpRight size={14} /> {t('Open in a new tab')}
                   </button>
                   <button

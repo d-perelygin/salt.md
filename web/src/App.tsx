@@ -464,7 +464,8 @@ export default function App() {
     // Clicking an inline @-mention (rendered by BlockNote) dispatches this.
     // Inlined (not via `navigate`) so the listener needs no deps and can't
     // hit a temporal-dead-zone on the later useCallback. A plain click
-    // navigates the active tab in place, matching a normal link click;
+    // navigates the active tab in place, matching a normal link click —
+    // unless that tab is pinned, which is never navigated in place;
     // ⌘/Ctrl-click (or the middle button) opens beside it instead.
     const onLinkNav = (e: Event) => {
       const detail = (e as CustomEvent<string | { id: string; newTab?: boolean }>).detail;
@@ -474,19 +475,33 @@ export default function App() {
       history.pushState(null, '', pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))));
       setCurrentId(id);
       setSidebarOpen(false);
-      setOpenTabs((prev) => {
-        // Open in a tab already: land on it, the way a browser focuses the
-        // tab a link is already open in.
-        if (prev.includes(id)) return prev;
-        // A new tab slides in right after the active one (see openInNewTab).
-        if (newTab) {
-          const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
-          return i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
-        }
+      // Computed from refs, not in a setOpenTabs updater: updater functions
+      // must stay pure (React may run them twice), and reading activeRef in
+      // one gave a stale second run that appended after a pinned tab instead
+      // of beside it. navigate/openInNewTab compute the same way.
+      const prev = tabsRef.current;
+      // Open in a tab already: land on it, the way a browser focuses the
+      // tab a link is already open in.
+      if (prev.includes(id)) return;
+      let next: string[];
+      // A new tab slides in right after the active one (see openInNewTab).
+      if (newTab) {
+        const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
+        next = i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+      } else {
         const active = activeRef.current;
-        if (active && prev.includes(active)) return prev.map((t) => (t === active ? id : t));
-        return [...prev, id];
-      });
+        if (active && prev.includes(active) && !pinnedRef.current.includes(active)) {
+          next = prev.map((t) => (t === active ? id : t));
+        } else if (active && prev.includes(active)) {
+          // A pinned active tab is never navigated in place (see navigate):
+          // the page opens right after it instead.
+          const i = prev.indexOf(active);
+          next = [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+        } else {
+          next = [...prev, id];
+        }
+      }
+      setOpenTabs(next);
     };
     window.addEventListener('salt:unauthorized', onUnauthorized);
     window.addEventListener('popstate', onPop);
