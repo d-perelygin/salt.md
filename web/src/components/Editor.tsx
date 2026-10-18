@@ -11,7 +11,13 @@ import { api, ApiError } from '../api';
 import * as Y from 'yjs';
 import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
 import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
-import { activeViewOf, canRedo, canUndo } from '../viewUndo';
+import {
+  activeViewOf,
+  canRedo,
+  canUndo,
+  getDocUndoState,
+  setDocUndoState as writeDocUndoState,
+} from '../viewUndo';
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User } from '../types';
@@ -805,12 +811,14 @@ function PageHeader({
   }, [page.id, isCollection, overflowOpen]);
   useEffect(() => {
     if (isCollection || !overflowOpen) return;
+    const refresh = () => setDocUndoState(getDocUndoState(page.id, regionId));
     const onState = (e: Event) => {
       const d = (e as CustomEvent<{ pageId?: string; region?: string; canUndo?: boolean; canRedo?: boolean }>).detail;
       if (d && d.pageId === page.id && d.region === regionId) {
-        setDocUndoState({ canUndo: !!d.canUndo, canRedo: !!d.canRedo });
+        refresh();
       }
     };
+    refresh();
     window.addEventListener('salt:doc-undo-state', onState);
     return () => window.removeEventListener('salt:doc-undo-state', onState);
   }, [page.id, isCollection, regionId, overflowOpen]);
@@ -2415,6 +2423,7 @@ function BlockContent({
     return off;
   }, [editor]);
   useEffect(() => {
+    writeDocUndoState(pageId, regionId, docUndo);
     window.dispatchEvent(
       new CustomEvent('salt:doc-undo-state', {
         detail: { pageId, region: regionId, ...docUndo },

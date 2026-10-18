@@ -40,6 +40,27 @@ export function series<T>(viewId: string | undefined, fn: () => Promise<T>): Pro
 // topbar's buttons address the view you are looking at.
 const activeViews = new Map<string, string>();
 
+// Document undo states by page+region (BlockNote keeps its own history; the
+// topbar lives outside its tree). Written on every broadcast, read whenever
+// a menu opens — events alone would miss everything edited while it was
+// closed, which is exactly the grey-buttons bug.
+const docUndoStates = new Map<string, { canUndo: boolean; canRedo: boolean }>();
+
+export function setDocUndoState(pageId: string, region: string, s: { canUndo: boolean; canRedo: boolean }) {
+  docUndoStates.set(pageId + '\x00' + region, s);
+}
+
+export function getDocUndoState(
+  pageId: string,
+  region: string,
+): { canUndo: boolean; canRedo: boolean } {
+  return docUndoStates.get(pageId + '\x00' + region) ?? { canUndo: false, canRedo: false };
+}
+
+export function clearDocUndoState(pageId: string, region: string) {
+  docUndoStates.delete(pageId + '\x00' + region);
+}
+
 function stackFor(viewId: string): Stack {
   let s = stacks.get(viewId);
   if (!s) {
