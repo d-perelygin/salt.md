@@ -349,10 +349,12 @@ func scopeWorkspaces(u *user, ws []string) []string {
 // tokenReachesWorkspace enforces an API token's workspace scope on a
 // workspace-id-keyed REST endpoint: a workspace-scoped token must not act on
 // (or read) a workspace outside its allow-list even when the user is a member/
-// admin of it. Session auth and unrestricted tokens always pass.
+// admin of it, nor one whose rule keeps agents out. Session auth always passes.
 func (s *Server) tokenReachesWorkspace(r *http.Request, wsID string) bool {
-	u := requestUser(r)
-	return u.TokenWorkspaces == nil || u.tokenCanReach(wsID)
+	// The workspace's rule for agents belongs here as much as the token's own
+	// list: a dozen handlers ask this one question, and with the list alone a
+	// workspace closed to agents stayed open on every one of them.
+	return s.credentialMayEnter(requestUser(r), wsID)
 }
 
 // tokenCanReach reports whether a workspace-scoped token may touch a workspace.
