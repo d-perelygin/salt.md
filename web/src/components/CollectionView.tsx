@@ -429,6 +429,16 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // runs, not what was there when it was issued.
   const rowsRef = useRef<Row[]>(rows);
   rowsRef.current = rows;
+  // Local-write generation: every optimistic rows mutation bumps it, and a
+  // reload in flight applies only if nothing was written meanwhile. Without
+  // this, a slow read started before an edit lands after it and paints the
+  // old value back over the new one — the "undone and returned" ghost. The
+  // epoch alone cannot see it: it only kills loads superseded by a newer
+  // load, not a load overtaken by a mutation.
+  const rowsVersion = useRef(0);
+  const touchRows = () => {
+    rowsVersion.current += 1;
+  };
   const [offlineSnapshot, setOfflineSnapshot] = useState(false);
   const online = useOnline();
   // A full page remembers its view across tab switches and reloads (see
@@ -547,6 +557,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const epochRef = useRef(0);
   const loadRows = useCallback(async () => {
     const epoch = ++epochRef.current;
+    const v0 = rowsVersion.current;
+    const fresh = () => epoch === epochRef.current && v0 === rowsVersion.current;
     let acc: Row[] = [];
     try {
       for (;;) {
@@ -557,14 +569,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           sort: serverSort,
           today: todayStr,
         });
-        if (epoch !== epochRef.current) return; // inzwischen neu geladen
+        if (!fresh()) return; // inzwischen neu geladen — or written to meanwhile
         const mapped: Row[] = res.rows.map(mapCollectionRow);
         acc = [...acc, ...mapped];
         setTotal(res.total);
         setRows(acc);
         if (acc.length >= res.total || mapped.length === 0) break;
       }
-      if (epoch !== epochRef.current) return;
+      if (!fresh()) return;
       setOfflineSnapshot(false);
       // Freeze this exact view (filters + sort included): offline we can only
       // show what was seen, not run a new query.
@@ -578,10 +590,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         });
       }
     } catch {
-      if (epoch !== epochRef.current) return;
+      if (!fresh()) return;
       // Offline with a snapshot: render the frozen view instead of an empty table.
       const snap = await getCollectionSnapshot(collectionKey(collectionId, fsKey));
-      if (snap && epoch === epochRef.current) {
+      if (snap && fresh()) {
         if (!config) setConfig(snap.config);
         setRows(snap.rows);
         setTotal(snap.total);
@@ -810,6 +822,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
               ...(topPos !== undefined ? { position: topPos } : {}),
             });
             if (topPos !== undefined) {
+              touchRows();
               setRows((prev) => prev.map((r) => (r.id === dup.id ? { ...r, position: topPos } : r)));
             }
           } catch {
@@ -829,6 +842,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       const created = await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
       if (created?.id) {
         if (topPos !== undefined) {
+          touchRows();
           setRows((prev) => prev.map((r) => (r.id === created.id ? { ...r, position: topPos } : r)));
           await savePageUpdate(created.id, { position: topPos }, { label: t('Change') });
         }
@@ -853,6 +867,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       };
       // Onto the top when the caller asked for it, like it will stand after
       // the sync: the position patch below journals behind the create.
+      touchRows();
       setRows((prev) => (topPos !== undefined ? [tempRow, ...prev] : [...prev, tempRow]));
       setTotal((n) => n + 1);
       await enqueue({
@@ -972,6 +987,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const cleared = (v: unknown) => (v === undefined ? null : v);
   const writeProps = async (rowId: string, patch: Record<string, unknown>) => {
     if (Object.keys(patch).length === 0) return;
+    touchRows();
     setRows((prev) =>
       prev.map((r) => (r.id === rowId ? { ...r, props: { ...r.props, ...patch } } : r)),
     );
@@ -1020,6 +1036,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const writePos = async (rowId: string, position: number) => {
     // The field only: the server order rules on the reload the write itself
     // triggers, so undoing never has to rebuild the visible order by hand.
+    touchRows();
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, position } : r)));
     await savePageUpdate(rowId, { position }, { label: t('Change') });
   };
@@ -1077,6 +1094,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     if (!ok) return;
     try {
       await api.trashPage(id);
+      touchRows();
       await loadRows();
       onPagesChanged();
     } catch (e) {
@@ -1140,6 +1158,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       const position = positionFor(newOrder, rowId, rowsRef.current);
       if (position === undefined) return undefined;
       const oldPos = rowsRef.current.find((r) => r.id === rowId)?.position;
+      touchRows();
       setRows((prevRows) => orderSplice(prevRows, rowId, newOrder, position));
       // Journals into the outbox offline, like every other row write.
       await savePageUpdate(rowId, { position }, { label: t('Change') });
@@ -1172,6 +1191,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       await writeProp(rowId, groupBy, newVal);
       const position = positionFor(newOrder, rowId, live);
       if (position !== undefined) {
+        touchRows();
         setRows((prevRows) => orderSplice(prevRows, rowId, newOrder, position));
         await savePageUpdate(rowId, { position }, { label: t('Change') });
       }
@@ -1198,6 +1218,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     const known = siblings.filter((r) => r.id !== rowId).map((r) => r.position);
     if (known.length === 0) return undefined;
     const position = Math.min(...known) - 1;
+    touchRows();
     setRows((prevRows) => {
       const without = prevRows.filter((r) => r.id !== rowId);
       const moved = prevRows.find((r) => r.id === rowId);
