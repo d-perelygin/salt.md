@@ -964,24 +964,52 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Raw applicators: write through, journal offline, never touch the undo
   // stack themselves. Everything below composes its steps out of these, so
   // undoing writes exactly the way doing did (an amend, not a cancel).
-  const writeProp = async (rowId: string, propId: string, value: unknown) => {
+  const writeProps = async (rowId: string, patch: Record<string, unknown>) => {
+    if (Object.keys(patch).length === 0) return;
     setRows((prev) =>
-      prev.map((r) => (r.id === rowId ? { ...r, props: { ...r.props, [propId]: value } } : r)),
+      prev.map((r) => (r.id === rowId ? { ...r, props: { ...r.props, ...patch } } : r)),
     );
-    // Send only the changed key (field-level merge) so two devices editing
+    // Send only the changed keys (field-level merge) so two devices editing
     // different properties of the same row don't overwrite each other.
     try {
-      await api.updatePage(rowId, { propsPatch: { [propId]: value } });
+      await api.updatePage(rowId, { propsPatch: patch });
     } catch (e) {
       // Temp rows and dead networks journal into the outbox (remapped on
       // flush); anything else is a real failure worth a toast.
       if (isTempId(rowId) || isOfflineError(e)) {
-        await savePageUpdate(rowId, { propsPatch: { [propId]: value } }, { label: t('Change') });
+        await savePageUpdate(rowId, { propsPatch: patch }, { label: t('Change') });
       } else {
         toast(t('Change not saved'));
       }
     }
   };
+
+  const writeProp = (rowId: string, propId: string, value: unknown) =>
+    writeProps(rowId, { [propId]: value });
+
+  // Several props in one gesture, one step: a timeline bar drag moves the
+  // start and the end together, and undo takes both back together — not one
+  // date at a time.
+  const setRowProps = (rowId: string, patch: Record<string, unknown>): Promise<void> =>
+    series(view?.id, async () => {
+      const live = rowsRef.current;
+      const me = live.find((r) => r.id === rowId);
+      if (!me || isTempId(rowId)) {
+        await writeProps(rowId, patch);
+        return;
+      }
+      const olds: Record<string, unknown> = {};
+      for (const k of Object.keys(patch)) olds[k] = me.props[k];
+      await writeProps(rowId, patch);
+      const v = view;
+      if (v && JSON.stringify(olds) !== JSON.stringify(patch)) {
+        pushUndo(v.id, {
+          label: t('Change'),
+          undo: () => writeProps(rowId, olds),
+          redo: () => writeProps(rowId, patch),
+        });
+      }
+    });
 
   const writePos = async (rowId: string, position: number) => {
     // The field only: the server order rules on the reload the write itself
@@ -1642,6 +1670,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onViewChange={updateView}
           onAddRow={(preset) => addRow(preset)}
           onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
+          onSetDates={(rowId, patch) => void setRowProps(rowId, patch)}
         />
       ) : view.type === 'list' ? (
         <ListView
@@ -1673,6 +1702,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onEnsureDepProps={ensureDepProps}
           onAddRow={(preset) => addRow(preset)}
           onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
+          onSetDates={(rowId, patch) => void setRowProps(rowId, patch)}
           onSetDep={(rowId, propId, ids) => void setRowProp(rowId, propId, ids)}
           hideLabels={view.tlHideLabels ?? false}
           onToggleLabels={() => updateView({ tlHideLabels: !view.tlHideLabels })}
@@ -3956,6 +3986,7 @@ function TimelineView({
   onEnsureDepProps,
   onAddRow,
   onSetDate,
+  onSetDates,
   onSetDep,
   hideLabels,
   onToggleLabels,
@@ -3980,6 +4011,9 @@ function TimelineView({
   onEnsureDepProps: () => void;
   onAddRow: (presetProps?: Record<string, unknown>) => void;
   onSetDate: (rowId: string, propId: string, iso: string) => void;
+  // Several dates in one gesture, one undo step (see setRowProps): a bar
+  // drag moves the start and the end together.
+  onSetDates: (rowId: string, patch: Record<string, string>) => void;
   onSetDep: (rowId: string, propId: string, ids: string[]) => void;
   hideLabels?: boolean;
   onToggleLabels?: () => void;
@@ -4061,8 +4095,8 @@ function TimelineView({
   const [trayDay, setTrayDay] = useState<string | null>(null);
   const [trayHover, setTrayHover] = useState(false);
   // Dropping a scheduled bar back onto the island clears its dates — only
-  // after asking, naming the exact fields, because there is no undo for
-  // "when was that".
+  // after asking, naming the exact fields. One gesture, one undo step, so a
+  // cleared range comes back whole.
   const confirmUnschedule = async (rowId: string) => {
     const row = rows.find((r) => r.id === rowId);
     const title = row?.title || t('Untitled');
@@ -4075,8 +4109,7 @@ function TimelineView({
       danger: true,
     });
     if (!ok) return;
-    void onSetDate(rowId, startProp, '');
-    if (endProp) void onSetDate(rowId, endProp, '');
+    void onSetDates(rowId, { [startProp]: '', ...(endProp ? { [endProp]: '' } : {}) });
   };
   const [settingsOpen, setSettingsOpen] = useState(!!startWithSettings);
   const [settingsHint, settingsSeen] = useSettingsHint('timeline-settings');
@@ -4243,8 +4276,10 @@ function TimelineView({
     if (target === null) return;
     const after = shiftDay(target);
     const dur = self.end - self.start;
-    void onSetDate(rowId, startProp, isoDay(after));
-    if (endProp) void onSetDate(rowId, endProp, isoDay(after + dur));
+    void onSetDates(rowId, {
+      [startProp]: isoDay(after),
+      ...(endProp ? { [endProp]: isoDay(after + dur) } : {}),
+    });
   };
 
   if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
@@ -4521,19 +4556,23 @@ function TimelineView({
           return;
         }
         navGuard.current = Date.now();
-        void onSetDate(id, startProp, isoDayKeepTime(it.row, startProp, it.start + reached.day));
-        // A move keeps whatever the row already had: a one-day row stays one
-        // day instead of growing an end nobody asked for.
-        if (endProp && rowHasEnd) void onSetDate(id, endProp, isoDayKeepTime(it.row, endProp, it.end + reached.day));
+        // One gesture, one step: start and end travel in a single patch.
+        void onSetDates(id, {
+          [startProp]: isoDayKeepTime(it.row, startProp, it.start + reached.day),
+          ...(endProp && rowHasEnd
+            ? { [endProp]: isoDayKeepTime(it.row, endProp, it.end + reached.day) }
+            : {}),
+        });
         return;
       }
       const movedProp = reached.edge === 'start' ? startProp : endProp;
-      void onSetDate(id, movedProp, isoDayKeepTime(it.row, movedProp, reached.day));
-      // Pulling the start of a one-day row makes it a range: the end keeps the
-      // day the row started on, so the bar grows rather than slides.
-      if (reached.edge === 'start' && endProp && !rowHasEnd) {
-        void onSetDate(id, endProp, isoDay(it.start));
-      }
+      // One gesture, one step — and pulling the start of a one-day row makes
+      // it a range: the end keeps the day the row started on, so the bar
+      // grows rather than slides.
+      void onSetDates(id, {
+        [movedProp]: isoDayKeepTime(it.row, movedProp, reached.day),
+        ...(reached.edge === 'start' && endProp && !rowHasEnd ? { [endProp]: isoDay(it.start) } : {}),
+      });
     };
     const onEnd = (ev: Event) => {
       // Blur and visibility loss end the gesture without coordinates: there
@@ -5690,6 +5729,7 @@ function CalendarView({
   onViewChange,
   onAddRow,
   onSetDate,
+  onSetDates,
 }: {
   rows: Row[];
   trayBase: Row[];
@@ -5705,6 +5745,8 @@ function CalendarView({
   onViewChange: (patch: Partial<ViewDef>) => void;
   onAddRow: (presetProps?: Record<string, unknown>) => void;
   onSetDate: (rowId: string, propId: string, iso: string) => void;
+  // Several dates in one gesture, one undo step (see setRowProps).
+  onSetDates: (rowId: string, patch: Record<string, string>) => void;
 }) {
   const [cursor, setCursor] = useState(() => {
     const n = new Date();
@@ -5726,8 +5768,8 @@ function CalendarView({
   const [trayOpen, setTrayOpen] = useState(false);
   const [trayHover, setTrayHover] = useState(false);
   // Dropping a scheduled entry back onto the island clears its dates — only
-  // after asking, naming the exact fields, because there is no undo for
-  // "when was that".
+  // after asking, naming the exact fields. One gesture, one undo step, so a
+  // cleared range comes back whole.
   const confirmUnschedule = async (rowId: string) => {
     const row = rows.find((r) => r.id === rowId);
     const title = row?.title || t('Untitled');
@@ -5740,8 +5782,7 @@ function CalendarView({
       danger: true,
     });
     if (!ok) return;
-    void onSetDate(rowId, dateProp, '');
-    if (endDateProp) void onSetDate(rowId, endDateProp, '');
+    void onSetDates(rowId, { [dateProp]: '', ...(endDateProp ? { [endDateProp]: '' } : {}) });
   };
   // The entry itself, following the pointer: a tinted cell says where it will
   // land, this says what is being carried.
@@ -5929,10 +5970,13 @@ function CalendarView({
       const delta = Math.round(
         (new Date(target + 'T00:00:00').getTime() - new Date(r.from + 'T00:00:00').getTime()) / 86400000,
       );
-      void onSetDate(rowId, dateProp, addDaysTo(r.from, delta));
-      // Only a row that already ended somewhere gets an end: moving a one-day
+      // One gesture, one step: start and end travel in a single patch. Only
+      // a row that already ended somewhere gets an end: moving a one-day
       // entry keeps it one day.
-      if (endDateProp && r.to > r.from) void onSetDate(rowId, endDateProp, addDaysTo(r.to, delta));
+      void onSetDates(rowId, {
+        [dateProp]: addDaysTo(r.from, delta),
+        ...(endDateProp && r.to > r.from ? { [endDateProp]: addDaysTo(r.to, delta) } : {}),
+      });
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', finish);
