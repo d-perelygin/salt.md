@@ -493,6 +493,10 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("Authorization", "Bearer "+tok)
 	}
 	u := s.currentUser(r)
+	if u == nil && hasBearer(r) && !s.agentAddressAllowed(r) {
+		s.refuseAgentAddress(w, r)
+		return
+	}
 	if u == nil {
 		// The pointer that makes signing in DISCOVERABLE. Without it a client has
 		// no way to learn this server has an authorization server at all, and

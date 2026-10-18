@@ -5144,6 +5144,21 @@ body.is-unsched-carry .tl-end-space {
   padding-right: 4px;
 }
 
+/* Agent keys from listed addresses only (Access tab). An address list is read
+   column by column, so it is set in the monospace face the config blocks use. */
+.agent-addresses {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.agent-addresses-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
 /* ---------- Instanz-Einstellungen (W36) ---------- */
 
 .settings-tabs {

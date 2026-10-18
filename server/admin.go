@@ -152,6 +152,11 @@ type appSettings struct {
 	// W97: may non-admins create workspaces of their own (and become their
 	// admin)? Default yes — that is how it was; the switch gives control.
 	AllowUserWorkspaces bool `json:"allowUserWorkspaces"`
+	// Agent keys from listed addresses only (agent_addresses.go). The
+	// Anthropic range travels with it so the dialog's button has one source.
+	AgentAddressesOn   bool   `json:"agentAddressesOn"`
+	AgentAddresses     string `json:"agentAddresses"`
+	AnthropicAddresses string `json:"anthropicAddresses"`
 }
 
 func (s *Server) loadSettings() appSettings {
@@ -189,6 +194,9 @@ func (s *Server) loadSettings() appSettings {
 		OIDCClientID:        strings.TrimSpace(s.setting("oauth_oidc_id", "")),
 		OIDCSecretSet:       s.setting("oauth_oidc_secret", "") != "",
 		OIDCName:            s.oidcDisplayName(),
+		AgentAddressesOn:    s.boolSetting(settingAgentAddressesOn),
+		AgentAddresses:      s.setting(settingAgentAddresses, ""),
+		AnthropicAddresses:  anthropicOutbound,
 	}
 	res.MailProvider, res.MailAddress = s.mailProviderConfigured()
 	res.MailFrom = s.setting("mail_from_override", "")
@@ -243,10 +251,27 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		OIDCSecret          *string `json:"oidcClientSecret"`
 		OIDCName            *string `json:"oidcName"`
 		AllowUserWorkspaces *bool   `json:"allowUserWorkspaces"`
+		AgentAddressesOn    *bool   `json:"agentAddressesOn"`
+		AgentAddresses      *string `json:"agentAddresses"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
 		return
+	}
+	// The address list is checked before anything is stored, so a typo in it
+	// does not leave half the dialog saved.
+	if !s.validAgentAddresses(w, body.AgentAddressesOn, body.AgentAddresses) {
+		return
+	}
+	if body.AgentAddresses != nil {
+		s.setSetting(settingAgentAddresses, strings.TrimSpace(*body.AgentAddresses))
+	}
+	if body.AgentAddressesOn != nil {
+		v := ""
+		if *body.AgentAddressesOn {
+			v = "1"
+		}
+		s.setSetting(settingAgentAddressesOn, v)
 	}
 	set := func(key string, v *string) {
 		if v != nil {

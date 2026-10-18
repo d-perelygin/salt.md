@@ -140,6 +140,12 @@ Guessing at tokens is throttled per calling address, and only failures count
 towards the budget. An agent making hundreds of calls a minute with a good token
 is never slowed down by it.
 
+An admin can also accept agent keys from listed addresses only: **Instance
+settings → Access → Agent keys** ([Administration](administration.md#agent-keys)).
+With that on, a key used from anywhere else is refused with `403`
+`agent_address_not_allowed`, whether it is a token or a sign-in, on MCP and on the
+REST API.
+
 ## What an agent can and cannot do
 
 **An agent has the permissions of the human whose credential it carries, never
@@ -411,7 +417,10 @@ repository, and repositories get pushed. See [The agent skill](skill.md).
 ## When something is refused
 
 Call `whoami` first. It separates "I used the wrong id" from "I am not allowed to
-do this", and those need very different next moves. `get_permissions` answers the
+do this", and those need very different next moves. If even `whoami` answers
+`agent_address_not_allowed`, the instance accepts agent keys only from listed
+addresses and the agent is calling from somewhere else; an admin adds the address
+named in the answer. `get_permissions` answers the
 same question for one page before a write is attempted.
 
 A page that cannot be reached answers `page "…" not found` whether it is missing,

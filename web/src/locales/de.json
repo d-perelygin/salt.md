@@ -1183,6 +1183,7 @@
   "Several people": "Mehrere Personen",
   "Only these can be picked:": "Nur diese stehen zur Auswahl:",
   "Everybody can be picked. Tick people to narrow it down:": "Alle stehen zur Auswahl. Ankreuzen, um einzugrenzen:",
+<<<<<<< HEAD
   "Only workspace admins and the page owner can manage access.": "Nur Workspace-Admins und der Eigentümer der Seite können den Zugriff verwalten.",
   "Only the people below can see this page and its sub-pages. Workspace admins always can.": "Nur die unten genannten Personen können diese Seite und ihre Unterseiten sehen. Workspace-Admins können das immer.",
   "Can view": "Kann ansehen",
@@ -1288,4 +1289,26 @@
   "Render anyway": "Trotzdem anzeigen",
   "Could not render this file.": "Diese Datei konnte nicht angezeigt werden.",
   "Showing first {shown} of {total} rows": "Erste {shown} von {total} Zeilen werden angezeigt"
+=======
+  "Open link": "Link öffnen",
+  "Edit": "Bearbeiten",
+  "This page is shared publicly. Its address was only shown when the link was made.": "Diese Seite ist öffentlich geteilt. Ihre Adresse wurde nur beim Erstellen des Links angezeigt.",
+  "A new link stops the old one from working.": "Mit einem neuen Link funktioniert der alte nicht mehr.",
+  "New link": "Neuer Link",
+  "Anyone with this link can view this page (read-only).": "Jeder mit diesem Link kann die Seite ansehen (nur lesen).",
+  "Expires:": "Läuft ab:",
+  "This page is not public. A link lets anyone who has it read the page.": "Diese Seite ist nicht öffentlich. Mit einem Link kann jeder, der ihn hat, die Seite lesen.",
+  "Create link": "Link erstellen",
+  "Could not stop sharing": "Teilen konnte nicht beendet werden",
+  "Only people who can edit this page can share it or stop sharing it.": "Nur wer diese Seite bearbeiten darf, kann sie teilen oder das Teilen beenden.",
+  "Agent keys": "Agenten-Schlüssel",
+  "Accept agent keys only from these addresses": "Agenten-Schlüssel nur von diesen Adressen annehmen",
+  "Covers every API token and every connected agent, over MCP and over the REST API. Signing in with a browser, the desktop app, public links, forms and calendar feeds are not affected. One address or network per line; # starts a comment.": "Gilt für jedes API-Token und jeden verbundenen Agenten, über MCP und über die REST-API. Die Anmeldung im Browser, die Desktop-App, öffentliche Links, Formulare und Kalender-Abos sind nicht betroffen. Eine Adresse oder ein Netz pro Zeile; # beginnt einen Kommentar.",
+  "Add Anthropic (Claude)": "Anthropic (Claude) eintragen",
+  "Your address, as the server sees it:": "Deine Adresse, wie der Server sie sieht:",
+  "Claude in the browser and in the desktop app calls from Anthropic’s addresses. Claude Code and other agents running on your own computer call from your address, so add that too if you use them.": "Claude im Browser und in der Desktop-App greift von Anthropics Adressen aus zu. Claude Code und andere Agenten auf deinem eigenen Rechner kommen von deiner Adresse; trag sie mit ein, wenn ihr sie nutzt.",
+  "Line {line} of the address list is neither an address nor a network: {entry}": "Zeile {line} der Adressliste ist weder eine Adresse noch ein Netz: {entry}",
+  "Add at least one address or network before switching this on.": "Trag mindestens eine Adresse oder ein Netz ein, bevor du das einschaltest.",
+  "This instance accepts agent keys only from listed addresses, and {address} is not one of them.": "Diese Instanz nimmt Agenten-Schlüssel nur von eingetragenen Adressen an, und {address} gehört nicht dazu."
+>>>>>>> e92456b (Agent keys can be limited to listed addresses)
 }

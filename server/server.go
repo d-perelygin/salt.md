@@ -29,6 +29,8 @@ type Server struct {
 	notices     string
 	addr        string
 	tunnel      tunnelState
+	// Agent keys from listed addresses only; see agent_addresses.go.
+	agentAddressList addressList
 	loginMu     sync.Mutex
 	loginSem    chan struct{}
 	events      *eventHub

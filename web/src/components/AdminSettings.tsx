@@ -60,6 +60,8 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
     pageNums: true, comments: false, links: true, landscape: false,
   });
   const [allowUserWs, setAllowUserWs] = useState(true);
+  // Agent keys from listed addresses only (server/agent_addresses.go).
+  const [agentAddr, setAgentAddr] = useState({ on: false, list: '', anthropic: '' });
   const [passSet, setPassSet] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -118,6 +120,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
           comments: v.pdfComments, links: v.pdfLinks, landscape: v.pdfLandscape,
         });
         setAllowUserWs(v.allowUserWorkspaces !== false);
+        setAgentAddr({ on: v.agentAddressesOn, list: v.agentAddresses, anthropic: v.anthropicAddresses });
         setHttpsEnabled(v.httpsEnabled);
         setOauthSet({ google: v.googleSecretSet, ms: v.msSecretSet, oidc: v.oidcSecretSet });
         setMail({ provider: v.mailProvider, address: v.mailAddress });
@@ -129,7 +132,8 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
 
   // Instance info lazily when the maintenance tab opens.
   useEffect(() => {
-    if (tab === 'maintenance' && !info) void api.adminInfo().then(setInfo).catch(() => {});
+    // The access tab shows the admin's own address beside the agent list.
+    if ((tab === 'maintenance' || tab === 'access') && !info) void api.adminInfo().then(setInfo).catch(() => {});
     if (tab === 'webhooks' && hooks === null) void api.webhooks().then(setHooks).catch(() => setHooks([]));
   }, [tab, info, hooks]);
 
@@ -228,6 +232,8 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
         pdfLinks: pdf.links,
         pdfLandscape: pdf.landscape,
         allowUserWorkspaces: allowUserWs,
+        agentAddressesOn: agentAddr.on,
+        agentAddresses: agentAddr.list,
         maxUploadMb: num('maxUploadMb', 1, 2048),
         trashDays: num('trashDays', 0, 3650),
         auditDays: num('auditDays', 0, 3650),
@@ -442,6 +448,7 @@ ingress:
                       <label>{t('Client secret')}</label>
                       <input className="prop-input" type="password" placeholder={oauthSet.ms ? t('•••••• (stored)') : t('secret value')} value={s.msClientSecret} onChange={(e) => set('msClientSecret', e.target.value)} />
                     </div>
+<<<<<<< HEAD
                     <div className="pa-card">
                       <strong>{t('Custom identity provider (OIDC)')}</strong>
                       <p className="dialog-hint settings-hint">
@@ -458,6 +465,54 @@ ingress:
                       <label>{t('Button label')}</label>
                       <input className="prop-input" placeholder="SSO" value={s.oidcName} onChange={(e) => set('oidcName', e.target.value)} />
                     </div>
+=======
+
+                    <h3>{t('Agent keys')}</h3>
+                    <label className="check-label">
+                      <input
+                        type="checkbox"
+                        checked={agentAddr.on}
+                        onChange={(e) => setAgentAddr({ ...agentAddr, on: e.target.checked })}
+                      />
+                      {t('Accept agent keys only from these addresses')}
+                    </label>
+                    <p className="dialog-hint settings-hint">
+                      {t(
+                        'Covers every API token and every connected agent, over MCP and over the REST API. Signing in with a browser, the desktop app, public links, forms and calendar feeds are not affected. One address or network per line; # starts a comment.',
+                      )}
+                    </p>
+                    <textarea
+                      className="prop-input agent-addresses"
+                      rows={4}
+                      spellCheck={false}
+                      value={agentAddr.list}
+                      placeholder={agentAddr.anthropic}
+                      onChange={(e) => setAgentAddr({ ...agentAddr, list: e.target.value })}
+                    />
+                    <div className="agent-addresses-actions">
+                      <button
+                        className="btn-sm"
+                        disabled={agentAddr.list.includes(agentAddr.anthropic)}
+                        onClick={() => {
+                          const line = `${agentAddr.anthropic}  # Anthropic (Claude)`;
+                          const list = agentAddr.list.trimEnd();
+                          setAgentAddr({ ...agentAddr, list: list ? `${list}\n${line}` : line });
+                        }}
+                      >
+                        {t('Add Anthropic (Claude)')}
+                      </button>
+                      {info && (
+                        <span className="dialog-hint">
+                          {t('Your address, as the server sees it:')} <code>{info.yourIp}</code>
+                        </span>
+                      )}
+                    </div>
+                    <p className="dialog-hint settings-hint">
+                      {t(
+                        'Claude in the browser and in the desktop app calls from Anthropic’s addresses. Claude Code and other agents running on your own computer call from your address, so add that too if you use them.',
+                      )}
+                    </p>
+>>>>>>> e92456b (Agent keys can be limited to listed addresses)
                   </>
                 )}
 
