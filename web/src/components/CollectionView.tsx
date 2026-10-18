@@ -1224,13 +1224,24 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         ...cur,
         views: cur.views.map((v) => (v.id === viewId ? nextView : v)),
       });
-      if (JSON.stringify(prev) !== JSON.stringify(nextView)) {
-        pushUndo(viewId, {
-          label: t('Change'),
-          undo: () => restoreView(prev),
-          redo: () => restoreView(nextView),
-        });
-      }
+      if (JSON.stringify(prev) === JSON.stringify(nextView)) return;
+      const sortBack =
+        JSON.stringify(prev.sort ?? null) !== JSON.stringify(nextView.sort ?? null);
+      const filterBack =
+        JSON.stringify(prev.filters ?? []) !== JSON.stringify(nextView.filters ?? []) ||
+        JSON.stringify(prev.filterGroups ?? []) !== JSON.stringify(nextView.filterGroups ?? []);
+      pushUndo(viewId, {
+        label: t('Change'),
+        undo: async () => {
+          await restoreView(prev);
+          // A restored sort or filter reads as nothing happening — the rows
+          // just stand differently — so it says what came back.
+          if (sortBack && filterBack) toast(t('Sort and filter reverted'));
+          else if (sortBack) toast(t('Sort reverted'));
+          else if (filterBack) toast(t('Filter reverted'));
+        },
+        redo: () => restoreView(nextView),
+      });
     });
   };
 

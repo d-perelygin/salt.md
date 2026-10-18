@@ -43,6 +43,18 @@ await withFixture(async ({ page, api, path }) => {
   await page.keyboard.press('Control+Shift+z');
   await eventually(async () => (await statusOf('First row')) === 'done');
 
+  // Sorting back announces itself: a restored order reads as nothing
+  // happening, so the undo says what came back.
+  await page.getByRole('button', { name: 'Sort' }).click();
+  await page.locator('.fs-popover select.prop-select').first().selectOption('status');
+  await page.locator('.fs-backdrop').click();
+  await eventually(async () => (await api('GET', path)).views[0].sort?.property === 'status');
+  await more().click();
+  await eventually(async () => (await undo().isDisabled()) === false);
+  await undo().click();
+  await eventually(async () => (await page.locator('.toaster').getByText('Sort reverted').count()) === 1);
+  await eventually(async () => (await api('GET', path)).views[0].sort == null);
+
   // Hiding a column is a view change: gone, then back.
   await page.getByRole('button', { name: 'Columns' }).click();
   await page.locator('.col-popover').getByRole('button', { name: 'Labels' }).click();
