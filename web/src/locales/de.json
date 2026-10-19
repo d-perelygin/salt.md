@@ -1087,7 +1087,6 @@
   "Everybody can be picked. Tick people to narrow it down:": "Alle stehen zur Auswahl. Ankreuzen, um einzugrenzen:",
   "Open link": "Link öffnen",
   "Edit": "Bearbeiten",
-<<<<<<< HEAD
   "This page is shared publicly. Its address was only shown when the link was made.": "Diese Seite ist öffentlich geteilt. Ihre Adresse wurde nur beim Erstellen des Links angezeigt.",
   "A new link stops the old one from working.": "Mit einem neuen Link funktioniert der alte nicht mehr.",
   "New link": "Neuer Link",
@@ -1115,9 +1114,7 @@
   "That is the newest release.": "Das ist die neueste Version.",
   "This copy was installed on the system, not by salt.md, so it is updated by whatever installed it.": "Diese Kopie wurde auf dem System installiert, nicht von salt.md, und wird dort aktualisiert, wo sie herkommt.",
   "Keep it up to date automatically (checked daily, checksum verified)": "Automatisch aktuell halten (täglich geprüft, mit Prüfsumme)",
-  "Check now": "Jetzt prüfen"
-=======
-  "A new link was created. The old one no longer works": "Ein neuer Link wurde erstellt. Der alte funktioniert nicht mehr.",
+  "Check now": "Jetzt prüfen",
   "Anyone with this link can view this page (read-only).": "Jeder mit diesem Link kann diese Seite ansehen (nur Lesen).",
   "Anyone with this link sees this collection (read-only).": "Jeder mit diesem Link sieht diese Sammlung (nur Lesen).",
   "Apply": "Anwenden",
@@ -1134,5 +1131,4 @@
   "This page is protected by a password.": "Diese Seite ist durch ein Passwort geschützt.",
   "Views in the link": "Ansichten im Link",
   "Wrong password.": "Falsches Passwort."
->>>>>>> 6ecbd5e (Public shares: close the anonymous read surface)
 }
