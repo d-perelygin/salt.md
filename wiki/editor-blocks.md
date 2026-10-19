@@ -388,7 +388,10 @@ Two triggers, one menu:
 
 The menu lists up to **twelve** pages whose titles contain what you typed, each
 marked *Page* or *Database*, excluding the page you are on and anything in the
-trash. Once you have typed something it also offers `Create "…"`, which makes a
+trash. Beneath them it offers up to **five** collection rows matching the
+search, each marked *in* its collection: rows open, peek and backlink like any
+page. A row with sub-pages of its own is listed among the twelve as a *Page*.
+Once you have typed something it also offers `Create "…"`, which makes a
 page with that title and links it in one motion, **at the top level of your
 default workspace**, not under the page you are writing in.
 
@@ -400,9 +403,6 @@ and nothing else, so a hand-typed address leaves the page an island.
 Pages that link *to* the page you are reading are listed as **Linked from · N**
 under the body, or in the structure panel when that is open. See
 [Pages](pages.md#page-links-and-backlinks).
-
-Bare database rows are not offered in the menu. A row with sub-pages of its own
-is.
 
 ## Files: three ways in
 

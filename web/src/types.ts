@@ -86,6 +86,11 @@ export interface SearchResult {
   title: string;
   icon: string;
   snippet: string;
+  /** Workspace the hit lives in, so the palette can name it. */
+  workspaceId: string;
+  /** Collection holding the hit; present only for collection rows. */
+  parentId?: string;
+  parentTitle?: string;
 }
 
 export interface Backlink {

@@ -1090,6 +1090,12 @@ type searchResult struct {
 	// "Contract › Termination". Empty when the hit comes from the fallback or
 	// sits under no heading at all.
 	Heading string `json:"heading,omitempty"`
+	// Where the hit lives, so pickers can annotate it: rows name their
+	// collection ("in Projects"), every hit names its workspace. ParentID is
+	// empty for root pages; both parent fields are empty for them.
+	WorkspaceID string `json:"workspaceId"`
+	ParentID    string `json:"parentId,omitempty"`
+	ParentTitle string `json:"parentTitle,omitempty"`
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -1159,10 +1165,12 @@ func (s *Server) searchChunks(userID, match string, ws []string, want int) []sea
 		qArgs := append([]any{}, args...)
 		rows, err := s.db.Query(`
 			SELECT c.page_id, p.title, p.icon, c.heading,
-			       snippet(chunks_fts, 3, char(1), char(2), '…', 18)
+			       snippet(chunks_fts, 3, char(1), char(2), '…', 18),
+			       p.workspace_id, p.parent_id, parent.title
 			FROM chunks_fts
 			JOIN page_chunks c ON c.id = chunks_fts.chunk_id
 			JOIN pages p ON p.id = c.page_id
+			LEFT JOIN pages parent ON parent.id = p.parent_id
 			WHERE chunks_fts MATCH ? AND p.trashed_at IS NULL
 			  AND c.workspace_id IN (`+placeholders(len(ws))+`)
 			ORDER BY bm25(chunks_fts, 0.0, 5.0, 3.0, 1.0)
@@ -1175,7 +1183,12 @@ func (s *Server) searchChunks(userID, match string, ws []string, want int) []sea
 		var cand []searchResult
 		for rows.Next() {
 			var res searchResult
-			if rows.Scan(&res.ID, &res.Title, &res.Icon, &res.Heading, &res.Snippet) == nil {
+			var parentID, parentTitle sql.NullString
+			if rows.Scan(&res.ID, &res.Title, &res.Icon, &res.Heading, &res.Snippet, &res.WorkspaceID, &parentID, &parentTitle) == nil {
+				if parentID.Valid {
+					res.ParentID = parentID.String
+					res.ParentTitle = parentTitle.String
+				}
 				cand = append(cand, res)
 			}
 		}
@@ -1211,8 +1224,10 @@ func (s *Server) searchPagesFallback(userID, match string, ws []string, want int
 	for offset, round := 0, 0; len(out) < want && round < 8; round++ {
 		qArgs := append([]any{}, args...)
 		rows, err := s.db.Query(`
-			SELECT p.id, p.title, p.icon, snippet(pages_fts, 2, char(1), char(2), '…', 14)
+			SELECT p.id, p.title, p.icon, snippet(pages_fts, 2, char(1), char(2), '…', 14),
+			       p.workspace_id, p.parent_id, parent.title
 			FROM pages_fts JOIN pages p ON p.id = pages_fts.id
+			LEFT JOIN pages parent ON parent.id = p.parent_id
 			WHERE pages_fts MATCH ? AND p.trashed_at IS NULL AND p.workspace_id IN (`+placeholders(len(ws))+`)
 			ORDER BY bm25(pages_fts, 0.0, 5.0, 1.0)
 			LIMIT 60 OFFSET `+strconv.Itoa(offset), qArgs...)
@@ -1222,7 +1237,12 @@ func (s *Server) searchPagesFallback(userID, match string, ws []string, want int
 		var cand []searchResult
 		for rows.Next() {
 			var res searchResult
-			if rows.Scan(&res.ID, &res.Title, &res.Icon, &res.Snippet) == nil {
+			var parentID, parentTitle sql.NullString
+			if rows.Scan(&res.ID, &res.Title, &res.Icon, &res.Snippet, &res.WorkspaceID, &parentID, &parentTitle) == nil {
+				if parentID.Valid {
+					res.ParentID = parentID.String
+					res.ParentTitle = parentTitle.String
+				}
 				cand = append(cand, res)
 			}
 		}

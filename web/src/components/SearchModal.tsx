@@ -15,6 +15,17 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Where a hit lives: its workspace, plus the collection for a row. The
+// server carries both ids on every hit (see searchResult); the names resolve
+// locally, so no extra round trip is needed.
+function resultContext(r: SearchResult, workspaces: { id: string; name: string }[]) {
+  const parts: string[] = [];
+  const ws = workspaces.find((w) => w.id === r.workspaceId)?.name;
+  if (ws) parts.push(ws);
+  if (r.parentTitle) parts.push(r.parentTitle);
+  return parts.join(' · ');
+}
+
 // The server wraps matches in \x01…\x02 so we can highlight them safely.
 function snippetHtml(s: string) {
   return escapeHtml(s).replaceAll('\u0001', '<mark>').replaceAll('\u0002', '</mark>');
@@ -414,6 +425,7 @@ export default function SearchModal({
             {showResults &&
               results.map((r) => {
                 const idx = items.findIndex((i) => (i.kind === 'result' || i.kind === 'recent') && i.r.id === r.id);
+                const context = resultContext(r, workspaces);
                 return (
                   <button
                     key={r.id}
@@ -425,6 +437,7 @@ export default function SearchModal({
                     <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
                     <span className="result-body">
                       <span className="result-title">{r.title || t('Untitled')}</span>
+                      {context && <span className="result-context">{context}</span>}
                       {r.snippet && (
                         <span
                           className="result-snippet"

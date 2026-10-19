@@ -49,9 +49,9 @@ When nothing matches, the box says **No results**.
 
 ## What a result looks like
 
-Each hit shows the page icon, the page title (or *Untitled* if it has none) and
-an excerpt with your search words highlighted. The excerpt is trimmed to two
-lines; `…` marks where text was cut away on either side.
+Each hit shows the page icon, the page title (or *Untitled* if it has none),
+where it lives, and an excerpt with your search words highlighted. The excerpt
+is trimmed to two lines; `…` marks where text was cut away on either side.
 
 The excerpt comes from the text of the passage that matched, not from the top
 of a 4000-word document: roughly eighteen words, with the matching words
@@ -62,9 +62,9 @@ look like a page's opening paragraph.
 
 At most **20 results** are returned.
 
-A result does not say which workspace it lives in. If you have two pages of the
-same name in two workspaces, the list will not tell them apart. Open one, or
-narrow the search with a word that only one of them contains.
+Under the title, each hit names where it lives: its workspace, and for a
+database row the collection too. Two pages of the same name in two workspaces
+tell themselves apart.
 
 ## What is indexed
 

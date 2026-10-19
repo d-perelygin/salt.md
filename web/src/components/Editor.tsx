@@ -2631,12 +2631,18 @@ function BlockContent({
 
   // Page-link menu (shared by the "@" mention trigger and the "[[" wiki-link
   // trigger): existing pages plus a "create new page" action.
+  // Guards out-of-order server answers: one request per keystroke, and a slow
+  // one resolving after a newer round falls back to the local items rather
+  // than clobbering the menu with a stale list.
+  const linkSeq = useRef(0);
   const buildLinkItems = async (query: string) => {
     const q = query.toLowerCase();
     const matches = [...pagesById.values()]
       .filter((p) => !p.trashed && p.id !== provider.pageId)
       .filter((p) => (p.title || 'Untitled').toLowerCase().includes(q))
       .slice(0, 12);
+    const seen = new Set(matches.map((p) => p.id));
+    seen.add(provider.pageId);
     const items = matches.map((p) => ({
       title: p.title || 'Untitled',
       subtext: p.type === 'collection' ? 'Database' : 'Page',
@@ -2646,6 +2652,39 @@ function BlockContent({
           ' ',
         ]),
     }));
+    // Collection rows never enter the client page list (/api/pages leaves out
+    // children of collections), so the local filter above cannot see them —
+    // but they open, peek and backlink like any page. Complete them from the
+    // server search: rows carry their collection in parentTitle, while plain
+    // documents are already covered by the local matches above.
+    if (query.trim()) {
+      const seq = ++linkSeq.current;
+      try {
+        const hits = await api.search(query.trim());
+        if (seq === linkSeq.current) {
+          let added = 0;
+          for (const h of hits) {
+            if (added >= 5 || !h.parentId || seen.has(h.id)) continue;
+            seen.add(h.id);
+            added++;
+            const label = h.title || t('Untitled');
+            const collection = h.parentTitle || t('Untitled');
+            const pageId = h.id;
+            items.push({
+              title: label,
+              subtext: t('in {collection}', { collection }),
+              onItemClick: () =>
+                editor.insertInlineContent([
+                  { type: 'pageLink', props: { pageId, label } },
+                  ' ',
+                ]),
+            });
+          }
+        }
+      } catch {
+        /* offline: local matches only */
+      }
+    }
     if (query.trim()) {
       items.push({
         title: `Create "${query.trim()}"`,

@@ -599,6 +599,7 @@
   "Orange": "Оранжевый",
   "Orphaned personal space — clean up only, do not open.": "Бесхозное личное пространство — только очистка, не открывать.",
   "Outgoing @-links": "Исходящие @-ссылки",
+  "in {collection}": "в {collection}",
   "Override the sender address (optional, alias)": "Переопределить адрес отправителя (необязательно, псевдоним)",
   "PNG, JPG, GIF or SVG — shown square, as an icon.": "PNG, JPG, GIF или SVG — отображается квадратом, как значок.",
   "Page": "Страница",
