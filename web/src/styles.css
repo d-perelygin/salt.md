@@ -3947,10 +3947,17 @@ body.is-col-resizing {
   flex-wrap: wrap;
   gap: 6px;
 }
-.prop-chip.prop-chip-on {
-  background: var(--pill-dark);
-  border-color: transparent;
-  color: var(--bg);
+/* Selected workflow chips read as chosen, not tinted: a solid ink fill with
+ *  ink-contrast text. The option tint in theme.css paints every .prop-chip
+ *  with !important, so this answers with the same weight — scoped to the
+ *  selected state only, and winning on specificity (:root + two classes)
+ *  regardless of which sheet loads last. */
+:root .prop-chip.prop-chip-on {
+  background: var(--pill-dark) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--bg) !important;
+  -webkit-text-fill-color: var(--bg) !important;
   outline: none;
 }
 
