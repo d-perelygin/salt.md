@@ -784,22 +784,21 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
     return '';
   };
 
-  // A value that is not an id but matches exactly ONE row's title is resolved
-  // to that row. The stored value is wrong, but the row it names is not
-  // ambiguous, and hiding a working relation behind a data problem helps
-  // nobody. Two rows with the same title stay unresolved, because there is no
-  // answer to give.
+  // A value that names a row by id resolves to that row. Anything else is
+  // shown exactly as stored — the server treats a non-id the same way in
+  // rollups, backrelations and filters (as broken, not as a row), so guessing
+  // a row by title in the browser would show something openable that nothing
+  // else agrees is a row.
   const rowFor = (raw: unknown): RelOption | undefined => {
     const text = asText(raw);
-    const byId = options.find((o) => o.id === text);
-    if (byId) return byId;
-    const wanted = text.trim().toLowerCase();
-    if (!wanted) return undefined;
-    const byTitle = options.filter((o) => {
-      const title = (o.title || '').trim().toLowerCase();
-      return title !== '' && title === wanted;
-    });
-    return byTitle.length === 1 ? byTitle[0] : undefined;
+    if (!text) return undefined;
+    // An object carries its id directly; anything else must BE the id.
+    if (raw && typeof raw === 'object') {
+      const o = raw as { id?: unknown };
+      if (typeof o.id === 'string' && o.id) return options.find((r) => r.id === o.id);
+      return undefined;
+    }
+    return options.find((o) => o.id === text);
   };
 
   if (!targetId) return <span className="prop-empty">{t('No target')}</span>;
