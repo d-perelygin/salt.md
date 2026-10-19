@@ -2031,8 +2031,6 @@ function BlockContent({
             toast(t('This page was deleted on the server. Open the trash to get it back.'));
             return;
           }
-            return;
-          }
           dirty.current = true; // retry on next change / unmount flush
           toast(t('Page content not saved'));
         });
