@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import Portal from './components/Portal';
 import { t } from './i18n';
 import type { PromptField } from './workflow';
+import { SelectCell } from './components/PropertyValue';
+import type { PropDef } from './types';
 
 // In-app confirm / prompt dialogs (replacing native window.confirm/prompt,
 // which look out of place and can't be styled). Promise-based: call
@@ -171,43 +173,19 @@ export function DialogHost() {
                           </option>
                         ))}
                       </select>
-                    ) : f.kind === 'select' ? (
-                      <select
-                        className="prop-select"
-                        value={(answers[f.key] as string) ?? ''}
-                        onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
-                      >
-                        <option value="">{t('Select…')}</option>
-                        {(f.options ?? []).map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="workflow-chips">
-                        {(f.options ?? []).map((o) => {
-                          const cur = (answers[f.key] as string[]) ?? [];
-                          const on = cur.includes(o.id);
-                          return (
-                            <button
-                              key={o.id}
-                              type="button"
-                              aria-pressed={on}
-                              className={'prop-chip toggle' + (on ? ' prop-chip-on' : '')}
-                              onClick={() =>
-                                setAnswers((p) => ({
-                                  ...p,
-                                  [f.key]: on ? cur.filter((x) => x !== o.id) : [...cur, o.id],
-                                }))
-                              }
-                            >
-                              {o.name}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+                    ) : f.kind === 'select' || f.kind === 'multiselect' ? (
+                      <SelectCell
+                        def={{
+                          id: f.prop ?? '',
+                          name: f.label,
+                          type: f.kind,
+                          options: (f.options ?? []) as PropDef['options'],
+                        }}
+                        value={(answers[f.key] as string | string[]) ?? (f.kind === 'multiselect' ? [] : '')}
+                        multi={f.kind === 'multiselect'}
+                        onChange={(v) => setAnswers((p) => ({ ...p, [f.key]: v as string | string[] }))}
+                      />
+                    ) : null}
                   </label>
                 ))}
               </div>

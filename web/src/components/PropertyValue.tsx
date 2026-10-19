@@ -67,7 +67,10 @@ function chip(opt: PropOption | undefined, fallback: string) {
 // clamped fixed position so it never runs off-screen or gets clipped by the
 // scrolling table. Colour editing is a second panel (not a nested popover) so it
 // stays on-screen on mobile.
-function SelectCell({
+//
+// Shared with the workflow move dialog and the rule editor: picking from the
+// same popover everywhere beats maintaining a second picker.
+export function SelectCell({
   def,
   value,
   multi,

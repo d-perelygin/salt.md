@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowRule } from '../types';
 import { t } from '../i18n';
-import { loadMembers, type Member } from './PropertyValue';
+import { SelectCell, loadMembers, type Member } from './PropertyValue';
 
 let ruleCounter = 0;
 const newRuleId = () => `rule_${Date.now().toString(36)}_${ruleCounter++}`;
@@ -465,41 +465,14 @@ function SetValueInput({
   if (!def) {
     return <span className="prop-input" aria-hidden="true" />;
   }
-  if (def.type === 'select') {
+  if (def.type === 'select' || def.type === 'multiselect') {
     return (
-      <select
-        className="prop-select"
-        value={typeof value === 'string' ? value : ''}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">{t('Select…')}</option>
-        {(def.options ?? []).map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.name}
-          </option>
-        ))}
-      </select>
-    );
-  }
-  if (def.type === 'multiselect') {
-    const cur = Array.isArray(value) ? (value as string[]) : [];
-    return (
-      <span className="workflow-chips">
-        {(def.options ?? []).map((o) => {
-          const on = cur.includes(o.id);
-          return (
-            <button
-              key={o.id}
-              type="button"
-              aria-pressed={on}
-              className={'prop-chip toggle' + (on ? ' prop-chip-on' : '')}
-              onClick={() => onChange(on ? cur.filter((x) => x !== o.id) : [...cur, o.id])}
-            >
-              {o.name}
-            </button>
-          );
-        })}
-      </span>
+      <SelectCell
+        def={def}
+        value={value}
+        multi={def.type === 'multiselect'}
+        onChange={onChange}
+      />
     );
   }
   if (def.type === 'date') {
