@@ -29,6 +29,7 @@ type WorkflowReq = {
   kind: 'workflow';
   title: string;
   fields: PromptField[];
+  okText?: string;
   resolve: (v: Record<string, unknown> | null) => void;
 };
 type Req = ConfirmReq | PromptReq | WorkflowReq;
@@ -60,10 +61,11 @@ export function promptText(
 export function promptWorkflow(
   title: string,
   fields: PromptField[],
+  opts?: { okText?: string },
 ): Promise<Record<string, unknown> | null> {
   return new Promise((resolve) => {
     window.dispatchEvent(
-      new CustomEvent('salt:dialog', { detail: { kind: 'workflow', title, fields, resolve } }),
+      new CustomEvent('salt:dialog', { detail: { kind: 'workflow', title, fields, ...opts, resolve } }),
     );
   });
 }
@@ -232,7 +234,7 @@ export function DialogHost() {
               onClick={ok}
               disabled={req.kind === 'workflow' && !workflowReady}
             >
-              {req.kind === 'workflow' ? t('Move card') : (req.confirmText ?? (req.kind === 'prompt' ? t('OK') : t('Confirm')))}
+              {req.kind === 'workflow' ? (req.okText ?? t('Move card')) : (req.confirmText ?? (req.kind === 'prompt' ? t('OK') : t('Confirm')))}
             </button>
           </div>
         </div>

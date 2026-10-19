@@ -1,6 +1,15 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../api';
-import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
+import {
+  answersToPatch,
+  commentAnswer,
+  creationBlockReason,
+  neededCreationPrompts,
+  neededPrompts,
+  planStatusMove,
+  postMoveComment,
+  workflowBlockReason,
+} from '../workflow';
 import { onRefresh } from '../pwa';
 import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
@@ -23,7 +32,7 @@ import { tagColorClass } from '../tags';
 import { compare, firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, today, weekdayNames } from '../format';
 import { isUnfinishedRelativeDay, resolveSmartDate } from '../smartdate';
 import { plural, t } from '../i18n';
-import { confirm, promptText } from '../dialog';
+import { confirm, promptText, promptWorkflow } from '../dialog';
 import type {
   CollectionConfig,
   Filter,
@@ -804,6 +813,57 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // less. Anywhere else the server default — MAX+1, the bottom — stays.
     const topPos = opts?.prependBefore !== undefined ? opts.prependBefore - 1 : undefined;
     const tpl = config?.newFromTemplate;
+    // Creation handshake: rules firing on arrival may need answers, and a
+    // prescribed status may be guarded. Ask before anything exists, so
+    // backing out makes no row at all — the server re-checks on write.
+    let preset: Record<string, unknown> = { ...(presetProps ?? {}) };
+    let createComment: string | null = null;
+    const wf = config?.workflow;
+    const statusToRaw = wf?.statusPropId ? preset[wf.statusPropId] : undefined;
+    const statusTo =
+      statusToRaw === undefined || statusToRaw === null || statusToRaw === ''
+        ? ''
+        : Array.isArray(statusToRaw)
+          ? ((statusToRaw[0] as string) ?? '')
+          : (statusToRaw as string);
+    if (wf && (wf.rules?.some((r) => r.when.type === 'created') || (statusTo && wf.statusPropId))) {
+      let tmplProps: Record<string, unknown> = {};
+      if (tpl) {
+        try {
+          const t = await api.getPage(tpl);
+          tmplProps = (t.props ?? {}) as Record<string, unknown>;
+        } catch {
+          tmplProps = {};
+        }
+      }
+      const base = { ...tmplProps, ...preset };
+      const fromRaw = tmplProps[wf.statusPropId];
+      const from = Array.isArray(fromRaw) ? ((fromRaw[0] as string) ?? '') : ((fromRaw as string) ?? '');
+      const blocked = creationBlockReason(wf, base);
+      if (blocked) {
+        toast(t(blocked));
+        return undefined;
+      }
+      if (statusTo && statusTo !== from) {
+        const reason = workflowBlockReason(wf, base, from, statusTo);
+        if (reason) {
+          toast(t(reason));
+          return undefined;
+        }
+      }
+      const fields = [
+        ...(await neededCreationPrompts(wf, schema, base)),
+        ...(statusTo && statusTo !== from ? await neededPrompts(wf, schema, '', base, from, statusTo) : []),
+      ];
+      if (fields.length > 0) {
+        const answers = await promptWorkflow(pages.get(collectionId)?.title || t('Untitled'), fields, {
+          okText: t('Create row'),
+        });
+        if (!answers) return undefined;
+        Object.assign(preset, answersToPatch(fields, answers));
+        createComment = commentAnswer(fields, answers);
+      }
+    }
     if (tpl) {
       try {
         const dup = await api.duplicatePage(tpl, true);
@@ -819,7 +879,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             }
             await api.updatePage(dup.id, {
               parentId: collectionId,
-              propsPatch: presetProps ?? {},
+              propsPatch: preset,
               ...(topPos !== undefined ? { position: topPos } : {}),
             });
             if (topPos !== undefined) {
@@ -831,6 +891,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             // was made rather than failing the press, let alone making two.
             toast(t('The template could not be used'));
           }
+          if (createComment) void postMoveComment(dup.id, createComment);
           if (!peekPanel(dup.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(dup.id);
           return dup.id;
         }
@@ -840,13 +901,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       }
     }
     try {
-      const created = await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
+      const created = await api.createPage(collectionId, 'Untitled', 'doc', preset);
       if (created?.id) {
         if (topPos !== undefined) {
           touchRows();
           setRows((prev) => prev.map((r) => (r.id === created.id ? { ...r, position: topPos } : r)));
           await savePageUpdate(created.id, { position: topPos }, { label: t('Change') });
         }
+        if (createComment) void postMoveComment(created.id, createComment);
         // A row with no name yet: the caret belongs in its title.
         if (!peekPanel(created.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(created.id);
         return created.id;
@@ -862,7 +924,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         title: t('Untitled'),
         icon: '',
         cover: '',
-        props: presetProps ?? {},
+        props: preset,
         position: topPos ?? Date.now(),
         tags: [],
       };
@@ -875,7 +937,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         kind: 'create-page',
         pageId: tempId,
         parentId: collectionId,
-        payload: { title: 'Untitled', type: 'doc', props: presetProps ?? {} },
+        payload: { title: 'Untitled', type: 'doc', props: preset },
         label: t('Untitled'),
       });
       if (topPos !== undefined) {

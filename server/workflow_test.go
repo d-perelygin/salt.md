@@ -139,6 +139,89 @@ func patchProps(t *testing.T, s *Server, cookie, row, body string) *httptest.Res
 	return rec
 }
 
+func createRow(t *testing.T, s *Server, cookie, col, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/pages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", cookie)
+	s.ServeHTTP(rec, req)
+	return rec
+}
+
+// Creation rules fire when a row arrives: a direct create and a move under
+// the collection both run them. Asked-for fields must travel with the
+// write; automatic steps fold into the stored row.
+func TestWorkflowCreationEndToEnd(t *testing.T) {
+	s, cookie, row := workflowFixture(t)
+	var col string
+	if err := s.db.QueryRow(`SELECT parent_id FROM pages WHERE id = ?`, row).Scan(&col); err != nil {
+		t.Fatal(err)
+	}
+	wf := `{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"b","name":"B"}]},{"id":"closed","name":"Closed","type":"date"}],"views":[],"workflow":{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"created"},"do":[{"type":"require_prop","prop":"closed","mode":"if_empty"},{"type":"require_comment","mode":"always"}]}]}}`
+	if rec := putWorkflow(t, s, cookie, col, wf); rec.Code != 200 {
+		t.Fatalf("PUT workflow: %d %s", rec.Code, rec.Body.String())
+	}
+	// No date in the create: refused, naming the field. Comments cannot be
+	// carried by a create, so their step never blocks the API.
+	if rec := createRow(t, s, cookie, col, `{"parentId":"`+col+`","title":"R1","type":"row","props":{"status":"a"}}`); rec.Code != 409 {
+		t.Fatalf("bare create: got %d, want 409 (%s)", rec.Code, rec.Body.String())
+	} else if !strings.Contains(rec.Body.String(), "Closed") {
+		t.Fatalf("refusal does not name the field: %s", rec.Body.String())
+	}
+	var createdID string
+	if rec := createRow(t, s, cookie, col, `{"parentId":"`+col+`","title":"R2","type":"row","props":{"status":"a","closed":"2026-10-20"}}`); rec.Code != 200 {
+		t.Fatalf("answered create: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	} else {
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		createdID, _ = out["id"].(string)
+	}
+	if got := rowProps(t, s, createdID)["closed"]; got != "2026-10-20" {
+		t.Fatalf("closed = %v, want the answered date", got)
+	}
+
+	// Automatic steps on creation: stamp the date without being asked.
+	wfAuto := `{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"}]},{"id":"closed","name":"Closed","type":"date"}],"views":[],"workflow":{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"created"},"do":[{"type":"set_today","prop":"closed"}]}]}}`
+	if rec := putWorkflow(t, s, cookie, col, wfAuto); rec.Code != 200 {
+		t.Fatalf("PUT workflow: %d %s", rec.Code, rec.Body.String())
+	}
+	var autoID string
+	if rec := createRow(t, s, cookie, col, `{"parentId":"`+col+`","title":"R3","type":"doc","props":{}}`); rec.Code != 200 {
+		t.Fatalf("auto create: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	} else {
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		autoID, _ = out["id"].(string)
+	}
+	if got := rowProps(t, s, autoID)["closed"]; got == nil || got == "" {
+		t.Fatalf("set_today on creation did not stamp the date")
+	}
+
+	// Arrival through reparenting runs the same creation rules: the row is
+	// new to the collection either way.
+	var strayID string
+	if rec := createRow(t, s, cookie, col, `{"parentId":null,"title":"Stray","type":"doc","props":{}}`); rec.Code != 200 {
+		t.Fatalf("stray create: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	} else {
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		strayID, _ = out["id"].(string)
+	}
+	if rec := patchProps(t, s, cookie, strayID, `{"parentId":"`+col+`"}`); rec.Code != 200 {
+		t.Fatalf("arrival: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if got := rowProps(t, s, strayID)["closed"]; got == nil || got == "" {
+		t.Fatalf("set_today on arrival did not stamp the date")
+	}
+}
+
 // A require step is a requirement for the API too: without the value the
 // move is refused naming the field; with it in the same write it lands.
 func TestWorkflowRequirePropEndToEnd(t *testing.T) {

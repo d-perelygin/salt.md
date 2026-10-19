@@ -304,6 +304,70 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 	return matched, auto, hooks, ""
 }
 
+// checkWorkflowCreation runs the rules that fire when a row arrives in the
+// collection — a fresh create or a move into it. There is no source status,
+// so there is no allow-list; preconditions and asked-for fields are enforced
+// against the row as it will stand (merged) and the values this write carries
+// (patch), exactly like on a transition.
+func checkWorkflowCreation(cfg *workflowConfig, merged, patch map[string]json.RawMessage, actorID string, names map[string]string) (matched []workflowRule, auto map[string]any, hooks []string, reason string) {
+	auto = map[string]any{}
+	for _, r := range cfg.Rules {
+		if r.When.Type != "created" {
+			continue
+		}
+		if r.Precondition != nil {
+			if r.Precondition.ChecklistProp != "" && !checklistDone(merged, r.Precondition.ChecklistProp) {
+				reason = "checklist is not complete"
+				return nil, nil, nil, reason
+			}
+			if r.Precondition.RequiredProp != "" && !propNonEmpty(merged, r.Precondition.RequiredProp) {
+				reason = "required property is empty"
+				return nil, nil, nil, reason
+			}
+		}
+		matched = append(matched, r)
+		for _, a := range r.Do {
+			switch a.Type {
+			case "require_prop":
+				name := names[a.Prop]
+				if name == "" {
+					name = a.Prop
+				}
+				if a.Mode == "always" {
+					if !propNonEmpty(patch, a.Prop) {
+						reason = fmt.Sprintf("fill in %s to create", name)
+						return nil, nil, nil, reason
+					}
+				} else if !propNonEmpty(merged, a.Prop) {
+					reason = fmt.Sprintf("fill in %s to create", name)
+					return nil, nil, nil, reason
+				}
+			case "require_comment":
+				// Asked in the interface, unenforceable here: a create
+				// carries no comment, and rejecting every comment-less
+				// create would block forms and agents entirely.
+			case "set_prop":
+				var v any
+				if len(a.Value) > 0 {
+					_ = json.Unmarshal(a.Value, &v)
+				}
+				auto[a.Prop] = v
+			case "set_today":
+				auto[a.Prop] = time.Now().UTC().Format("2006-01-02")
+			case "assign_me":
+				if actorID != "" {
+					auto[a.Prop] = []string{actorID}
+				}
+			case "webhook":
+				if strings.TrimSpace(a.URL) != "" {
+					hooks = append(hooks, strings.TrimSpace(a.URL))
+				}
+			}
+		}
+	}
+	return matched, auto, hooks, ""
+}
+
 // fireWorkflowHook delivers one per-rule webhook call after the transition is
 // stored. Fire-and-forget through the same safeDial guard as instance
 // webhooks: an unreachable or unsafe URL is logged, never fatal.

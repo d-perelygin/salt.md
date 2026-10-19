@@ -76,6 +76,18 @@
       "statusPropId": "status",
       "rules": [
         {
+          "id": "r0",
+          "when": {
+            "type": "created"
+          },
+          "do": [
+            {
+              "type": "assign_me",
+              "prop": "owner"
+            }
+          ]
+        },
+        {
           "id": "r_triage",
           "when": {
             "type": "status_to",

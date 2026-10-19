@@ -113,6 +113,81 @@ export async function neededPrompts(
   return fields;
 }
 
+/** Preconditions of creation rules, checked against what the row will carry
+ *  (template values under the button's preset). A fresh row fails most of
+ *  them by definition — refuse before anything exists, not after a stray
+ *  copy is already made. */
+export function creationBlockReason(
+  workflow: WorkflowConfig | undefined,
+  baseProps: Record<string, unknown>,
+): string | null {
+  if (!workflow || !workflow.statusPropId) return null;
+  for (const r of workflow.rules ?? []) {
+    if (r.when.type !== 'created') continue;
+    if (r.precondition?.checklistProp && !checklistDone(baseProps[r.precondition.checklistProp])) {
+      return 'Finish the checklist first.';
+    }
+    if (r.precondition?.requiredProp && isEmpty(baseProps[r.precondition.requiredProp])) {
+      return 'Fill the required property first.';
+    }
+  }
+  return null;
+}
+
+function propFieldKind(def: PropDef): PromptField['kind'] {
+  return def.type === 'date'
+    ? 'date'
+    : def.type === 'person'
+      ? 'person'
+      : def.type === 'select'
+        ? 'select'
+        : def.type === 'multiselect'
+          ? 'multiselect'
+          : 'text';
+}
+
+async function buildPropField(
+  def: PropDef,
+  key: string,
+  a: { prop: string },
+): Promise<PromptField> {
+  const kind = propFieldKind(def);
+  const f: PromptField = { key, label: def.name, kind, prop: a.prop, value: kind === 'multiselect' ? [] : '' };
+  if (kind === 'select' || kind === 'multiselect') {
+    f.options = (def.options ?? []).map((o) => ({ id: o.id, name: o.name }));
+  }
+  if (kind === 'person') f.members = await loadMembers();
+  return f;
+}
+
+/** What creating a row still needs from the human. Same steps as a move,
+ *  but there is no row yet: comment conditions always ask, and the base is
+ *  what the row will carry (template values under the button's preset). */
+export async function neededCreationPrompts(
+  workflow: WorkflowConfig | undefined,
+  schema: PropDef[],
+  baseProps: Record<string, unknown>,
+): Promise<PromptField[]> {
+  if (!workflow || !workflow.statusPropId) return [];
+  const byId = new Map(schema.map((p) => [p.id, p]));
+  const fields: PromptField[] = [];
+  for (const r of workflow.rules ?? []) {
+    if (r.when.type !== 'created') continue;
+    for (let i = 0; i < (r.do ?? []).length; i++) {
+      const a = r.do[i];
+      if (a.type === 'require_prop') {
+        const def = byId.get(a.prop);
+        if (!def) continue;
+        if (a.mode !== 'always' && !isEmpty(baseProps[a.prop])) continue;
+        fields.push(await buildPropField(def, `${r.id}:${i}`, a));
+      } else if (a.type === 'require_comment') {
+        fields.push({ key: `${r.id}:${i}:comment`, label: '', kind: 'comment', value: '' });
+      }
+    }
+  }
+  return fields;
+}
+
 /** Fold dialog answers back into a props patch. Person answers are member
  *  ids, stored the way person cells store them (a list). */
 export function answersToPatch(
