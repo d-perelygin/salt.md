@@ -16,6 +16,13 @@ function emptyRule(firstOpt: string): WorkflowRule {
   };
 }
 
+/** A new rule points at the second status, not the first: the first one is
+ *  usually where a row starts, so a transition into it is the rare case. */
+function defaultTargetId(options: { id: string }[] | undefined): string {
+  if (!options || options.length === 0) return '';
+  return (options[1] ?? options[0]).id;
+}
+
 export default function WorkflowRules({
   schema,
   workflow,
@@ -43,7 +50,7 @@ export default function WorkflowRules({
 
   const setStatus = (id: string) => {
     const prop = schema.find((p) => p.id === id);
-    const firstOpt = prop?.options?.[0]?.id ?? '';
+    const firstOpt = defaultTargetId(prop?.options);
     const kept = (workflow?.rules ?? []).filter((r) =>
       r.when.type === 'created' ? true : (prop?.options ?? []).some((o) => o.id === (r.when as { to: string }).to),
     );
@@ -61,7 +68,7 @@ export default function WorkflowRules({
 
   const addRule = () => {
     if (!statusPropId || statusOpts.length === 0) return;
-    const r = emptyRule(statusOpts[0].id);
+    const r = emptyRule(defaultTargetId(statusOpts));
     commit({ statusPropId, rules: [...rules, r] });
     setOpenRule(r.id);
   };
@@ -121,7 +128,7 @@ export default function WorkflowRules({
                     onChange={(e) => {
                       const wt = e.target.value as 'status_to' | 'created';
                       const when: WorkflowRule['when'] =
-                        wt === 'created' ? { type: 'created' } : { type: 'status_to', to: statusOpts[0]?.id ?? '' };
+                        wt === 'created' ? { type: 'created' } : { type: 'status_to', to: defaultTargetId(statusOpts) };
                       updateRule(r.id, { when });
                     }}
                   >
