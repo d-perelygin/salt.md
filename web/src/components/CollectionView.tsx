@@ -24,6 +24,7 @@ import type {
 } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
 import { openPage, openPageAux } from '../pageOpen';
+import { ModePicker, useSettingsHint } from '../viewSpan';
 import { AgentDot } from './AgentBadge';
 import { planCard, isBlank, zoneOf, contactKind, needsLabel } from '../cardLayout';
 import SchemaEditor from './SchemaEditor';
@@ -69,7 +70,7 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
-  ArrowRight, ChevronDown, History, PanelLeftOpen, PanelLeftClose} from 'lucide-react';
+  ArrowRight, History, PanelLeftOpen, PanelLeftClose} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
 function propTypeIcon(t: PropDef['type']) {
@@ -2329,30 +2330,6 @@ const ymd = toDayString;
 // Rows are positioned on a horizontal day-grid by a start date property, and
 // span to an optional end date (else a single-day bar). The title column is
 // sticky so it stays visible while the time axis scrolls.
-// A first-look dot on a view's settings button, once per kind of view.
-// Same localStorage key family the interface store uses, so a later shared
-// helper reads what this wrote.
-const HINT_PREFIX = 'salt:hint:';
-function useSettingsHint(name: string): [boolean, () => void] {
-  const [show, setShow] = useState(() => {
-    try {
-      return localStorage.getItem(HINT_PREFIX + name) !== '1';
-    } catch {
-      return false;
-    }
-  });
-  const seen = () => {
-    if (!show) return;
-    try {
-      localStorage.setItem(HINT_PREFIX + name, '1');
-    } catch {
-      /* best-effort persistence */
-    }
-    setShow(false);
-  };
-  return [show, seen];
-}
-
 function TimelineView({
   rows,
   schema,
@@ -3100,58 +3077,6 @@ function TimelineView({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-// Day/Week/Month/2-months/Year switch shared by the calendar and the
-// timeline headers: same control, same place, same labels.
-function ModePicker({ mode, onChange }: { mode: SpanMode; onChange: (m: SpanMode) => void }) {
-  const [open, setOpen] = useState(false);
-  const label =
-    mode === 'day'
-      ? t('Day')
-      : mode === 'week'
-        ? t('Week')
-        : mode === 'year'
-          ? t('Year')
-          : mode === '2months'
-            ? t('2 months')
-            : t('Month');
-  const pick = (m: SpanMode) => {
-    setOpen(false);
-    if (m !== mode) onChange(m);
-  };
-  return (
-    <div className="cal-range-wrap">
-      <button className="btn-sm" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
-        {label} <ChevronDown size={14} />
-      </button>
-      {open && (
-        <>
-          <div className="fs-backdrop" onClick={() => setOpen(false)} />
-          <div className="menu view-tab-menu" role="listbox">
-            {(['day', 'week', 'month', '2months', 'year'] as const).map((m) => (
-              <button
-                key={m}
-                role="option"
-                aria-selected={mode === m}
-                onClick={() => pick(m)}
-              >
-                {m === 'day'
-                  ? t('Day')
-                  : m === 'week'
-                    ? t('Week')
-                    : m === 'year'
-                      ? t('Year')
-                      : m === '2months'
-                        ? t('2 months')
-                        : t('Month')}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
     </div>
   );
 }
