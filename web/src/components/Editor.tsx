@@ -1301,6 +1301,9 @@ function PageHeader({
                         </button>
                       )}
                       {isShared && (!shareUrl || shareSettingsChanged) && (
+                        <div className="share-hint">{t('A new link stops the old one from working.')}</div>
+                      )}
+                      {isShared && (!shareUrl || shareSettingsChanged) && (
                         <button className="btn-sm" disabled={shareBusy} onClick={() => void createShare()}>
                           {t('New link')}
                         </button>
