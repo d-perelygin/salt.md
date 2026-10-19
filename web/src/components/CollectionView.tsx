@@ -880,7 +880,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       if (topPos !== undefined) {
         await savePageUpdate(tempId, { position: topPos }, { label: t('Change') });
       }
-      toast(t('Will sync when the connection is back'));
+      toast.warning(t('Will sync when the connection is back'));
       return tempId;
     }
     onPagesChanged();
@@ -1291,9 +1291,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           await restoreView(prev);
           // A restored sort or filter reads as nothing happening — the rows
           // just stand differently — so it says what came back.
-          if (sortBack && filterBack) toast(t('Sort and filter reverted'));
-          else if (sortBack) toast(t('Sort reverted'));
-          else if (filterBack) toast(t('Filter reverted'));
+          if (sortBack && filterBack) toast.info(t('Sort and filter reverted'));
+          else if (sortBack) toast.info(t('Sort reverted'));
+          else if (filterBack) toast.info(t('Filter reverted'));
         },
         redo: () => restoreView(nextView),
       });
@@ -1850,9 +1850,9 @@ function FormView({
       setShared(true);
       try {
         await navigator.clipboard?.writeText(full);
-        toast(t('Public link copied'));
+        toast.success(t('Public link copied'));
       } catch {
-        toast(t('Public link created'));
+        toast.warning(t('Public link created'));
       }
     } catch {
       toast(t('Sharing failed'));
@@ -1865,7 +1865,7 @@ function FormView({
     if (!displayUrl) return;
     try {
       await navigator.clipboard?.writeText(displayUrl);
-      toast(t('Public link copied'));
+      toast.success(t('Public link copied'));
     } catch {
       toast(t('That did not work'));
     }
@@ -1878,7 +1878,7 @@ function FormView({
       setShared(false);
       setShareUrl(null);
       forgetUrl();
-      toast(t('Public link revoked'));
+      toast.success(t('Public link revoked'));
     } catch {
       toast(t('That did not work'));
     } finally {
@@ -5626,7 +5626,7 @@ function TimelineView({
                     const cur = depIdsOf(depPop.id);
                     if (!cur.includes(target)) void onSetDep(depPop.id, effDep, [...cur, target]);
                   } else if (target) {
-                    toast(t('That would create a loop'));
+                    toast.warning(t('That would create a loop'));
                   }
                 }}
               >

@@ -80,7 +80,7 @@ export default function NoteTrail({ pageId, canWrite }: { pageId: string; canWri
       if (isTempId(pageId) || isOfflineError(e)) {
         await enqueue({ kind: 'note', pageId, payload: { body: text }, label: text.slice(0, 60) });
         setExpanded(true);
-        toast(t('Will sync when the connection is back'));
+        toast.warning(t('Will sync when the connection is back'));
         return;
       }
       setBody(text);

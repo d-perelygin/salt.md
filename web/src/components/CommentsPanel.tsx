@@ -112,7 +112,7 @@ export default function CommentsPanel({
       // replays after the page itself exists. Anything else restores the box.
       if (isTempId(pageId) || isOfflineError(err)) {
         await enqueue({ kind: 'comment', pageId, payload: { body: text }, label: text.slice(0, 60) });
-        toast(t('Will sync when the connection is back'));
+        toast.warning(t('Will sync when the connection is back'));
         return;
       }
       setBody(text); // swallow nothing if sending fails

@@ -28,7 +28,7 @@ function ConfBlock({ title, text }: { title: string; text: string }) {
           className="btn-sm"
           onClick={() => {
             void navigator.clipboard?.writeText(text);
-            toast(t('Copied'));
+            toast.success(t('Copied'));
           }}
         >
           {t('Copy')}
@@ -158,9 +158,8 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
     setPruning(true);
     try {
       const r = await api.auditPrune();
-      // Reported beside the button, not through toast(): that channel is the
-      // app's failure feedback and hard-wires a warning sign, so a successful
-      // clean-up came up in red with a ⚠ in front of it.
+      // Reported beside the button, not through toast(): the result stays
+      // visible next to the action instead of fading away after seconds.
       setPruned(r.removed);
     } catch (e) {
       toast((e as Error).message || t('Clean-up failed'));
@@ -187,7 +186,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
     setMailBusy(true);
     try {
       const r = await api.mailTest();
-      toast(t('Test mail sent to {address} ✓', { address: r.to }));
+      toast.success(t('Test mail sent to {address} ✓', { address: r.to }));
     } catch (e) {
       toast((e as Error).message || t('Test failed'));
     } finally {
@@ -198,7 +197,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
     try {
       await api.mailDisconnect();
       setMail({ provider: '', address: '' });
-      toast(t('Mail connection disconnected'));
+      toast.success(t('Mail connection disconnected'));
     } catch (e) {
       toast((e as Error).message || t('Disconnecting failed'));
     }
@@ -245,7 +244,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
         oidcClientSecret: s.oidcClientSecret,
         oidcName: s.oidcName,
       });
-      toast(t('Settings saved'));
+      toast.success(t('Settings saved'));
       onClose();
     } catch (e) {
       toast((e as Error).message || t('Saving failed'));
@@ -500,14 +499,14 @@ ingress:
                           <a
                             className={'btn' + (oauthSet.google ? '' : ' btn-disabled')}
                             href={oauthSet.google ? '/api/admin/mail-oauth/google/start' : undefined}
-                            onClick={(e) => { if (!oauthSet.google) { e.preventDefault(); toast(t('Set up Google OAuth on the Access tab first')); } }}
+                            onClick={(e) => { if (!oauthSet.google) { e.preventDefault(); toast.warning(t('Set up Google OAuth on the Access tab first')); } }}
                           >
                             {t('Connect with Google')}
                           </a>
                           <a
                             className={'btn' + (oauthSet.ms ? '' : ' btn-disabled')}
                             href={oauthSet.ms ? '/api/admin/mail-oauth/microsoft/start' : undefined}
-                            onClick={(e) => { if (!oauthSet.ms) { e.preventDefault(); toast(t('Set up Microsoft OAuth on the Access tab first')); } }}
+                            onClick={(e) => { if (!oauthSet.ms) { e.preventDefault(); toast.warning(t('Set up Microsoft OAuth on the Access tab first')); } }}
                           >
                             {t('Connect with Microsoft')}
                           </a>
@@ -548,7 +547,7 @@ ingress:
                           <>
                             {t('Publicly reachable:')}&nbsp;
                             <a href={pa.url} target="_blank" rel="noreferrer">{pa.url}</a>
-                            <button className="btn-sm" onClick={() => { void navigator.clipboard?.writeText(pa.url); toast(t('Link copied')); }}>{t('Copy')}</button>
+                            <button className="btn-sm" onClick={() => { void navigator.clipboard?.writeText(pa.url); toast.success(t('Link copied')); }}>{t('Copy')}</button>
                           </>
                         )}
                         {pa.status === 'running' && pa.mode === 'token' && (
@@ -915,9 +914,9 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const copyUrl = async (text: string) => {
     try {
       await navigator.clipboard?.writeText(text);
-      toast(t('Link copied'));
+      toast.success(t('Link copied'));
     } catch {
-      toast(t('Copy failed — select the link manually'));
+      toast.warning(t('Copy failed — select the link manually'));
     }
   };
   const reload = async () => {
@@ -935,7 +934,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
       await api.icsFeedCreate(s.kind, s.id, s.viewId ?? '', newName.trim() || fallbackName, dateProp);
       setNewName('');
       await reload();
-      toast(t('Subscription created — copy its link below'));
+      toast.success(t('Subscription created — copy its link below'));
     } catch (e) {
       toast((e as Error).message || t('Could not be created'));
     }
@@ -944,7 +943,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
     if (!window.confirm(t('Revoke this subscription? Its link stops working at once.'))) return;
     await api.icsFeedDelete(id);
     await reload();
-    toast(t('Subscription revoked') + (name ? `: ${name}` : ''));
+    toast.success(t('Subscription revoked') + (name ? `: ${name}` : ''));
   };
   const updateFeed = async (id: string, patch: { pastDays?: number }) => {
     try {
@@ -1221,7 +1220,7 @@ export function TwoFAModal({ onClose }: { onClose: () => void }) {
       setStatus(true);
       setSetup(null);
       setCode('');
-      toast(t('2FA enabled'));
+      toast.success(t('2FA enabled'));
     } catch {
       setError(t('Wrong code'));
     }
@@ -1232,7 +1231,7 @@ export function TwoFAModal({ onClose }: { onClose: () => void }) {
       await api.twoFADisable(code);
       setStatus(false);
       setCode('');
-      toast(t('2FA disabled'));
+      toast.success(t('2FA disabled'));
     } catch {
       setError(t('Wrong code'));
     }

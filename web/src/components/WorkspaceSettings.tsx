@@ -90,7 +90,7 @@ export default function WorkspaceSettings({
     const n = name?.trim();
     if (!n || n === ws.name) return;
     await patch({ name: n });
-    toast(t('Workspace renamed'));
+    toast.success(t('Workspace renamed'));
   };
 
   const row = (icon: React.ReactNode, label: string, hint: string, onClick: () => void, danger = false) => (

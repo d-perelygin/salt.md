@@ -80,7 +80,7 @@ const mailOauthMsg = (() => {
 if (mailOauthMsg) {
   setTimeout(() => {
     if (mailOauthMsg.code === 'ok') {
-      toast(t('Mail sending connected ✓'));
+      toast.success(t('Mail sending connected ✓'));
       return;
     }
     const msg = serverMessage(mailOauthMsg.code, mailOauthMsg.text);
@@ -98,6 +98,28 @@ if (mailOauthMsg) {
 // reload banner then fired on every load forever.
 declare const __SALT_VERSION__: string;
 const BUILD_VERSION = __SALT_VERSION__;
+
+// The closest a page can get to a hard reload by itself: drop everything the
+// app may have cached (service workers, the Cache API), then reload. The
+// server already serves index.html as no-cache with immutable hashed assets
+// (see server/static.go), so the reloaded page lands on the new build even
+// when the caches below are empty and this is just a plain reload.
+async function hardReload() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch {
+    /* a cache that cannot be cleared is not a reason to stay on the old build */
+  } finally {
+    window.location.reload();
+  }
+}
 
 function pageIdFromLocation(): string | null {
   return pageIdFromPathname(window.location.pathname);
@@ -430,7 +452,10 @@ export default function App() {
         // here too, one frame later (W112).
         if (m.authenticated && m.prefs) void applyPrefs(m.prefs);
         if (m.version && m.version !== BUILD_VERSION) {
-          toast(t('A new version is available — reload the page'));
+          toast.info(t('A new version is available — reload the page'), {
+            sticky: true,
+            action: { label: t('Reload'), run: hardReload },
+          });
         }
         if (m.authenticated) void loadAll();
       })
@@ -773,7 +798,10 @@ export default function App() {
         };
         if (msg.type === 'hello' && msg.version && msg.version !== BUILD_VERSION && !warnedVersion) {
           warnedVersion = true;
-          toast(t('A new version is available — reload the page'));
+          toast.info(t('A new version is available — reload the page'), {
+            sticky: true,
+            action: { label: t('Reload'), run: hardReload },
+          });
         }
         if (msg.type === 'pages') {
           window.clearTimeout(reloadTimer.current);
@@ -1282,7 +1310,7 @@ export default function App() {
       // Shortcuts are global: without this an Alt+N on the sign-in screen
       // would journal a temp page nobody can open yet.
       if (!me?.authenticated) {
-        toast(t('Sign in to your workspace.'));
+        toast.info(t('Sign in to your workspace.'));
         return;
       }
       // Root pages land in the selected workspace; children inherit the parent's.
@@ -1325,7 +1353,7 @@ export default function App() {
           payload: { title: '', type, props: {}, workspaceId: parentId ? undefined : wsId },
           label: t('New page'),
         });
-        toast(t('Will sync when the connection is back'));
+        toast.warning(t('Will sync when the connection is back'));
         // A transient blip rather than a dead network: try at once.
         void flushOutbox();
       }
@@ -1368,7 +1396,7 @@ export default function App() {
       try {
         if (file.name.toLowerCase().endsWith('.zip')) {
           const r = await api.importZip(file);
-          toast(
+          toast.success(
             t('Imported {pages}', { pages: plural(r.created, '{n} page', '{n} pages') }) +
               (r.skipped ? ', ' + t('{n} skipped', { n: r.skipped }) : ''),
           );
@@ -1376,7 +1404,7 @@ export default function App() {
         } else {
           const text = await file.text();
           const r = await api.importMarkdown(null, '', text);
-          toast(t('Page imported'));
+          toast.success(t('Page imported'));
           void loadPages();
           navigate(r.id);
         }

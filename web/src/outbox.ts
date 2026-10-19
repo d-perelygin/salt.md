@@ -202,7 +202,7 @@ export async function savePageUpdate(
   const label = opts.label ?? t('Change');
   if (isTempId(pageId)) {
     await enqueue({ kind: 'update-page', pageId, payload: { patch, materialize: opts.materialize }, label });
-    toast(t('Will sync when the connection is back'));
+    toast.warning(t('Will sync when the connection is back'));
     return true;
   }
   try {
@@ -211,7 +211,7 @@ export async function savePageUpdate(
   } catch (e) {
     if (isOfflineError(e)) {
       await enqueue({ kind: 'update-page', pageId, payload: { patch, materialize: opts.materialize }, label });
-      toast(t('Will sync when the connection is back'));
+      toast.warning(t('Will sync when the connection is back'));
       return true;
     }
     return false;

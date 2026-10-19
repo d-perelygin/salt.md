@@ -54,7 +54,7 @@ export default function WorkspaceMembers({
       setInviteLink(r.link);
       setEmail('');
       void navigator.clipboard?.writeText(r.link);
-      toast(r.emailed ? t('Invitation sent by email') : t('Invitation link copied'));
+      toast.success(r.emailed ? t('Invitation sent by email') : t('Invitation link copied'));
       load();
     } catch (err) {
       toast((err as Error).message || t('Invitation failed'));

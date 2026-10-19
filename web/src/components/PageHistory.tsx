@@ -28,7 +28,7 @@ export function HistoryModal({
     if (!(await confirm(t('Restore the version from {when}? The current state is saved as a version first.', { when: when(rev.createdAt) })))) return;
     try {
       await api.restoreRevision(pageId, rev.id);
-      toast(t('Version restored'));
+      toast.success(t('Version restored'));
       onRestored();
       onClose();
     } catch (e) {

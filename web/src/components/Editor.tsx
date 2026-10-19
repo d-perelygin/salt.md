@@ -304,7 +304,7 @@ export default function Editor(props: EditorProps) {
               // replaced.
               void clearJournal(props.pageId);
               void dropYDoc(props.pageId);
-              toast(t('This page was replaced on the server. Open Version history to recover your text.'));
+              toast.warning(t('This page was replaced on the server. Open Version history to recover your text.'));
               setNonce((n) => n + 1);
             }}
           />
@@ -1162,7 +1162,7 @@ function PageHeader({
       setSharePassword('');
       setShareHasPassword(password !== '');
       setLastPassword(password);
-      if (rotated) toast(t('A new link was created — the old one no longer works'));
+      if (rotated) toast.warning(t('A new link was created — the old one no longer works'));
     } catch {
       toast(t('Sharing failed'));
     }
@@ -1222,7 +1222,7 @@ function PageHeader({
         : [...shareAllowed, viewId];
     // Unchecking the last view would publish an empty collection — keep one.
     if (next.length === 0) {
-      toast(t('Keep at least one view shared'));
+      toast.warning(t('Keep at least one view shared'));
       return;
     }
     setShareAllowed(next.length >= shareViewsList.length ? null : next);
@@ -1294,7 +1294,7 @@ function PageHeader({
     const full = url + (url.includes('?') ? '&' : '?') + 'pw=' + encodeURIComponent(pw);
     try {
       await navigator.clipboard.writeText(full);
-      toast(t('Public link copied'));
+      toast.success(t('Public link copied'));
     } catch {
       toast(t('Sharing failed'));
     }
@@ -1387,7 +1387,7 @@ function PageHeader({
     try {
       if (file.name.toLowerCase().endsWith('.zip')) {
         const r = await api.importZip(file);
-        toast(
+        toast.success(
           t('Imported {pages}', { pages: plural(r.created, '{n} page', '{n} pages') }) +
             (r.skipped ? ', ' + t('{n} skipped', { n: r.skipped }) : ''),
         );
@@ -1395,7 +1395,7 @@ function PageHeader({
       } else {
         const text = await file.text();
         const r = await api.importMarkdown(null, '', text);
-        toast(t('Page imported'));
+        toast.success(t('Page imported'));
         onPagesChanged();
         onNavigate(r.id);
       }
@@ -1607,7 +1607,7 @@ function PageHeader({
                         className="btn-sm"
                         onClick={() => {
                           void navigator.clipboard.writeText(displayUrl);
-                          toast(t('Public link copied'));
+                          toast.success(t('Public link copied'));
                         }}
                       >
                         {t('Copy')}
@@ -2734,7 +2734,7 @@ function BlockContent({
                 label: query.trim(),
               });
               onPagesChanged();
-              toast(t('Will sync when the connection is back'));
+              toast.warning(t('Will sync when the connection is back'));
               return;
             }
             console.error('salt.md: failed to create page from mention', e);
@@ -2841,7 +2841,7 @@ function BlockContent({
             return;
           }
           if (e instanceof ApiError && e.status === 404) {
-            toast(t('This page was deleted on the server. Open the trash to get it back.'));
+            toast.warning(t('This page was deleted on the server. Open the trash to get it back.'));
             return;
           }
           dirty.current = true; // retry on next change / unmount flush
@@ -2944,7 +2944,7 @@ function BlockContent({
         toast((err as Error).message || t('“{name}” was not uploaded', { name: file.name }));
       }
     }
-    if (added > 1) toast(plural(added, '{n} file added', '{n} files added'));
+    if (added > 1) toast.success(plural(added, '{n} file added', '{n} files added'));
   };
 
   const handlers = useRef({ enter: onDragEnter, leave: onDragLeave, over: onDragOver, drop: onDrop });
