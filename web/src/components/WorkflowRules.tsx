@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowRule } from '../types';
 import { t } from '../i18n';
+import { loadMembers, type Member } from './PropertyValue';
 
 let ruleCounter = 0;
 const newRuleId = () => `rule_${Date.now().toString(36)}_${ruleCounter++}`;
@@ -395,13 +396,15 @@ function ActionRow({
     );
   }
   if (action.type === 'set_prop') {
+    const def = schema.find((p) => p.id === action.prop);
+    const setValue = (v: unknown) => onChange({ type: 'set_prop', prop: action.prop, value: v });
     return (
       <div className="workflow-row">
         <span className="workflow-act">{t('Set')}</span>
         <select
           className="prop-select"
           value={action.prop}
-          onChange={(e) => onChange({ type: 'set_prop', prop: e.target.value, value: action.value })}
+          onChange={(e) => onChange({ type: 'set_prop', prop: e.target.value, value: e.target.value && schema.find((p) => p.id === e.target.value)?.type === 'multiselect' ? [] : '' })}
         >
           <option value="">{t('Property…')}</option>
           {schema.map((p) => (
@@ -410,12 +413,7 @@ function ActionRow({
             </option>
           ))}
         </select>
-        <input
-          className="prop-input"
-          placeholder={t('Value')}
-          value={typeof action.value === 'string' ? action.value : ''}
-          onChange={(e) => onChange({ type: 'set_prop', prop: action.prop, value: e.target.value })}
-        />
+        <SetValueInput def={def} value={action.value} onChange={setValue} />
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
           ✕
         </button>
@@ -444,5 +442,109 @@ function ActionRow({
         ✕
       </button>
     </div>
+  );
+}
+
+/** The value half of a "set property" step follows the property: an option
+ *  picker for selects, chips for multi-selects, a date field, a person
+ *  picker, a checkbox — a free text field only for the rest. Picking from
+ *  what exists beats typing an id from memory. */
+function SetValueInput({
+  def,
+  value,
+  onChange,
+}: {
+  def: PropDef | undefined;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const [members, setMembers] = useState<Member[]>([]);
+  useEffect(() => {
+    if (def?.type === 'person') void loadMembers().then(setMembers).catch(() => {});
+  }, [def?.type]);
+  if (!def) {
+    return <span className="prop-input" aria-hidden="true" />;
+  }
+  if (def.type === 'select') {
+    return (
+      <select
+        className="prop-select"
+        value={typeof value === 'string' ? value : ''}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">{t('Select…')}</option>
+        {(def.options ?? []).map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (def.type === 'multiselect') {
+    const cur = Array.isArray(value) ? (value as string[]) : [];
+    return (
+      <span className="workflow-chips">
+        {(def.options ?? []).map((o) => {
+          const on = cur.includes(o.id);
+          return (
+            <button
+              key={o.id}
+              type="button"
+              aria-pressed={on}
+              className={'prop-chip toggle' + (on ? ' prop-chip-on' : '')}
+              onClick={() => onChange(on ? cur.filter((x) => x !== o.id) : [...cur, o.id])}
+            >
+              {o.name}
+            </button>
+          );
+        })}
+      </span>
+    );
+  }
+  if (def.type === 'date') {
+    return (
+      <input
+        type="date"
+        className="prop-input"
+        value={typeof value === 'string' ? value : ''}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+  if (def.type === 'person') {
+    // Person cells always hold a list, single or not — store the same shape.
+    const cur = Array.isArray(value) ? ((value as string[])[0] ?? '') : typeof value === 'string' ? value : '';
+    return (
+      <select
+        className="prop-select"
+        value={cur}
+        onChange={(e) => onChange(e.target.value ? [e.target.value] : [])}
+      >
+        <option value="">{t('Select…')}</option>
+        {members.map((m) => (
+          <option key={m.userId} value={m.userId}>
+            {m.name}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (def.type === 'checkbox') {
+    return (
+      <input
+        type="checkbox"
+        checked={value === true || value === 'true' || value === 1}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+    );
+  }
+  return (
+    <input
+      className="prop-input"
+      placeholder={t('Value')}
+      value={typeof value === 'string' || typeof value === 'number' ? String(value) : ''}
+      onChange={(e) => onChange(e.target.value)}
+    />
   );
 }
