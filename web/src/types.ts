@@ -287,9 +287,6 @@ export function normalizeCollectionConfig(cfg: CollectionConfig): CollectionConf
 /** Visible span of calendar and timeline views. */
 export type SpanMode = 'day' | 'week' | 'month' | '2months' | 'year';
 
-/** Visible span of calendar and timeline views. */
-export type SpanMode = 'day' | 'week' | 'month' | '2months' | 'year';
-
 export interface ViewDef {
   id: string;
   name: string;
