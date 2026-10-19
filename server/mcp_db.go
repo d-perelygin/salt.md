@@ -72,7 +72,7 @@ func (s *Server) mcpSetProperties(pageID string, properties json.RawMessage, act
 	// value written to a list-shaped property into a list.
 	// MUST come before tx.Begin(): the pool holds exactly ONE connection, so a
 	// query inside the open transaction would block forever.
-	s.normalizePropValues(pageID, patch)
+	s.normalizePropValues(pageID, patch, actor)
 
 	tx, err := s.db.Begin()
 	if err != nil {

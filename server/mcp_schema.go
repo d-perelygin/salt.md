@@ -804,19 +804,19 @@ func (s *Server) mcpBatchSetProperties(userID string, updates json.RawMessage) (
 //
 // The wrap runs AFTER the name resolution above, so `{"tags": "Bug"}` on a
 // multiselect ends up as ["bug"] and not ["Bug"].
-func (s *Server) normalizePropValues(pageID string, patch map[string]json.RawMessage) {
+func (s *Server) normalizePropValues(pageID string, patch map[string]json.RawMessage, u *user) {
 	var parentID string
 	if err := s.db.QueryRow(`SELECT COALESCE(parent_id, '') FROM pages WHERE id = ?`, pageID).Scan(&parentID); err != nil || parentID == "" {
 		return
 	}
-	s.normalizePropsOf(parentID, patch)
+	s.normalizePropsOf(parentID, patch, u)
 }
 
 // normalizePropsOf is the same work for a row that does not exist yet: a row
 // created WITH its properties — through the interface's + button, or through an
 // agent writing a link as it creates the row — has to be stored in the same
 // shape as one whose properties arrive in a later patch (see handleCreatePage).
-func (s *Server) normalizePropsOf(collectionID string, patch map[string]json.RawMessage) {
+func (s *Server) normalizePropsOf(collectionID string, patch map[string]json.RawMessage, u *user) {
 	schema, _, err := s.loadCollection(collectionID)
 	if err != nil {
 		return
@@ -862,7 +862,7 @@ func (s *Server) normalizePropsOf(collectionID string, patch map[string]json.Raw
 		// option-name resolution below covers only properties that HAVE options,
 		// and a relation has none, so a title or an object went in untouched.
 		if target, ok := relations[prop]; ok {
-			raw = s.normalizeRelationValue(target, raw)
+			raw = s.normalizeRelationValue(u, target, raw)
 		}
 		if m, ok := byProp[prop]; ok {
 			// Single value
@@ -921,8 +921,8 @@ func (s *Server) normalizePropsOf(collectionID string, patch map[string]json.Raw
 // row's id; an object becomes the id it carries. Anything else is left exactly
 // as sent: the cell then shows what it holds rather than nothing, and says it
 // cannot open it — which is the truth about a value that names no row.
-func (s *Server) normalizeRelationValue(target string, raw json.RawMessage) json.RawMessage {
-	byName := s.relationLookup(target)
+func (s *Server) normalizeRelationValue(u *user, target string, raw json.RawMessage) json.RawMessage {
+	byName := s.relationLookup(u, target)
 	if len(byName) == 0 {
 		return raw
 	}
@@ -977,13 +977,20 @@ func (s *Server) normalizeRelationValue(target string, raw json.RawMessage) json
 // relationIDs maps whatever a relation value may be written as onto the id of
 // the row it names: the id itself, and the titles of the target collection's
 // rows — a title only where exactly one row carries it, because a title shared
-// by two rows names neither.
-func (s *Server) relationLookup(target string) map[string]string {
+// by two rows names neither. Only rows the writing user may read take part:
+// resolving the title of a private row nobody else may see would tell the
+// writer that such a row exists.
+func (s *Server) relationLookup(u *user, target string) map[string]string {
 	out := map[string]string{}
 	if target == "" {
 		return out
 	}
-	rows, err := s.db.Query(`SELECT id, COALESCE(title, '') FROM pages WHERE parent_id = ? AND trashed_at IS NULL`, target)
+	var userID string
+	if u != nil {
+		userID = u.ID
+	}
+	rule, ruleArgs := s.privateRowRule(userID, target)
+	rows, err := s.db.Query(`SELECT id, COALESCE(title, '') FROM pages WHERE parent_id = ? AND trashed_at IS NULL AND `+rule, append([]any{target}, ruleArgs...)...)
 	if err != nil {
 		return out
 	}

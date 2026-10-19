@@ -2,6 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -271,5 +274,91 @@ func TestRelationValuesAreStoredAsIds(t *testing.T) {
 		if got := s.propsOf(t, c.row)["based"]; !sameList(got, c.want) {
 			t.Errorf("%s → %#v, want %#v", c.raw, got, c.want)
 		}
+	}
+}
+
+// A title resolves only among rows the writer may read. Resolving it against
+// every row would answer a question the writer never asked: writing the title
+// of somebody else's private row would come back stored as an id, telling the
+// writer that such a row exists.
+func TestRelationTitleNeedsAReadableRow(t *testing.T) {
+	s := testServer(t)
+	owner, _ := signedIn(t, s, "relowner@example.test")
+	ws := s.firstWorkspaceOf(t, owner)
+	member, _ := signedIn(t, s, "relmember@example.test")
+	s.addMember(t, ws, member, "member")
+
+	db := s.makeCollection(t, ws, owner, "Targets", `[]`)
+	if _, err := s.mcpUpdateSchema(db, json.RawMessage(`[
+		{"id":"link","name":"Link","type":"relation","relationCollection":"`+db+`"}]`), nil); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	secret := s.makeRow(t, ws, owner, db, "Секрет", `{}`)
+	if _, err := s.db.Exec(`UPDATE pages SET visibility = 'private' WHERE id = ?`, secret); err != nil {
+		t.Fatal(err)
+	}
+	open := s.makeRow(t, ws, owner, db, "Открытая", `{}`)
+
+	writer := s.makeRow(t, ws, member, db, "Писатель", `{}`)
+	// The member may not read the private row: its title stays exactly as
+	// sent, so nothing about that row leaks through the write.
+	if _, err := s.mcpSetProperties(writer, json.RawMessage(`{"link":"Секрет"}`), &user{ID: member}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got := s.propsOf(t, writer)["link"]; !sameList(got, []string{"Секрет"}) {
+		t.Errorf("private title resolved for a non-reader: %#v", got)
+	}
+	// The open row resolves for the member, and the private one by exact id
+	// (an id names its row outright and proves nothing by matching).
+	if _, err := s.mcpSetProperties(writer, json.RawMessage(`{"link":"Открытая"}`), &user{ID: member}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got := s.propsOf(t, writer)["link"]; !sameList(got, []string{open}) {
+		t.Errorf("open title did not resolve: %#v", got)
+	}
+	if _, err := s.mcpSetProperties(writer, json.RawMessage(`{"link":"`+secret+`"}`), &user{ID: member}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got := s.propsOf(t, writer)["link"]; !sameList(got, []string{secret}) {
+		t.Errorf("exact id did not pass through: %#v", got)
+	}
+	// The owner reads their own private row, so the title resolves for them.
+	ownerWriter := s.makeRow(t, ws, owner, db, "Владелец", `{}`)
+	if _, err := s.mcpSetProperties(ownerWriter, json.RawMessage(`{"link":"Секрет"}`), &user{ID: owner}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got := s.propsOf(t, ownerWriter)["link"]; !sameList(got, []string{secret}) {
+		t.Errorf("owner's own title did not resolve: %#v", got)
+	}
+}
+
+// PATCH normalizes relation values the same way create and set_properties do:
+// a title written into a propsPatch comes back stored as the id.
+func TestPatchNormalizesRelationTitles(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "relpatch@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+	db := s.makeCollection(t, ws, uid, "Targets", `[]`)
+	if _, err := s.mcpUpdateSchema(db, json.RawMessage(`[
+		{"id":"link","name":"Link","type":"relation","relationCollection":"`+db+`"}]`), nil); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	target := s.makeRow(t, ws, uid, db, "Цель", `{}`)
+	row := s.makeRow(t, ws, uid, db, "Строка", `{}`)
+
+	patch := func(body string, wantCode int) {
+		t.Helper()
+		r := httptest.NewRequest("PATCH", "/api/pages/"+row, strings.NewReader(body))
+		r.Header.Set("Cookie", cookie)
+		r.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, r)
+		if rec.Code != wantCode {
+			t.Fatalf("patch %s: %d, want %d", body, rec.Code, wantCode)
+		}
+	}
+	patch(`{"propsPatch":{"link":"Цель"}}`, http.StatusOK)
+	if got := s.propsOf(t, row)["link"]; !sameList(got, []string{target}) {
+		t.Errorf("PATCH title not resolved: %#v", got)
 	}
 }
