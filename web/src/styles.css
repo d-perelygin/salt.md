@@ -3867,7 +3867,7 @@ body.is-col-resizing {
 }
 .schema-tab-on {
   background: var(--sidebar-bg);
-  color: var(--foreground);
+  color: var(--fg);
   border-color: var(--border);
 }
 
@@ -3888,7 +3888,7 @@ body.is-col-resizing {
   padding: 10px 12px;
   font-size: 13px;
   cursor: pointer;
-  color: var(--foreground);
+  color: var(--fg);
   text-align: left;
 }
 .workflow-then {
@@ -3944,7 +3944,7 @@ body.is-col-resizing {
   gap: 8px;
   padding: 8px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
 }
 .workflow-adv > label {
   font-size: 12px;
@@ -3967,6 +3967,60 @@ body.is-col-resizing {
   color: var(--bg) !important;
   -webkit-text-fill-color: var(--bg) !important;
   outline: none;
+}
+
+/* Process self-check: findings above the rules, clickable when they name a
+ * rule. Errors block saving; warnings are advice. */
+.workflow-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.workflow-issue {
+  text-align: left;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg);
+}
+button.workflow-issue {
+  cursor: pointer;
+}
+.workflow-issue-error {
+  border-color: var(--danger);
+}
+.workflow-issue-warn {
+  border-color: var(--border);
+  color: var(--muted);
+}
+.schema-item-error {
+  outline: 2px solid var(--danger);
+}
+
+/* Try-a-move simulator: pick a source status, read what every transition
+ * would do — pass, ask or refuse, and why. */
+.workflow-sim {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.workflow-sim > label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.workflow-sim-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.workflow-sim-row .dialog-hint {
+  margin: 0;
 }
 
 /* The shared select editor inside a rule row: it renders inline-block by

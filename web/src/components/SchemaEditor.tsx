@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react';
 import { api } from '../api';
 import type { CollectionConfig, PropDef, PropType, ViewDef, WorkflowConfig } from '../types';
+import { analyzeWorkflow, issueText } from '../workflow';
 import { isSystemRef } from '../types';
 import Portal from './Portal';
 import WorkflowRules from './WorkflowRules';
@@ -84,6 +85,26 @@ export default function SchemaEditor({
   // Lightweight process: absent = no rules. The status defaults to the first
   // select property so opening the tab never shows a dead picker.
   const [workflow, setWorkflow] = useState<WorkflowConfig | undefined>(config.workflow);
+  // A rule the save-guard wants the reader to look at (broken reference).
+  const [focusRule, setFocusRule] = useState<string | null>(null);
+  // Whatever the dialog opened with, for the unsaved-changes question.
+  const initialJson = useRef(
+    JSON.stringify({
+      schema: config.schema,
+      views: config.views,
+      newFromTemplate: config.newFromTemplate ?? '',
+      workflow: config.workflow ?? null,
+    }),
+  );
+  const draftJson = () =>
+    JSON.stringify({ schema, views, newFromTemplate: newFromTemplate ?? '', workflow: workflow ?? null });
+  const tryClose = async () => {
+    if (draftJson() !== initialJson.current) {
+      const ok = await confirm(t('Close without saving?'), { confirmText: t('Discard') });
+      if (!ok) return;
+    }
+    onClose();
+  };
   // Which template new rows are made from, if any. Templates come from their
   // own endpoint (see the sidebar): the page tree no longer carries them.
   const [newFromTemplate, setNewFromTemplate] = useState(config.newFromTemplate ?? '');
@@ -98,7 +119,7 @@ export default function SchemaEditor({
       alive = false;
     };
   }, []);
-  useExclusiveModal(onClose);
+  useExclusiveModal(tryClose);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<PropType>('select');
   // The option currently being edited ("propId:optId").
@@ -263,20 +284,36 @@ export default function SchemaEditor({
     // and simply do not travel on save. A rule with no finished actions is a
     // pure guard (allow-list + precondition, nothing automated) — it travels
     // with an empty do list and the server enforces it all the same.
-    let wf: WorkflowConfig | undefined;
-    if (workflow && workflow.statusPropId && workflow.rules.length > 0) {
-      const rules = workflow.rules.map((r) => ({
-        ...r,
-        do: r.do.filter((a) => {
-          if (a.type === 'webhook') return a.url.trim() !== '';
-          if (a.type === 'require_comment') return true;
-          return !!a.prop;
-        }),
-      }));
-      wf = { statusPropId: workflow.statusPropId, rules };
+    // A defined-but-empty process clears the stored one: deleting every rule
+    // and saving must not resurrect them on reopen.
+    const stagedWf: WorkflowConfig | undefined =
+      workflow?.statusPropId
+        ? {
+            statusPropId: workflow.statusPropId,
+            rules: workflow.rules.map((r) => ({
+              ...r,
+              do: r.do.filter((a) => {
+                if (a.type === 'webhook') return a.url.trim() !== '';
+                if (a.type === 'require_comment') return true;
+                return !!a.prop;
+              }),
+            })),
+          }
+        : undefined;
+    // Broken references never reach the server: it would reject the whole
+    // save for one dead row. Point at the rule instead.
+    if (stagedWf) {
+      const errors = analyzeWorkflow(stagedWf, colored).filter((i) => i.severity === 'error');
+      if (errors.length > 0) {
+        const first = errors[0];
+        if (first.ruleId) setFocusRule(first.ruleId);
+        setTab('process');
+        toast(issueText(first));
+        return;
+      }
     }
     try {
-      await onSave({ schema: colored, views: fixedViews, ...(tpl ? { newFromTemplate: tpl } : {}), ...(wf ? { workflow: wf } : {}) });
+      await onSave({ schema: colored, views: fixedViews, ...(tpl ? { newFromTemplate: tpl } : {}), ...(stagedWf ? { workflow: stagedWf } : {}) });
     } catch (e) {
       toast((e as Error).message || t('Not saved'));
       return;
@@ -526,7 +563,7 @@ export default function SchemaEditor({
 
   return (
     <Portal>
-    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) void tryClose(); }}>
       <div className="dialog wide">
         <h2>{t('Collection properties')}</h2>
         <div className="schema-tabs">
@@ -546,7 +583,7 @@ export default function SchemaEditor({
           </button>
         </div>
         {tab === 'process' ? (
-          <WorkflowRules schema={schema} workflow={workflow} onChange={setWorkflow} />
+          <WorkflowRules schema={schema} workflow={workflow} onChange={setWorkflow} highlightRuleId={focusRule} />
         ) : (
         <>
         <div className="schema-list">
@@ -763,7 +800,7 @@ export default function SchemaEditor({
         )}
 
         <div className="dialog-buttons">
-          <button className="btn" onClick={onClose}>{t('Cancel')}</button>
+          <button className="btn" onClick={() => void tryClose()}>{t('Cancel')}</button>
           <button className="btn primary" onClick={save}>{t('Save')}</button>
         </div>
       </div>

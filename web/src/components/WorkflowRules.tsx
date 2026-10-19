@@ -2,6 +2,14 @@ import { useEffect, useState } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowRule } from '../types';
 import { t } from '../i18n';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
+import {
+  analyzeWorkflow,
+  describeAutoActions,
+  issueText,
+  matchRules,
+  neededPrompts,
+  type PromptField,
+} from '../workflow';
 
 let ruleCounter = 0;
 const newRuleId = () => `rule_${Date.now().toString(36)}_${ruleCounter++}`;
@@ -27,10 +35,13 @@ export default function WorkflowRules({
   schema,
   workflow,
   onChange,
+  highlightRuleId,
 }: {
   schema: PropDef[];
   workflow: WorkflowConfig | undefined;
   onChange: (w: WorkflowConfig | undefined) => void;
+  /** A rule the save-guard wants the reader to look at. */
+  highlightRuleId?: string | null;
 }) {
   const selectProps = schema.filter((p) => p.type === 'select');
   // A stale statusPropId (the property was deleted or retyped since) must not
@@ -42,6 +53,68 @@ export default function WorkflowRules({
   const rules = workflow?.rules ?? [];
   const [openRule, setOpenRule] = useState<string | null>(rules[0]?.id ?? null);
   const [showAdvanced, setShowAdvanced] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (highlightRuleId) setOpenRule(highlightRuleId);
+  }, [highlightRuleId]);
+
+  // Self-check over the draft: broken references block saving, structural
+  // traps just warn. Recomputed on every keystroke, like everything here.
+  const issues = analyzeWorkflow(statusPropId ? { statusPropId, rules } : undefined, schema);
+  const errorRules = new Set(
+    issues.filter((i) => i.severity === 'error' && i.ruleId).map((i) => i.ruleId!),
+  );
+
+  // Try-a-move simulator: what a transition from the chosen status does —
+  // passes, asks or refuses, and why. Read-only, never writes.
+  interface SimRow {
+    to: string;
+    toName: string;
+    verdict: 'ok' | 'ask' | 'blocked';
+    detail: string[];
+  }
+  const [simFrom, setSimFrom] = useState('');
+  const [simRows, setSimRows] = useState<SimRow[] | null>(null);
+  const [simBusy, setSimBusy] = useState(false);
+  const runSimulation = async (from: string) => {
+    setSimBusy(true);
+    try {
+      const rows: SimRow[] = [];
+      for (const o of statusOpts) {
+        if (o.id === from) continue;
+        const matched = matchRules(workflow, from, o.id);
+        const targeted = rules.some(
+          (r) => r.when.type === 'status_to' && (r.when as { to: string }).to === o.id,
+        );
+        if (targeted && matched.length === 0) {
+          const fromName = statusOpts.find((x) => x.id === from)?.name ?? from;
+          rows.push({
+            to: o.id,
+            toName: o.name,
+            verdict: 'blocked',
+            detail: [t('Not allowed from {from}', { from: fromName })],
+          });
+          continue;
+        }
+        const fields = await neededPrompts(workflow, schema, '', {}, from, o.id);
+        const detail: string[] = fields.map((f) => (f.kind === 'comment' ? t('Comment') : f.label));
+        for (const r of matched) {
+          detail.push(...describeAutoActions(r, schema));
+          if (r.precondition?.checklistProp) {
+            const n = schema.find((p) => p.id === r.precondition!.checklistProp)?.name ?? r.precondition.checklistProp;
+            detail.push(t('{name} must be complete', { name: n }));
+          }
+          if (r.precondition?.requiredProp) {
+            const n = schema.find((p) => p.id === r.precondition!.requiredProp)?.name ?? r.precondition.requiredProp;
+            detail.push(t('{name} must be filled', { name: n }));
+          }
+        }
+        rows.push({ to: o.id, toName: o.name, verdict: fields.length > 0 ? 'ask' : 'ok', detail });
+      }
+      setSimRows(rows);
+    } finally {
+      setSimBusy(false);
+    }
+  };
 
   const statusProp = schema.find((p) => p.id === statusPropId);
   const statusOpts = statusProp?.options ?? [];
@@ -96,7 +169,33 @@ export default function WorkflowRules({
 
       {rules.length === 0 && (
         <div className="dialog-hint">
-          {t('No rules yet. A rule reads like a sentence: when the status changes, then do something.')}
+          {workflow?.statusPropId
+            ? t('No rules — saving clears the stored process. Add one to keep it.')
+            : t('No rules yet. A rule reads like a sentence: when the status changes, then do something.')}
+        </div>
+      )}
+
+      {issues.length > 0 && (
+        <div className="workflow-issues">
+          {issues.map((iss, i) =>
+            iss.ruleId ? (
+              <button
+                key={i}
+                type="button"
+                className={'workflow-issue ' + (iss.severity === 'error' ? 'workflow-issue-error' : 'workflow-issue-warn')}
+                onClick={() => setOpenRule(iss.ruleId!)}
+              >
+                {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+              </button>
+            ) : (
+              <div
+                key={i}
+                className={'workflow-issue ' + (iss.severity === 'error' ? 'workflow-issue-error' : 'workflow-issue-warn')}
+              >
+                {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+              </div>
+            ),
+          )}
         </div>
       )}
 
@@ -109,7 +208,7 @@ export default function WorkflowRules({
             ? t('a row is created')
             : `${statusProp?.name ?? ''} → ${statusOpts.find((o) => o.id === whenTo)?.name ?? whenTo}`;
         return (
-          <div key={r.id} className="schema-item">
+          <div key={r.id} className={'schema-item' + (errorRules.has(r.id) ? ' schema-item-error' : '')}>
             <button type="button" className="workflow-head" onClick={() => setOpenRule(open ? null : r.id)}>
               <span className="workflow-when">
                 {t('When')} {whenName}
@@ -319,6 +418,45 @@ export default function WorkflowRules({
       <button type="button" className="btn" onClick={addRule} disabled={!statusPropId || statusOpts.length === 0}>
         {t('+ Add rule')}
       </button>
+
+      {statusOpts.length > 1 && (
+        <div className="workflow-sim">
+          <label>{t('Try a move')}</label>
+          <div className="workflow-row">
+            <select
+              className="prop-select"
+              value={simFrom}
+              onChange={(e) => {
+                setSimFrom(e.target.value);
+                setSimRows(null);
+              }}
+            >
+              <option value="">{t('From…')}</option>
+              {statusOpts.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn"
+              disabled={!simFrom || simBusy}
+              onClick={() => void runSimulation(simFrom)}
+            >
+              {t('Check')}
+            </button>
+          </div>
+          {(simRows ?? []).map((r) => (
+            <div key={r.to} className="workflow-sim-row">
+              <span>
+                {r.verdict === 'ok' ? '✓' : r.verdict === 'ask' ? '? ' : '✕ '}→ {r.toName}
+              </span>
+              {r.detail.length > 0 && <span className="dialog-hint">{r.detail.join(' · ')}</span>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
