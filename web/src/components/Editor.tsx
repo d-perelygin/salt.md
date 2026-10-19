@@ -527,6 +527,12 @@ function PageHeader({
   const [shareAllowed, setShareAllowed] = useState<string[] | null>(null);
   const [shareViewsList, setShareViewsList] = useState<{ id: string; name: string }[]>([]);
   const [shareAllowDetail, setShareAllowDetail] = useState(false);
+  // Read-share and form-share are independent links; the dialog tracks them
+  // apart so a live form alone still offers the read share instead of the
+  // "link active, no URL" dead end.
+  const [readShared, setReadShared] = useState(false);
+  const [formShared, setFormShared] = useState(false);
+  const isCollection = page.type === 'collection';
   // What the link on screen was made with. A changed expiry or password then
   // offers a new link instead of quietly replacing the one just copied.
   const [madeWith, setMadeWith] = useState<{ days: number; password: string } | null>(null);
@@ -538,6 +544,11 @@ function PageHeader({
     setShareExpiry(0);
     setSharePassword('');
     setMadeWith(null);
+    setReadShared(false);
+    setFormShared(false);
+    setShareAllowed(null);
+    setShareViewsList([]);
+    setShareAllowDetail(false);
   }, [pageId]);
   const isShared = shareUrl != null || (!!page.shared && !shareOff);
   const shareSettingsChanged =
@@ -707,8 +718,8 @@ function PageHeader({
       setShareOff(false);
       setReadShared(true);
       setSharePassword('');
-      setShareHasPassword(password !== '');
-      setLastPassword(password);
+      setShareHasPassword(sharePassword !== '');
+      setLastPassword(sharePassword);
       onPagesChanged();
     } catch {
       toast(t('Sharing failed'));
@@ -755,6 +766,7 @@ function PageHeader({
     const clip = navigator.clipboard;
     if (!clip) return;
     clip.writeText(url).then(() => toast(t('Copied')), () => {});
+  };
   const loadShareSettings = async (): Promise<{ shared: boolean; allowed: string[] | null; detail: boolean }> => {
     let out = { shared: false, allowed: null as string[] | null, detail: false };
     try {
@@ -1101,6 +1113,120 @@ function PageHeader({
             </button>
             {shareOpen && (
               <div className="menu share-menu">
+                {isCollection ? (
+                  <>
+                    <div className="share-hint">{t('Anyone with this link sees this collection (read-only).')}</div>
+                    {!readShared && !displayUrl ? (
+                      <>
+                        <button
+                          className="btn-sm primary"
+                          disabled={shareBusy}
+                          onClick={() => void createShare()}
+                        >
+                          {t('Share publicly')}
+                        </button>
+                        {formShared && (
+                          <div className="share-hint share-hint-icon"><ClipboardList size={13} />{t('The form on this page is already shared separately.')}</div>
+                        )}
+                      </>
+                    ) : displayUrl ? (
+                      <>
+                        <input className="share-input" readOnly value={displayUrl} onFocus={(e) => e.currentTarget.select()} />
+                        <div className="share-actions">
+                          <button
+                            className="btn-sm"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(displayUrl);
+                              toast(t('Public link copied'));
+                            }}
+                          >
+                            {t('Copy')}
+                          </button>
+                          <button className="btn-sm danger" disabled={shareBusy} onClick={() => void stopShare()}>
+                            {t('Stop sharing')}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="share-hint">{t('The link is active, but this browser does not have its URL.')}</div>
+                        <button
+                          className="btn-sm"
+                          disabled={shareBusy}
+                          onClick={() => void createShare()}
+                        >
+                          {t('Create a new link')}
+                        </button>
+                      </>
+                    )}
+                    {readShared && shareViewsList.length > 1 && (
+                      <div className="share-section">
+                        <div className="share-section-title">{t('Views in the link')}</div>
+                        <div className="share-views">
+                          {shareViewsList.map((v) => {
+                            const on = shareAllowed === null || shareAllowed.includes(v.id);
+                            return (
+                              <label key={v.id} className="share-view-check">
+                                <input type="checkbox" checked={on} onChange={() => void toggleShareView(v.id)} />
+                                {v.name}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {readShared && (
+                      <div className="share-section">
+                        <label className="share-detail-check">
+                          <input type="checkbox" checked={shareAllowDetail} onChange={() => void toggleShareDetail()} />
+                          <span>
+                            {t('Let readers open notes')}
+                            <small>{t('Off = rows are visible, but do not open.')}</small>
+                          </span>
+                        </label>
+                      </div>
+                    )}
+                    {(readShared || displayUrl) && (
+                      <>
+                        <label className="share-expiry">
+                          {t('Expires:')}
+                          <select
+                            className="prop-select"
+                            value={shareExpiry}
+                            onChange={(e) => void changeExpiry(Number(e.target.value))}
+                          >
+                            <option value={0}>{t('Never')}</option>
+                            <option value={1}>{t('In 1 day')}</option>
+                            <option value={7}>{t('In 7 days')}</option>
+                            <option value={30}>{t('In 30 days')}</option>
+                          </select>
+                        </label>
+                        <div className="share-pw-row">
+                          <input
+                            className="share-input"
+                            type="password"
+                            placeholder={shareHasPassword ? '••••••' : t('Password (optional)')}
+                            value={sharePassword}
+                            onChange={(e) => setSharePassword(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void applyPassword();
+                            }}
+                          />
+                          <button className="btn-sm" onClick={() => void applyPassword()}>
+                            {t('Apply')}
+                          </button>
+                        </div>
+                        {displayUrl && pwForLink && (
+                          <button className="btn-sm" onClick={() => void copyPwLink()}>
+                            {t('Copy link with password')}
+                          </button>
+                        )}
+                        <div className="share-hint">{t('The password applies to the current link. An empty Apply leaves it unchanged.')}</div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
                 {shareUrl ? (
                   <>
                     <div className="share-hint">{t('Anyone with this link can view this page (read-only).')}</div>
@@ -1188,6 +1314,8 @@ function PageHeader({
                   </>
                 ) : (
                   <div className="share-hint">{t('Only people who can edit this page can share it or stop sharing it.')}</div>
+                )}
+                  </>
                 )}
               </div>
             )}
