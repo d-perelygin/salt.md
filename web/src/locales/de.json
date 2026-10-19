@@ -1317,5 +1317,18 @@
   "When": "Wenn",
   "a row is created": "eine Zeile erstellt wird",
   "Not saved": "Nicht gespeichert",
-  "An unfinished action is a draft: it stays here, but it is not saved.": "Eine unfertige Aktion ist ein Entwurf: Sie bleibt hier, wird aber nicht gespeichert."
+  "An unfinished action is a draft: it stays here, but it is not saved.": "Eine unfertige Aktion ist ein Entwurf: Sie bleibt hier, wird aber nicht gespeichert.",
+  "Add at least two options to the status property — there is nowhere to come from yet.": "Fügen Sie mindestens zwei Optionen zur Status-Eigenschaft hinzu — sonst gibt es kein Woher.",
+  "Always": "Immer",
+  "Ask": "Fragen",
+  "Ask comment": "Kommentar",
+  "Ask for a comment": "Kommentar erfragen",
+  "Ask for a property": "Eigenschaft erfragen",
+  "Comment": "Kommentar",
+  "Comment not saved": "Kommentar nicht gespeichert",
+  "If empty": "Wenn leer",
+  "If none yet": "Wenn noch keiner",
+  "Move card": "Verschieben",
+  "Select…": "Wählen…",
+  "When to ask": "Wann fragen"
 }

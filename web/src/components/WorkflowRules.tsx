@@ -25,8 +25,12 @@ export default function WorkflowRules({
   onChange: (w: WorkflowConfig | undefined) => void;
 }) {
   const selectProps = schema.filter((p) => p.type === 'select');
+  // A stale statusPropId (the property was deleted or retyped since) must not
+  // leave the tab dead: fall back to the first select, like a fresh start.
   const statusPropId =
-    workflow?.statusPropId ?? selectProps[0]?.id ?? '';
+    (workflow?.statusPropId && schema.some((p) => p.id === workflow.statusPropId && p.type === 'select')
+      ? workflow.statusPropId
+      : selectProps[0]?.id) ?? '';
   const rules = workflow?.rules ?? [];
   const [openRule, setOpenRule] = useState<string | null>(rules[0]?.id ?? null);
   const [showAdvanced, setShowAdvanced] = useState<Record<string, boolean>>({});
@@ -171,7 +175,11 @@ export default function WorkflowRules({
                           ? { type: 'webhook', url: '' }
                           : at === 'set_prop'
                             ? { type: 'set_prop', prop: '', value: '' }
-                            : ({ type: at, prop } as WorkflowAction);
+                            : at === 'require_prop'
+                              ? { type: 'require_prop', prop: '', mode: 'if_empty' }
+                              : at === 'require_comment'
+                                ? { type: 'require_comment', mode: 'always' }
+                                : ({ type: at, prop } as WorkflowAction);
                       updateRule(r.id, { do: [...r.do, next] });
                     }}
                   >
@@ -179,10 +187,16 @@ export default function WorkflowRules({
                     <option value="set_prop">{t('Set a property')}</option>
                     <option value="set_today">{t('Stamp today')}</option>
                     <option value="assign_me">{t('Assign me')}</option>
+                    <option value="require_prop">{t('Ask for a property')}</option>
+                    <option value="require_comment">{t('Ask for a comment')}</option>
                     <option value="webhook">{t('Call a webhook')}</option>
                   </select>
                 </div>
-                {r.do.some((a) => (a.type === 'webhook' ? !a.url.trim() : !a.prop)) && (
+                {r.do.some((a) => {
+                  if (a.type === 'webhook') return !a.url.trim();
+                  if (a.type === 'require_comment') return false;
+                  return !a.prop;
+                }) && (
                   <div className="dialog-hint">
                     {t('An unfinished action is a draft: it stays here, but it is not saved.')}
                   </div>
@@ -200,32 +214,40 @@ export default function WorkflowRules({
                     {r.when.type === 'status_to' && (
                       <>
                         <label>{t('Only from')}</label>
-                        <div className="workflow-chips">
-                          {statusOpts
-                            .filter((o) => o.id !== whenTo)
-                            .map((o) => {
-                              const on = (r.allowFrom ?? []).includes(o.id);
-                              return (
-                                <button
-                                  key={o.id}
-                                  type="button"
-                                  aria-pressed={on}
-                                  className={'prop-chip' + (on ? ' prop-chip-on' : '')}
-                                  onClick={() => {
-                                    const cur = r.allowFrom ?? [];
-                                    updateRule(r.id, {
-                                      allowFrom: on ? cur.filter((x) => x !== o.id) : [...cur, o.id],
-                                    });
-                                  }}
-                                >
-                                  {o.name}
-                                </button>
-                              );
-                            })}
-                        </div>
-                        <div className="dialog-hint">
-                          {t('Empty = from any status. Pick sources to forbid jumps.')}
-                        </div>
+                        {statusOpts.length <= 1 ? (
+                          <div className="dialog-hint">
+                            {t('Add at least two options to the status property — there is nowhere to come from yet.')}
+                          </div>
+                        ) : (
+                          <>
+                            <div className="workflow-chips">
+                              {statusOpts
+                                .filter((o) => o.id !== whenTo)
+                                .map((o) => {
+                                  const on = (r.allowFrom ?? []).includes(o.id);
+                                  return (
+                                    <button
+                                      key={o.id}
+                                      type="button"
+                                      aria-pressed={on}
+                                      className={'prop-chip' + (on ? ' prop-chip-on' : '')}
+                                      onClick={() => {
+                                        const cur = r.allowFrom ?? [];
+                                        updateRule(r.id, {
+                                          allowFrom: on ? cur.filter((x) => x !== o.id) : [...cur, o.id],
+                                        });
+                                      }}
+                                    >
+                                      {o.name}
+                                    </button>
+                                  );
+                                })}
+                            </div>
+                            <div className="dialog-hint">
+                              {t('Empty = from any status. Pick sources to forbid jumps.')}
+                            </div>
+                          </>
+                        )}
                       </>
                     )}
                     <label>{t('Only if checklist complete')}</label>
@@ -314,6 +336,58 @@ function ActionRow({
           value={action.url}
           onChange={(e) => onChange({ type: 'webhook', url: e.target.value })}
         />
+        <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
+          ✕
+        </button>
+      </div>
+    );
+  }
+  if (action.type === 'require_prop') {
+    return (
+      <div className="workflow-row">
+        <span className="workflow-act">{t('Ask')}</span>
+        <select
+          className="prop-select"
+          value={action.prop}
+          onChange={(e) => onChange({ ...action, prop: e.target.value })}
+        >
+          <option value="">{t('Property…')}</option>
+          {schema
+            .filter((p) => ['text', 'date', 'person', 'select', 'multiselect'].includes(p.type))
+            .map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+        </select>
+        <select
+          className="prop-select"
+          value={action.mode}
+          title={t('When to ask')}
+          onChange={(e) => onChange({ ...action, mode: e.target.value as 'always' | 'if_empty' })}
+        >
+          <option value="if_empty">{t('If empty')}</option>
+          <option value="always">{t('Always')}</option>
+        </select>
+        <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
+          ✕
+        </button>
+      </div>
+    );
+  }
+  if (action.type === 'require_comment') {
+    return (
+      <div className="workflow-row">
+        <span className="workflow-act">{t('Ask comment')}</span>
+        <select
+          className="prop-select"
+          value={action.mode}
+          title={t('When to ask')}
+          onChange={(e) => onChange({ ...action, mode: e.target.value as 'always' | 'if_empty' })}
+        >
+          <option value="always">{t('Always')}</option>
+          <option value="if_empty">{t('If none yet')}</option>
+        </select>
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
           ✕
         </button>

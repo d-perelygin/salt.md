@@ -3951,6 +3951,27 @@ body.is-col-resizing {
   outline: 2px solid var(--primary);
 }
 
+/* Move dialog: what the step asks for before the card lands. One labeled
+   input per require-step, in the order the rules list them. */
+.workflow-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 12px;
+}
+.workflow-ask-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.workflow-ask-row > span {
+  color: var(--muted);
+}
+.workflow-ask-row textarea {
+  resize: vertical;
+}
+
 /* Schema editor: relation / rollup / formula config */
 
 .schema-item {

@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../api';
-import { workflowBlockReason } from '../workflow';
+import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
 import { onRefresh } from '../pwa';
 import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
@@ -1029,9 +1029,28 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         await writeProps(rowId, patch);
         return;
       }
+      // A multi-prop gesture that moves the status asks first, like a drag.
+      const wf = configRef.current?.workflow ?? config?.workflow;
+      let comment: string | null = null;
+      if (wf && wf.statusPropId && patch[wf.statusPropId] !== undefined) {
+        const cur = me.props[wf.statusPropId];
+        const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
+        const rawTo = patch[wf.statusPropId] as string | string[];
+        const to = Array.isArray(rawTo) ? (rawTo[0] as string) ?? '' : (rawTo as string) ?? '';
+        const reason = workflowBlockReason(wf, me.props, from, to);
+        if (reason) {
+          toast(t(reason));
+          return;
+        }
+        const plan = await planStatusMove(wf, schema, rowId, me.props, from, to, statusOptionName(wf.statusPropId, to));
+        if (!plan) return;
+        Object.assign(patch, plan.patch);
+        comment = plan.comment;
+      }
       const olds: Record<string, unknown> = {};
       for (const k of Object.keys(patch)) olds[k] = cleared(me.props[k]);
       await writeProps(rowId, patch);
+      if (comment) void postMoveComment(rowId, comment);
       const v = view;
       if (v && JSON.stringify(olds) !== JSON.stringify(patch)) {
         pushUndo(v.id, {
@@ -1050,16 +1069,37 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     await savePageUpdate(rowId, { position }, { label: t('Change') });
   };
 
-  const setRowProp = (rowId: string, propId: string, value: unknown): Promise<void> =>
+  const setRowProp = (rowId: string, propId: string, value: unknown, extra?: Record<string, unknown>): Promise<void> =>
     // Serialized with every other mutation of this view (see series): the
     // olds are read inside, at execution, so a step queued behind a slow
     // write still captures the world as the write left it.
     series(view?.id, async () => {
       const live = rowsRef.current;
       const me = live.find((r) => r.id === rowId);
-      const oldVal = cleared(me?.props[propId]);
+      const patch: Record<string, unknown> = { ...(extra ?? {}) };
+      const wf = configRef.current?.workflow ?? config?.workflow;
+      // Every status edit funnels through here — board, card, table: a move
+      // that needs answers asks first, once, before anything is written.
+      // Cancel backs the whole gesture out, card included.
+      if (wf && wf.statusPropId === propId) {
+        const cur = me?.props[propId];
+        const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
+        const rawTo = value as string | string[];
+        const to = Array.isArray(rawTo) ? (rawTo[0] as string) ?? '' : (rawTo as string) ?? '';
+        const reason = workflowBlockReason(wf, me?.props ?? {}, from, to);
+        if (reason) {
+          toast(t(reason));
+          return;
+        }
+        const plan = await planStatusMove(wf, schema, rowId, me?.props ?? {}, from, to, statusOptionName(propId, to));
+        if (!plan) return;
+        Object.assign(patch, plan.patch);
+        if (plan.comment) void postMoveComment(rowId, plan.comment);
+      }
+      const olds: Record<string, unknown> = {};
+      for (const k of [propId, ...Object.keys(patch)]) olds[k] = cleared(me?.props[k]);
       const oldPos = me?.position;
-      await writeProp(rowId, propId, value);
+      await writeProps(rowId, { [propId]: value, ...patch });
       // A board card whose group value changes moves columns without being put
       // anywhere: top of the new one.
       let newPos: number | undefined;
@@ -1072,15 +1112,15 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             : boardColumnRows(live, boardGroupBy, optId);
         newPos = await placeRowOnTop(rowId, siblings);
       }
-      if (v && !isTempId(rowId) && JSON.stringify(oldVal) !== JSON.stringify(value)) {
+      if (v && !isTempId(rowId) && JSON.stringify(olds[propId]) !== JSON.stringify(value)) {
         pushUndo(v.id, {
           label: t('Change'),
           undo: async () => {
-            await writeProp(rowId, propId, oldVal);
+            await writeProps(rowId, olds);
             if (newPos !== undefined && oldPos !== undefined) await writePos(rowId, oldPos);
           },
           redo: async () => {
-            await writeProp(rowId, propId, value);
+            await writeProps(rowId, { [propId]: value, ...patch });
             if (newPos !== undefined) await writePos(rowId, newPos);
           },
         });
@@ -1111,21 +1151,13 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     }
   };
 
+  // Option display name, for the move dialog's title ("Move to Review?").
+  const statusOptionName = (propId: string, optId: string): string => {
+    const def = schema.find((p) => p.id === propId);
+    return def?.options?.find((o) => o.id === optId)?.name ?? optId;
+  };
+
   const setGroupValue = async (rowId: string, propId: string, optId: string) => {
-    // Instant workflow feedback: refuse the move before anything optimistic
-    // happens, so the card never leaves its column. The server re-checks.
-    const wf = config?.workflow;
-    if (wf && wf.statusPropId === propId) {
-      const me = rowsRef.current.find((r) => r.id === rowId);
-      const cur = me?.props[propId];
-      const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
-      const to = optId === UNSET ? '' : optId;
-      const reason = workflowBlockReason(wf, me?.props ?? {}, from, to);
-      if (reason) {
-        toast(t(reason));
-        return;
-      }
-    }
     const prop = schema.find((p) => p.id === propId);
     if (prop?.type === 'multiselect' || prop?.type === 'relation') {
       await setRowProp(rowId, propId, optId === UNSET ? [] : [optId]);
@@ -1211,8 +1243,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       const oldVal = cleared(me?.props[groupBy]);
       const oldPos = me?.position;
       const newVal = groupValueFor(schema, groupBy, optId);
-      // Same instant workflow guard as setGroupValue: a cross-column drop
-      // writes straight through, so check here too. Server re-checks.
+      // A cross-column drop writes straight through: ask for answers here,
+      // the same handshake setRowProp runs. Cancel backs the drag out.
+      let extra: Record<string, unknown> = {};
       const wf = configRef.current?.workflow;
       if (wf && wf.statusPropId === groupBy) {
         const fromRaw = me?.props[groupBy];
@@ -1224,8 +1257,12 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           toast(t(reason));
           return;
         }
+        const plan = await planStatusMove(wf, schema, rowId, me?.props ?? {}, from, to, statusOptionName(groupBy, to));
+        if (!plan) return;
+        extra = plan.patch;
+        if (plan.comment) void postMoveComment(rowId, plan.comment);
       }
-      await writeProp(rowId, groupBy, newVal);
+      await writeProps(rowId, { [groupBy]: newVal, ...extra });
       const position = positionFor(newOrder, rowId, live);
       if (position !== undefined) {
         touchRows();
@@ -1240,7 +1277,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           if (position !== undefined && oldPos !== undefined) await writePos(rowId, oldPos);
         },
         redo: async () => {
-          await writeProp(rowId, groupBy, newVal);
+          await writeProps(rowId, { [groupBy]: newVal, ...extra });
           if (position !== undefined) await writePos(rowId, position);
         },
       });

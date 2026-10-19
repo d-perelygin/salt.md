@@ -20,6 +20,7 @@ import {
 } from '../viewUndo';
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
+import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
 import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User } from '../types';
 import { SaltProvider } from '../collab';
 import { plural, t } from '../i18n';
@@ -616,11 +617,30 @@ function RowProperties({
   if (!config || config.schema.length === 0) return null;
 
   const setProp = async (propId: string, value: unknown) => {
-    setProps((p) => ({ ...p, [propId]: value }));
+    const wf = config?.workflow;
+    let patch: Record<string, unknown> = { [propId]: value };
+    if (wf && wf.statusPropId === propId) {
+      const cur = props[propId];
+      const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
+      const rawTo = value as string | string[];
+      const to = Array.isArray(rawTo) ? (rawTo[0] as string) ?? '' : (rawTo as string) ?? '';
+      const reason = workflowBlockReason(wf, props, from, to);
+      if (reason) {
+        toast(t(reason));
+        return;
+      }
+      const optName =
+        config.schema.find((p) => p.id === propId)?.options?.find((o) => o.id === to)?.name ?? to;
+      const plan = await planStatusMove(wf, config.schema, pageId, props, from, to, optName);
+      if (!plan) return;
+      patch = { ...patch, ...plan.patch };
+      if (plan.comment) void postMoveComment(pageId, plan.comment);
+    }
+    setProps((p) => ({ ...p, ...patch }));
     try {
-      await api.updatePage(pageId, { propsPatch: { [propId]: value } });
+      await api.updatePage(pageId, { propsPatch: patch });
     } catch (e) {
-      if (!(await savePageUpdate(pageId, { propsPatch: { [propId]: value } }, { label: t('Property') }))) {
+      if (!(await savePageUpdate(pageId, { propsPatch: patch }, { label: t('Property') }))) {
         toast(t('Property not saved'));
       }
     }

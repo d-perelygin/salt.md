@@ -674,10 +674,14 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 			var schemaRaw, workflowRaw string
 			if err := tx.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, parentID).Scan(&schemaRaw, &workflowRaw); err == nil {
 				if cfg := parseWorkflow(workflowRaw); cfg != nil {
+					names := map[string]string{}
+					for _, p := range parseSchemaProps(schemaRaw) {
+						names[p.ID] = p.Name
+					}
 					newStatus := propString(merged, cfg.StatusPropID)
 					oldStatus := propString(before, cfg.StatusPropID)
 					if newStatus != oldStatus && newStatus != "" {
-						_, auto, hooks, reason := checkWorkflowTransition(cfg, oldStatus, newStatus, before, requestUser(r).ID)
+						_, auto, hooks, reason := checkWorkflowTransition(cfg, oldStatus, newStatus, merged, patch, requestUser(r).ID, names)
 						if reason != "" {
 							httpError(w, 409, reason)
 							return

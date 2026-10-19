@@ -22,6 +22,7 @@ type workflowAction struct {
 	Prop  string          `json:"prop"`
 	Value json.RawMessage `json:"value"`
 	URL   string          `json:"url"`
+	Mode  string          `json:"mode"`
 }
 
 type workflowWhen struct {
@@ -75,6 +76,7 @@ func parseSchemaProps(raw string) []PropSchema {
 // schema type lives in mcp_schema.go; this stays local to avoid coupling.
 type PropSchema struct {
 	ID      string `json:"id"`
+	Name    string `json:"name"`
 	Type    string `json:"type"`
 	Options []struct {
 		ID string `json:"id"`
@@ -138,6 +140,25 @@ func validateWorkflow(cfg *workflowConfig, schema []PropSchema) error {
 			case "set_prop":
 				if _, ok := byID[a.Prop]; !ok {
 					return fmt.Errorf("rule %d: unknown property", i+1)
+				}
+			case "require_prop":
+				p, ok := byID[a.Prop]
+				if !ok {
+					return fmt.Errorf("rule %d: unknown property", i+1)
+				}
+				switch p.Type {
+				case "text", "date", "person", "select", "multiselect":
+				default:
+					return fmt.Errorf("rule %d: only text, date, person or select can be asked for", i+1)
+				}
+				if a.Mode != "" && a.Mode != "always" && a.Mode != "if_empty" {
+					return fmt.Errorf("rule %d: unknown ask mode", i+1)
+				}
+			case "require_comment":
+				// UI-only: there is nobody to ask over the API, so nothing to
+				// validate beyond the shape. Agents post comments separately.
+				if a.Mode != "" && a.Mode != "always" && a.Mode != "if_empty" {
+					return fmt.Errorf("rule %d: unknown ask mode", i+1)
 				}
 			case "set_today":
 				p, ok := byID[a.Prop]
@@ -205,10 +226,13 @@ func checklistDone(props map[string]json.RawMessage, key string) bool {
 	return true
 }
 
-// checkWorkflowTransition enforces allow-list + precondition for a status move.
+// checkWorkflowTransition enforces allow-list + precondition + asked-for
+// fields for a status move. merged holds the row AFTER the incoming patch is
+// applied, patch holds only what this request carries: `always` answers must
+// arrive in the request, `if_empty` ones may already be on the row.
 // It returns the matching rules and auto-apply property updates (set_prop,
 // set_today, assign_me) plus webhook URLs to fire after commit.
-func checkWorkflowTransition(cfg *workflowConfig, from, to string, props map[string]json.RawMessage, actorID string) (matched []workflowRule, auto map[string]any, hooks []string, reason string) {
+func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch map[string]json.RawMessage, actorID string, names map[string]string) (matched []workflowRule, auto map[string]any, hooks []string, reason string) {
 	auto = map[string]any{}
 	for _, r := range cfg.Rules {
 		if r.When.Type != "status_to" || r.When.To != to {
@@ -228,11 +252,11 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, props map[str
 			}
 		}
 		if r.Precondition != nil {
-			if r.Precondition.ChecklistProp != "" && !checklistDone(props, r.Precondition.ChecklistProp) {
+			if r.Precondition.ChecklistProp != "" && !checklistDone(merged, r.Precondition.ChecklistProp) {
 				reason = "checklist is not complete"
 				return nil, nil, nil, reason
 			}
-			if r.Precondition.RequiredProp != "" && !propNonEmpty(props, r.Precondition.RequiredProp) {
+			if r.Precondition.RequiredProp != "" && !propNonEmpty(merged, r.Precondition.RequiredProp) {
 				reason = "required property is empty"
 				return nil, nil, nil, reason
 			}
@@ -240,6 +264,24 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, props map[str
 		matched = append(matched, r)
 		for _, a := range r.Do {
 			switch a.Type {
+			case "require_prop":
+				name := names[a.Prop]
+				if name == "" {
+					name = a.Prop
+				}
+				if a.Mode == "always" {
+					if !propNonEmpty(patch, a.Prop) {
+						reason = fmt.Sprintf("fill in %s before moving", name)
+						return nil, nil, nil, reason
+					}
+				} else if !propNonEmpty(merged, a.Prop) {
+					reason = fmt.Sprintf("fill in %s before moving", name)
+					return nil, nil, nil, reason
+				}
+			case "require_comment":
+				// Asked in the interface, unenforceable here: a status PATCH
+				// carries no comment, and rejecting every comment-less move
+				// would block the API entirely.
 			case "set_prop":
 				var v any
 				if len(a.Value) > 0 {

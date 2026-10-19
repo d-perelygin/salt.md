@@ -1,4 +1,9 @@
-import type { WorkflowConfig } from './types';
+import type { PropDef, WorkflowConfig } from './types';
+import { api } from './api';
+import { promptWorkflow } from './dialog';
+import { toast } from './toast';
+import { t } from './i18n';
+import { loadMembers, type Member } from './components/PropertyValue';
 
 // Client-side mirror of the server guard (server/workflow.go): instant
 // feedback before the drag lands. The server stays the source of truth —
@@ -32,4 +37,134 @@ function checklistDone(v: unknown): boolean {
 
 function isEmpty(v: unknown): boolean {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+}
+
+// ---- Move dialog ----
+// What a status move still needs from the human. Pure guards (allow-list,
+// preconditions, require-steps the row already satisfies) never ask — the
+// dialog appears only when there is something to fill. Empty means proceed.
+
+/** One input the move dialog asks for. */
+export interface PromptField {
+  key: string; // rule + action index, unique per dialog
+  label: string;
+  kind: 'text' | 'date' | 'person' | 'select' | 'multiselect' | 'comment';
+  prop?: string;
+  options?: { id: string; name: string }[];
+  members?: Member[];
+  value: unknown;
+}
+
+export async function neededPrompts(
+  workflow: WorkflowConfig | undefined,
+  schema: PropDef[],
+  rowId: string,
+  rowProps: Record<string, unknown>,
+  from: string,
+  to: string,
+): Promise<PromptField[]> {
+  if (!workflow || !workflow.statusPropId || from === to || !to) return [];
+  const byId = new Map(schema.map((p) => [p.id, p]));
+  const fields: PromptField[] = [];
+  for (const r of workflow.rules ?? []) {
+    if (r.when.type !== 'status_to' || (r.when as { to: string }).to !== to) continue;
+    if (r.allowFrom && r.allowFrom.length > 0 && !r.allowFrom.includes(from)) continue;
+    for (let i = 0; i < (r.do ?? []).length; i++) {
+      const a = r.do[i];
+      if (a.type === 'require_prop') {
+        const def = byId.get(a.prop);
+        if (!def) continue;
+        if (a.mode !== 'always' && !isEmpty(rowProps[a.prop])) continue;
+        const kind =
+          def.type === 'date'
+            ? 'date'
+            : def.type === 'person'
+              ? 'person'
+              : def.type === 'select'
+                ? 'select'
+                : def.type === 'multiselect'
+                  ? 'multiselect'
+                  : 'text';
+        const f: PromptField = {
+          key: `${r.id}:${i}`,
+          label: def.name,
+          kind,
+          prop: a.prop,
+          value: kind === 'multiselect' ? [] : '',
+        };
+        if (kind === 'select' || kind === 'multiselect') {
+          f.options = (def.options ?? []).map((o) => ({ id: o.id, name: o.name }));
+        }
+        if (kind === 'person') f.members = await loadMembers();
+        fields.push(f);
+      } else if (a.type === 'require_comment') {
+        let need = a.mode === 'always';
+        if (!need) {
+          try {
+            need = (await api.listComments(rowId)).length === 0;
+          } catch {
+            need = true;
+          }
+        }
+        if (need) fields.push({ key: `${r.id}:${i}:comment`, label: '', kind: 'comment', value: '' });
+      }
+    }
+  }
+  return fields;
+}
+
+/** Fold dialog answers back into a props patch. Person answers are member
+ *  ids, stored the way person cells store them (a list). */
+export function answersToPatch(
+  fields: PromptField[],
+  answers: Record<string, unknown>,
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const f of fields) {
+    if (f.kind === 'comment' || f.prop === undefined) continue;
+    const v = answers[f.key];
+    patch[f.prop] = f.kind === 'person' ? (typeof v === 'string' && v ? [v] : []) : v;
+  }
+  return patch;
+}
+
+export function commentAnswer(
+  fields: PromptField[],
+  answers: Record<string, unknown>,
+): string | null {
+  for (const f of fields) {
+    if (f.kind !== 'comment') continue;
+    const v = answers[f.key];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+/** The whole move handshake in one call. Returns null when the mover backs
+ *  out of the dialog — then nothing may be written, the card stays. */
+export async function planStatusMove(
+  workflow: WorkflowConfig | undefined,
+  schema: PropDef[],
+  rowId: string,
+  rowProps: Record<string, unknown>,
+  from: string,
+  to: string,
+  toName: string,
+): Promise<{ patch: Record<string, unknown>; comment: string | null } | null> {
+  const fields = await neededPrompts(workflow, schema, rowId, rowProps, from, to);
+  if (fields.length === 0) return { patch: {}, comment: null };
+  const answers = await promptWorkflow(`Move to ${toName}?`, fields);
+  if (!answers) return null;
+  return { patch: answersToPatch(fields, answers), comment: commentAnswer(fields, answers) };
+}
+
+/** Post the move's comment to the row's own comments. Best-effort: the move
+ *  stands even if the comment fails, and the reader is told. */
+export async function postMoveComment(rowId: string, comment: string | null): Promise<void> {
+  if (!comment) return;
+  try {
+    await api.createComment(rowId, comment);
+  } catch {
+    toast(t('Comment not saved'));
+  }
 }

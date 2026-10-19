@@ -1396,5 +1396,18 @@
   "When": "Когда",
   "a row is created": "создана строка",
   "Not saved": "Не сохранено",
-  "An unfinished action is a draft: it stays here, but it is not saved.": "Незаконченное действие — черновик: остаётся здесь, но не сохраняется."
+  "An unfinished action is a draft: it stays here, but it is not saved.": "Незаконченное действие — черновик: остаётся здесь, но не сохраняется.",
+  "Add at least two options to the status property — there is nowhere to come from yet.": "Добавьте в свойство-статус хотя бы два варианта — иначе неоткуда приходить.",
+  "Always": "Всегда",
+  "Ask": "Спросить",
+  "Ask comment": "Комментарий",
+  "Ask for a comment": "Запросить комментарий",
+  "Ask for a property": "Запросить свойство",
+  "Comment": "Комментарий",
+  "Comment not saved": "Комментарий не сохранён",
+  "If empty": "Если пусто",
+  "If none yet": "Если пока нет",
+  "Move card": "Переместить",
+  "Select…": "Выберите…",
+  "When to ask": "Когда спрашивать"
 }

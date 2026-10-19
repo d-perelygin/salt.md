@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Portal from './components/Portal';
 import { t } from './i18n';
+import type { PromptField } from './workflow';
 
 // In-app confirm / prompt dialogs (replacing native window.confirm/prompt,
 // which look out of place and can't be styled). Promise-based: call
@@ -22,7 +23,15 @@ type PromptReq = {
   confirmText?: string;
   resolve: (v: string | null) => void;
 };
-type Req = ConfirmReq | PromptReq;
+// A status move that needs answers first: one dialog, one input per
+// require-step, a single patch on confirm. Cancel leaves the card alone.
+type WorkflowReq = {
+  kind: 'workflow';
+  title: string;
+  fields: PromptField[];
+  resolve: (v: Record<string, unknown> | null) => void;
+};
+type Req = ConfirmReq | PromptReq | WorkflowReq;
 
 export function confirm(
   message: string,
@@ -46,9 +55,23 @@ export function promptText(
   });
 }
 
+/** Ask for the answers a status move needs. Resolves with keyed answers, or
+ *  null when the mover backs out — then nothing moves. */
+export function promptWorkflow(
+  title: string,
+  fields: PromptField[],
+): Promise<Record<string, unknown> | null> {
+  return new Promise((resolve) => {
+    window.dispatchEvent(
+      new CustomEvent('salt:dialog', { detail: { kind: 'workflow', title, fields, resolve } }),
+    );
+  });
+}
+
 export function DialogHost() {
   const [req, setReq] = useState<Req | null>(null);
   const [value, setValue] = useState('');
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -56,6 +79,11 @@ export function DialogHost() {
       const detail = (e as CustomEvent<Req>).detail;
       setReq(detail);
       setValue(detail.kind === 'prompt' ? detail.defaultValue ?? '' : '');
+      if (detail.kind === 'workflow') {
+        const init: Record<string, unknown> = {};
+        for (const f of detail.fields) init[f.key] = f.value;
+        setAnswers(init);
+      }
     };
     window.addEventListener('salt:dialog', onReq);
     return () => window.removeEventListener('salt:dialog', onReq);
@@ -76,20 +104,115 @@ export function DialogHost() {
 
   const cancel = () => {
     if (req.kind === 'confirm') req.resolve(false);
+    else if (req.kind === 'workflow') req.resolve(null);
     else req.resolve(null);
     setReq(null);
   };
   const ok = () => {
     if (req.kind === 'confirm') req.resolve(true);
+    else if (req.kind === 'workflow') req.resolve(answers);
     else req.resolve(value.trim() ? value.trim() : null);
     setReq(null);
   };
+  const workflowReady =
+    req?.kind === 'workflow' &&
+    req.fields.every((f) => {
+      const v = answers[f.key];
+      if (f.kind === 'multiselect') return Array.isArray(v) && v.length > 0;
+      if (f.kind === 'person') return typeof v === 'string' && v !== '';
+      return typeof v === 'string' && v.trim() !== '';
+    });
 
   return (
     <Portal>
       <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) cancel(); }}>
         <div className="dialog confirm-dialog" role="dialog" aria-modal="true">
-          <p className="confirm-message">{req.message}</p>
+          {req.kind === 'workflow' ? (
+            <>
+              <p className="confirm-message">{req.title}</p>
+              <div className="workflow-ask">
+                {req.fields.map((f) => (
+                  <label key={f.key} className="workflow-ask-row">
+                    <span>{f.kind === 'comment' ? t('Comment') : f.label}</span>
+                    {f.kind === 'text' || f.kind === 'comment' ? (
+                      f.kind === 'comment' ? (
+                        <textarea
+                          className="prop-input"
+                          rows={3}
+                          value={(answers[f.key] as string) ?? ''}
+                          onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
+                        />
+                      ) : (
+                        <input
+                          className="prop-input"
+                          value={(answers[f.key] as string) ?? ''}
+                          onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
+                        />
+                      )
+                    ) : f.kind === 'date' ? (
+                      <input
+                        type="date"
+                        className="prop-input"
+                        value={(answers[f.key] as string) ?? ''}
+                        onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
+                      />
+                    ) : f.kind === 'person' ? (
+                      <select
+                        className="prop-select"
+                        value={(answers[f.key] as string) ?? ''}
+                        onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
+                      >
+                        <option value="">{t('Select…')}</option>
+                        {(f.members ?? []).map((m) => (
+                          <option key={m.userId} value={m.userId}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : f.kind === 'select' ? (
+                      <select
+                        className="prop-select"
+                        value={(answers[f.key] as string) ?? ''}
+                        onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
+                      >
+                        <option value="">{t('Select…')}</option>
+                        {(f.options ?? []).map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="workflow-chips">
+                        {(f.options ?? []).map((o) => {
+                          const cur = (answers[f.key] as string[]) ?? [];
+                          const on = cur.includes(o.id);
+                          return (
+                            <button
+                              key={o.id}
+                              type="button"
+                              aria-pressed={on}
+                              className={'prop-chip' + (on ? ' prop-chip-on' : '')}
+                              onClick={() =>
+                                setAnswers((p) => ({
+                                  ...p,
+                                  [f.key]: on ? cur.filter((x) => x !== o.id) : [...cur, o.id],
+                                }))
+                              }
+                            >
+                              {o.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </label>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="confirm-message">{req.message}</p>
+          )}
           {req.kind === 'prompt' && (
             <input
               ref={inputRef}
@@ -104,8 +227,12 @@ export function DialogHost() {
           )}
           <div className="dialog-buttons">
             <button className="btn" onClick={cancel}>{t('Cancel')}</button>
-            <button className={'btn ' + (req.kind === 'confirm' && req.danger ? 'danger' : 'primary')} onClick={ok}>
-              {req.confirmText ?? (req.kind === 'prompt' ? t('OK') : t('Confirm'))}
+            <button
+              className={'btn ' + (req.kind === 'confirm' && req.danger ? 'danger' : 'primary')}
+              onClick={ok}
+              disabled={req.kind === 'workflow' && !workflowReady}
+            >
+              {req.kind === 'workflow' ? t('Move card') : (req.confirmText ?? (req.kind === 'prompt' ? t('OK') : t('Confirm')))}
             </button>
           </div>
         </div>

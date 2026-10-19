@@ -83,6 +83,8 @@ func TestWorkflowValidation(t *testing.T) {
 		"unknown option":  {StatusPropID: "status", Rules: []workflowRule{{When: workflowWhen{Type: "status_to", To: "z"}, Do: []workflowAction{{Type: "set_today", Prop: "d"}}}}},
 		"bad action":      {StatusPropID: "status", Rules: []workflowRule{{When: workflowWhen{Type: "status_to", To: "b"}, Do: []workflowAction{{Type: "explode"}}}}},
 		"bad date target": {StatusPropID: "status", Rules: []workflowRule{{When: workflowWhen{Type: "status_to", To: "b"}, Do: []workflowAction{{Type: "set_today", Prop: "status"}}}}},
+		"ask unknown":     {StatusPropID: "status", Rules: []workflowRule{{When: workflowWhen{Type: "status_to", To: "b"}, Do: []workflowAction{{Type: "require_prop", Prop: "nope", Mode: "if_empty"}}}}},
+		"ask bad mode":    {StatusPropID: "status", Rules: []workflowRule{{When: workflowWhen{Type: "status_to", To: "b"}, Do: []workflowAction{{Type: "require_comment", Mode: "sometimes"}}}}},
 	} {
 		if err := validateWorkflow(cfg, schema); err == nil {
 			t.Errorf("%s: expected rejection, got nil", name)
@@ -124,5 +126,38 @@ func TestWorkflowGuardEndToEnd(t *testing.T) {
 	}
 	if m["closed"] == nil || m["closed"] == "" {
 		t.Fatalf("set_today action did not stamp the date: %v", m)
+	}
+}
+
+func patchProps(t *testing.T, s *Server, cookie, row, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("PATCH", "/api/pages/"+row, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", cookie)
+	s.ServeHTTP(rec, req)
+	return rec
+}
+
+// A require step is a requirement for the API too: without the value the
+// move is refused naming the field; with it in the same write it lands.
+func TestWorkflowRequirePropEndToEnd(t *testing.T) {
+	s, cookie, row := workflowFixture(t)
+	var col string
+	if err := s.db.QueryRow(`SELECT parent_id FROM pages WHERE id = ?`, row).Scan(&col); err != nil {
+		t.Fatal(err)
+	}
+	wf := `{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"b","name":"B"}]},{"id":"closed","name":"Closed","type":"date"}],"views":[],"workflow":{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"status_to","to":"b"},"do":[{"type":"require_prop","prop":"closed","mode":"if_empty"},{"type":"require_comment","mode":"always"}]}]}}`
+	if rec := putWorkflow(t, s, cookie, col, wf); rec.Code != 200 {
+		t.Fatalf("PUT workflow: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := patchStatus(t, s, cookie, row, "b"); rec.Code != 409 {
+		t.Fatalf("bare move: got %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := patchProps(t, s, cookie, row, `{"propsPatch":{"status":"b","closed":"2026-10-20"}}`); rec.Code != 200 {
+		t.Fatalf("answered move: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if got := rowProps(t, s, row)["status"]; got != "b" {
+		t.Fatalf("status = %v, want b", got)
 	}
 }

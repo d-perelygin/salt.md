@@ -267,9 +267,11 @@ export default function SchemaEditor({
     if (workflow && workflow.statusPropId && workflow.rules.length > 0) {
       const rules = workflow.rules.map((r) => ({
         ...r,
-        do: r.do.filter((a) =>
-          a.type === 'webhook' ? a.url.trim() !== '' : a.type === 'set_prop' ? !!a.prop : !!a.prop,
-        ),
+        do: r.do.filter((a) => {
+          if (a.type === 'webhook') return a.url.trim() !== '';
+          if (a.type === 'require_comment') return true;
+          return !!a.prop;
+        }),
       }));
       wf = { statusPropId: workflow.statusPropId, rules };
     }
