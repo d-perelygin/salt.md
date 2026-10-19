@@ -92,23 +92,24 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	tplSet := ""
+	tplCol, tplHolder, tplSet := "", "", ""
 	tplArgs := []any{}
 	if body.NewFromTemplate != nil {
+		tplCol, tplHolder = ", new_from_template", ", ?"
 		tplSet = ", new_from_template = excluded.new_from_template"
 		tplArgs = []any{tpl}
 	}
 	switch {
 	case hasSchema && hasViews:
-		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views, new_from_template) VALUES (?, ?, ?, ?)
+		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views`+tplCol+`) VALUES (?, ?, ?`+tplHolder+`)
 			ON CONFLICT(page_id) DO UPDATE SET schema = excluded.schema, views = excluded.views`+tplSet,
 			append([]any{id, string(body.Schema), string(body.Views)}, tplArgs...)...)
 	case hasSchema:
-		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views, new_from_template) VALUES (?, ?, '[]', ?)
+		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views`+tplCol+`) VALUES (?, ?, '[]'`+tplHolder+`)
 			ON CONFLICT(page_id) DO UPDATE SET schema = excluded.schema`+tplSet,
 			append([]any{id, string(body.Schema)}, tplArgs...)...)
 	default:
-		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views, new_from_template) VALUES (?, '[]', ?, ?)
+		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views`+tplCol+`) VALUES (?, '[]', ?`+tplHolder+`)
 			ON CONFLICT(page_id) DO UPDATE SET views = excluded.views`+tplSet,
 			append([]any{id, string(body.Views)}, tplArgs...)...)
 	}
