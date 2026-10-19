@@ -3947,8 +3947,11 @@ body.is-col-resizing {
   flex-wrap: wrap;
   gap: 6px;
 }
-.prop-chip-on {
-  outline: 2px solid var(--primary);
+.prop-chip.prop-chip-on {
+  background: var(--pill-dark);
+  border-color: transparent;
+  color: var(--bg);
+  outline: none;
 }
 
 /* Move dialog: what the step asks for before the card lands. One labeled

@@ -230,7 +230,7 @@ export default function WorkflowRules({
                                       key={o.id}
                                       type="button"
                                       aria-pressed={on}
-                                      className={'prop-chip' + (on ? ' prop-chip-on' : '')}
+                                      className={'prop-chip toggle' + (on ? ' prop-chip-on' : '')}
                                       onClick={() => {
                                         const cur = r.allowFrom ?? [];
                                         updateRule(r.id, {

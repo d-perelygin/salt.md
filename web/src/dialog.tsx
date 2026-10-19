@@ -192,7 +192,7 @@ export function DialogHost() {
                               key={o.id}
                               type="button"
                               aria-pressed={on}
-                              className={'prop-chip' + (on ? ' prop-chip-on' : '')}
+                              className={'prop-chip toggle' + (on ? ' prop-chip-on' : '')}
                               onClick={() =>
                                 setAnswers((p) => ({
                                   ...p,
