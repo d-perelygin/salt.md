@@ -73,8 +73,9 @@ type transferPage struct {
 	CreatedAt   string          `json:"createdAt"`
 	UpdatedAt   string          `json:"updatedAt"`
 	// Only for type == "collection":
-	Schema json.RawMessage `json:"schema,omitempty"`
-	Views  json.RawMessage `json:"views,omitempty"`
+	Schema   json.RawMessage `json:"schema,omitempty"`
+	Views    json.RawMessage `json:"views,omitempty"`
+	Workflow json.RawMessage `json:"workflow,omitempty"`
 }
 
 // fileRefPattern finds upload references in content, props and covers.
@@ -101,7 +102,7 @@ func (s *Server) handleExportWorkspace(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.Query(`
 		SELECT p.id, p.parent_id, p.type, p.title, p.icon, p.cover, p.description,
 		       p.tags, p.props, p.content, p.position, p.visibility, p.is_template,
-		       p.created_at, p.updated_at, c.schema, c.views
+		       p.created_at, p.updated_at, c.schema, c.views, c.workflow
 		FROM pages p LEFT JOIN collections c ON c.page_id = p.id
 		WHERE p.workspace_id = ? AND p.trashed_at IS NULL
 		ORDER BY p.position, p.created_at`, wsID)
@@ -113,14 +114,17 @@ func (s *Server) handleExportWorkspace(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var p transferPage
 		var tags, props, content []byte
-		var schema, views sql.Null[[]byte]
+		var schema, views, workflow sql.Null[[]byte]
 		var isTemplate int
 		if err := rows.Scan(&p.ID, &p.ParentID, &p.Type, &p.Title, &p.Icon, &p.Cover,
 			&p.Description, &tags, &props, &content, &p.Position, &p.Visibility,
-			&isTemplate, &p.CreatedAt, &p.UpdatedAt, &schema, &views); err != nil {
+			&isTemplate, &p.CreatedAt, &p.UpdatedAt, &schema, &views, &workflow); err != nil {
 			rows.Close()
 			httpError(w, 500, err.Error())
 			return
+		}
+		if workflow.Valid && len(workflow.V) > 0 {
+			p.Workflow = workflow.V
 		}
 		p.Tags, p.Props, p.Content = tags, props, content
 		p.IsTemplate = isTemplate != 0
@@ -459,8 +463,8 @@ func (s *Server) importWorkspaceFS(u *user, fsys fs.FS, opt importOptions) (*imp
 				return nil, err
 			}
 			if typ == "collection" {
-				if _, err := tx.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, ?)`,
-					idMap[p.ID], defaultJSON(p.Schema, "[]"), defaultJSON(p.Views, "[]")); err != nil {
+				if _, err := tx.Exec(`INSERT INTO collections (page_id, schema, views, workflow) VALUES (?, ?, ?, ?)`,
+					idMap[p.ID], defaultJSON(p.Schema, "[]"), defaultJSON(p.Views, "[]"), defaultJSON(p.Workflow, "")); err != nil {
 					return nil, err
 				}
 			}

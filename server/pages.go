@@ -515,6 +515,10 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	args := []any{now()}
 	metaChanged := false
 	auditProps := ""
+	// Per-rule webhook URLs collected by the workflow guard below; fired
+	// fire-and-forget after the commit, never inside the transaction.
+	var workflowHooks []string
+	var workflowEvent string
 
 	if body.IsTemplate != nil {
 		v := 0
@@ -661,6 +665,35 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 				merged[k] = v
 			}
 		}
+		// Lightweight business process: when this row lives in a collection
+		// with a workflow and the status property changed, enforce the
+		// allow-list + precondition, then fold auto-actions into the same
+		// write. Deny is 409 with a reason; the client rolls back + toasts.
+		var parentID string
+		if err := tx.QueryRow(`SELECT COALESCE(parent_id,'') FROM pages WHERE id = ?`, id).Scan(&parentID); err == nil && parentID != "" {
+			var schemaRaw, workflowRaw string
+			if err := tx.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, parentID).Scan(&schemaRaw, &workflowRaw); err == nil {
+				if cfg := parseWorkflow(workflowRaw); cfg != nil {
+					newStatus := propString(merged, cfg.StatusPropID)
+					oldStatus := propString(before, cfg.StatusPropID)
+					if newStatus != oldStatus && newStatus != "" {
+						_, auto, hooks, reason := checkWorkflowTransition(cfg, oldStatus, newStatus, before, requestUser(r).ID)
+						if reason != "" {
+							httpError(w, 409, reason)
+							return
+						}
+						for k, v := range auto {
+							if b, err := json.Marshal(v); err == nil {
+								merged[k] = json.RawMessage(b)
+								patch[k] = json.RawMessage(b)
+							}
+						}
+						workflowHooks = hooks
+						workflowEvent = "workflow.transition:" + newStatus
+					}
+				}
+			}
+		}
 		mergedJSON, err := json.Marshal(merged)
 		if err != nil {
 			httpError(w, 500, err.Error())
@@ -746,6 +779,11 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	if auditProps != "" {
 		u := requestUser(r)
 		s.auditChanges("human", u.ID, u.Name, "set_properties", id, s.pageWorkspace(id), "", auditProps)
+	}
+	// Per-rule webhooks: fire-and-forget after the status move is stored. An
+	// unreachable URL must never roll back the transition.
+	for _, target := range workflowHooks {
+		go fireWorkflowHook(target, id, workflowEvent)
 	}
 	if body.Title != nil || len(body.Content) > 0 || len(body.Props) > 0 {
 		if err := s.reindexPage(id); err != nil {

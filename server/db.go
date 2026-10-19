@@ -637,6 +637,12 @@ func openDB(path string) (*sql.DB, error) {
 	// Dead single-token rows from before named subscriptions: no code reads
 	// them any more.
 	db.Exec(`DELETE FROM app_settings WHERE key LIKE 'ics_token_%'`)
+	// Lightweight business process per collection: which select property is the
+	// status and which When/Then rules run on transitions. JSON, absent = no
+	// process. Stored beside schema/views so backup/export keep working.
+	if err := ensureColumn(db, "collections", "workflow", `workflow TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate collections.workflow: %w", err)
+	}
 	// Record the schema/app version so an operator (and future migrations) can
 	// see what a data dir was last written by. Additive, idempotent.
 	db.Exec(`INSERT INTO schema_meta (key, value) VALUES ('version', ?)

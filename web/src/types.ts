@@ -346,6 +346,41 @@ export interface CollectionConfig {
    *  with what the + button prescribes (the column, the day). Empty (or a
    *  template that is gone) means plain blank rows. */
   newFromTemplate?: string;
+  /** Lightweight business process: which select property is the status and
+   *  which rules run on transitions. Absent = no process, everything allowed. */
+  workflow?: WorkflowConfig;
+}
+
+/** One automation rule in Apple Shortcuts style: When → Then, with an
+ *  optional collapsed If precondition and an optional allow-list of sources.
+ *  Kept deliberately flat: one trigger, one condition, N actions. */
+export interface WorkflowRule {
+  id: string;
+  /** Trigger: status change or row creation. */
+  when: { type: 'status_to'; to: string } | { type: 'created' };
+  /** Optional source allow-list: transition is allowed only from these
+   *  status option ids. Empty/absent = from anywhere. */
+  allowFrom?: string[];
+  /** Optional precondition, checked against the row BEFORE the transition. */
+  precondition?: {
+    /** Checklist property id that must be 100% done. */
+    checklistProp?: string;
+    /** Property id that must be non-empty. */
+    requiredProp?: string;
+  };
+  do: WorkflowAction[];
+}
+
+export type WorkflowAction =
+  | { type: 'set_prop'; prop: string; value: unknown }
+  | { type: 'set_today'; prop: string }
+  | { type: 'assign_me'; prop: string }
+  | { type: 'webhook'; url: string };
+
+export interface WorkflowConfig {
+  /** Select property id driving the process. */
+  statusPropId: string;
+  rules: WorkflowRule[];
 }
 
 /** Every condition in a config carries a `value`, even the ones whose question
@@ -361,6 +396,15 @@ export function normalizeCollectionConfig(cfg: CollectionConfig): CollectionConf
   for (const view of cfg.views ?? []) {
     if (view.filters) view.filters = view.filters.map(withValue);
     if (view.filterGroups) view.filterGroups = view.filterGroups.map((g) => g.map(withValue));
+  }
+  if (!Array.isArray(cfg.views)) cfg.views = [];
+  if (!Array.isArray(cfg.schema)) cfg.schema = [];
+  if (cfg.workflow && typeof cfg.workflow === 'object') {
+    if (typeof cfg.workflow.statusPropId !== 'string') cfg.workflow.statusPropId = '';
+    if (!Array.isArray(cfg.workflow.rules)) cfg.workflow.rules = [];
+    cfg.workflow.rules = cfg.workflow.rules
+      .filter((r) => r && r.when && Array.isArray(r.do))
+      .map((r) => ({ ...r, do: Array.isArray(r.do) ? r.do : [] }));
   }
   return cfg;
 }

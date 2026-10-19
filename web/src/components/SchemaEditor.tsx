@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react';
 import { api } from '../api';
-import type { CollectionConfig, PropDef, PropType, ViewDef } from '../types';
+import type { CollectionConfig, PropDef, PropType, ViewDef, WorkflowConfig } from '../types';
 import { isSystemRef } from '../types';
 import Portal from './Portal';
+import WorkflowRules from './WorkflowRules';
 import { useExclusiveModal } from '../modal';
 import { OPTION_HEXES, optionPalette } from '../selectOptions';
 import { renameSelectOption, moveSelectOption, reorderSelectOption } from '../renameSelectOption';
 import { confirm } from '../dialog';
+import { toast } from '../toast';
 import { GripVertical, Check, Trash2 } from 'lucide-react';
 import { t } from '../i18n';
 import { loadMembers, type Member } from './PropertyValue';
@@ -78,6 +80,10 @@ export default function SchemaEditor({
   const [dragProperty, setDragProperty] = useState<string | null>(null);
   const [dropProperty, setDropProperty] = useState<{ id: string; after: boolean } | null>(null);
   const [views, setViews] = useState<ViewDef[]>(config.views);
+  const [tab, setTab] = useState<'props' | 'process'>('props');
+  // Lightweight process: absent = no rules. The status defaults to the first
+  // select property so opening the tab never shows a dead picker.
+  const [workflow, setWorkflow] = useState<WorkflowConfig | undefined>(config.workflow);
   // Which template new rows are made from, if any. Templates come from their
   // own endpoint (see the sidebar): the page tree no longer carries them.
   const [newFromTemplate, setNewFromTemplate] = useState(config.newFromTemplate ?? '');
@@ -253,7 +259,26 @@ export default function SchemaEditor({
     // A template chosen above that is gone by now is dropped: new rows must
     // never point at a dead page (the server re-checks this too).
     const tpl = templates.some((p) => p.id === newFromTemplate) ? newFromTemplate : undefined;
-    await onSave({ schema: colored, views: fixedViews, ...(tpl ? { newFromTemplate: tpl } : {}) });
+    // Blank actions are drafts, not errors: they stay on screen while edited
+    // and simply do not travel on save. A rule with no finished actions is a
+    // pure guard (allow-list + precondition, nothing automated) — it travels
+    // with an empty do list and the server enforces it all the same.
+    let wf: WorkflowConfig | undefined;
+    if (workflow && workflow.statusPropId && workflow.rules.length > 0) {
+      const rules = workflow.rules.map((r) => ({
+        ...r,
+        do: r.do.filter((a) =>
+          a.type === 'webhook' ? a.url.trim() !== '' : a.type === 'set_prop' ? !!a.prop : !!a.prop,
+        ),
+      }));
+      wf = { statusPropId: workflow.statusPropId, rules };
+    }
+    try {
+      await onSave({ schema: colored, views: fixedViews, ...(tpl ? { newFromTemplate: tpl } : {}), ...(wf ? { workflow: wf } : {}) });
+    } catch (e) {
+      toast((e as Error).message || t('Not saved'));
+      return;
+    }
     onClose();
   };
 
@@ -502,6 +527,26 @@ export default function SchemaEditor({
     <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="dialog wide">
         <h2>{t('Collection properties')}</h2>
+        <div className="schema-tabs">
+          <button
+            type="button"
+            className={'schema-tab' + (tab === 'props' ? ' schema-tab-on' : '')}
+            onClick={() => setTab('props')}
+          >
+            {t('Properties')}
+          </button>
+          <button
+            type="button"
+            className={'schema-tab' + (tab === 'process' ? ' schema-tab-on' : '')}
+            onClick={() => setTab('process')}
+          >
+            {t('Process')}{workflow?.rules?.length ? ` · ${workflow.rules.length}` : ''}
+          </button>
+        </div>
+        {tab === 'process' ? (
+          <WorkflowRules schema={schema} workflow={workflow} onChange={setWorkflow} />
+        ) : (
+        <>
         <div className="schema-list">
           {schema.map((p) => (
             <div
@@ -712,6 +757,8 @@ export default function SchemaEditor({
             {t('A + button duplicates the template, then fills in what it prescribes — the column, the day. The rest — values, text — comes from the template.')}
           </div>
         </div>
+        </>
+        )}
 
         <div className="dialog-buttons">
           <button className="btn" onClick={onClose}>{t('Cancel')}</button>

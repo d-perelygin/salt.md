@@ -30,8 +30,8 @@ func (s *Server) handleGetCollection(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "not a collection")
 		return
 	}
-	var schema, views, newFromTemplate string
-	err := s.db.QueryRow(`SELECT schema, views, new_from_template FROM collections WHERE page_id = ?`, r.PathValue("id")).Scan(&schema, &views, &newFromTemplate)
+	var schema, views, newFromTemplate, workflow string
+	err := s.db.QueryRow(`SELECT schema, views, new_from_template, workflow FROM collections WHERE page_id = ?`, r.PathValue("id")).Scan(&schema, &views, &newFromTemplate, &workflow)
 	if err == sql.ErrNoRows {
 		httpError(w, 404, "not a collection")
 		return
@@ -48,6 +48,9 @@ func (s *Server) handleGetCollection(w http.ResponseWriter, r *http.Request) {
 	if newFromTemplate != "" {
 		out["newFromTemplate"] = json.RawMessage(strconv.Quote(newFromTemplate))
 	}
+	if strings.TrimSpace(workflow) != "" && strings.TrimSpace(workflow) != "null" {
+		out["workflow"] = json.RawMessage(workflow)
+	}
 	writeJSON(w, out)
 }
 
@@ -61,6 +64,7 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		Schema          json.RawMessage `json:"schema"`
 		Views           json.RawMessage `json:"views"`
 		NewFromTemplate *string         `json:"newFromTemplate"`
+		Workflow        json.RawMessage `json:"workflow"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
@@ -86,14 +90,39 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Workflow is optional; when present it is validated against the new
+	// schema before anything is stored. Absent (null) leaves it untouched,
+	// an empty object clears the process.
+	workflowTouched := len(body.Workflow) > 0 && string(body.Workflow) != "null"
+	workflowJSON := ""
+	if workflowTouched {
+		var cfg workflowConfig
+		if err := json.Unmarshal(body.Workflow, &cfg); err != nil {
+			httpError(w, 400, "workflow is not valid JSON")
+			return
+		}
+		// An empty object clears the process without further checks.
+		isEmpty := strings.TrimSpace(cfg.StatusPropID) == "" && len(cfg.Rules) == 0
+		if !isEmpty {
+			if err := validateWorkflow(&cfg, parseSchemaProps(string(body.Schema))); err != nil {
+				httpError(w, 400, err.Error())
+				return
+			}
+			raw, _ := json.Marshal(cfg)
+			workflowJSON = string(raw)
+		}
+	}
 	sets := "schema = excluded.schema, views = excluded.views"
 	args := []any{id, string(body.Schema), string(body.Views)}
 	if body.NewFromTemplate != nil {
 		sets += ", new_from_template = excluded.new_from_template"
 	}
-	_, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views, new_from_template) VALUES (?, ?, ?, ?)
+	if workflowTouched {
+		sets += ", workflow = excluded.workflow"
+	}
+	_, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views, new_from_template, workflow) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(page_id) DO UPDATE SET `+sets,
-		append(args, tpl)...)
+		append(args, tpl, workflowJSON)...)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -107,7 +136,12 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	// view changes it for everyone, and an open view on a second screen kept
 	// drawing the old shape.
 	s.rowsChanged(id)
-	writeJSON(w, map[string]json.RawMessage{"schema": body.Schema, "views": body.Views})
+	out := map[string]json.RawMessage{"schema": body.Schema, "views": body.Views}
+	var stored string
+	if err := s.db.QueryRow(`SELECT workflow FROM collections WHERE page_id = ?`, id).Scan(&stored); err == nil && strings.TrimSpace(stored) != "" {
+		out["workflow"] = json.RawMessage(stored)
+	}
+	writeJSON(w, out)
 }
 
 // handleCollectionRows returns a collection's child rows filtered, sorted and

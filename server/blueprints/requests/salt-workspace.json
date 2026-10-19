@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "saltVersion": "blueprint",
+  "exportedAt": "",
+  "workspace": {
+    "name": "Request tracker",
+    "icon": "📥",
+    "image": "",
+    "rules": "# How we work here\n\n**Requests** answers *what was asked of us*. One row per request, the board shows where each one stands.\n\n## Done means accepted\n\nA request moves to Done only from In progress, and only with a finished Acceptance checklist. The board refuses anything else — that is the whole process.\n\n## Triage assigns\n\nMoving a request to Triage assigns whoever moved it. If that is not you, change the Owner by hand.\n"
+  },
+  "pages": 1,
+  "files": 0
+}

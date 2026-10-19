@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, ApiError } from '../api';
+import { workflowBlockReason } from '../workflow';
 import { onRefresh } from '../pwa';
 import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
@@ -996,6 +997,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     try {
       await api.updatePage(rowId, { propsPatch: patch });
     } catch (e) {
+      // A 409 is the workflow guard refusing a status move: the server is
+      // the truth, so the optimistic card goes back via reload and the
+      // reader sees the reason, not a generic failure.
+      if (e instanceof ApiError && e.status === 409) {
+        toast(e.message);
+        void loadRows();
+        return;
+      }
       // Temp rows and dead networks journal into the outbox (remapped on
       // flush); anything else is a real failure worth a toast.
       if (isTempId(rowId) || isOfflineError(e)) {
@@ -1103,6 +1112,20 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   };
 
   const setGroupValue = async (rowId: string, propId: string, optId: string) => {
+    // Instant workflow feedback: refuse the move before anything optimistic
+    // happens, so the card never leaves its column. The server re-checks.
+    const wf = config?.workflow;
+    if (wf && wf.statusPropId === propId) {
+      const me = rowsRef.current.find((r) => r.id === rowId);
+      const cur = me?.props[propId];
+      const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
+      const to = optId === UNSET ? '' : optId;
+      const reason = workflowBlockReason(wf, me?.props ?? {}, from, to);
+      if (reason) {
+        toast(t(reason));
+        return;
+      }
+    }
     const prop = schema.find((p) => p.id === propId);
     if (prop?.type === 'multiselect' || prop?.type === 'relation') {
       await setRowProp(rowId, propId, optId === UNSET ? [] : [optId]);
@@ -1188,6 +1211,20 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       const oldVal = cleared(me?.props[groupBy]);
       const oldPos = me?.position;
       const newVal = groupValueFor(schema, groupBy, optId);
+      // Same instant workflow guard as setGroupValue: a cross-column drop
+      // writes straight through, so check here too. Server re-checks.
+      const wf = configRef.current?.workflow;
+      if (wf && wf.statusPropId === groupBy) {
+        const fromRaw = me?.props[groupBy];
+        const from = Array.isArray(fromRaw) ? (fromRaw[0] as string) ?? '' : (fromRaw as string) ?? '';
+        const toRaw = newVal as string | string[];
+        const to = Array.isArray(toRaw) ? (toRaw[0] as string) ?? '' : (toRaw as string) ?? '';
+        const reason = workflowBlockReason(wf, me?.props ?? {}, from, to);
+        if (reason) {
+          toast(t(reason));
+          return;
+        }
+      }
       await writeProp(rowId, groupBy, newVal);
       const position = positionFor(newOrder, rowId, live);
       if (position !== undefined) {

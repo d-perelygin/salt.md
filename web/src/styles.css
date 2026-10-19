@@ -3849,6 +3849,108 @@ body.is-col-resizing {
   margin-top: 16px;
 }
 
+/* Schema editor tabs: Properties | Process. Quiet segmented control — the
+   process stays one click away without shouting at readers who never use it. */
+.schema-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.schema-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.schema-tab-on {
+  background: var(--sidebar-bg);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+/* Workflow rules: one rule reads as one sentence (When … Then …), details
+   unfold inside. Same building blocks as the schema rows above. */
+.workflow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.workflow-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--foreground);
+  text-align: left;
+}
+.workflow-then {
+  color: var(--muted);
+  flex: none;
+}
+.workflow-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.workflow-body > label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.workflow-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workflow-row .prop-select,
+.workflow-row .prop-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.workflow-act {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+.workflow-more {
+  align-self: flex-start;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.workflow-adv {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+.workflow-adv > label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.workflow-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.prop-chip-on {
+  outline: 2px solid var(--primary);
+}
+
 /* Schema editor: relation / rollup / formula config */
 
 .schema-item {
