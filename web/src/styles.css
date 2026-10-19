@@ -3911,10 +3911,18 @@ body.is-col-resizing {
   align-items: center;
   gap: 8px;
 }
+/* Inputs split the row evenly: a zero basis (not content size) decides the
+ * shares, otherwise a width:100% select eats the whole row and leaves the
+ * neighbour a dash. Labels and icon buttons never flex. */
 .workflow-row .prop-select,
-.workflow-row .prop-input {
-  flex: 1 1 auto;
+.workflow-row .prop-input,
+.workflow-row .select-cell {
+  flex: 1 1 0%;
   min-width: 0;
+}
+.workflow-row > .workflow-act,
+.workflow-row > .icon-btn {
+  flex: none;
 }
 .workflow-act {
   flex: none;
@@ -3959,6 +3967,26 @@ body.is-col-resizing {
   color: var(--bg) !important;
   -webkit-text-fill-color: var(--bg) !important;
   outline: none;
+}
+
+/* The shared select editor inside a rule row: it renders inline-block by
+ * default (a table cell), which collapses to a dash here. In a rule it is
+ * an input like the others — half the row, with a visible edge. */
+.workflow-row .select-cell {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+.workflow-row .select-cell-value,
+.workflow-ask-row .select-cell-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+.workflow-ask-row .select-cell {
+  display: flex;
 }
 
 /* Move dialog: what the step asks for before the card lands. One labeled
