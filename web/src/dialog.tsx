@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import Portal from './components/Portal';
 import { t } from './i18n';
 import type { PromptField } from './workflow';
-import { SelectCell } from './components/PropertyValue';
+import { SelectCell, checklistItems } from './components/PropertyValue';
 import WorkflowDateInput from './components/WorkflowDateInput';
-import type { PropDef } from './types';
+import type { ChecklistItem, PropDef } from './types';
 
 // In-app confirm / prompt dialogs (replacing native window.confirm/prompt,
 // which look out of place and can't be styled). Promise-based: call
@@ -73,6 +73,69 @@ export function promptWorkflow(
   });
 }
 
+function cleanAnswers(
+  fields: PromptField[],
+  answers: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...answers };
+  for (const f of fields) {
+    if (f.kind !== 'checklist') continue;
+    const v = out[f.key];
+    if (Array.isArray(v)) {
+      out[f.key] = (v as ChecklistItem[]).filter((i) => i && i.text.trim() !== '');
+    }
+  }
+  return out;
+}
+
+// The move dialog's face for a checklist ask: the row's current items,
+// tickable on the spot, with room for new sub-tasks. Same shapes as the
+// cell editor (PropertyValue), deliberately open — not a summary.
+function ChecklistAsk({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (v: ChecklistItem[]) => void;
+}) {
+  const items = checklistItems(value);
+  const write = (next: ChecklistItem[]) => onChange(next.length ? next : []);
+  const toggle = (id: string) => write(items.map((i) => (i.id === id ? { ...i, done: !i.done } : i)));
+  const setText = (id: string, text: string) => write(items.map((i) => (i.id === id ? { ...i, text } : i)));
+  const remove = (id: string) => write(items.filter((i) => i.id !== id));
+  const add = () =>
+    write([...items, { id: 'i' + Date.now().toString(36) + items.length, text: '', done: false }]);
+  return (
+    <div className="prop-checklist">
+      {items.map((it) => (
+        <div key={it.id} className={'pcl-item' + (it.done ? ' is-done' : '')}>
+          <input type="checkbox" checked={it.done} onChange={() => toggle(it.id)} />
+          <input
+            className="pcl-text"
+            value={it.text}
+            placeholder={t('Sub-task')}
+            onChange={(e) => setText(it.id, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                add();
+              }
+            }}
+          />
+          <button type="button" className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
+            ✕
+          </button>
+        </div>
+      ))}
+      <div className="pcl-actions">
+        <button type="button" className="pcl-add" onClick={add}>
+          + {t('Sub-task')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function DialogHost() {
   const [req, setReq] = useState<Req | null>(null);
   const [value, setValue] = useState('');
@@ -115,7 +178,7 @@ export function DialogHost() {
   };
   const ok = () => {
     if (req.kind === 'confirm') req.resolve(true);
-    else if (req.kind === 'workflow') req.resolve(answers);
+    else if (req.kind === 'workflow') req.resolve(cleanAnswers(req.fields, answers));
     else req.resolve(value.trim() ? value.trim() : null);
     setReq(null);
   };
@@ -125,6 +188,10 @@ export function DialogHost() {
       const v = answers[f.key];
       if (f.kind === 'multiselect') return Array.isArray(v) && v.length > 0;
       if (f.kind === 'person') return typeof v === 'string' && v !== '';
+      if (f.kind === 'checklist') {
+        const named = checklistItems(v).filter((i) => i.text.trim() !== '');
+        return named.length > 0 && named.every((i) => i.done);
+      }
       return typeof v === 'string' && v.trim() !== '';
     });
 
@@ -172,6 +239,14 @@ export function DialogHost() {
                           </option>
                         ))}
                       </select>
+                    ) : f.kind === 'checklist' ? (
+                      <span className="workflow-ask-check">
+                        <ChecklistAsk
+                          value={answers[f.key]}
+                          onChange={(v) => setAnswers((p) => ({ ...p, [f.key]: v }))}
+                        />
+                        <span className="dialog-hint">{t('Tick everything to continue')}</span>
+                      </span>
                     ) : f.kind === 'select' || f.kind === 'multiselect' ? (
                       <SelectCell
                         def={{

@@ -352,7 +352,7 @@ function NumberDisplay({ value, def, compact }: { value: unknown; def: PropDef; 
 // percentage: two truths that drift apart, and the reason a Trello-style card
 // reads as "half done" is that the ticks and the bar cannot disagree.
 
-function checklistItems(value: unknown): ChecklistItem[] {
+export function checklistItems(value: unknown): ChecklistItem[] {
   if (!Array.isArray(value)) return [];
   // Tolerant like the select cell: an agent may write plain strings, and older
   // rows may carry items without an id.

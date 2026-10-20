@@ -3,7 +3,7 @@ import { api } from './api';
 import { promptWorkflow } from './dialog';
 import { toast } from './toast';
 import { t } from './i18n';
-import { loadMembers, type Member } from './components/PropertyValue';
+import { checklistItems, loadMembers, type Member } from './components/PropertyValue';
 
 // Client-side mirror of the server guard (server/workflow.go): instant
 // feedback before the drag lands. Same OR semantics: only rules whose gate
@@ -42,6 +42,13 @@ function isEmpty(v: unknown): boolean {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 }
 
+// A checklist ask is satisfied only when fully ticked — a half-done list
+// still opens the dialog. Mirrors requireSatisfied on the server.
+function askSatisfied(def: PropDef, always: boolean, v: unknown): boolean {
+  if (always) return false;
+  return def.type === 'checklist' ? checklistDone(v) : !isEmpty(v);
+}
+
 // ---- Move dialog ----
 // What a status move still needs from the human. Pure guards (allow-list,
 // preconditions, require-steps the row already satisfies) never ask — the
@@ -51,7 +58,7 @@ function isEmpty(v: unknown): boolean {
 export interface PromptField {
   key: string; // rule + action index, unique per dialog
   label: string;
-  kind: 'text' | 'date' | 'person' | 'select' | 'multiselect' | 'comment';
+  kind: 'text' | 'date' | 'person' | 'select' | 'multiselect' | 'checklist' | 'comment';
   prop?: string;
   options?: { id: string; name: string }[];
   members?: Member[];
@@ -91,28 +98,8 @@ export async function neededPrompts(
         const def = byId.get(a.prop);
         if (!def) continue;
         const always = a.mode === 'always';
-        if (!always && !isEmpty(rowProps[a.prop])) continue;
-        const kind =
-          def.type === 'date'
-            ? 'date'
-            : def.type === 'person'
-              ? 'person'
-              : def.type === 'select'
-                ? 'select'
-                : def.type === 'multiselect'
-                  ? 'multiselect'
-                  : 'text';
-        const f: PromptField = {
-          key: `${r.id}:${i}`,
-          label: def.name,
-          kind,
-          prop: a.prop,
-          value: kind === 'multiselect' ? [] : '',
-        };
-        if (kind === 'select' || kind === 'multiselect') {
-          f.options = (def.options ?? []).map((o) => ({ id: o.id, name: o.name }));
-        }
-        if (kind === 'person') f.members = await loadMembers();
+        if (askSatisfied(def, always, rowProps[a.prop])) continue;
+        const f = await buildPropField(def, `${r.id}:${i}`, a, rowProps[a.prop]);
         pushField(`prop:${a.prop}`, f, always);
       } else if (a.type === 'require_comment') {
         let need = a.mode === 'always';
@@ -160,16 +147,25 @@ function propFieldKind(def: PropDef): PromptField['kind'] {
         ? 'select'
         : def.type === 'multiselect'
           ? 'multiselect'
-          : 'text';
+          : def.type === 'checklist'
+            ? 'checklist'
+            : 'text';
 }
 
 async function buildPropField(
   def: PropDef,
   key: string,
   a: { prop: string },
+  current?: unknown,
 ): Promise<PromptField> {
   const kind = propFieldKind(def);
-  const f: PromptField = { key, label: def.name, kind, prop: a.prop, value: kind === 'multiselect' ? [] : '' };
+  const f: PromptField = {
+    key,
+    label: def.name,
+    kind,
+    prop: a.prop,
+    value: kind === 'multiselect' ? [] : kind === 'checklist' ? checklistItems(current) : '',
+  };
   if (kind === 'select' || kind === 'multiselect') {
     f.options = (def.options ?? []).map((o) => ({ id: o.id, name: o.name }));
   }
@@ -195,8 +191,8 @@ export async function neededCreationPrompts(
       if (a.type === 'require_prop') {
         const def = byId.get(a.prop);
         if (!def) continue;
-        if (a.mode !== 'always' && !isEmpty(baseProps[a.prop])) continue;
-        fields.push(await buildPropField(def, `${r.id}:${i}`, a));
+        if (askSatisfied(def, a.mode === 'always', baseProps[a.prop])) continue;
+        fields.push(await buildPropField(def, `${r.id}:${i}`, a, baseProps[a.prop]));
       } else if (a.type === 'require_comment') {
         fields.push({ key: `${r.id}:${i}:comment`, label: '', kind: 'comment', value: '' });
       }
@@ -283,13 +279,19 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
     if (r.precondition?.checklistProp) checkPropRef(r.id, r.precondition.checklistProp, 'checklist');
     if (r.precondition?.requiredProp) checkPropRef(r.id, r.precondition.requiredProp, 'any');
     for (const a of r.do ?? []) {
-      if (a.type === 'set_prop') checkPropRef(r.id, a.prop, 'any');
-      else if (a.type === 'set_today') checkPropRef(r.id, a.prop, 'date');
+      if (a.type === 'set_prop') {
+        const def = a.prop ? byId.get(a.prop) : undefined;
+        if (a.prop && def?.type === 'checklist') {
+          issues.push({ severity: 'error', ruleId: r.id, kind: 'bad-prop', data: { name: a.prop } });
+        } else {
+          checkPropRef(r.id, a.prop, 'any');
+        }
+      } else if (a.type === 'set_today') checkPropRef(r.id, a.prop, 'date');
       else if (a.type === 'assign_me') checkPropRef(r.id, a.prop, 'person');
       else if (a.type === 'require_prop') {
         const def = a.prop ? byId.get(a.prop) : undefined;
         const ok =
-          !!def && ['text', 'date', 'person', 'select', 'multiselect'].includes(def.type);
+          !!def && ['text', 'date', 'person', 'select', 'multiselect', 'checklist'].includes(def.type);
         if (a.prop && !ok) {
           issues.push({ severity: 'error', ruleId: r.id, kind: 'bad-prop', data: { name: a.prop } });
         }

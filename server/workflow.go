@@ -138,8 +138,10 @@ func validateWorkflow(cfg *workflowConfig, schema []PropSchema) error {
 		for _, a := range r.Do {
 			switch a.Type {
 			case "set_prop":
-				if _, ok := byID[a.Prop]; !ok {
+				if p, ok := byID[a.Prop]; !ok {
 					return fmt.Errorf("rule %d: unknown property", i+1)
+				} else if p.Type == "checklist" {
+					return fmt.Errorf("rule %d: a checklist cannot be set, only asked for", i+1)
 				}
 			case "require_prop":
 				p, ok := byID[a.Prop]
@@ -147,9 +149,9 @@ func validateWorkflow(cfg *workflowConfig, schema []PropSchema) error {
 					return fmt.Errorf("rule %d: unknown property", i+1)
 				}
 				switch p.Type {
-				case "text", "date", "person", "select", "multiselect":
+				case "text", "date", "person", "select", "multiselect", "checklist":
 				default:
-					return fmt.Errorf("rule %d: only text, date, person or select can be asked for", i+1)
+					return fmt.Errorf("rule %d: only text, date, person, select or checklist can be asked for", i+1)
 				}
 				if a.Mode != "" && a.Mode != "always" && a.Mode != "if_empty" {
 					return fmt.Errorf("rule %d: unknown ask mode", i+1)
@@ -180,6 +182,16 @@ func validateWorkflow(cfg *workflowConfig, schema []PropSchema) error {
 		}
 	}
 	return nil
+}
+
+// requireSatisfied: asking for a checklist means getting it fully ticked —
+// anything less still blocks. Any other property counts as filled as soon
+// as it is non-empty.
+func requireSatisfied(schemas map[string]PropSchema, prop string, props map[string]json.RawMessage) bool {
+	if p, ok := schemas[prop]; ok && p.Type == "checklist" {
+		return checklistDone(props, prop)
+	}
+	return propNonEmpty(props, prop)
 }
 
 func propString(props map[string]json.RawMessage, key string) string {
@@ -298,11 +310,11 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 			case "require_prop":
 				name := propName(schemas, a.Prop)
 				if a.Mode == "always" {
-					if !propNonEmpty(patch, a.Prop) {
+					if !requireSatisfied(schemas, a.Prop, patch) {
 						reason = fmt.Sprintf("fill in %s before moving", name)
 						return nil, nil, nil, reason
 					}
-				} else if !propNonEmpty(merged, a.Prop) {
+				} else if !requireSatisfied(schemas, a.Prop, merged) {
 					reason = fmt.Sprintf("fill in %s before moving", name)
 					return nil, nil, nil, reason
 				}
@@ -370,11 +382,11 @@ func checkWorkflowCreation(cfg *workflowConfig, merged, patch map[string]json.Ra
 			case "require_prop":
 				name := propName(schemas, a.Prop)
 				if a.Mode == "always" {
-					if !propNonEmpty(patch, a.Prop) {
+					if !requireSatisfied(schemas, a.Prop, patch) {
 						reason = fmt.Sprintf("fill in %s to create", name)
 						return nil, nil, nil, reason
 					}
-				} else if !propNonEmpty(merged, a.Prop) {
+				} else if !requireSatisfied(schemas, a.Prop, merged) {
 					reason = fmt.Sprintf("fill in %s to create", name)
 					return nil, nil, nil, reason
 				}

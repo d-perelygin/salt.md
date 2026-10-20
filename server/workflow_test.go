@@ -348,3 +348,38 @@ func TestWorkflowOrSemantics(t *testing.T) {
 		t.Fatalf("conflict resolved to %v, want the last rule's value", got)
 	}
 }
+
+// A checklist ask means getting it fully ticked: a half-done list still
+// blocks, a completed one lets the move through. A checklist cannot be a
+// set_prop target — only asked for.
+func TestWorkflowChecklistAskEndToEnd(t *testing.T) {
+	s, cookie, row := workflowFixture(t)
+	var col string
+	if err := s.db.QueryRow(`SELECT parent_id FROM pages WHERE id = ?`, row).Scan(&col); err != nil {
+		t.Fatal(err)
+	}
+	put := func(wf string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"b","name":"B"}]},{"id":"steps","name":"Steps","type":"checklist"}],"views":[],"workflow":` + wf + `}`
+		return putWorkflow(t, s, cookie, col, body)
+	}
+	// A checklist cannot be set — validation refuses it.
+	if rec := put(`{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"status_to","to":"b"},"do":[{"type":"set_prop","prop":"steps","value":"x"}]}]}`); rec.Code == 200 {
+		t.Fatalf("set_prop on checklist: got 200, want a validation error (%s)", rec.Body.String())
+	}
+	if rec := put(`{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"status_to","to":"b"},"do":[{"type":"require_prop","prop":"steps","mode":"if_empty"}]}]}`); rec.Code != 200 {
+		t.Fatalf("PUT ask: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := s.db.Exec(`UPDATE pages SET props = '{"status":"a","steps":[{"id":"i1","text":"one","done":true},{"id":"i2","text":"two","done":false}]}' WHERE id = ?`, row); err != nil {
+		t.Fatal(err)
+	}
+	if rec := patchStatus(t, s, cookie, row, "b"); rec.Code != 409 {
+		t.Fatalf("half-ticked move: got %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := patchProps(t, s, cookie, row, `{"propsPatch":{"status":"b","steps":[{"id":"i1","text":"one","done":true},{"id":"i2","text":"two","done":true}]}}`); rec.Code != 200 {
+		t.Fatalf("fully-ticked move: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if got := rowProps(t, s, row)["status"]; got != "b" {
+		t.Fatalf("status = %v, want b", got)
+	}
+}

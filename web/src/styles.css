@@ -4112,6 +4112,18 @@ button.workflow-issue {
 .workflow-ask-row textarea {
   resize: vertical;
 }
+/* A checklist ask fills the row: the list itself plus the tick-everything
+   hint underneath. */
+.workflow-ask-check {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.workflow-ask-check .prop-checklist {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
 
 /* Schema editor: relation / rollup / formula config */
 

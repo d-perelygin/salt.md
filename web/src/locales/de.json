@@ -1356,5 +1356,6 @@
   "Skipped — needs {from}": "Übersprungen — braucht {from}",
   "Two rules write to “{prop}” on the way into “{to}” — the last one wins.": "Zwei Regeln schreiben „{prop}\" beim Eingang in „{to}\" — die letzte gewinnt.",
   "“{prop}” is asked twice on the way into “{to}” — it is asked once.": "„{prop}\" wird beim Eingang in „{to}\" zweimal erfragt — einmal gefragt.",
-  "Several rules fire here": "Hier greifen mehrere Regeln"
+  "Several rules fire here": "Hier greifen mehrere Regeln",
+  "Tick everything to continue": "Hake alles ab, um fortzufahren"
 }

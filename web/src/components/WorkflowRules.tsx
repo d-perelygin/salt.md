@@ -607,7 +607,9 @@ function ActionRow({
         >
           <option value="">{t('Property…')}</option>
           {schema
-            .filter((p) => ['text', 'date', 'person', 'select', 'multiselect'].includes(p.type))
+            .filter((p) =>
+              ['text', 'date', 'person', 'select', 'multiselect', 'checklist'].includes(p.type),
+            )
             .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -660,11 +662,13 @@ function ActionRow({
           onChange={(e) => onChange({ type: 'set_prop', prop: e.target.value, value: e.target.value && schema.find((p) => p.id === e.target.value)?.type === 'multiselect' ? [] : '' })}
         >
           <option value="">{t('Property…')}</option>
-          {schema.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
+          {schema
+            .filter((p) => p.type !== 'checklist' || p.id === action.prop)
+            .map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
         </select>
         <SetValueInput def={def} value={action.value} onChange={setValue} />
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
