@@ -70,6 +70,22 @@ func rowProps(t *testing.T, s *Server, row string) map[string]any {
 	return m
 }
 
+// makeRow inserts a row straight into the DB, bypassing guards — setup only.
+func makeRow(t *testing.T, s *Server, col, status string) string {
+	t.Helper()
+	var ws string
+	if err := s.db.QueryRow(`SELECT workspace_id FROM pages WHERE id = ?`, col).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	id := newID()
+	props, _ := json.Marshal(map[string]any{"status": status})
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+		VALUES (?, ?, ?, 'Row', 'row', ?, 0, ?, ?)`, id, col, ws, string(props), now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func TestWorkflowValidation(t *testing.T) {
 	schema := parseSchemaProps(`[{"id":"status","type":"select","options":[{"id":"a"},{"id":"b"}]},{"id":"list","type":"checklist"},{"id":"d","type":"date"}]`)
 	good := &workflowConfig{StatusPropID: "status", Rules: []workflowRule{
@@ -265,5 +281,70 @@ func TestWorkflowRequirePropEndToEnd(t *testing.T) {
 	}
 	if got := rowProps(t, s, row)["status"]; got != "b" {
 		t.Fatalf("status = %v, want b", got)
+	}
+}
+
+// Two rules on one status combine with OR: each guards only its own gate,
+// a foreign gate never blocks another road in. When several matching rules
+// write one field, the last rule in the list wins.
+func TestWorkflowOrSemantics(t *testing.T) {
+	s, cookie, _ := workflowFixture(t)
+	var col string
+	if err := s.db.QueryRow(`SELECT page_id FROM collections LIMIT 1`).Scan(&col); err != nil {
+		t.Fatal(err)
+	}
+	put := func(wf string) {
+		t.Helper()
+		if rec := putWorkflow(t, s, cookie, col, wf); rec.Code != 200 {
+			t.Fatalf("PUT workflow: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	// Two gates into c: from a (writes X) and from b (writes Y).
+	put(`{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"b","name":"B"},{"id":"c","name":"C"}]},{"id":"closed","name":"Closed","type":"date"}],"views":[],"workflow":{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"status_to","to":"c"},"allowFrom":["a"],"do":[{"type":"set_prop","prop":"closed","value":"2026-01-01"}]},{"id":"r2","when":{"type":"status_to","to":"c"},"allowFrom":["b"],"do":[{"type":"set_prop","prop":"closed","value":"2026-02-02"}]}]}}`)
+	rowA := makeRow(t, s, col, "a")
+	if rec := patchStatus(t, s, cookie, rowA, "c"); rec.Code != 200 {
+		t.Fatalf("a->c: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if got := rowProps(t, s, rowA)["closed"]; got != "2026-01-01" {
+		t.Fatalf("a->c wrote %v, want r1's value", got)
+	}
+	rowB := makeRow(t, s, col, "b")
+	if rec := patchStatus(t, s, cookie, rowB, "c"); rec.Code != 200 {
+		t.Fatalf("b->c: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if got := rowProps(t, s, rowB)["closed"]; got != "2026-02-02" {
+		t.Fatalf("b->c wrote %v, want r2's value", got)
+	}
+
+	// The gate stays closed for sources no rule names.
+	put(`{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"b","name":"B"},{"id":"c","name":"C"}]},{"id":"closed","name":"Closed","type":"date"}],"views":[],"workflow":{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"status_to","to":"c"},"allowFrom":["a"],"do":[]}]}}`)
+	rowB2 := makeRow(t, s, col, "b")
+	if rec := patchStatus(t, s, cookie, rowB2, "c"); rec.Code != 409 {
+		t.Fatalf("b->c with only from-a allowed: got %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// A failing require on a NON-matching rule does not block the move;
+	// a failing require on the matching one does.
+	put(`{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"b","name":"B"},{"id":"c","name":"C"}]},{"id":"closed","name":"Closed","type":"date"}],"views":[],"workflow":{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"status_to","to":"c"},"allowFrom":["a"],"do":[]},{"id":"r2","when":{"type":"status_to","to":"c"},"allowFrom":["b"],"do":[{"type":"require_prop","prop":"closed","mode":"if_empty"}]}]}}`)
+	rowA2 := makeRow(t, s, col, "a")
+	if rec := patchStatus(t, s, cookie, rowA2, "c"); rec.Code != 200 {
+		t.Fatalf("a->c with failing require on foreign rule: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	rowB3 := makeRow(t, s, col, "b")
+	if rec := patchStatus(t, s, cookie, rowB3, "c"); rec.Code != 409 {
+		t.Fatalf("b->c missing the required field: got %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := patchProps(t, s, cookie, rowB3, `{"propsPatch":{"status":"c","closed":"2026-10-20"}}`); rec.Code != 200 {
+		t.Fatalf("answered b->c: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Two matching rules writing one field: the last one wins.
+	put(`{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"b","name":"B"},{"id":"c","name":"C"}]},{"id":"closed","name":"Closed","type":"date"}],"views":[],"workflow":{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"status_to","to":"c"},"allowFrom":["a"],"do":[{"type":"set_prop","prop":"closed","value":"2026-01-01"}]},{"id":"r2","when":{"type":"status_to","to":"c"},"allowFrom":["a"],"do":[{"type":"set_prop","prop":"closed","value":"2026-12-31"}]}]}}`)
+	rowA3 := makeRow(t, s, col, "a")
+	if rec := patchStatus(t, s, cookie, rowA3, "c"); rec.Code != 200 {
+		t.Fatalf("conflicting move: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if got := rowProps(t, s, rowA3)["closed"]; got != "2026-12-31" {
+		t.Fatalf("conflict resolved to %v, want the last rule's value", got)
 	}
 }

@@ -244,18 +244,27 @@ func propName(schemas map[string]PropSchema, id string) string {
 	return id
 }
 
-// checkWorkflowTransition enforces allow-list + precondition + asked-for
-// fields for a status move. merged holds the row AFTER the incoming patch is
-// applied, patch holds only what this request carries: `always` answers must
-// arrive in the request, `if_empty` ones may already be on the row.
+// checkWorkflowTransition enforces the gates of a status move. merged holds
+// the row AFTER the incoming patch is applied, patch holds only what this
+// request carries: `always` answers must arrive in the request, `if_empty`
+// ones may already be on the row.
 // It returns the matching rules and auto-apply property updates (set_prop,
 // set_today, assign_me) plus webhook URLs to fire after commit.
+//
+// One status can hold several rules and they combine with OR: each rule only
+// ever guards its own gate. A foreign gate never blocks another road in —
+// rules whose allow-list does not name this source are ignored entirely.
+// The gate as a whole stays closed: when rules exist for `to` but none of
+// them lets this `from` in, the move is refused. When several matching rules
+// write one field, the last rule in the list wins.
 func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch map[string]json.RawMessage, actorID string, schemas map[string]PropSchema) (matched []workflowRule, auto map[string]any, hooks []string, reason string) {
 	auto = map[string]any{}
+	var targeted []workflowRule
 	for _, r := range cfg.Rules {
 		if r.When.Type != "status_to" || r.When.To != to {
 			continue
 		}
+		targeted = append(targeted, r)
 		if len(r.AllowFrom) > 0 {
 			ok := false
 			for _, f := range r.AllowFrom {
@@ -265,10 +274,15 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 				}
 			}
 			if !ok {
-				reason = "transition is not allowed from this status"
-				return nil, nil, nil, reason
+				continue
 			}
 		}
+		matched = append(matched, r)
+	}
+	if len(targeted) > 0 && len(matched) == 0 {
+		return nil, nil, nil, "transition is not allowed from this status"
+	}
+	for _, r := range matched {
 		if r.Precondition != nil {
 			if r.Precondition.ChecklistProp != "" && !checklistDone(merged, r.Precondition.ChecklistProp) {
 				reason = "checklist is not complete"
@@ -279,7 +293,6 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 				return nil, nil, nil, reason
 			}
 		}
-		matched = append(matched, r)
 		for _, a := range r.Do {
 			switch a.Type {
 			case "require_prop":

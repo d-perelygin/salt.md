@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowRule } from '../types';
 import { t } from '../i18n';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
+import { confirm } from '../dialog';
 import WorkflowDateInput from './WorkflowDateInput';
 import {
   analyzeWorkflow,
@@ -15,15 +16,6 @@ import {
 let ruleCounter = 0;
 const newRuleId = () => `rule_${Date.now().toString(36)}_${ruleCounter++}`;
 
-function emptyRule(firstOpt: string): WorkflowRule {
-  return {
-    id: newRuleId(),
-    when: { type: 'status_to', to: firstOpt },
-    // A fresh rule carries one blank action, like in Shortcuts — the reader
-    // picks the kind and its target. Blank actions do not travel on save.
-    do: [{ type: 'set_prop', prop: '', value: '' }],
-  };
-}
 
 /** A new rule points at the second status, not the first: the first one is
  *  usually where a row starts, so a transition into it is the rare case. */
@@ -40,9 +32,8 @@ export default function WorkflowRules({
 }: {
   schema: PropDef[];
   workflow: WorkflowConfig | undefined;
-  onChange: (w: WorkflowConfig | undefined) => void;
-  /** A rule the save-guard wants the reader to look at. */
   highlightRuleId?: string | null;
+  onChange: (w: WorkflowConfig | undefined) => void;
 }) {
   const selectProps = schema.filter((p) => p.type === 'select');
   // A stale statusPropId (the property was deleted or retyped since) must not
@@ -52,11 +43,85 @@ export default function WorkflowRules({
       ? workflow.statusPropId
       : selectProps[0]?.id) ?? '';
   const rules = workflow?.rules ?? [];
+
+  const statusProp = schema.find((p) => p.id === statusPropId);
+  const statusOpts = statusProp?.options ?? [];
+
+  const commit = (next: WorkflowConfig | undefined) => onChange(next);
+
+  const setStatus = (id: string) => {
+    const prop = schema.find((p) => p.id === id);
+    const firstOpt = defaultTargetId(prop?.options);
+    const kept = (workflow?.rules ?? []).filter((r) =>
+      r.when.type === 'created' ? true : (prop?.options ?? []).some((o) => o.id === (r.when as { to: string }).to),
+    );
+    commit({ statusPropId: id, rules: kept.map((r) => (r.when.type === 'status_to' && firstOpt && !(prop?.options ?? []).some((o) => o.id === (r.when as { to: string }).to) ? r : r)) });
+  };
+
+  const updateRule = (id: string, patch: Partial<WorkflowRule>) =>
+    commit({ statusPropId, rules: rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+
   const [openRule, setOpenRule] = useState<string | null>(rules[0]?.id ?? null);
-  const [showAdvanced, setShowAdvanced] = useState<Record<string, boolean>>({});
+  const [newTarget, setNewTarget] = useState('');
   useEffect(() => {
     if (highlightRuleId) setOpenRule(highlightRuleId);
   }, [highlightRuleId]);
+
+  // Groups by entry: every status with rules gets its own gate section, plus
+  // one for creation. Ungrouped "to" values (a deleted option) fall through
+  // to a repairs section below — they are also save errors.
+  type Group = { key: string; title: string; rules: WorkflowRule[]; when: WorkflowRule['when'] };
+  const optName = (id: string) => statusOpts.find((o) => o.id === id)?.name ?? id;
+  const groups: Group[] = statusOpts
+    .map((o) => ({
+      key: `to:${o.id}`,
+      title: o.name,
+      rules: rules.filter((r) => r.when.type === 'status_to' && (r.when as { to: string }).to === o.id),
+      when: { type: 'status_to', to: o.id } as WorkflowRule['when'],
+    }))
+    .filter((g) => g.rules.length > 0);
+  const createdRules = rules.filter((r) => r.when.type === 'created');
+  if (createdRules.length > 0) {
+    groups.push({ key: 'created', title: '', rules: createdRules, when: { type: 'created' } });
+  }
+  const orphaned = rules.filter(
+    (r) => r.when.type === 'status_to' && !statusOpts.some((o) => o.id === (r.when as { to: string }).to),
+  );
+
+  // One flat render list so headers and footers sit exactly around their
+  // rules; a rule that lost its target renders bare (still flagged above).
+  type RowItem =
+    | { kind: 'head'; key: string; group: Group }
+    | { kind: 'foot'; key: string; group: Group }
+    | { kind: 'rule'; key: string; rule: WorkflowRule };
+  const flatList: RowItem[] = [];
+  for (const g of groups) {
+    flatList.push({ kind: 'head', key: g.key + ':h', group: g });
+    for (const r of g.rules) flatList.push({ kind: 'rule', key: r.id, rule: r });
+    flatList.push({ kind: 'foot', key: g.key + ':f', group: g });
+  }
+  for (const r of orphaned) flatList.push({ kind: 'rule', key: r.id, rule: r });
+
+  const addActionTo = (ruleId: string) => {
+    const r = rules.find((x) => x.id === ruleId);
+    if (!r) return;
+    updateRule(ruleId, { do: [...r.do, { type: 'set_prop', prop: '', value: '' }] });
+    setOpenRule(ruleId);
+  };
+
+  const addSeparateRule = (when: WorkflowRule['when']) => {
+    const r: WorkflowRule = { id: newRuleId(), when, do: [] };
+    commit({ statusPropId, rules: [...rules, r] });
+    setOpenRule(r.id);
+    setNewTarget('');
+  };
+
+  const askRemoveRule = async (id: string) => {
+    const ok = await confirm(t('Delete this rule?'), { confirmText: t('Delete rule'), danger: true });
+    if (!ok) return;
+    if (openRule === id) setOpenRule(null);
+    commit({ statusPropId, rules: rules.filter((r) => r.id !== id) });
+  };
 
   // Self-check over the draft: broken references block saving, structural
   // traps just warn. Recomputed on every keystroke, like everything here.
@@ -76,6 +141,9 @@ export default function WorkflowRules({
   const [simFrom, setSimFrom] = useState('');
   const [simRows, setSimRows] = useState<SimRow[] | null>(null);
   const [simBusy, setSimBusy] = useState(false);
+  const [ifOpen, setIfOpen] = useState<Record<string, boolean>>({});
+  const hasIf = (r: WorkflowRule) =>
+    (r.allowFrom?.length ?? 0) > 0 || !!r.precondition?.checklistProp || !!r.precondition?.requiredProp;
   const runSimulation = async (from: string) => {
     setSimBusy(true);
     try {
@@ -83,10 +151,10 @@ export default function WorkflowRules({
       for (const o of statusOpts) {
         if (o.id === from) continue;
         const matched = matchRules(workflow, from, o.id);
-        const targeted = rules.some(
+        const targeted = (rules ?? []).filter(
           (r) => r.when.type === 'status_to' && (r.when as { to: string }).to === o.id,
         );
-        if (targeted && matched.length === 0) {
+        if (targeted.length > 0 && matched.length === 0) {
           const fromName = statusOpts.find((x) => x.id === from)?.name ?? from;
           rows.push({
             to: o.id,
@@ -96,8 +164,15 @@ export default function WorkflowRules({
           });
           continue;
         }
+        const detail: string[] = [];
+        for (const r of targeted) {
+          if (matched.includes(r)) continue;
+          const need = (r.allowFrom ?? []).map((id) => statusOpts.find((x) => x.id === id)?.name ?? id);
+          detail.push(t('Skipped — needs {from}', { from: need.join(', ') }));
+        }
         const fields = await neededPrompts(workflow, schema, '', {}, from, o.id);
-        const detail: string[] = fields.map((f) => (f.kind === 'comment' ? t('Comment') : f.label));
+        for (const f of fields) detail.push(f.kind === 'comment' ? t('Comment') : f.label);
+        if (matched.length > 1) detail.push(t('Several rules fire here'));
         for (const r of matched) {
           detail.push(...describeAutoActions(r, schema));
           if (r.precondition?.checklistProp) {
@@ -117,35 +192,6 @@ export default function WorkflowRules({
     }
   };
 
-  const statusProp = schema.find((p) => p.id === statusPropId);
-  const statusOpts = statusProp?.options ?? [];
-
-  const commit = (next: WorkflowConfig | undefined) => onChange(next);
-
-  const setStatus = (id: string) => {
-    const prop = schema.find((p) => p.id === id);
-    const firstOpt = defaultTargetId(prop?.options);
-    const kept = (workflow?.rules ?? []).filter((r) =>
-      r.when.type === 'created' ? true : (prop?.options ?? []).some((o) => o.id === (r.when as { to: string }).to),
-    );
-    commit({ statusPropId: id, rules: kept.map((r) => (r.when.type === 'status_to' && firstOpt && !(prop?.options ?? []).some((o) => o.id === (r.when as { to: string }).to) ? r : r)) });
-  };
-
-  const updateRule = (id: string, patch: Partial<WorkflowRule>) =>
-    commit({ statusPropId, rules: rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
-
-  const removeRule = (id: string) => {
-    const next = rules.filter((r) => r.id !== id);
-    commit(next.length === 0 && !statusPropId ? undefined : { statusPropId, rules: next });
-    if (openRule === id) setOpenRule(null);
-  };
-
-  const addRule = () => {
-    if (!statusPropId || statusOpts.length === 0) return;
-    const r = emptyRule(defaultTargetId(statusOpts));
-    commit({ statusPropId, rules: [...rules, r] });
-    setOpenRule(r.id);
-  };
 
   if (selectProps.length === 0) {
     return (
@@ -184,7 +230,12 @@ export default function WorkflowRules({
                 key={i}
                 type="button"
                 className={'workflow-issue ' + (iss.severity === 'error' ? 'workflow-issue-error' : 'workflow-issue-warn')}
-                onClick={() => setOpenRule(iss.ruleId!)}
+                onClick={() => {
+                  setOpenRule(iss.ruleId!);
+                  if (iss.kind === 'bad-source' || iss.kind === 'bad-prop') {
+                    setIfOpen((p) => ({ ...p, [iss.ruleId as string]: true }));
+                  }
+                }}
               >
                 {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
               </button>
@@ -200,9 +251,27 @@ export default function WorkflowRules({
         </div>
       )}
 
-      {rules.map((r) => {
+      {flatList.map((it) => {
+        if (it.kind === 'head') {
+          return (
+            <div key={it.key} className="workflow-group-head">
+              <span>{it.group.key === 'created' ? t('On creation') : t('Entering {name}', { name: it.group.title })}</span>
+            </div>
+          );
+        }
+        if (it.kind === 'foot') {
+          const g = it.group;
+          const firstId = g.rules[0].id;
+          return (
+            <div key={it.key} className="workflow-group-foot">
+              <button type="button" className="btn" onClick={() => addActionTo(firstId)}>
+                {t('+ Add action here')}
+              </button>
+            </div>
+          );
+        }
+        const r = it.rule;
         const open = openRule === r.id;
-        const adv = !!showAdvanced[r.id];
         const whenTo = r.when.type === 'status_to' ? (r.when as { to: string }).to : '';
         const whenName =
           r.when.type === 'created'
@@ -210,14 +279,37 @@ export default function WorkflowRules({
             : `${statusProp?.name ?? ''} → ${statusOpts.find((o) => o.id === whenTo)?.name ?? whenTo}`;
         return (
           <div key={r.id} className={'schema-item' + (errorRules.has(r.id) ? ' schema-item-error' : '')}>
-            <button type="button" className="workflow-head" onClick={() => setOpenRule(open ? null : r.id)}>
+            <div
+              className="workflow-head"
+              role="button"
+              tabIndex={0}
+              onClick={() => setOpenRule(open ? null : r.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setOpenRule(open ? null : r.id);
+                }
+              }}
+            >
               <span className="workflow-when">
                 {t('When')} {whenName}
               </span>
               <span className="workflow-then">
                 {t('Then')} {r.do.length} · {open ? '▾' : '▸'}
               </span>
-            </button>
+              <button
+                type="button"
+                className="icon-btn danger"
+                title={t('Delete rule')}
+                aria-label={t('Delete rule')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void askRemoveRule(r.id);
+                }}
+              >
+                ✕
+              </button>
+            </div>
             {open && (
               <div className="workflow-body">
                 <label>{t('When')}</label>
@@ -251,6 +343,104 @@ export default function WorkflowRules({
                     </select>
                   )}
                 </div>
+
+                <button
+                  type="button"
+                  className="workflow-if-toggle"
+                  aria-expanded={!!ifOpen[r.id]}
+                  onClick={() => setIfOpen((p) => ({ ...p, [r.id]: !p[r.id] }))}
+                >
+                  {t('If')}{hasIf(r) ? ' •' : ''} {ifOpen[r.id] ? '▾' : '▸'}
+                </button>
+                {ifOpen[r.id] && (
+                <div className="workflow-if">
+                  {r.when.type === 'status_to' && (
+                    <>
+                      <label>{t('Only from')}</label>
+                      {statusOpts.length <= 1 ? (
+                        <div className="dialog-hint">
+                          {t('Add at least two options to the status property — there is nowhere to come from yet.')}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="workflow-chips">
+                            {statusOpts
+                              .filter((o) => o.id !== whenTo)
+                              .map((o) => {
+                                const on = (r.allowFrom ?? []).includes(o.id);
+                                return (
+                                  <button
+                                    key={o.id}
+                                    type="button"
+                                    aria-pressed={on}
+                                    className={'prop-chip toggle' + (on ? ' prop-chip-on' : '')}
+                                    onClick={() => {
+                                      const cur = r.allowFrom ?? [];
+                                      updateRule(r.id, {
+                                        allowFrom: on ? cur.filter((x) => x !== o.id) : [...cur, o.id],
+                                      });
+                                    }}
+                                  >
+                                    {o.name}
+                                  </button>
+                                );
+                              })}
+                          </div>
+                          <div className="dialog-hint">
+                            {t('Empty means it fires from any status, without blocking other rules.')}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                  <label>{t('Only if checklist complete')}</label>
+                  <select
+                    className="prop-select"
+                    value={r.precondition?.checklistProp ?? ''}
+                    onChange={(e) =>
+                      updateRule(r.id, {
+                        precondition: {
+                          ...r.precondition,
+                          checklistProp: e.target.value || undefined,
+                          requiredProp: r.precondition?.requiredProp,
+                        },
+                      })
+                    }
+                  >
+                    <option value="">{t('No check')}</option>
+                    {schema
+                      .filter((p) => p.type === 'checklist')
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                  </select>
+                  <label>{t('Only if filled')}</label>
+                  <select
+                    className="prop-select"
+                    value={r.precondition?.requiredProp ?? ''}
+                    onChange={(e) =>
+                      updateRule(r.id, {
+                        precondition: {
+                          ...r.precondition,
+                          requiredProp: e.target.value || undefined,
+                          checklistProp: r.precondition?.checklistProp,
+                        },
+                      })
+                    }
+                  >
+                    <option value="">{t('No check')}</option>
+                    {schema
+                      .filter((p) => p.id !== statusPropId)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                )}
 
                 <label>{t('Then')}</label>
                 {r.do.map((a, i) => (
@@ -305,115 +495,37 @@ export default function WorkflowRules({
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  className="workflow-more"
-                  onClick={() => setShowAdvanced((p) => ({ ...p, [r.id]: !adv }))}
-                >
-                  {adv ? t('Fewer options ▾') : t('More options ▸')}
-                </button>
-                {adv && (
-                  <div className="workflow-adv">
-                    {r.when.type === 'status_to' && (
-                      <>
-                        <label>{t('Only from')}</label>
-                        {statusOpts.length <= 1 ? (
-                          <div className="dialog-hint">
-                            {t('Add at least two options to the status property — there is nowhere to come from yet.')}
-                          </div>
-                        ) : (
-                          <>
-                            <div className="workflow-chips">
-                              {statusOpts
-                                .filter((o) => o.id !== whenTo)
-                                .map((o) => {
-                                  const on = (r.allowFrom ?? []).includes(o.id);
-                                  return (
-                                    <button
-                                      key={o.id}
-                                      type="button"
-                                      aria-pressed={on}
-                                      className={'prop-chip toggle' + (on ? ' prop-chip-on' : '')}
-                                      onClick={() => {
-                                        const cur = r.allowFrom ?? [];
-                                        updateRule(r.id, {
-                                          allowFrom: on ? cur.filter((x) => x !== o.id) : [...cur, o.id],
-                                        });
-                                      }}
-                                    >
-                                      {o.name}
-                                    </button>
-                                  );
-                                })}
-                            </div>
-                            <div className="dialog-hint">
-                              {t('Empty = from any status. Pick sources to forbid jumps.')}
-                            </div>
-                          </>
-                        )}
-                      </>
-                    )}
-                    <label>{t('Only if checklist complete')}</label>
-                    <select
-                      className="prop-select"
-                      value={r.precondition?.checklistProp ?? ''}
-                      onChange={(e) =>
-                        updateRule(r.id, {
-                          precondition: {
-                            ...r.precondition,
-                            checklistProp: e.target.value || undefined,
-                            requiredProp: r.precondition?.requiredProp,
-                          },
-                        })
-                      }
-                    >
-                      <option value="">{t('No check')}</option>
-                      {schema
-                        .filter((p) => p.type === 'checklist')
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                    </select>
-                    <label>{t('Only if filled')}</label>
-                    <select
-                      className="prop-select"
-                      value={r.precondition?.requiredProp ?? ''}
-                      onChange={(e) =>
-                        updateRule(r.id, {
-                          precondition: {
-                            ...r.precondition,
-                            requiredProp: e.target.value || undefined,
-                            checklistProp: r.precondition?.checklistProp,
-                          },
-                        })
-                      }
-                    >
-                      <option value="">{t('No check')}</option>
-                      {schema
-                        .filter((p) => p.id !== statusPropId)
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                )}
-
-                <button type="button" className="btn danger" onClick={() => removeRule(r.id)}>
-                  {t('Delete rule')}
-                </button>
               </div>
             )}
           </div>
         );
       })}
 
-      <button type="button" className="btn" onClick={addRule} disabled={!statusPropId || statusOpts.length === 0}>
-        {t('+ Add rule')}
-      </button>
+      <div className="workflow-row">
+        <select
+          className="prop-select"
+          value={newTarget}
+          onChange={(e) => setNewTarget(e.target.value)}
+        >
+          <option value="">{t('+ New rule in…')}</option>
+          {statusOpts.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+          <option value="__created">{t('On creation')}</option>
+        </select>
+        <button
+          type="button"
+          className="btn"
+          disabled={!newTarget || !statusPropId}
+          onClick={() =>
+            addSeparateRule(newTarget === '__created' ? { type: 'created' } : { type: 'status_to', to: newTarget })
+          }
+        >
+          {t('+ Add rule')}
+        </button>
+      </div>
 
       {statusOpts.length > 1 && (
         <div className="workflow-sim">

@@ -3950,6 +3950,55 @@ body.is-col-resizing {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* Process map: one gate section per status the rules lead into, plus
+ * creation. The head names the gate; the foot holds the two ways to
+ * extend it — a step into the first rule, or a separate branch. */
+.workflow-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 0 2px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.workflow-group-head .btn {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.workflow-group-foot {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0 10px 0;
+}
+.workflow-group-foot .btn {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.workflow-if {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.workflow-if > label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.workflow-if-toggle {
+  align-self: flex-start;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+}
 .workflow-chips {
   display: flex;
   flex-wrap: wrap;

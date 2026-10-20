@@ -6,8 +6,9 @@ import { t } from './i18n';
 import { loadMembers, type Member } from './components/PropertyValue';
 
 // Client-side mirror of the server guard (server/workflow.go): instant
-// feedback before the drag lands. The server stays the source of truth —
-// a 409 rolls the optimistic move back.
+// feedback before the drag lands. Same OR semantics: only rules whose gate
+// opens for this move are checked; foreign gates never block. The server
+// stays the source of truth — a 409 rolls the optimistic move back.
 export function workflowBlockReason(
   workflow: WorkflowConfig | undefined,
   rowProps: Record<string, unknown>,
@@ -15,11 +16,13 @@ export function workflowBlockReason(
   to: string,
 ): string | null {
   if (!workflow || !workflow.statusPropId || from === to || !to) return null;
-  for (const r of workflow.rules ?? []) {
-    if (r.when.type !== 'status_to' || (r.when as { to: string }).to !== to) continue;
-    if (r.allowFrom && r.allowFrom.length > 0 && !r.allowFrom.includes(from)) {
-      return 'This status cannot be reached from here.';
-    }
+  const targeted = (workflow.rules ?? []).filter(
+    (r) => r.when.type === 'status_to' && (r.when as { to: string }).to === to,
+  );
+  if (targeted.length === 0) return null;
+  const matched = matchRules(workflow, from, to);
+  if (matched.length === 0) return 'This status cannot be reached from here.';
+  for (const r of matched) {
     if (r.precondition?.checklistProp && !checklistDone(rowProps[r.precondition.checklistProp])) {
       return 'Finish the checklist first.';
     }
@@ -65,7 +68,20 @@ export async function neededPrompts(
 ): Promise<PromptField[]> {
   if (!workflow || !workflow.statusPropId || from === to || !to) return [];
   const byId = new Map(schema.map((p) => [p.id, p]));
+  // One question per field per move: several firing rules may ask for the
+  // same thing, and "always" wins over "if empty".
+  const seen = new Map<string, { index: number; always: boolean }>();
   const fields: PromptField[] = [];
+  const pushField = (key: string, field: PromptField, always: boolean) => {
+    const prev = seen.get(key);
+    if (!prev) {
+      seen.set(key, { index: fields.length, always });
+      fields.push(field);
+    } else if (always && !prev.always) {
+      seen.set(key, prev);
+      fields[prev.index] = field;
+    }
+  };
   for (const r of workflow.rules ?? []) {
     if (r.when.type !== 'status_to' || (r.when as { to: string }).to !== to) continue;
     if (r.allowFrom && r.allowFrom.length > 0 && !r.allowFrom.includes(from)) continue;
@@ -74,7 +90,8 @@ export async function neededPrompts(
       if (a.type === 'require_prop') {
         const def = byId.get(a.prop);
         if (!def) continue;
-        if (a.mode !== 'always' && !isEmpty(rowProps[a.prop])) continue;
+        const always = a.mode === 'always';
+        if (!always && !isEmpty(rowProps[a.prop])) continue;
         const kind =
           def.type === 'date'
             ? 'date'
@@ -96,7 +113,7 @@ export async function neededPrompts(
           f.options = (def.options ?? []).map((o) => ({ id: o.id, name: o.name }));
         }
         if (kind === 'person') f.members = await loadMembers();
-        fields.push(f);
+        pushField(`prop:${a.prop}`, f, always);
       } else if (a.type === 'require_comment') {
         let need = a.mode === 'always';
         if (!need) {
@@ -106,7 +123,7 @@ export async function neededPrompts(
             need = true;
           }
         }
-        if (need) fields.push({ key: `${r.id}:${i}:comment`, label: '', kind: 'comment', value: '' });
+        if (need) pushField('comment', { key: `${r.id}:${i}:comment`, label: '', kind: 'comment', value: '' }, a.mode === 'always');
       }
     }
   }
@@ -198,7 +215,8 @@ export interface WorkflowIssue {
     | 'bad-target'
     | 'bad-source'
     | 'bad-prop'
-    | 'duplicate'
+    | 'conflict'
+    | 'ask-dupe'
     | 'trap'
     | 'unreachable';
   /** Names/ids the message is built from. */
@@ -216,8 +234,10 @@ export function issueText(issue: WorkflowIssue): string {
       return t('“Only from” names “{name}”, which is no longer a status option.', { name: String(d.name ?? '') });
     case 'bad-prop':
       return t('“{name}” is not usable here — the property is gone or has the wrong type.', { name: String(d.name ?? '') });
-    case 'duplicate':
-      return t('{n} rules fire on “{name}” — they all run, in order.', { n: String(d.count ?? 2), name: String(d.name ?? '') });
+    case 'conflict':
+      return t('Two rules write to “{prop}” on the way into “{to}” — the last one wins.', { prop: String(d.prop ?? ''), to: String(d.to ?? '') });
+    case 'ask-dupe':
+      return t('“{prop}” is asked twice on the way into “{to}” — it is asked once.', { prop: String(d.prop ?? ''), to: String(d.to ?? '') });
     case 'trap':
       return t('Nobody can leave “{name}” — every way out is forbidden.', { name: String(d.name ?? '') });
     case 'unreachable':
@@ -277,17 +297,57 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
     }
   }
 
-  // Several rules on one transition stack rather than override — worth
-  // knowing, not worth forbidding.
-  const byTarget = new Map<string, number>();
+  // Several rules may write one field or ask one question: harmless when
+  // they can never fire together, worth flagging when they can. Two rules
+  // co-fire for a target when their gates overlap — an empty gate always
+  // overlaps, otherwise their allowed sources must intersect.
+  const gatesOverlap = (a: WorkflowRule, b: WorkflowRule): boolean => {
+    const fa = a.allowFrom ?? [];
+    const fb = b.allowFrom ?? [];
+    if (fa.length === 0 || fb.length === 0) return true;
+    return fa.some((x) => fb.includes(x));
+  };
+  const coFires = (rs: WorkflowRule[]): boolean =>
+    rs.some((a, i) => rs.slice(i + 1).some((b) => gatesOverlap(a, b)));
+  const setWriters = new Map<string, WorkflowRule[]>();
+  const askers = new Map<string, WorkflowRule[]>();
   for (const r of workflow.rules ?? []) {
     if (r.when.type !== 'status_to') continue;
     const to = (r.when as { to: string }).to;
     if (!optIds.has(to)) continue;
-    byTarget.set(to, (byTarget.get(to) ?? 0) + 1);
+    for (const a of r.do ?? []) {
+      if (a.type === 'set_prop' && a.prop) {
+        const k = `${to}${a.prop}`;
+        if (!setWriters.has(k)) setWriters.set(k, []);
+        setWriters.get(k)!.push(r);
+      }
+      if (a.type === 'require_prop' && a.prop) {
+        const k = `${to}${a.prop}`;
+        if (!askers.has(k)) askers.set(k, []);
+        askers.get(k)!.push(r);
+      }
+    }
   }
-  for (const [to, n] of byTarget) {
-    if (n > 1) issues.push({ severity: 'warning', kind: 'duplicate', data: { count: n, name: optName(to) } });
+  const propName = (id: string) => byId.get(id)?.name ?? id;
+  for (const [k, rs] of setWriters) {
+    const [to, prop] = k.split('');
+    if (rs.length > 1 && coFires(rs)) {
+      issues.push({
+        severity: 'warning',
+        kind: 'conflict',
+        data: { to: optName(to), prop: propName(prop) },
+      });
+    }
+  }
+  for (const [k, rs] of askers) {
+    const [to, prop] = k.split('');
+    if (rs.length > 1 && coFires(rs)) {
+      issues.push({
+        severity: 'warning',
+        kind: 'ask-dupe',
+        data: { to: optName(to), prop: propName(prop) },
+      });
+    }
   }
 
   // Reachability on the allowed graph. No rule = allowed; a rule with an
