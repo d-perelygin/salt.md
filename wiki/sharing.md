@@ -230,13 +230,8 @@ What is **not** in the document:
 | --- | --- |
 | Sub-pages | Nothing. Only the page you shared |
 | Links to other pages of your instance | A link into the app, which lands on the sign-in screen |
-<<<<<<< HEAD
 | An embedded collection | A link into the app, labelled `▦ Datenbank` (fixed text, not the collection's name, and not the rows) |
 | Files uploaded into this instance (images, attachments) | They load: the page rewrites them to signed addresses bound to this link (below) |
-=======
-| An embedded collection | A link into the app, labelled `▦ Collection` (fixed text, not the collection's name, and not the rows) |
-| Files uploaded into this instance (images, attachments) | A broken image or a dead link: they sit at an address that needs a signed-in account. An image whose address points at another website loads normally |
->>>>>>> 66e9992 (Shared pages and the print view run no script but their own)
 | The cover image | Nothing |
 | Properties of a database row | Nothing; only the row's title and body |
 | Comments, notes, version history | Nothing. They are never part of a share |

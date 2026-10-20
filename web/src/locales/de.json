@@ -833,6 +833,7 @@
   "These are workspaces nobody can look after any more. With no members left at all you can adopt or delete them. Where members remain, only someone in charge is missing — appoint one of them in user management.": "Hier stehen Workspaces, um die sich niemand mehr kümmern kann. Ist gar niemand mehr Mitglied, kannst du sie übernehmen oder löschen. Sind noch Mitglieder da, fehlt dort nur ein Verantwortlicher — dann ernenne einen von ihnen in der Nutzerverwaltung.",
   "This Google address is not verified.": "Diese Google-Adresse ist nicht verifiziert.",
   "This account has been deactivated — talk to an admin.": "Dieses Konto wurde stillgelegt — wende dich an einen Admin.",
+  "This account has been deactivated. Talk to an admin.": "Dieses Konto wurde stillgelegt. Wende dich an einen Admin.",
   "This action requires signing in through a browser — an API token is not enough.": "Dieser Vorgang verlangt eine Anmeldung im Browser — ein API-Token reicht dafür nicht.",
   "This address belongs to an account that has not confirmed it. Please sign in with a password or contact your administrator.": "Diese Adresse gehört zu einem Konto, das sie nicht bestätigt hat. Bitte per Passwort anmelden oder an die Administration wenden.",
   "This address cannot create an account here.": "Mit dieser Adresse lässt sich hier kein Konto anlegen.",
@@ -1183,7 +1184,6 @@
   "Several people": "Mehrere Personen",
   "Only these can be picked:": "Nur diese stehen zur Auswahl:",
   "Everybody can be picked. Tick people to narrow it down:": "Alle stehen zur Auswahl. Ankreuzen, um einzugrenzen:",
-<<<<<<< HEAD
   "Only workspace admins and the page owner can manage access.": "Nur Workspace-Admins und der Eigentümer der Seite können den Zugriff verwalten.",
   "Only the people below can see this page and its sub-pages. Workspace admins always can.": "Nur die unten genannten Personen können diese Seite und ihre Unterseiten sehen. Workspace-Admins können das immer.",
   "Can view": "Kann ansehen",
@@ -1288,19 +1288,7 @@
   "This file is large ({size}). Rendering may be slow.": "Diese Datei ist groß ({size}). Die Vorschau kann langsam sein.",
   "Render anyway": "Trotzdem anzeigen",
   "Could not render this file.": "Diese Datei konnte nicht angezeigt werden.",
-  "Showing first {shown} of {total} rows": "Erste {shown} von {total} Zeilen werden angezeigt"
-=======
-  "Open link": "Link öffnen",
-  "Edit": "Bearbeiten",
-  "This page is shared publicly. Its address was only shown when the link was made.": "Diese Seite ist öffentlich geteilt. Ihre Adresse wurde nur beim Erstellen des Links angezeigt.",
-  "A new link stops the old one from working.": "Mit einem neuen Link funktioniert der alte nicht mehr.",
-  "New link": "Neuer Link",
-  "Anyone with this link can view this page (read-only).": "Jeder mit diesem Link kann die Seite ansehen (nur lesen).",
-  "Expires:": "Läuft ab:",
-  "This page is not public. A link lets anyone who has it read the page.": "Diese Seite ist nicht öffentlich. Mit einem Link kann jeder, der ihn hat, die Seite lesen.",
-  "Create link": "Link erstellen",
-  "Could not stop sharing": "Teilen konnte nicht beendet werden",
-  "Only people who can edit this page can share it or stop sharing it.": "Nur wer diese Seite bearbeiten darf, kann sie teilen oder das Teilen beenden.",
+  "Showing first {shown} of {total} rows": "Erste {shown} von {total} Zeilen werden angezeigt",
   "Agent keys": "Agenten-Schlüssel",
   "Accept agent keys only from these addresses": "Agenten-Schlüssel nur von diesen Adressen annehmen",
   "Covers every API token and every connected agent, over MCP and over the REST API. Signing in with a browser, the desktop app, public links, forms and calendar feeds are not affected. One address or network per line; # starts a comment.": "Gilt für jedes API-Token und jeden verbundenen Agenten, über MCP und über die REST-API. Die Anmeldung im Browser, die Desktop-App, öffentliche Links, Formulare und Kalender-Abos sind nicht betroffen. Eine Adresse oder ein Netz pro Zeile; # beginnt einen Kommentar.",
@@ -1309,12 +1297,7 @@
   "Claude in the browser and in the desktop app calls from Anthropic’s addresses. Claude Code and other agents running on your own computer call from your address, so add that too if you use them.": "Claude im Browser und in der Desktop-App greift von Anthropics Adressen aus zu. Claude Code und andere Agenten auf deinem eigenen Rechner kommen von deiner Adresse; trag sie mit ein, wenn ihr sie nutzt.",
   "Line {line} of the address list is neither an address nor a network: {entry}": "Zeile {line} der Adressliste ist weder eine Adresse noch ein Netz: {entry}",
   "Add at least one address or network before switching this on.": "Trag mindestens eine Adresse oder ein Netz ein, bevor du das einschaltest.",
-<<<<<<< HEAD
-  "This instance accepts agent keys only from listed addresses, and {address} is not one of them.": "Diese Instanz nimmt Agenten-Schlüssel nur von eingetragenen Adressen an, und {address} gehört nicht dazu."
->>>>>>> e92456b (Agent keys can be limited to listed addresses)
-=======
   "This instance accepts agent keys only from listed addresses, and {address} is not one of them.": "Diese Instanz nimmt Agenten-Schlüssel nur von eingetragenen Adressen an, und {address} gehört nicht dazu.",
   "You can only read this workspace, so nothing can be created or reordered in it.": "Diesen Workspace darfst du nur lesen, darum lässt sich darin nichts anlegen oder umsortieren.",
   "There is no workspace this account may create pages in.": "Es gibt keinen Workspace, in dem dieses Konto Seiten anlegen darf."
->>>>>>> c626ba5 (Writing follows the same gates as reading)
 }

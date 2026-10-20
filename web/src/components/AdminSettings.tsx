@@ -448,7 +448,6 @@ ingress:
                       <label>{t('Client secret')}</label>
                       <input className="prop-input" type="password" placeholder={oauthSet.ms ? t('•••••• (stored)') : t('secret value')} value={s.msClientSecret} onChange={(e) => set('msClientSecret', e.target.value)} />
                     </div>
-<<<<<<< HEAD
                     <div className="pa-card">
                       <strong>{t('Custom identity provider (OIDC)')}</strong>
                       <p className="dialog-hint settings-hint">
@@ -465,8 +464,6 @@ ingress:
                       <label>{t('Button label')}</label>
                       <input className="prop-input" placeholder="SSO" value={s.oidcName} onChange={(e) => set('oidcName', e.target.value)} />
                     </div>
-=======
-
                     <h3>{t('Agent keys')}</h3>
                     <label className="check-label">
                       <input
@@ -512,7 +509,6 @@ ingress:
                         'Claude in the browser and in the desktop app calls from Anthropic’s addresses. Claude Code and other agents running on your own computer call from your address, so add that too if you use them.',
                       )}
                     </p>
->>>>>>> e92456b (Agent keys can be limited to listed addresses)
                   </>
                 )}
 

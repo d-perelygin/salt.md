@@ -1366,5 +1366,17 @@
   "This file is large ({size}). Rendering may be slow.": "Файл большой ({size}). Просмотр может работать медленно.",
   "Render anyway": "Все равно показать",
   "Could not render this file.": "Не удалось показать файл.",
-  "Showing first {shown} of {total} rows": "Показаны первые {shown} из {total} строк"
+  "Showing first {shown} of {total} rows": "Показаны первые {shown} из {total} строк",
+  "Accept agent keys only from these addresses": "Принимать агентские ключи только с этих адресов",
+  "Add Anthropic (Claude)": "Добавить Anthropic (Claude)",
+  "Add at least one address or network before switching this on.": "Добавьте хотя бы один адрес или сеть, прежде чем включать это.",
+  "Agent keys": "Агентские ключи",
+  "Claude in the browser and in the desktop app calls from Anthropic’s addresses. Claude Code and other agents running on your own computer call from your address, so add that too if you use them.": "Claude в браузере и в десктоп-приложении обращается с адресов Anthropic. Claude Code и другие агенты на вашем компьютере обращаются с вашего адреса, так что добавьте и его, если ими пользуетесь.",
+  "Covers every API token and every connected agent, over MCP and over the REST API. Signing in with a browser, the desktop app, public links, forms and calendar feeds are not affected. One address or network per line; # starts a comment.": "Действует для каждого токена API и каждого подключённого агента, через MCP и через REST API. Вход через браузер, десктоп-приложение, публичные ссылки, формы и подписки на календарь не затрагиваются. Один адрес или сеть на строку; # начинает комментарий.",
+  "Line {line} of the address list is neither an address nor a network: {entry}": "Строка {line} списка адресов — ни адрес, ни сеть: {entry}",
+  "There is no workspace this account may create pages in.": "Нет воркспейса, в котором этот аккаунт может создавать страницы.",
+  "This account has been deactivated. Talk to an admin.": "Эта учётная запись деактивирована. Обратитесь к администратору.",
+  "This instance accepts agent keys only from listed addresses, and {address} is not one of them.": "Этот инстанс принимает агентские ключи только с перечисленных адресов, а {address} — не из них.",
+  "You can only read this workspace, so nothing can be created or reordered in it.": "Этот воркспейс доступен вам только для чтения, поэтому в нём нельзя ничего создавать или менять порядок.",
+  "Your address, as the server sees it:": "Ваш адрес, каким его видит сервер:"
 }

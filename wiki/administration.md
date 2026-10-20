@@ -139,11 +139,7 @@ disabled on this instance. Ask an admin"*. On, anybody can create one and
 becomes its workspace admin, which makes them responsible for that one
 workspace's members, not for the instance.
 
-<<<<<<< HEAD
 The rest of the tab configures **Sign in with Google / Microsoft / OIDC (OAuth)**: the
-=======
-The tab then configures **Sign in with Google / Microsoft (OAuth)**: the
->>>>>>> e92456b (Agent keys can be limited to listed addresses)
 redirect URIs to paste into the provider's console are shown ready to copy, and
 the client ID and secret go underneath. A stored secret shows as *•••••• (stored)*
 and is never sent back to the browser. The whole procedure, including the one
