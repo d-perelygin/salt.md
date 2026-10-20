@@ -1425,8 +1425,6 @@
   "{name} must be filled": "«{name}» должен быть заполнен",
   "“Only from” names “{name}”, which is no longer a status option.": "В «Только из» указано «{name}», а такого статуса уже нет.",
   "“{name}” is not usable here — the property is gone or has the wrong type.": "«{name}» здесь не годится — свойство удалено или не того типа.",
-  "+ Add action here": "+ Добавить действие сюда",
-  "+ New rule in…": "+ Новое правило в…",
   "Delete this rule?": "Удалить это правило?",
   "Empty means it fires from any status, without blocking other rules.": "Пусто = срабатывает из любого статуса и не мешает другим правилам.",
   "Entering {name}": "Вход в {name}",

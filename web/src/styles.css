@@ -3969,14 +3969,11 @@ body.is-col-resizing {
   padding: 3px 10px;
   font-size: 12px;
 }
-.workflow-group-foot {
-  display: flex;
-  gap: 8px;
-  margin: 2px 0 10px 0;
-}
-.workflow-group-foot .btn {
-  padding: 3px 10px;
-  font-size: 12px;
+/* The single way to add a rule: one wide button under the last group. */
+.workflow-add-rule {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
 }
 .workflow-if {
   display: flex;

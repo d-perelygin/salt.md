@@ -62,7 +62,6 @@ export default function WorkflowRules({
     commit({ statusPropId, rules: rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
 
   const [openRule, setOpenRule] = useState<string | null>(rules[0]?.id ?? null);
-  const [newTarget, setNewTarget] = useState('');
   useEffect(() => {
     if (highlightRuleId) setOpenRule(highlightRuleId);
   }, [highlightRuleId]);
@@ -88,32 +87,30 @@ export default function WorkflowRules({
     (r) => r.when.type === 'status_to' && !statusOpts.some((o) => o.id === (r.when as { to: string }).to),
   );
 
-  // One flat render list so headers and footers sit exactly around their
+  // One flat render list so headers sit exactly above their rules
   // rules; a rule that lost its target renders bare (still flagged above).
   type RowItem =
     | { kind: 'head'; key: string; group: Group }
-    | { kind: 'foot'; key: string; group: Group }
     | { kind: 'rule'; key: string; rule: WorkflowRule };
   const flatList: RowItem[] = [];
   for (const g of groups) {
     flatList.push({ kind: 'head', key: g.key + ':h', group: g });
     for (const r of g.rules) flatList.push({ kind: 'rule', key: r.id, rule: r });
-    flatList.push({ kind: 'foot', key: g.key + ':f', group: g });
   }
   for (const r of orphaned) flatList.push({ kind: 'rule', key: r.id, rule: r });
-
-  const addActionTo = (ruleId: string) => {
-    const r = rules.find((x) => x.id === ruleId);
-    if (!r) return;
-    updateRule(ruleId, { do: [...r.do, { type: 'set_prop', prop: '', value: '' }] });
-    setOpenRule(ruleId);
-  };
 
   const addSeparateRule = (when: WorkflowRule['when']) => {
     const r: WorkflowRule = { id: newRuleId(), when, do: [] };
     commit({ statusPropId, rules: [...rules, r] });
     setOpenRule(r.id);
-    setNewTarget('');
+  };
+
+  // One way to add a rule: a new gate goes to the first status that has
+  // none yet, otherwise to the usual default — When stays editable in
+  // the card itself.
+  const addRule = () => {
+    const bare = statusOpts.find((o) => !groups.some((g) => g.key === `to:${o.id}`));
+    addSeparateRule({ type: 'status_to', to: bare?.id ?? defaultTargetId(statusOpts) });
   };
 
   const askRemoveRule = async (id: string) => {
@@ -144,6 +141,9 @@ export default function WorkflowRules({
   const [ifOpen, setIfOpen] = useState<Record<string, boolean>>({});
   const hasIf = (r: WorkflowRule) =>
     (r.allowFrom?.length ?? 0) > 0 || !!r.precondition?.checklistProp || !!r.precondition?.requiredProp;
+  // A filled If shows itself; an empty one stays tucked away. The toggle
+  // only records explicit collapses/opens on top of that.
+  const isIfOpen = (r: WorkflowRule) => ifOpen[r.id] ?? hasIf(r);
   const runSimulation = async (from: string) => {
     setSimBusy(true);
     try {
@@ -259,17 +259,6 @@ export default function WorkflowRules({
             </div>
           );
         }
-        if (it.kind === 'foot') {
-          const g = it.group;
-          const firstId = g.rules[0].id;
-          return (
-            <div key={it.key} className="workflow-group-foot">
-              <button type="button" className="btn" onClick={() => addActionTo(firstId)}>
-                {t('+ Add action here')}
-              </button>
-            </div>
-          );
-        }
         const r = it.rule;
         const open = openRule === r.id;
         const whenTo = r.when.type === 'status_to' ? (r.when as { to: string }).to : '';
@@ -347,12 +336,12 @@ export default function WorkflowRules({
                 <button
                   type="button"
                   className="workflow-if-toggle"
-                  aria-expanded={!!ifOpen[r.id]}
-                  onClick={() => setIfOpen((p) => ({ ...p, [r.id]: !p[r.id] }))}
+                  aria-expanded={isIfOpen(r)}
+                  onClick={() => setIfOpen((p) => ({ ...p, [r.id]: !isIfOpen(r) }))}
                 >
-                  {t('If')}{hasIf(r) ? ' •' : ''} {ifOpen[r.id] ? '▾' : '▸'}
+                  {t('If')}{hasIf(r) ? ' •' : ''} {isIfOpen(r) ? '▾' : '▸'}
                 </button>
-                {ifOpen[r.id] && (
+                {isIfOpen(r) && (
                 <div className="workflow-if">
                   {r.when.type === 'status_to' && (
                     <>
@@ -501,31 +490,14 @@ export default function WorkflowRules({
         );
       })}
 
-      <div className="workflow-row">
-        <select
-          className="prop-select"
-          value={newTarget}
-          onChange={(e) => setNewTarget(e.target.value)}
-        >
-          <option value="">{t('+ New rule in…')}</option>
-          {statusOpts.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-          <option value="__created">{t('On creation')}</option>
-        </select>
-        <button
-          type="button"
-          className="btn"
-          disabled={!newTarget || !statusPropId}
-          onClick={() =>
-            addSeparateRule(newTarget === '__created' ? { type: 'created' } : { type: 'status_to', to: newTarget })
-          }
-        >
-          {t('+ Add rule')}
-        </button>
-      </div>
+      <button
+        type="button"
+        className="btn workflow-add-rule"
+        disabled={!statusPropId || statusOpts.length === 0}
+        onClick={addRule}
+      >
+        {t('+ Add rule')}
+      </button>
 
       {statusOpts.length > 1 && (
         <div className="workflow-sim">

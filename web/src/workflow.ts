@@ -319,12 +319,12 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
     if (!optIds.has(to)) continue;
     for (const a of r.do ?? []) {
       if (a.type === 'set_prop' && a.prop) {
-        const k = `${to}${a.prop}`;
+        const k = `${to}\0${a.prop}`;
         if (!setWriters.has(k)) setWriters.set(k, []);
         setWriters.get(k)!.push(r);
       }
       if (a.type === 'require_prop' && a.prop) {
-        const k = `${to}${a.prop}`;
+        const k = `${to}\0${a.prop}`;
         if (!askers.has(k)) askers.set(k, []);
         askers.get(k)!.push(r);
       }
@@ -332,7 +332,7 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
   }
   const propName = (id: string) => byId.get(id)?.name ?? id;
   for (const [k, rs] of setWriters) {
-    const [to, prop] = k.split('');
+    const [to, prop] = k.split('\0');
     if (rs.length > 1 && coFires(rs)) {
       issues.push({
         severity: 'warning',
@@ -342,7 +342,7 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
     }
   }
   for (const [k, rs] of askers) {
-    const [to, prop] = k.split('');
+    const [to, prop] = k.split('\0');
     if (rs.length > 1 && coFires(rs)) {
       issues.push({
         severity: 'warning',

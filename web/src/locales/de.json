@@ -1346,8 +1346,6 @@
   "{name} must be filled": "„{name}“ muss ausgefüllt sein",
   "“Only from” names “{name}”, which is no longer a status option.": "„Nur aus“ nennt „{name}“, aber diesen Status gibt es nicht mehr.",
   "“{name}” is not usable here — the property is gone or has the wrong type.": "„{name}“ passt hier nicht — die Eigenschaft fehlt oder hat den falschen Typ.",
-  "+ Add action here": "+ Aktion hier hinzufügen",
-  "+ New rule in…": "+ Neue Regel in…",
   "Delete this rule?": "Diese Regel löschen?",
   "Empty means it fires from any status, without blocking other rules.": "Leer = löst aus jedem Status aus, ohne andere Regeln zu blockieren.",
   "Entering {name}": "Eingang in {name}",
