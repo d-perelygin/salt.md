@@ -76,6 +76,17 @@ function throwApiError(url: string, err: ApiError): never {
   throw err;
 }
 
+/** The query an editor's autosave carries: the server holds it to the document
+ *  generation it descends from and answers 409 doc_replaced once that
+ *  document has been replaced from outside the editor. replaced: the editor
+ *  already knows, and sends its last copy only to have it kept in the page
+ *  history (server/docgen.go). */
+export function materializeQuery(opts?: { materialize?: boolean; gen?: number | null; replaced?: boolean }): string {
+  if (!opts?.materialize) return '';
+  if (opts.gen == null) return '?materialize=1';
+  return `?materialize=1&gen=${opts.gen}${opts.replaced ? '&replaced=1' : ''}`;
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -392,9 +403,10 @@ export const api = {
       // page at the top level there.
       workspaceId: string;
     }>,
-    opts?: { materialize?: boolean },
+    // gen: the document generation an autosave descends from (collab.ts).
+    opts?: { materialize?: boolean; gen?: number | null; replaced?: boolean },
   ) =>
-    req<Page>(`/api/pages/${id}${opts?.materialize ? '?materialize=1' : ''}`, {
+    req<Page>(`/api/pages/${id}${materializeQuery(opts)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),

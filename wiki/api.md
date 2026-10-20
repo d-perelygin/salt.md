@@ -309,9 +309,15 @@ worth knowing before you write a script:
   `POST /api/import` (below) or the `write_content` tool over MCP, both of which
   take Markdown.
 - **Writing `content` resets the live editing session**, so anybody with the
-  page open loses unsaved edits. `PATCH /api/pages/{id}?materialize=1` suppresses
-  that reset; it is what the editor itself uses when it saves its own document,
-  and it is the wrong flag for a script writing from outside.
+  page open is moved onto the new text, and what they had not saved yet goes
+  into the [version history](history-and-audit.md) rather than the page.
+  `PATCH /api/pages/{id}?materialize=1` suppresses that reset. It is the editor
+  saving its copy of the live document, and the server holds it to that: the
+  page's `docGen` (in `GET /api/pages/{id}`) numbers the body, every write from
+  outside moves it, and a copy of a document that has been replaced since, or a
+  write with no live document behind it at all (a page nobody has opened yet),
+  is refused with `409` and the code `doc_replaced`. It is the wrong flag for a
+  script writing from outside.
 - **`parentId` moves within one workspace only.** Moving between workspaces is
   the separate `workspaceId` field, which takes the whole subtree along and
   answers `{"ok":true,"moved":n,"workspaceId":"…"}`.

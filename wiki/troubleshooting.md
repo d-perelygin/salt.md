@@ -450,8 +450,9 @@ your edit may still lose to the replacement: check the version history.
 **The editor reloaded itself in the middle of a sentence.** Something replaced
 the page rather than merging into it: a restored version, an agent writing the
 whole body with `write_content`, an import, or the page being trashed. An edit
-typed in the same second can be lost. `working_on` exists so a person can see an
-agent coming. See [Working at the same time](collaboration.md).
+typed in the same second does not make it into the new text; it is kept in the
+page's version history instead. `working_on` exists so a person can see an agent
+coming. See [Working at the same time](collaboration.md).
 
 **Getting the old text back.** Every path that replaces a page body saves the
 state from before as a version first: an agent's rewrite, an import, and a

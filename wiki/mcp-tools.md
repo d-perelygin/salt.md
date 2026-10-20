@@ -485,8 +485,9 @@ leaves one revision rather than ten, and two `replace` calls a minute apart
 leave only the state from before the first.
 
 All three write past the realtime editor and then reset the live document.
-Anyone with the page open at that moment loses unsaved edits. That is why append
-is the recommendation, not politeness.
+Anyone with the page open at that moment loses unsaved edits from the page; they
+are kept in its version history, not in the text. That is why append is the
+recommendation, not politeness.
 
 Returns `Appended content to page <id>`, `Prepended N block(s) to page <id>` or
 `Replaced content of page <id>`.

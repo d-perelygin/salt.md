@@ -115,7 +115,7 @@ func (s *Server) mcpRestoreRevision(u *user, pageID, revID string) (string, erro
 		VALUES (?, ?, ?, ?, ?, ?, ?)`, newID(), pageID, now(), u.ID, u.Name, curTitle, curContent); err != nil {
 		return "", err
 	}
-	if _, err := s.db.Exec(`UPDATE pages SET title = ?, content = ?, updated_at = ? WHERE id = ?`,
+	if _, err := s.db.Exec(`UPDATE pages SET title = ?, content = ?, updated_at = ?, `+bumpDocGen+` WHERE id = ?`,
 		title, content, now(), pageID); err != nil {
 		return "", err
 	}

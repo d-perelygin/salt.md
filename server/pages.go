@@ -51,6 +51,9 @@ type page struct {
 	pageMeta
 	Content   json.RawMessage `json:"content"`
 	CreatedAt string          `json:"createdAt"`
+	// The generation of this body (docgen.go). An editor seeds a new live
+	// document from Content, so it has to know which document Content was.
+	DocGen int64 `json:"docGen"`
 }
 
 func scanMeta(sc interface{ Scan(...any) error }) (pageMeta, error) {
@@ -178,12 +181,12 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getPage(id string) (*page, error) {
-	row := s.db.QueryRow(`SELECT `+pageMetaCols+`, content, created_at FROM pages WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT `+pageMetaCols+`, content, created_at, doc_gen FROM pages WHERE id = ?`, id)
 	var p page
 	var trashedAt sql.NullString
 	var content, props, tags string
 	var isTemplate int
-	err := row.Scan(&p.ID, &p.ParentID, &p.Title, &p.Icon, &p.Cover, &p.Position, &p.UpdatedAt, &trashedAt, &p.Type, &props, &p.WorkspaceID, &p.OwnerID, &p.Visibility, &isTemplate, &tags, &p.Description, &p.Snippet, &p.Thumb, &content, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.ParentID, &p.Title, &p.Icon, &p.Cover, &p.Position, &p.UpdatedAt, &trashedAt, &p.Type, &props, &p.WorkspaceID, &p.OwnerID, &p.Visibility, &isTemplate, &tags, &p.Description, &p.Snippet, &p.Thumb, &content, &p.CreatedAt, &p.DocGen)
 	if err != nil {
 		return nil, err
 	}
@@ -486,6 +489,9 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "invalid JSON")
 		return
 	}
+	// The editor writing back its own copy of the live document, as opposed to
+	// a write that replaces it.
+	materialize := r.URL.Query().Get("materialize") == "1"
 
 	// Moving between workspaces: its own path, because the WHOLE subtree has to
 	// come along and the parent link has to go (the parent stays in the old
@@ -595,6 +601,11 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 		}
 		sets = append(sets, "content = ?")
 		args = append(args, string(body.Content))
+		// From outside the editor this replaces the document (see docgen.go);
+		// the editor's own autosave is held to the generation it descends from.
+		if !materialize {
+			sets = append(sets, bumpDocGen)
+		}
 	}
 	if len(body.Props) > 0 {
 		if !json.Valid(body.Props) {
@@ -734,12 +745,34 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	args = append(args, id)
-	res, err := tx.Exec("UPDATE pages SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	where := " WHERE id = ?"
+	guarded := materialize && len(body.Content) > 0
+	if guarded {
+		clause, more, ok := materializeGuard(r)
+		if !ok {
+			httpError(w, 400, "gen must be a number")
+			return
+		}
+		where += clause
+		args = append(args, more...)
+	}
+	res, err := tx.Exec("UPDATE pages SET "+strings.Join(sets, ", ")+where, args...)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		if guarded {
+			// The page exists (checked above): the copy is of a document that
+			// has been replaced since, and writing it would undo the
+			// replacement. What was typed into it goes to the page history
+			// instead; out of the transaction first, there is one connection.
+			tx.Rollback()
+			s.keepRefusedCopy(id, requestUser(r), string(body.Content))
+			httpErrorCode(w, 409, "doc_replaced",
+				"this page was replaced since the editor loaded it, so this copy was kept in its history instead of saved; reload the page")
+			return
+		}
 		httpError(w, 404, "page not found")
 		return
 	}
@@ -761,7 +794,7 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	}
 	// Content writes from outside the editor (API/MCP) invalidate the live
 	// CRDT doc; the editor's own materialization passes ?materialize=1.
-	if len(body.Content) > 0 && r.URL.Query().Get("materialize") != "1" {
+	if len(body.Content) > 0 && !materialize {
 		s.resetYjsDoc(id)
 	}
 	// Snapshot a version-history entry on any content write (throttled inside).

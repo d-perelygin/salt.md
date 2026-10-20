@@ -7,7 +7,7 @@ import {
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core';
 import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
-import { api, ApiError } from '../api';
+import { api, ApiError, materializeQuery } from '../api';
 import * as Y from 'yjs';
 import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
 import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
@@ -2261,6 +2261,7 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
       };
       p = new SaltProvider(
         page.id,
+        page.docGen ?? null,
         (isNew) => {
           // Seed a brand-new CRDT doc from the page's stored content once.
           if (isNew && Array.isArray(page.content) && page.content.length > 0) {
@@ -2806,10 +2807,14 @@ function BlockContent({
   useEffect(() => {
     const flush = (keepalive: boolean) => {
       if (seedFailed.current || !dirty.current) return;
-      // The server replaced the document under us (provider.reset): this
-      // copy is stale. Drop it instead of writing it over the rewrite —
-      // the pre-reset state survives as a revision.
-      if (provider.reset) {
+      // The server replaced the document under us (reset by either
+      // signal): this copy is stale. Drop it instead of writing it
+      // over the rewrite — the pre-reset state survives as a revision.
+      // (A replaced copy WITH a generation goes out named, and the
+      // server refuses it itself; one with no generation behind it
+      // is dropped here, since a server that sends no generation
+      // would write it.)
+      if (provider.reset || (provider.replacedDoc && provider.gen === null)) {
         dirty.current = false;
         return;
       }
@@ -2817,18 +2822,21 @@ function BlockContent({
       // Guard against clobbering stored content with an accidentally-empty doc.
       if (hadContent && isEffectivelyEmpty(doc)) return;
       dirty.current = false;
+      // Named so the server can refuse a copy of a replaced document even when
+      // the 4001 never reached this tab (server/docgen.go).
+      const opts = { materialize: true, gen: provider.gen, replaced: provider.replacedDoc };
       if (keepalive) {
         // Unmount (e.g. following a link chip): a normal fetch would be
         // cancelled, so use keepalive to guarantee the write — otherwise the
         // just-inserted @-mention's backlink would never be recorded.
-        void fetch(`/api/pages/${provider.pageId}?materialize=1`, {
+        void fetch(`/api/pages/${provider.pageId}${materializeQuery(opts)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: doc }),
           keepalive: true,
         });
       } else {
-        api.updatePage(provider.pageId, { content: doc }, { materialize: true }).catch((e) => {
+        api.updatePage(provider.pageId, { content: doc }, opts).catch((e: unknown) => {
           // Dead network or a not-yet-synced temp page: journal the snapshot
           // (the outbox replays it after the create). A 404 here means the
           // page was deleted or replaced under us — say so plainly (#4).
@@ -2839,6 +2847,11 @@ function BlockContent({
               { content: doc } as Record<string, unknown>,
               { materialize: true, label: t('Page content') },
             );
+            return;
+          }
+          if (e instanceof ApiError && e.code === 'doc_replaced') {
+            // Replaced while our socket was down: reload onto the new document.
+            provider.replaced();
             return;
           }
           if (e instanceof ApiError && e.status === 404) {

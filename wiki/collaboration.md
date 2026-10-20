@@ -128,7 +128,9 @@ is worth knowing what to expect.
 connection is down, your edits go into your copy and nothing is lost as long as
 the tab stays open. When the connection returns, everything you wrote is pushed
 across in one go and merged with whatever the others wrote meanwhile. Neither
-side wins; both texts survive.
+side wins; both texts survive. The exception is a page that was replaced while
+you were away (see below): there is nothing left to merge into, so your editor
+loads the new text and your copy goes into the page's version history.
 
 **Creations and small edits queue.** A page or row created offline opens at once
 under a temporary id and syncs in the background once the connection is back;
@@ -199,10 +201,13 @@ This happens when:
 - the whole [workspace](workspaces.md) is deleted, which closes every open editor
   in it for the same reason.
 
-An edit typed in the same second as a replacement can be lost: the stored
-document is discarded, and what was in flight has nowhere to land. In practice
-this matters when a person and an agent work on the same page at the same time,
-which is exactly what the agent badge below is for.
+An edit typed in the same second as a replacement does not make it into the
+new text: the document it was typed into is gone. It is not lost either. The
+editor's last copy of the old document, typing included, is refused by the
+server, so it cannot put the old text back over the new, and is kept in the
+page's [version history](history-and-audit.md) instead, where it can be
+restored. In practice this matters when a person and an agent work on the same
+page at the same time, which is exactly what the agent badge below is for.
 
 Note that `update_page` is **not** in that list, despite the name. Over MCP it
 changes a page's metadata and where it sits (title, icon, cover, description,

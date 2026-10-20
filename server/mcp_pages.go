@@ -102,7 +102,7 @@ func (s *Server) mcpReplaceContent(u *user, pageID, md string) (string, error) {
 	// agent would be beyond recovery — and get_page_history would stay empty even
 	// though the agent just replaced half the page.
 	s.snapshotRevision(pageID, u.ID, u.Name)
-	res, err := s.db.Exec(`UPDATE pages SET content = ?, updated_at = ? WHERE id = ? AND trashed_at IS NULL`,
+	res, err := s.db.Exec(`UPDATE pages SET content = ?, updated_at = ?, `+bumpDocGen+` WHERE id = ? AND trashed_at IS NULL`,
 		content, now(), pageID)
 	if err != nil {
 		return "", err
@@ -151,7 +151,7 @@ func (s *Server) mcpPrependMarkdown(u *user, pageID, md string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	if _, err := tx.Exec(`UPDATE pages SET content = ?, updated_at = ? WHERE id = ?`, string(merged), now(), pageID); err != nil {
+	if _, err := tx.Exec(`UPDATE pages SET content = ?, updated_at = ?, `+bumpDocGen+` WHERE id = ?`, string(merged), now(), pageID); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {
@@ -381,7 +381,7 @@ func (s *Server) mcpEmbedDatabase(u *user, pageID, databaseID string) (string, e
 	if typ != "collection" {
 		return "", fmt.Errorf("page %q is a document, not a database — embed only works with databases", title)
 	}
-	if !s.canRead(u.ID, databaseID) {
+	if !s.canRead(u.ID, databaseID) || !s.credentialMayEnter(u, s.pageWorkspace(databaseID)) {
 		return "", fmt.Errorf("database %q not found", databaseID)
 	}
 	block := fmt.Sprintf(`{"id":%q,"type":"database","props":{"collectionId":%q},"content":[],"children":[]}`,

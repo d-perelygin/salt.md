@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -39,8 +40,9 @@ import (
 //	1 = awareness update (relayed, never persisted)
 //	2 = client snapshot: [2][8-byte BE seq][full-state update]
 //
-// Text frames (server→client) are JSON: {"isNew":bool}, {"synced":true},
-// {"snapshotRequest":seq}.
+// Text frames (server→client) are JSON: {"isNew":bool,"gen":n}, {"synced":true},
+// {"snapshotRequest":seq}. gen is the document generation (docgen.go); a
+// client connecting with ?gen= of a replaced document is closed with 4001.
 const (
 	frameUpdate    = 0
 	frameAwareness = 1
@@ -463,6 +465,20 @@ func (s *Server) handleCollab(w http.ResponseWriter, r *http.Request) {
 	// concurrent update is missed (it is either in this read or delivered live
 	// after we release the lock) and none is delivered before the replay.
 	room.mu.Lock()
+	// An editor names the generation its local doc descends from (docgen.go):
+	// the body it loaded the page with, or the document it synced before its
+	// socket dropped. If that document has been replaced since, letting it in
+	// would push its old state into the live doc (its socket was down for the
+	// 4001), or seed the live doc from the old body (the rewrite landed between
+	// loading the page and joining). Under room.mu, so a reset cannot slip
+	// between this check and the membership that would make it reach us.
+	gen := s.docGen(pageID)
+	if want := r.URL.Query().Get("gen"); want != "" && want != strconv.FormatInt(gen, 10) {
+		room.mu.Unlock()
+		s.collab.leave(conn, room)
+		conn.shutdown(closeReset, "document reset")
+		return
+	}
 	var snapshot []byte
 	var stateSeq int64
 	haveState := s.db.QueryRow(`SELECT snapshot, seq FROM yjs_state WHERE page_id = ?`, pageID).Scan(&snapshot, &stateSeq) == nil
@@ -505,7 +521,7 @@ func (s *Server) handleCollab(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	hello, _ := json.Marshal(map[string]bool{"isNew": isNew})
+	hello, _ := json.Marshal(map[string]any{"isNew": isNew, "gen": gen})
 	conn.enqueue(outMsg{websocket.MessageText, hello})
 	if snapshot != nil {
 		conn.enqueue(outMsg{websocket.MessageBinary, append([]byte{frameUpdate}, snapshot...)})
