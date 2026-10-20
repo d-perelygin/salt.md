@@ -579,7 +579,7 @@ function PageMenu({
                   // object — editing either changed "the template".)
                   void api
                     .duplicatePage(id, false, true)
-                    .then(() => toast(t('Saved as template')))
+                    .then(() => toast.success(t('Saved as template')))
                     .catch(() => toast(t('Could not save as template')));
                 }}
               >
@@ -1087,7 +1087,7 @@ export default function Sidebar({
       if (!id) return false;
       void withFocusSurvival('sidebar.tree', async () => {
         await onTrash(id);
-        toast(t('Moved to trash'));
+        toast.success(t('Moved to trash'));
       });
     },
   });
@@ -1134,7 +1134,7 @@ export default function Sidebar({
         }
         // Online the tree updates through the server's change feed
         // (pagesChanged); offline the queue toast already said it is pending.
-        if (live) toast(t('Moved to “{name}”').replace('{name}', wsName));
+        if (live) toast.success(t('Moved to “{name}”').replace('{name}', wsName));
         // Only the workspace counters need catching up here.
         onWorkspacesChanged();
       });
@@ -1168,6 +1168,9 @@ export default function Sidebar({
   };
 
   const activeWs = workspaces.find((w) => w.id === currentWs);
+  // A viewer may only read the workspace; the server refuses anything new at
+  // its top level, so the sidebar offers nothing that would fail.
+  const canCreateTop = activeWs?.role !== 'viewer';
   // Split the top level into documents vs databases so the sidebar shows them
   // as clearly separated sections (nested items stay under their parent).
   // MIXED: one tree, everything where it was filed. A documentation workspace
@@ -1236,7 +1239,7 @@ export default function Sidebar({
     try {
       await api.updateWorkspace(activeWs.id, { name: name.trim() });
       onWorkspacesChanged();
-      toast(t('Workspace renamed'));
+      toast.success(t('Workspace renamed'));
     } catch (e) {
       toast((e as Error).message || t('Renaming failed'));
     }
@@ -1255,7 +1258,7 @@ export default function Sidebar({
     if (typed === null) return;
     try {
       await api.deleteWorkspace(activeWs.id, typed.trim());
-      toast(t('Workspace deleted'));
+      toast.success(t('Workspace deleted'));
       const next = workspaces.find((w) => w.id !== activeWs.id);
       onWorkspacesChanged();
       if (next) onSwitchWorkspace(next.id);
@@ -1287,7 +1290,7 @@ export default function Sidebar({
     try {
       await api.updateWorkspace(activeWs.id, { autoJoin: next });
       onWorkspacesChanged();
-      toast(
+      toast.success(
         next
           ? t('“{name}” is now open to every new account.', { name: activeWs.name })
           : t('“{name}” is no longer assigned to new accounts.', { name: activeWs.name }),
@@ -1302,7 +1305,7 @@ export default function Sidebar({
     const file = e.target.files?.[0];
     e.target.value = ''; // so the same file can be picked again
     if (!file) return;
-    toast(t('Importing workspace…'));
+    toast.info(t('Importing workspace…'));
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -1312,7 +1315,7 @@ export default function Sidebar({
         throw new Error(err?.error || t('Import failed (HTTP {status})', { status: res.status }));
       }
       const out = (await res.json()) as { workspaceId: string; name: string; pages: number };
-      toast(t('Imported “{name}” — {pages}', { name: out.name, pages: plural(out.pages, '{n} page', '{n} pages') }));
+      toast.success(t('Imported “{name}” — {pages}', { name: out.name, pages: plural(out.pages, '{n} page', '{n} pages') }));
       onWorkspacesChanged();
       onSwitchWorkspace(out.workspaceId);
     } catch (err) {
@@ -1510,7 +1513,7 @@ export default function Sidebar({
               icon={<FileText size={17} />}
               count={allDocs.length}
               createTitle={t('New page')}
-              onCreate={() => onCreate(null)}
+              onCreate={canCreateTop ? () => onCreate(null) : undefined}
             >
               {topDocs.length ? (
                 topDocs.map((p) => <TreeItem key={p.id} p={p} depth={0} ctx={ctx} />)
@@ -1529,7 +1532,7 @@ export default function Sidebar({
             icon={<Table2 size={17} />}
             count={allDbs.length}
             createTitle={t('New collection')}
-            onCreate={() => onCreate(null, 'collection')}
+            onCreate={canCreateTop ? () => onCreate(null, 'collection') : undefined}
           >
             {topDbs.length ? (
               topDbs.map((p) => <TreeItem key={p.id} p={p} depth={0} ctx={ctx} section="dbs" />)

@@ -42,7 +42,7 @@ export default function WorkspaceRules({
     try {
       await api.setWorkspaceRules(workspaceId, text.trim());
       onSaved();
-      toast(t('Workspace rules saved'));
+      toast.success(t('Workspace rules saved'));
       onClose();
     } catch (e) {
       toast((e as Error).message || t('Saving failed'));
@@ -56,7 +56,7 @@ export default function WorkspaceRules({
       await api.dismissRulesProposal(workspaceId);
       setProposal('');
       onSaved();
-      toast(t('Proposal dismissed'));
+      toast.success(t('Proposal dismissed'));
     } catch (e) {
       toast((e as Error).message || t('Saving failed'));
     }

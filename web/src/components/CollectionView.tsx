@@ -464,6 +464,20 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     embed?.onViewId(id);
   };
   const [schemaOpen, setSchemaOpen] = useState(false);
+  const [schemaTab, setSchemaTab] = useState<'props' | 'process'>('props');
+
+  // A blocked drag explains itself: what stops the card and where the rule
+  // lives — one tap opens the process at the right place.
+  const blockToast = (message: string) =>
+    toast.warning(message, {
+      action: {
+        label: t('Open process'),
+        run: () => {
+          setSchemaTab('process');
+          setSchemaOpen(true);
+        },
+      },
+    });
   // A timeline made from the + menu opens its own settings: which dates it reads
   // is the first thing it needs, and an empty diagram says nothing about it.
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
@@ -634,7 +648,13 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     const onRows = (e: Event) => {
       if ((e as CustomEvent<string>).detail !== collectionId) return;
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => void loadRows(), 400);
+      // The schema and the views too: the event also stands for a new
+      // property or a changed view, and a tab that kept its first copy of
+      // those drew the database as it was when it opened.
+      timer = window.setTimeout(() => {
+        void loadRows();
+        loadConfig();
+      }, 400);
     };
     window.addEventListener('salt:rows', onRows);
     // Somebody pulled down, or pressed sync. Not debounced and not conditional:
@@ -788,9 +808,17 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId, viewId, viewReady, rowsArrived, view?.type]);
 
+  // Only the half that changed goes to the server. Sending both put this tab's
+  // copy of the schema back on every view change, and that copy is as old as
+  // the tab: a property an agent or a colleague added meanwhile vanished again
+  // the moment somebody here resized a column.
   const saveConfig = async (next: CollectionConfig) => {
+    const patch: Partial<CollectionConfig> = {};
+    if (!config || next.schema !== config.schema) patch.schema = next.schema;
+    if (!config || next.views !== config.views) patch.views = next.views;
     setConfig(next);
-    await api.putCollection(collectionId, next);
+    if (!patch.schema && !patch.views) return;
+    await api.putCollection(collectionId, patch);
   };
 
   const addRow = async (
@@ -845,9 +873,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         return undefined;
       }
       if (statusTo && statusTo !== from) {
-        const reason = workflowBlockReason(wf, base, from, statusTo);
+        const reason = workflowBlockReason(wf, schema, base, from, statusTo);
         if (reason) {
-          toast(t(reason));
+          blockToast(reason.message);
           return undefined;
         }
       }
@@ -943,7 +971,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       if (topPos !== undefined) {
         await savePageUpdate(tempId, { position: topPos }, { label: t('Change') });
       }
-      toast(t('Will sync when the connection is back'));
+      toast.warning(t('Will sync when the connection is back'));
       return tempId;
     }
     onPagesChanged();
@@ -1099,9 +1127,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
         const rawTo = patch[wf.statusPropId] as string | string[];
         const to = Array.isArray(rawTo) ? (rawTo[0] as string) ?? '' : (rawTo as string) ?? '';
-        const reason = workflowBlockReason(wf, me.props, from, to);
+        const reason = workflowBlockReason(wf, schema, me.props, from, to);
         if (reason) {
-          toast(t(reason));
+          blockToast(reason.message);
           return;
         }
         const plan = await planStatusMove(wf, schema, rowId, me.props, from, to, statusOptionName(wf.statusPropId, to));
@@ -1148,9 +1176,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
         const rawTo = value as string | string[];
         const to = Array.isArray(rawTo) ? (rawTo[0] as string) ?? '' : (rawTo as string) ?? '';
-        const reason = workflowBlockReason(wf, me?.props ?? {}, from, to);
+        const reason = workflowBlockReason(wf, schema, me?.props ?? {}, from, to);
         if (reason) {
-          toast(t(reason));
+          blockToast(reason.message);
           return;
         }
         const plan = await planStatusMove(wf, schema, rowId, me?.props ?? {}, from, to, statusOptionName(propId, to));
@@ -1314,9 +1342,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         const from = Array.isArray(fromRaw) ? (fromRaw[0] as string) ?? '' : (fromRaw as string) ?? '';
         const toRaw = newVal as string | string[];
         const to = Array.isArray(toRaw) ? (toRaw[0] as string) ?? '' : (toRaw as string) ?? '';
-        const reason = workflowBlockReason(wf, me?.props ?? {}, from, to);
+        const reason = workflowBlockReason(wf, schema, me?.props ?? {}, from, to);
         if (reason) {
-          toast(t(reason));
+          blockToast(reason.message);
           return;
         }
         const plan = await planStatusMove(wf, schema, rowId, me?.props ?? {}, from, to, statusOptionName(groupBy, to));
@@ -1381,7 +1409,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     if (!cur) return;
     const next = { ...cur, views: cur.views.map((x) => (x.id === v.id ? v : x)) };
     setConfig(next);
-    await api.putCollection(collectionId, next);
+    // Views only: the schema half stays as stored, so a property an agent
+    // added meanwhile survives the undo (see saveConfig).
+    await api.putCollection(collectionId, { views: next.views });
   };
 
   const updateView = (patch: Partial<ViewDef>) => {
@@ -1411,8 +1441,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     void series(viewId, async () => {
       const cur = configRef.current;
       if (!cur) return;
+      // Views only: the schema half stays as stored (see saveConfig).
       await api.putCollection(collectionId, {
-        ...cur,
         views: cur.views.map((v) => (v.id === viewId ? nextView : v)),
       });
       if (JSON.stringify(prev) === JSON.stringify(nextView)) return;
@@ -1427,9 +1457,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           await restoreView(prev);
           // A restored sort or filter reads as nothing happening — the rows
           // just stand differently — so it says what came back.
-          if (sortBack && filterBack) toast(t('Sort and filter reverted'));
-          else if (sortBack) toast(t('Sort reverted'));
-          else if (filterBack) toast(t('Filter reverted'));
+          if (sortBack && filterBack) toast.info(t('Sort and filter reverted'));
+          else if (sortBack) toast.info(t('Sort reverted'));
+          else if (filterBack) toast.info(t('Filter reverted'));
         },
         redo: () => restoreView(nextView),
       });
@@ -1689,7 +1719,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             second copy of the collection (#22). */}
         {!embed && <ColumnsControl schema={schema} view={view} onChange={updateView} />}
         {!embed && (
-          <button className="btn-sm" onClick={() => setSchemaOpen(true)}>
+          <button className="btn-sm" onClick={() => { setSchemaTab('props'); setSchemaOpen(true); }}>
             <Settings2 size={14} /> {t('Properties')}
           </button>
         )}
@@ -1900,6 +1930,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       )}
       {schemaOpen && (
         <SchemaEditor
+          initialTab={schemaTab}
           config={config}
           collections={[...pages.values()]
             // A template is a snapshot, not a database rows can point at.
@@ -1986,9 +2017,9 @@ function FormView({
       setShared(true);
       try {
         await navigator.clipboard?.writeText(full);
-        toast(t('Public link copied'));
+        toast.success(t('Public link copied'));
       } catch {
-        toast(t('Public link created'));
+        toast.warning(t('Public link created'));
       }
     } catch {
       toast(t('Sharing failed'));
@@ -2001,7 +2032,7 @@ function FormView({
     if (!displayUrl) return;
     try {
       await navigator.clipboard?.writeText(displayUrl);
-      toast(t('Public link copied'));
+      toast.success(t('Public link copied'));
     } catch {
       toast(t('That did not work'));
     }
@@ -2014,7 +2045,7 @@ function FormView({
       setShared(false);
       setShareUrl(null);
       forgetUrl();
-      toast(t('Public link revoked'));
+      toast.success(t('Public link revoked'));
     } catch {
       toast(t('That did not work'));
     } finally {
@@ -5762,7 +5793,7 @@ function TimelineView({
                     const cur = depIdsOf(depPop.id);
                     if (!cur.includes(target)) void onSetDep(depPop.id, effDep, [...cur, target]);
                   } else if (target) {
-                    toast(t('That would create a loop'));
+                    toast.warning(t('That would create a loop'));
                   }
                 }}
               >

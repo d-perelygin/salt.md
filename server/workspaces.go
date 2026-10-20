@@ -226,8 +226,56 @@ func (s *Server) canWriteReq(r *http.Request, pageID string) bool {
 	if !s.canWrite(requestUser(r).ID, pageID) {
 		return false
 	}
-	u := requestUser(r)
-	return u.TokenWorkspaces == nil || u.tokenCanReach(s.pageWorkspace(pageID))
+	// The same gate as reading, the workspace's rule for agents included. With
+	// only the token's own list here, an agent got 404 reading a page in a
+	// workspace closed to agents and 200 changing it.
+	return s.credentialMayEnter(requestUser(r), s.pageWorkspace(pageID))
+}
+
+// mayCreateIn is the rule for new content at the top of a workspace: a member
+// who is not a viewer, through a credential that may enter it (its own list
+// and the workspace's rule for agents). Under a page the rule is canWriteReq on
+// that page. It is written once because each place that creates something had
+// written it differently, and several had left a part out.
+func (s *Server) mayCreateIn(u *user, wsID string) bool {
+	if u == nil || wsID == "" {
+		return false
+	}
+	if role := s.workspaceRole(u.ID, wsID); role == "" || role == "viewer" {
+		return false
+	}
+	return s.credentialMayEnter(u, wsID)
+}
+
+// createWorkspaceFor is where something new without a parent lands when the
+// caller names no workspace: the caller's default if they may create there,
+// else the first workspace they may. A viewer's default used to be taken as it
+// was, and the import landed in a workspace they may only read.
+func (s *Server) createWorkspaceFor(u *user) string {
+	if u == nil {
+		return ""
+	}
+	if ws := s.defaultWorkspaceFor(u); s.mayCreateIn(u, ws) {
+		return ws
+	}
+	rows, err := s.db.Query(`SELECT workspace_id FROM workspace_members WHERE user_id = ? ORDER BY workspace_id`, u.ID)
+	if err != nil {
+		return ""
+	}
+	var all []string
+	for rows.Next() {
+		var ws string
+		if rows.Scan(&ws) == nil {
+			all = append(all, ws)
+		}
+	}
+	rows.Close()
+	for _, ws := range all {
+		if s.mayCreateIn(u, ws) {
+			return ws
+		}
+	}
+	return ""
 }
 
 // ---- what a workspace itself allows (W-opt-in) ------------------------------
@@ -349,10 +397,12 @@ func scopeWorkspaces(u *user, ws []string) []string {
 // tokenReachesWorkspace enforces an API token's workspace scope on a
 // workspace-id-keyed REST endpoint: a workspace-scoped token must not act on
 // (or read) a workspace outside its allow-list even when the user is a member/
-// admin of it. Session auth and unrestricted tokens always pass.
+// admin of it, nor one whose rule keeps agents out. Session auth always passes.
 func (s *Server) tokenReachesWorkspace(r *http.Request, wsID string) bool {
-	u := requestUser(r)
-	return u.TokenWorkspaces == nil || u.tokenCanReach(wsID)
+	// The workspace's rule for agents belongs here as much as the token's own
+	// list: a dozen handlers ask this one question, and with the list alone a
+	// workspace closed to agents stayed open on every one of them.
+	return s.credentialMayEnter(requestUser(r), wsID)
 }
 
 // tokenCanReach reports whether a workspace-scoped token may touch a workspace.
@@ -1272,7 +1322,14 @@ func (s *Server) resolveShare(token, password string) (pageID string, needPW, pw
 }
 
 func (s *Server) handlePublicPage(w http.ResponseWriter, r *http.Request) {
-	pageID, needPW, pwOK, found := s.resolveShare(r.PathValue("token"), r.Header.Get("X-Share-Password"))
+	// Same rule as the HTML view: a revoked link must not live on in a cache.
+	w.Header().Set("Cache-Control", "private, no-store")
+	password := r.Header.Get("X-Share-Password")
+	if password != "" && !s.sharePwRate.allow(sharePwKey(r.PathValue("token"), s.clientIP(r))) {
+		httpErrorCode(w, http.StatusTooManyRequests, "too_many_attempts", "Too many password attempts for this link. Wait a minute and try again.")
+		return
+	}
+	pageID, needPW, pwOK, found := s.resolveShare(r.PathValue("token"), password)
 	if !found {
 		httpError(w, 404, "not found")
 		return

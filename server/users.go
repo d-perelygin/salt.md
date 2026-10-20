@@ -162,6 +162,11 @@ func (s *Server) userByID(id string) *user {
 // API bearer token. Returns nil when unauthenticated.
 func (s *Server) currentUser(r *http.Request) *user {
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		// Before the key is even looked up, so an address that is turned away
+		// learns nothing about whether its key is good.
+		if !s.agentAddressAllowed(r) {
+			return nil
+		}
 		tok := strings.TrimPrefix(auth, "Bearer ")
 		// Guessing gets cut off before the lookup once an address has burned
 		// through its budget of WRONG tokens. Only failures pay in, so an agent
@@ -228,6 +233,10 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := s.currentUser(r)
 		if u == nil {
+			if hasBearer(r) && !s.agentAddressAllowed(r) {
+				s.refuseAgentAddress(w, r)
+				return
+			}
 			httpError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}

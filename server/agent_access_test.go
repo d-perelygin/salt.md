@@ -103,3 +103,37 @@ func TestAStrictWorkspaceDisappearsFromAnAPITokensView(t *testing.T) {
 		t.Error("a signed-in connection cannot see the workspace that was made strict for it")
 	}
 }
+
+// Moving a page is a write to the destination workspace: an agent must not
+// carry a page into a workspace closed to agents, even though the page starts
+// outside it. tokenReachesWorkspace is the gate every workspace-keyed handler
+// asks; the move asked only the token's own list.
+func TestAnAgentCannotMoveAPageIntoAClosedWorkspace(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "mover@example.test")
+	open := s.firstWorkspaceOf(t, uid)
+	closed := newID()
+	if _, err := s.db.Exec(`INSERT INTO workspaces (id, name, created_at) VALUES (?, 'Closed', ?)`, closed, now()); err != nil {
+		t.Fatalf("workspace: %v", err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, 'admin')`, closed, uid); err != nil {
+		t.Fatalf("member: %v", err)
+	}
+	if _, err := s.db.Exec(`UPDATE workspaces SET agent_access = ? WHERE id = ?`, agentAccessClosed, closed); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	token := "a-key-for-the-move"
+	if _, err := s.db.Exec(`INSERT INTO api_tokens (id, user_id, name, token_hash, scope, created_at)
+		VALUES (?, ?, 'agent', ?, 'write', ?)`, newID(), uid, tokenHash(token), now()); err != nil {
+		t.Fatalf("insert token: %v", err)
+	}
+	page := s.makePage(t, open, uid, "", "Notes from elsewhere", `{}`)
+	bearer := map[string]string{"Authorization": "Bearer " + token}
+	if rec := call(s, "PATCH", "/api/pages/"+page, "127.0.0.1", bearer, `{"workspaceId":"`+closed+`"}`); rec.Code == 200 {
+		t.Error("an agent moved a page into a workspace closed to agents")
+	}
+	// People are not agents: the same move as the owner works.
+	if rec := call(s, "PATCH", "/api/pages/"+page, "127.0.0.1", map[string]string{"Cookie": cookie}, `{"workspaceId":"`+closed+`"}`); rec.Code != 200 {
+		t.Errorf("the owner could not move their own page: %d %s", rec.Code, rec.Body.String())
+	}
+}

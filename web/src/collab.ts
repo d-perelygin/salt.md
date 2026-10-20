@@ -20,6 +20,18 @@ export class SaltProvider {
   awareness: Awareness;
   synced = false;
   isNew = false;
+  // The generation of the document this doc descends from (server/docgen.go):
+  // that of the body the page was loaded with, which a new live document is
+  // seeded from. It goes with every connect and every autosave, so the server
+  // can turn both away once a write from outside the editor has replaced the
+  // document: a tab that slept through the 4001 must not push its old copy
+  // back in, and one that loaded the body just before a rewrite must not seed
+  // the live document from it.
+  gen: number | null;
+  // Set once the server has replaced the document under us. This doc is stale
+  // from that moment on, and nothing derived from it may reach the server.
+  replacedDoc = false;
+
   readonly pageId: string;
 
   // Set when the server replaced the document under us (close code 4001:
@@ -45,11 +57,13 @@ export class SaltProvider {
 
   constructor(
     pageId: string,
+    gen: number | null,
     onSynced: (isNew: boolean) => void,
     onReset: () => void,
     opts?: { initialUpdate?: Uint8Array | null; onLocalUpdate?: (update: Uint8Array) => void },
   ) {
     this.pageId = pageId;
+    this.gen = gen;
     this.onSynced = onSynced;
     this.onReset = onReset;
     this.doc = new Y.Doc();
@@ -136,7 +150,8 @@ export class SaltProvider {
 
   private connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/collab/${this.pageId}`);
+    const gen = this.gen === null ? '' : `?gen=${this.gen}`;
+    const ws = new WebSocket(`${proto}://${location.host}/collab/${this.pageId}${gen}`);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
     this.connectStarted = Date.now();
@@ -225,9 +240,10 @@ export class SaltProvider {
     if (e?.code === 4001) {
       // Server-side doc was reset (API write): local state is stale.
       // Fence it before notifying: the tab remounts onto the new document,
-      // and nothing stale may be written in between.
+      // and nothing stale may be written in between (both fences: the
+      // reset flag the page reads, and the replaced flag the channel reads).
       this.reset = true;
-      this.onReset();
+      this.replaced();
       return;
     }
     // Exponential backoff with full jitter, capped at 30s, so a flapping or
@@ -241,12 +257,21 @@ export class SaltProvider {
   }
 
   private send(type: number, payload: Uint8Array) {
-    if (this.reset) return;
+    if (this.reset || this.replacedDoc) return;
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     const buf = new Uint8Array(1 + payload.length);
     buf[0] = type;
     buf.set(payload, 1);
     this.ws.send(buf);
+  }
+
+  /** The document was replaced from outside the editor: told by a 4001, or by
+   *  an autosave the server refused as stale. Fence this doc first, then let
+   *  the page remount onto the new one. */
+  replaced() {
+    if (this.replacedDoc || this.closed) return;
+    this.replacedDoc = true;
+    this.onReset();
   }
 
   destroy() {

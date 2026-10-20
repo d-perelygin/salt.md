@@ -70,6 +70,14 @@ Three rules decide what ends up in the list:
 The dialog says the same thing in one line: *Snapshots are taken on save (at
 most every 2 minutes, the latest 50).*
 
+**A save that comes too late is kept here too.** When a page is replaced (an
+agent's rewrite, a restore, an import) while an editor still holds the old text,
+that editor's next save would put the old text back. The server refuses it and
+files it as a revision under its author's name instead, outside the two-minute
+rule; the same copy arriving twice, from two tabs, is filed once. So what
+somebody typed into a page in the moment it was replaced is one **Restore**
+away rather than gone.
+
 **Properties are not part of a revision.** Changing a row's status or its due
 date writes no snapshot, because the body did not change. Version history is for
 the text of a page; see [Collections](collections.md) for what a row's

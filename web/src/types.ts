@@ -79,6 +79,9 @@ export interface AuditEntry {
 export interface Page extends PageMeta {
   content: unknown[];
   createdAt: string;
+  /** The generation of this body (server/docgen.go); absent from a server
+   *  that predates it. */
+  docGen?: number;
 }
 
 export interface SearchResult {

@@ -287,8 +287,14 @@ proxy**: those headers are written by whoever is calling, so trusting them
 without a proxy in front lets an attacker invent a new IP for every password
 guess.
 
-`X-Forwarded-For` is read first, `X-Real-Ip` when that one is absent, so a proxy
-that sets only the latter works too. Nothing else is consulted. The hint under
+Of `X-Forwarded-For` only the **last** address counts: the one your proxy added.
+Everything before it was written by the caller, and a proxy that appends (the
+built-in tunnel does, and so does nginx's usual `$proxy_add_x_forwarded_for`)
+passes it on as it came. `X-Real-Ip` is read when `X-Forwarded-For` is absent,
+so a proxy that sets only the latter works too. Nothing else is consulted. With
+two proxies in a row, have the inner one resolve the visitor first (in nginx,
+the real IP module, told which addresses belong to the outer proxy), or every
+visitor arrives as the outer proxy. The hint under
 the checkbox also mentions the audit log; that is the one place an address never
 goes. The activity log records who did what, never from where.
 

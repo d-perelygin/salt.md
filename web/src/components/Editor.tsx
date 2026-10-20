@@ -7,7 +7,7 @@ import {
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core';
 import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
-import { api, ApiError } from '../api';
+import { api, ApiError, materializeQuery } from '../api';
 import * as Y from 'yjs';
 import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
 import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
@@ -305,7 +305,7 @@ export default function Editor(props: EditorProps) {
               // replaced.
               void clearJournal(props.pageId);
               void dropYDoc(props.pageId);
-              toast(t('This page was replaced on the server. Open Version history to recover your text.'));
+              toast.warning(t('This page was replaced on the server. Open Version history to recover your text.'));
               setNonce((n) => n + 1);
             }}
           />
@@ -624,9 +624,9 @@ function RowProperties({
       const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
       const rawTo = value as string | string[];
       const to = Array.isArray(rawTo) ? (rawTo[0] as string) ?? '' : (rawTo as string) ?? '';
-      const reason = workflowBlockReason(wf, props, from, to);
+      const reason = workflowBlockReason(wf, config.schema, props, from, to);
       if (reason) {
-        toast(t(reason));
+        toast.warning(reason.message);
         return;
       }
       const optName =
@@ -652,7 +652,8 @@ function RowProperties({
     };
     setConfig(next);
     try {
-      await api.putCollection(parentId, next);
+      // The schema alone: this copy of the views is as old as the open page.
+      await api.putCollection(parentId, { schema: next.schema });
     } catch {
       toast(t('Options not saved'));
     }
@@ -1182,7 +1183,7 @@ function PageHeader({
       setSharePassword('');
       setShareHasPassword(password !== '');
       setLastPassword(password);
-      if (rotated) toast(t('A new link was created — the old one no longer works'));
+      if (rotated) toast.warning(t('A new link was created — the old one no longer works'));
     } catch {
       toast(t('Sharing failed'));
     }
@@ -1242,7 +1243,7 @@ function PageHeader({
         : [...shareAllowed, viewId];
     // Unchecking the last view would publish an empty collection — keep one.
     if (next.length === 0) {
-      toast(t('Keep at least one view shared'));
+      toast.warning(t('Keep at least one view shared'));
       return;
     }
     setShareAllowed(next.length >= shareViewsList.length ? null : next);
@@ -1314,7 +1315,7 @@ function PageHeader({
     const full = url + (url.includes('?') ? '&' : '?') + 'pw=' + encodeURIComponent(pw);
     try {
       await navigator.clipboard.writeText(full);
-      toast(t('Public link copied'));
+      toast.success(t('Public link copied'));
     } catch {
       toast(t('Sharing failed'));
     }
@@ -1407,7 +1408,7 @@ function PageHeader({
     try {
       if (file.name.toLowerCase().endsWith('.zip')) {
         const r = await api.importZip(file);
-        toast(
+        toast.success(
           t('Imported {pages}', { pages: plural(r.created, '{n} page', '{n} pages') }) +
             (r.skipped ? ', ' + t('{n} skipped', { n: r.skipped }) : ''),
         );
@@ -1415,7 +1416,7 @@ function PageHeader({
       } else {
         const text = await file.text();
         const r = await api.importMarkdown(null, '', text);
-        toast(t('Page imported'));
+        toast.success(t('Page imported'));
         onPagesChanged();
         onNavigate(r.id);
       }
@@ -1627,7 +1628,7 @@ function PageHeader({
                         className="btn-sm"
                         onClick={() => {
                           void navigator.clipboard.writeText(displayUrl);
-                          toast(t('Public link copied'));
+                          toast.success(t('Public link copied'));
                         }}
                       >
                         {t('Copy')}
@@ -2280,6 +2281,7 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
       };
       p = new SaltProvider(
         page.id,
+        page.docGen ?? null,
         (isNew) => {
           // Seed a brand-new CRDT doc from the page's stored content once.
           if (isNew && Array.isArray(page.content) && page.content.length > 0) {
@@ -2754,7 +2756,7 @@ function BlockContent({
                 label: query.trim(),
               });
               onPagesChanged();
-              toast(t('Will sync when the connection is back'));
+              toast.warning(t('Will sync when the connection is back'));
               return;
             }
             console.error('salt.md: failed to create page from mention', e);
@@ -2825,10 +2827,14 @@ function BlockContent({
   useEffect(() => {
     const flush = (keepalive: boolean) => {
       if (seedFailed.current || !dirty.current) return;
-      // The server replaced the document under us (provider.reset): this
-      // copy is stale. Drop it instead of writing it over the rewrite —
-      // the pre-reset state survives as a revision.
-      if (provider.reset) {
+      // The server replaced the document under us (reset by either
+      // signal): this copy is stale. Drop it instead of writing it
+      // over the rewrite — the pre-reset state survives as a revision.
+      // (A replaced copy WITH a generation goes out named, and the
+      // server refuses it itself; one with no generation behind it
+      // is dropped here, since a server that sends no generation
+      // would write it.)
+      if (provider.reset || (provider.replacedDoc && provider.gen === null)) {
         dirty.current = false;
         return;
       }
@@ -2836,18 +2842,21 @@ function BlockContent({
       // Guard against clobbering stored content with an accidentally-empty doc.
       if (hadContent && isEffectivelyEmpty(doc)) return;
       dirty.current = false;
+      // Named so the server can refuse a copy of a replaced document even when
+      // the 4001 never reached this tab (server/docgen.go).
+      const opts = { materialize: true, gen: provider.gen, replaced: provider.replacedDoc };
       if (keepalive) {
         // Unmount (e.g. following a link chip): a normal fetch would be
         // cancelled, so use keepalive to guarantee the write — otherwise the
         // just-inserted @-mention's backlink would never be recorded.
-        void fetch(`/api/pages/${provider.pageId}?materialize=1`, {
+        void fetch(`/api/pages/${provider.pageId}${materializeQuery(opts)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: doc }),
           keepalive: true,
         });
       } else {
-        api.updatePage(provider.pageId, { content: doc }, { materialize: true }).catch((e) => {
+        api.updatePage(provider.pageId, { content: doc }, opts).catch((e: unknown) => {
           // Dead network or a not-yet-synced temp page: journal the snapshot
           // (the outbox replays it after the create). A 404 here means the
           // page was deleted or replaced under us — say so plainly (#4).
@@ -2860,8 +2869,13 @@ function BlockContent({
             );
             return;
           }
+          if (e instanceof ApiError && e.code === 'doc_replaced') {
+            // Replaced while our socket was down: reload onto the new document.
+            provider.replaced();
+            return;
+          }
           if (e instanceof ApiError && e.status === 404) {
-            toast(t('This page was deleted on the server. Open the trash to get it back.'));
+            toast.warning(t('This page was deleted on the server. Open the trash to get it back.'));
             return;
           }
           dirty.current = true; // retry on next change / unmount flush
@@ -2964,7 +2978,7 @@ function BlockContent({
         toast((err as Error).message || t('“{name}” was not uploaded', { name: file.name }));
       }
     }
-    if (added > 1) toast(plural(added, '{n} file added', '{n} files added'));
+    if (added > 1) toast.success(plural(added, '{n} file added', '{n} files added'));
   };
 
   const handlers = useRef({ enter: onDragEnter, leave: onDragLeave, over: onDragOver, drop: onDrop });

@@ -219,7 +219,7 @@ export default function IndexView({
 
   const copyMd = (id: string) => {
     void navigator.clipboard?.writeText(window.location.origin + '/api/export/' + id);
-    toast(t('Markdown link copied'));
+    toast.success(t('Markdown link copied'));
   };
 
   const q = query.toLowerCase();

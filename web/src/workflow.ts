@@ -9,25 +9,53 @@ import { checklistItems, loadMembers, type Member } from './components/PropertyV
 // feedback before the drag lands. Same OR semantics: only rules whose gate
 // opens for this move are checked; foreign gates never block. The server
 // stays the source of truth — a 409 rolls the optimistic move back.
+//
+// A block explains itself: what stops the card and what to do about it —
+// the toast at the call site carries it with a shortcut into the process.
+export interface BlockHint {
+  message: string;
+}
+
 export function workflowBlockReason(
   workflow: WorkflowConfig | undefined,
+  schema: PropDef[],
   rowProps: Record<string, unknown>,
   from: string,
   to: string,
-): string | null {
+): BlockHint | null {
   if (!workflow || !workflow.statusPropId || from === to || !to) return null;
+  const byId = new Map(schema.map((p) => [p.id, p]));
+  const statusDef = byId.get(workflow.statusPropId);
+  const optName = (id: string) => statusDef?.options?.find((o) => o.id === id)?.name ?? id;
+  const propName = (id: string) => byId.get(id)?.name ?? id;
   const targeted = (workflow.rules ?? []).filter(
     (r) => r.when.type === 'status_to' && (r.when as { to: string }).to === to,
   );
   if (targeted.length === 0) return null;
   const matched = matchRules(workflow, from, to);
-  if (matched.length === 0) return 'This status cannot be reached from here.';
+  if (matched.length === 0) {
+    const froms = [...new Set(targeted.flatMap((r) => r.allowFrom ?? []))].map(optName);
+    return {
+      message: t('“{to}” only takes cards from {froms} — move it back there first, or loosen the rule in the process.', {
+        to: optName(to),
+        froms: froms.map((n) => `“${n}”`).join(', '),
+      }),
+    };
+  }
   for (const r of matched) {
     if (r.precondition?.checklistProp && !checklistDone(rowProps[r.precondition.checklistProp])) {
-      return 'Finish the checklist first.';
+      return {
+        message: t('The “{name}” checklist isn’t finished — tick everything off, then move.', {
+          name: propName(r.precondition.checklistProp),
+        }),
+      };
     }
     if (r.precondition?.requiredProp && isEmpty(rowProps[r.precondition.requiredProp])) {
-      return 'Fill the required property first.';
+      return {
+        message: t('“{name}” is empty — fill it in, then move.', {
+          name: propName(r.precondition.requiredProp),
+        }),
+      };
     }
   }
   return null;

@@ -44,7 +44,7 @@ export default function StrandedWorkspaces({ onClose, onChanged }: { onClose: ()
   const adopt = async (w: Stranded) => {
     try {
       await api.adoptWorkspace(w.id);
-      toast(t('Adopted “{name}” — it is in your list now.', { name: w.name }));
+      toast.success(t('Adopted “{name}” — it is in your list now.', { name: w.name }));
       load();
       onChanged();
     } catch (e) {
@@ -63,7 +63,7 @@ export default function StrandedWorkspaces({ onClose, onChanged }: { onClose: ()
     if (typed?.trim() !== w.name) return;
     try {
       await api.deleteStrandedWorkspace(w.id, w.name);
-      toast(t('“{name}” deleted.', { name: w.name }));
+      toast.success(t('“{name}” deleted.', { name: w.name }));
       load();
       onChanged();
     } catch (e) {

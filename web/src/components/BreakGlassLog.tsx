@@ -50,7 +50,7 @@ export default function BreakGlassLog({
   const revoke = async (g: Grant) => {
     try {
       await api.revokeBreakGlass(workspaceId, g.id);
-      toast(`Zugriff von ${g.user} beendet.`);
+      toast.success(`Zugriff von ${g.user} beendet.`);
       load();
     } catch (e) {
       setError((e as Error).message);

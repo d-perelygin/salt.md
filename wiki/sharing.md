@@ -170,6 +170,12 @@ consumed (scrubbed from the bar) on load. The share menu has
 **Copy link with password** for exactly that address — it shows while the
 password is at hand, typed but not yet applied, or just applied.
 
+Guessing is limited per link and per address: after five attempts in quick
+succession the form answers **Too many attempts. Wait a minute and try again.**,
+and after that ten attempts a minute get through. The limit is checked before
+the password is, so the right one waits too. Somebody else opening the same link
+from another address is not affected.
+
 Three properties of this that surprise people:
 
 - **There is no session — almost.** The server remembers nothing, so a new
@@ -212,13 +218,11 @@ checklist items (as ticked boxes that cannot be clicked), quotes, code blocks,
 tables, dividers, callouts, toggles (which open and close), columns, bookmarks
 and links.
 
-Links behave in two different ways, which matters if the page was written by
-somebody else:
-
-- A link carried by a **file, image or bookmark block** is checked. Anything
-  that is not `http`, `https` or `mailto` is replaced by a dead link.
-- A link written **inside the text** goes out exactly as it was typed. It is not
-  checked and not rewritten.
+Every link is checked on the way out, whether a file, image or bookmark block
+carries it or it is written inside the text: anything that is not `http`,
+`https`, `mailto` or an address on the instance itself becomes a dead link. The
+page also tells the browser to run no script but its own layout script, so
+whatever a page's author typed, a visitor's click runs nothing.
 
 What is **not** in the document:
 
@@ -266,9 +270,10 @@ front of it, then a pipe table.
   A relation prints the internal ids of the pages it points at, and a person
   column prints the internal id of whoever was picked from the member list:
   ids, not titles and not names.
-- **Rows marked private are included.** The private flag governs who may read
-  the page inside salt.md; it does not filter this table. Check a collection for
-  private rows before you publish it.
+- **Rows marked private are left out**, whoever they belong to, your own
+  included. A visitor without an account is nobody's colleague, so the private
+  flag hides a row from the published table just as it hides it from other
+  members.
 - Sub-pages of the rows are not included.
 
 ## Sharing more than one page

@@ -29,7 +29,8 @@ bottom are all switched off. See [Permissions](permissions.md).
 **An agent writing into the page replaces what you see.** When something writes
 through the API or MCP with `write_content`, in any of its three modes, the
 live document is discarded and your editor reloads the stored content. Unsaved
-keystrokes from the last moment before that are lost. `append` is the default
+keystrokes from the last moment before that do not make it into the new text;
+they are kept in the page's version history. `append` is the default
 mode because it is the one that cannot destroy what is already on the page, not
 because it spares open editors. See [Agents](agents.md).
 
@@ -487,7 +488,7 @@ included; for a whole tree see [Import and export](import-export.md).
 | Video, audio, file | `[name](url)` |
 | Callout | `> 💡 text` (a quote led by its emoji) |
 | Bookmark | a link to the address |
-| Embedded collection | a link to the collection page, labelled `Datenbank` |
+| Embedded collection | a link to the collection page, labelled `Collection` |
 | Table of contents | nothing |
 | Columns | the contents, flattened into one sequence |
 | Page link | `[label](/p/<id>)` |

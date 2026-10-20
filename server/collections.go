@@ -70,7 +70,13 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "invalid JSON")
 		return
 	}
-	if len(body.Schema) == 0 || !json.Valid(body.Schema) || len(body.Views) == 0 || !json.Valid(body.Views) {
+	// Either half may come alone, and the half that was not sent stays as it is
+	// stored. A browser tab saved both on every view change, the schema as it
+	// had loaded it, so changing a column width in a tab opened before an agent
+	// added a property took the property away again.
+	sent := func(raw json.RawMessage) bool { return len(raw) > 0 && string(raw) != "null" }
+	hasSchema, hasViews := sent(body.Schema), sent(body.Views)
+	if (!hasSchema && !hasViews) || (hasSchema && !json.Valid(body.Schema)) || (hasViews && !json.Valid(body.Views)) {
 		httpError(w, 400, "schema and views must be valid JSON")
 		return
 	}
@@ -79,21 +85,25 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "page not found")
 		return
 	}
-	tpl := ""
+	tplCol, tplHolder, tplSet := "", "", ""
+	tplArgs := []any{}
 	if body.NewFromTemplate != nil {
-		// A template that is gone (or never was one) clears the choice rather
-		// than pointing new rows at a dead page.
+		tplCol, tplHolder = ", new_from_template", ", ?"
+		tplSet = ", new_from_template = excluded.new_from_template"
+		tpl := ""
 		if *body.NewFromTemplate != "" {
 			var isTpl int
 			if err := s.db.QueryRow(`SELECT COUNT(*) FROM pages WHERE id = ? AND is_template = 1 AND trashed_at IS NULL`, *body.NewFromTemplate).Scan(&isTpl); err == nil && isTpl > 0 {
 				tpl = *body.NewFromTemplate
 			}
 		}
+		tplArgs = []any{tpl}
 	}
-	// Workflow is optional; when present it is validated against the new
-	// schema before anything is stored. Absent (null) leaves it untouched,
-	// an empty object clears the process.
-	workflowTouched := len(body.Workflow) > 0 && string(body.Workflow) != "null"
+	// Workflow is optional; when present it is validated before anything is
+	// stored. Absent (null) leaves it untouched, an empty object clears the
+	// process. A half update without a schema validates against the stored
+	// one, so a view-only save cannot strand rules pointing nowhere.
+	workflowTouched := sent(body.Workflow)
 	workflowJSON := ""
 	if workflowTouched {
 		var cfg workflowConfig
@@ -104,7 +114,11 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		// An empty object clears the process without further checks.
 		isEmpty := strings.TrimSpace(cfg.StatusPropID) == "" && len(cfg.Rules) == 0
 		if !isEmpty {
-			if err := validateWorkflow(&cfg, parseSchemaProps(string(body.Schema))); err != nil {
+			effSchema := string(body.Schema)
+			if !hasSchema {
+				_ = s.db.QueryRow(`SELECT schema FROM collections WHERE page_id = ?`, id).Scan(&effSchema)
+			}
+			if err := validateWorkflow(&cfg, parseSchemaProps(effSchema)); err != nil {
 				httpError(w, 400, err.Error())
 				return
 			}
@@ -112,17 +126,28 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 			workflowJSON = string(raw)
 		}
 	}
-	sets := "schema = excluded.schema, views = excluded.views"
-	args := []any{id, string(body.Schema), string(body.Views)}
-	if body.NewFromTemplate != nil {
-		sets += ", new_from_template = excluded.new_from_template"
-	}
+	wfCol, wfHolder, wfSet := "", "", ""
+	wfArgs := []any{}
 	if workflowTouched {
-		sets += ", workflow = excluded.workflow"
+		wfCol, wfHolder = ", workflow", ", ?"
+		wfSet = ", workflow = excluded.workflow"
+		wfArgs = []any{workflowJSON}
 	}
-	_, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views, new_from_template, workflow) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(page_id) DO UPDATE SET `+sets,
-		append(args, tpl, workflowJSON)...)
+	var err error
+	switch {
+	case hasSchema && hasViews:
+		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views`+tplCol+wfCol+`) VALUES (?, ?, ?`+tplHolder+wfHolder+`)
+			ON CONFLICT(page_id) DO UPDATE SET schema = excluded.schema, views = excluded.views`+tplSet+wfSet,
+			append(append([]any{id, string(body.Schema), string(body.Views)}, tplArgs...), wfArgs...)...)
+	case hasSchema:
+		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views`+tplCol+wfCol+`) VALUES (?, ?, '[]'`+tplHolder+wfHolder+`)
+			ON CONFLICT(page_id) DO UPDATE SET schema = excluded.schema`+tplSet+wfSet,
+			append(append([]any{id, string(body.Schema)}, tplArgs...), wfArgs...)...)
+	default:
+		_, err = s.db.Exec(`INSERT INTO collections (page_id, schema, views`+tplCol+wfCol+`) VALUES (?, '[]', ?`+tplHolder+wfHolder+`)
+			ON CONFLICT(page_id) DO UPDATE SET views = excluded.views`+tplSet+wfSet,
+			append(append([]any{id, string(body.Views)}, tplArgs...), wfArgs...)...)
+	}
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -136,10 +161,11 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	// view changes it for everyone, and an open view on a second screen kept
 	// drawing the old shape.
 	s.rowsChanged(id)
-	out := map[string]json.RawMessage{"schema": body.Schema, "views": body.Views}
-	var stored string
-	if err := s.db.QueryRow(`SELECT workflow FROM collections WHERE page_id = ?`, id).Scan(&stored); err == nil && strings.TrimSpace(stored) != "" {
-		out["workflow"] = json.RawMessage(stored)
+	var stored struct{ schema, views, workflow string }
+	s.db.QueryRow(`SELECT schema, views, workflow FROM collections WHERE page_id = ?`, id).Scan(&stored.schema, &stored.views, &stored.workflow)
+	out := map[string]json.RawMessage{"schema": json.RawMessage(stored.schema), "views": json.RawMessage(stored.views)}
+	if strings.TrimSpace(stored.workflow) != "" {
+		out["workflow"] = json.RawMessage(stored.workflow)
 	}
 	writeJSON(w, out)
 }
@@ -368,6 +394,27 @@ func (f rowFilter) where() (string, []any) {
 		return "(" + ex + " >= ? AND " + ex + " <= ?)", []any{f.Value, f.Value2}
 	}
 	return "", nil
+}
+
+// privateRowRule is the SQL condition that keeps other people's private rows
+// out of everything that reads a collection's rows. The visibility switch in
+// the page header applies to database rows too. The row list honoured it first;
+// the Markdown export, get_page over MCP, the calendar feed and a publicly
+// shared collection went on reading every row, so a row hidden in the app was
+// readable four other ways. Every reader of rows goes through this now.
+//
+// userID "" is somebody without an account, reading a shared link: no private
+// row at all, whoever owns it. Workspace admins still see everything, the same
+// rule as in forbiddenPrivateAncestor.
+func (s *Server) privateRowRule(userID, colID string) (string, []any) {
+	if userID == "" {
+		return "visibility != 'private'", nil
+	}
+	wsAdmin := 0
+	if s.isWorkspaceAdmin(userID, s.pageWorkspace(colID)) {
+		wsAdmin = 1
+	}
+	return "(? = 1 OR visibility != 'private' OR owner_id = ?)", []any{wsAdmin, userID}
 }
 
 // collectionRowsQuery filters, sorts and paginates a collection's rows in

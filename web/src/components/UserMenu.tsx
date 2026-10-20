@@ -80,7 +80,7 @@ function ProfileModal({
 
   const save = async () => {
     if (pwMismatch) {
-      toast(t('The two new passwords do not match'));
+      toast.warning(t('The two new passwords do not match'));
       return;
     }
     setBusy(true);
@@ -97,7 +97,7 @@ function ProfileModal({
         onChanged(updated);
       }
       onClose();
-      if (pw) toast(t('Password changed — other sessions were signed out'));
+      if (pw) toast.success(t('Password changed — other sessions were signed out'));
     } catch (err) {
       toast((err as Error).message || t('Saving failed'));
     } finally {
@@ -367,15 +367,15 @@ export function ActivityModal({ onClose, pageId, pageTitle }: { onClose: () => v
     try {
       const r = await api.revertChange(id);
       if (r.reverted.length === 0) {
-        toast(t('Nothing was taken back — every value has been changed since.'));
+        toast.info(t('Nothing was taken back — every value has been changed since.'));
       } else if (r.skipped.length > 0) {
-        toast(
+        toast.warning(
           t('{n} taken back, {m} left alone because they changed since.')
             .replace('{n}', String(r.reverted.length))
             .replace('{m}', String(r.skipped.length)),
         );
       } else {
-        toast(t('Taken back.'));
+        toast.success(t('Taken back.'));
       }
     } catch {
       toast(t('That could not be taken back.'));
@@ -552,7 +552,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
     try {
       const res = await api.breakGlass(wsId, reason.trim());
       const until = formatMoment(res.expiresAt, 'time');
-      toast(
+      toast.success(
         t('Read access to “{name}” until {time} — the people in charge have been told.', {
           name: wsName,
           time: until,
@@ -580,7 +580,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
     setError(null);
     try {
       await api.setUserDisabled(u.id, !u.disabled);
-      toast(
+      toast.success(
         u.disabled
           ? t('{name} is active again.', { name: u.name })
           : t('{name} has been deactivated.', { name: u.name }),
@@ -609,7 +609,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
     if (!ok) return;
     try {
       const r = await api.transferOwner(u.id);
-      toast(t('{name} is now the owner of this instance.', { name: r.owner }));
+      toast.success(t('{name} is now the owner of this instance.', { name: r.owner }));
       load();
     } catch (err) {
       setError((err as Error).message);
@@ -999,7 +999,7 @@ function TokensModal({ onClose }: { onClose: () => void }) {
     // Guard the fail-open: "specific workspaces" with nothing picked must not
     // silently create an all-workspaces token (the server rejects it too).
     if (wsMode === 'some' && pickedWs.length === 0) {
-      toast(t('Pick at least one workspace (or “All workspaces”).'));
+      toast.warning(t('Pick at least one workspace (or “All workspaces”).'));
       return;
     }
     const chosen = wsMode === 'some' ? pickedWs : [];

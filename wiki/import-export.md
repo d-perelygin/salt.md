@@ -432,15 +432,13 @@ values appear. Use `query_rows` when the values are the point.
 ### One page as a web page
 
 **⋯ → Web page (.html)** downloads a complete, self-contained HTML document:
-no stylesheet to fetch, no script, real headings, lists and tables. It is the
-format to hand to something that cannot read Markdown.
+no stylesheet to fetch, real headings, lists and tables, and the one small
+script that lays it out in pages (without it the document still reads as one
+flow). It is the format to hand to something that cannot read Markdown.
 
-Block-level addresses are cleaned on the way out: the URL of an image, of a
-file, video or audio block, and of a bookmark becomes `#` unless it is `http`,
-`https` or `mailto`. A link written inside a paragraph is carried over as it
-stands. An exported page is therefore exactly as trustworthy as the page it came
-from: if the content arrived from somewhere you do not control, treat the file
-the same way you would treat the page.
+Every address is cleaned on the way out: the URL of an image, of a file, video
+or audio block, of a bookmark and of a link inside a paragraph becomes `#`
+unless it is `http`, `https`, `mailto` or an address on the instance itself.
 
 The menu item is offered on a database as well, and there it answers with the
 Markdown table instead: the download is a `.md` file. A table is the faithful
@@ -493,7 +491,7 @@ a backup-shaped export. See [the API](api.md).
 | table | a Markdown table; `\|` in a cell is escaped | `<table>` |
 | columns | flattened, side by side | side-by-side `<div>`s |
 | table of contents | nothing; it is built while reading | nothing |
-| embedded database | `[Datenbank](/p/<id>)` | a link to the database page |
+| embedded database | `[Collection](/p/<id>)` | a link to the database page |
 | page link | `[label](/p/<id>)` | a link to `/p/<id>` |
 | underline | `<u>text</u>`; Markdown has none | `<u>` |
 

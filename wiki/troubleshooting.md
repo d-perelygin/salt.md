@@ -450,8 +450,9 @@ your edit may still lose to the replacement: check the version history.
 **The editor reloaded itself in the middle of a sentence.** Something replaced
 the page rather than merging into it: a restored version, an agent writing the
 whole body with `write_content`, an import, or the page being trashed. An edit
-typed in the same second can be lost. `working_on` exists so a person can see an
-agent coming. See [Working at the same time](collaboration.md).
+typed in the same second does not make it into the new text; it is kept in the
+page's version history instead. `working_on` exists so a person can see an agent
+coming. See [Working at the same time](collaboration.md).
 
 **Getting the old text back.** Every path that replaces a page body saves the
 state from before as a version first: an agent's rewrite, an import, and a
@@ -551,9 +552,9 @@ that Notion writes into every database row and reports how many bodies it
 cleaned. It takes the sole database connection, so it will not run alongside a
 live instance.
 
-**Do not ask the binary for its version with a flag.** `salt version` prints it.
-An unrecognised flag is not a subcommand, so the binary starts a second server
-instead, beside the one already running.
+**Use `salt version` to print the version.** An unrecognised command or flag
+prints an error and usage to stderr and exits with status 2, without starting
+a server or opening the database.
 
 **And do not trust the version string to prove a deploy.** A mislabelled build
 reads exactly like a correct one. Check for something the new code has and the

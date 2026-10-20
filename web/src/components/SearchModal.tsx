@@ -273,6 +273,15 @@ export default function SearchModal({
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setSel((s) => Math.max(s - 1, 0));
+    } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && q === '' && workspaces.length > 1) {
+      // Empty query: ←/→ picks the search scope, one workspace at a time.
+      // (With text in the box the arrows move the caret as usual.)
+      e.preventDefault();
+      const ids = [...workspaces].sort((a, b) => compare(a.name, b.name)).map((w) => w.id);
+      const at = picked.length === 1 && ids.includes(picked[0]) ? ids.indexOf(picked[0]) + 1 : 0;
+      const dir = e.key === 'ArrowRight' ? 1 : -1;
+      const next = (at + dir + ids.length + 1) % (ids.length + 1);
+      setPicked(next === 0 ? [] : [ids[next - 1]]);
     } else if (e.key === 'Enter' && items[sel]) {
       openItem(items[sel], e);
     }
@@ -573,6 +582,12 @@ export default function SearchModal({
           <span className="search-footer-key">{modLabel}</span>
           <span className="search-footer-key">↵</span> {t('Open in new tab')}
         </button>
+        {workspaces.length > 1 && (
+          <span className="search-footer-hint">
+            <span className="search-footer-key">←</span>
+            <span className="search-footer-key">→</span> {t('Workspaces')}
+          </span>
+        )}
         <div className="search-settings">
           {settingsOpen && (
             <div className="search-settings-pop">

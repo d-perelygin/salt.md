@@ -493,6 +493,10 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("Authorization", "Bearer "+tok)
 	}
 	u := s.currentUser(r)
+	if u == nil && hasBearer(r) && !s.agentAddressAllowed(r) {
+		s.refuseAgentAddress(w, r)
+		return
+	}
 	if u == nil {
 		// The pointer that makes signing in DISCOVERABLE. Without it a client has
 		// no way to learn this server has an authorization server at all, and
@@ -830,17 +834,18 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 		parentID = *args.ParentID
 	}
 
-	// A workspace-scoped API token narrows access further: even pages the user
-	// could otherwise reach are invisible if they live outside the token's scope.
-	// This covers every tool that names a page or a parent, including a move's
-	// destination (checked against the parent workspace).
-	if u.TokenWorkspaces != nil {
-		if args.PageID != "" && !s.credentialMayEnter(u, s.pageWorkspace(args.PageID)) {
-			return "", fmt.Errorf("page %q not found", args.PageID)
-		}
-		if parentID != "" && !s.credentialMayEnter(u, s.pageWorkspace(parentID)) {
-			return "", fmt.Errorf("parent page %q not found", parentID)
-		}
+	// The credential narrows access further: a workspace-scoped token sees no
+	// page outside its scope, and a workspace whose rule keeps agents out (or
+	// admits only signed-in ones) is closed to it even when the person could
+	// read every page there. This covers every tool that names a page or a
+	// parent, including a move's destination (checked against the parent
+	// workspace). It used to run for scoped tokens only, so an unrestricted
+	// token read and wrote pages in a workspace closed to agents.
+	if args.PageID != "" && !s.credentialMayEnter(u, s.pageWorkspace(args.PageID)) {
+		return "", fmt.Errorf("page %q not found", args.PageID)
+	}
+	if parentID != "" && !s.credentialMayEnter(u, s.pageWorkspace(parentID)) {
+		return "", fmt.Errorf("parent page %q not found", parentID)
 	}
 
 	run := func() (string, error) {
@@ -878,7 +883,7 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 				return "", err
 			}
 			if p.Type == "collection" {
-				md, err := s.collectionMarkdown(p)
+				md, err := s.collectionMarkdown(p, userID)
 				if err != nil {
 					return "", err
 				}
@@ -1356,7 +1361,7 @@ func (s *Server) appendBlockJSON(pageID, blockJSON string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE pages SET content = ?, updated_at = ? WHERE id = ?`, string(merged), now(), pageID); err != nil {
+	if _, err := tx.Exec(`UPDATE pages SET content = ?, updated_at = ?, `+bumpDocGen+` WHERE id = ?`, string(merged), now(), pageID); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

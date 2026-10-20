@@ -28,7 +28,7 @@ function ConfBlock({ title, text }: { title: string; text: string }) {
           className="btn-sm"
           onClick={() => {
             void navigator.clipboard?.writeText(text);
-            toast(t('Copied'));
+            toast.success(t('Copied'));
           }}
         >
           {t('Copy')}
@@ -60,6 +60,8 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
     pageNums: true, comments: false, links: true, landscape: false,
   });
   const [allowUserWs, setAllowUserWs] = useState(true);
+  // Agent keys from listed addresses only (server/agent_addresses.go).
+  const [agentAddr, setAgentAddr] = useState({ on: false, list: '', anthropic: '' });
   const [passSet, setPassSet] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -118,6 +120,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
           comments: v.pdfComments, links: v.pdfLinks, landscape: v.pdfLandscape,
         });
         setAllowUserWs(v.allowUserWorkspaces !== false);
+        setAgentAddr({ on: v.agentAddressesOn, list: v.agentAddresses, anthropic: v.anthropicAddresses });
         setHttpsEnabled(v.httpsEnabled);
         setOauthSet({ google: v.googleSecretSet, ms: v.msSecretSet, oidc: v.oidcSecretSet });
         setMail({ provider: v.mailProvider, address: v.mailAddress });
@@ -129,7 +132,8 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
 
   // Instance info lazily when the maintenance tab opens.
   useEffect(() => {
-    if (tab === 'maintenance' && !info) void api.adminInfo().then(setInfo).catch(() => {});
+    // The access tab shows the admin's own address beside the agent list.
+    if ((tab === 'maintenance' || tab === 'access') && !info) void api.adminInfo().then(setInfo).catch(() => {});
     if (tab === 'webhooks' && hooks === null) void api.webhooks().then(setHooks).catch(() => setHooks([]));
   }, [tab, info, hooks]);
 
@@ -158,9 +162,8 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
     setPruning(true);
     try {
       const r = await api.auditPrune();
-      // Reported beside the button, not through toast(): that channel is the
-      // app's failure feedback and hard-wires a warning sign, so a successful
-      // clean-up came up in red with a ⚠ in front of it.
+      // Reported beside the button, not through toast(): the result stays
+      // visible next to the action instead of fading away after seconds.
       setPruned(r.removed);
     } catch (e) {
       toast((e as Error).message || t('Clean-up failed'));
@@ -187,7 +190,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
     setMailBusy(true);
     try {
       const r = await api.mailTest();
-      toast(t('Test mail sent to {address} ✓', { address: r.to }));
+      toast.success(t('Test mail sent to {address} ✓', { address: r.to }));
     } catch (e) {
       toast((e as Error).message || t('Test failed'));
     } finally {
@@ -198,7 +201,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
     try {
       await api.mailDisconnect();
       setMail({ provider: '', address: '' });
-      toast(t('Mail connection disconnected'));
+      toast.success(t('Mail connection disconnected'));
     } catch (e) {
       toast((e as Error).message || t('Disconnecting failed'));
     }
@@ -229,6 +232,8 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
         pdfLinks: pdf.links,
         pdfLandscape: pdf.landscape,
         allowUserWorkspaces: allowUserWs,
+        agentAddressesOn: agentAddr.on,
+        agentAddresses: agentAddr.list,
         maxUploadMb: num('maxUploadMb', 1, 2048),
         trashDays: num('trashDays', 0, 3650),
         auditDays: num('auditDays', 0, 3650),
@@ -245,7 +250,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
         oidcClientSecret: s.oidcClientSecret,
         oidcName: s.oidcName,
       });
-      toast(t('Settings saved'));
+      toast.success(t('Settings saved'));
       onClose();
     } catch (e) {
       toast((e as Error).message || t('Saving failed'));
@@ -459,6 +464,51 @@ ingress:
                       <label>{t('Button label')}</label>
                       <input className="prop-input" placeholder="SSO" value={s.oidcName} onChange={(e) => set('oidcName', e.target.value)} />
                     </div>
+                    <h3>{t('Agent keys')}</h3>
+                    <label className="check-label">
+                      <input
+                        type="checkbox"
+                        checked={agentAddr.on}
+                        onChange={(e) => setAgentAddr({ ...agentAddr, on: e.target.checked })}
+                      />
+                      {t('Accept agent keys only from these addresses')}
+                    </label>
+                    <p className="dialog-hint settings-hint">
+                      {t(
+                        'Covers every API token and every connected agent, over MCP and over the REST API. Signing in with a browser, the desktop app, public links, forms and calendar feeds are not affected. One address or network per line; # starts a comment.',
+                      )}
+                    </p>
+                    <textarea
+                      className="prop-input agent-addresses"
+                      rows={4}
+                      spellCheck={false}
+                      value={agentAddr.list}
+                      placeholder={agentAddr.anthropic}
+                      onChange={(e) => setAgentAddr({ ...agentAddr, list: e.target.value })}
+                    />
+                    <div className="agent-addresses-actions">
+                      <button
+                        className="btn-sm"
+                        disabled={agentAddr.list.includes(agentAddr.anthropic)}
+                        onClick={() => {
+                          const line = `${agentAddr.anthropic}  # Anthropic (Claude)`;
+                          const list = agentAddr.list.trimEnd();
+                          setAgentAddr({ ...agentAddr, list: list ? `${list}\n${line}` : line });
+                        }}
+                      >
+                        {t('Add Anthropic (Claude)')}
+                      </button>
+                      {info && (
+                        <span className="dialog-hint">
+                          {t('Your address, as the server sees it:')} <code>{info.yourIp}</code>
+                        </span>
+                      )}
+                    </div>
+                    <p className="dialog-hint settings-hint">
+                      {t(
+                        'Claude in the browser and in the desktop app calls from Anthropic’s addresses. Claude Code and other agents running on your own computer call from your address, so add that too if you use them.',
+                      )}
+                    </p>
                   </>
                 )}
 
@@ -500,14 +550,14 @@ ingress:
                           <a
                             className={'btn' + (oauthSet.google ? '' : ' btn-disabled')}
                             href={oauthSet.google ? '/api/admin/mail-oauth/google/start' : undefined}
-                            onClick={(e) => { if (!oauthSet.google) { e.preventDefault(); toast(t('Set up Google OAuth on the Access tab first')); } }}
+                            onClick={(e) => { if (!oauthSet.google) { e.preventDefault(); toast.warning(t('Set up Google OAuth on the Access tab first')); } }}
                           >
                             {t('Connect with Google')}
                           </a>
                           <a
                             className={'btn' + (oauthSet.ms ? '' : ' btn-disabled')}
                             href={oauthSet.ms ? '/api/admin/mail-oauth/microsoft/start' : undefined}
-                            onClick={(e) => { if (!oauthSet.ms) { e.preventDefault(); toast(t('Set up Microsoft OAuth on the Access tab first')); } }}
+                            onClick={(e) => { if (!oauthSet.ms) { e.preventDefault(); toast.warning(t('Set up Microsoft OAuth on the Access tab first')); } }}
                           >
                             {t('Connect with Microsoft')}
                           </a>
@@ -548,7 +598,7 @@ ingress:
                           <>
                             {t('Publicly reachable:')}&nbsp;
                             <a href={pa.url} target="_blank" rel="noreferrer">{pa.url}</a>
-                            <button className="btn-sm" onClick={() => { void navigator.clipboard?.writeText(pa.url); toast(t('Link copied')); }}>{t('Copy')}</button>
+                            <button className="btn-sm" onClick={() => { void navigator.clipboard?.writeText(pa.url); toast.success(t('Link copied')); }}>{t('Copy')}</button>
                           </>
                         )}
                         {pa.status === 'running' && pa.mode === 'token' && (
@@ -915,9 +965,9 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
   const copyUrl = async (text: string) => {
     try {
       await navigator.clipboard?.writeText(text);
-      toast(t('Link copied'));
+      toast.success(t('Link copied'));
     } catch {
-      toast(t('Copy failed — select the link manually'));
+      toast.warning(t('Copy failed — select the link manually'));
     }
   };
   const reload = async () => {
@@ -935,7 +985,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
       await api.icsFeedCreate(s.kind, s.id, s.viewId ?? '', newName.trim() || fallbackName, dateProp);
       setNewName('');
       await reload();
-      toast(t('Subscription created — copy its link below'));
+      toast.success(t('Subscription created — copy its link below'));
     } catch (e) {
       toast((e as Error).message || t('Could not be created'));
     }
@@ -944,7 +994,7 @@ export function CalendarSubModal({ onClose }: { onClose: () => void }) {
     if (!window.confirm(t('Revoke this subscription? Its link stops working at once.'))) return;
     await api.icsFeedDelete(id);
     await reload();
-    toast(t('Subscription revoked') + (name ? `: ${name}` : ''));
+    toast.success(t('Subscription revoked') + (name ? `: ${name}` : ''));
   };
   const updateFeed = async (id: string, patch: { pastDays?: number }) => {
     try {
@@ -1221,7 +1271,7 @@ export function TwoFAModal({ onClose }: { onClose: () => void }) {
       setStatus(true);
       setSetup(null);
       setCode('');
-      toast(t('2FA enabled'));
+      toast.success(t('2FA enabled'));
     } catch {
       setError(t('Wrong code'));
     }
@@ -1232,7 +1282,7 @@ export function TwoFAModal({ onClose }: { onClose: () => void }) {
       await api.twoFADisable(code);
       setStatus(false);
       setCode('');
-      toast(t('2FA disabled'));
+      toast.success(t('2FA disabled'));
     } catch {
       setError(t('Wrong code'));
     }

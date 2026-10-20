@@ -476,6 +476,14 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "pages", "thumb", `thumb TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate pages.thumb: %w", err)
 	}
+	// The generation of the live document. Every write that REPLACES the body
+	// from outside the editor (API, MCP, restore, import) moves it, in the same
+	// statement as the content, and resets the CRDT doc. An editor's copy names
+	// the generation it descends from, so the server can refuse a copy of a
+	// document that has since been replaced (#79). See docgen.go.
+	if err := ensureColumn(db, "pages", "doc_gen", `doc_gen INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return nil, fmt.Errorf("migrate pages.doc_gen: %w", err)
+	}
 	// API token workspace scope (empty = all the user's workspaces; else a
 	// comma-separated allow-list of workspace ids the token may reach).
 	if err := ensureColumn(db, "api_tokens", "workspace_scope", `workspace_scope TEXT NOT NULL DEFAULT ''`); err != nil {

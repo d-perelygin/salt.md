@@ -106,9 +106,10 @@ sub-page would hang in the tree with no visible parent. Expanding a collection
 in the sidebar loads up to 50 rows on demand and shows them there.
 
 **A private row is invisible to everyone else.** The lock in the page header
-works on rows too. The row list applies it: a row set to private is filtered out
-of the table, the board and the count for every other member. Workspace admins
-still see everything. See [Permissions](permissions.md).
+works on rows too. A row set to private is filtered out of the table, the board
+and the count for every other member, and just as much out of the Markdown
+export, the calendar feed, `get_page` for agents and a published collection.
+Workspace admins still see everything. See [Permissions](permissions.md).
 
 ### The property panel on a row
 

@@ -12,12 +12,6 @@ import (
 // API existed and the share URL fell through to the app shell, which showed a
 // login screen to anonymous visitors. Password-protected shares render a
 // minimal form that POSTs back to the same URL.
-
-// The standalone password gate for server-rendered document shares. It
-// mirrors the SPA lock dialog (PublicCollection) so a password prompt looks
-// the same on every public link: centered card, lock heading, full-width
-// password field and green Open button, with a dark mode. Documents keep the
-// working no-JS POST flow — only the look matches the app.
 func sharePasswordForm(token string, wrong bool) string {
 	msg := ""
 	if wrong {
@@ -95,9 +89,20 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		// the gate script records the failure and does not loop it.
 		password = publicPassword(r)
 	}
-	pageID, needPW, pwOK, found := s.resolveShare(token, password)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Robots-Tag", "noindex")
+	// Stop sharing has to end the page everywhere at once. Without a word on
+	// caching, a proxy or the tunnel's edge may keep a copy of a page whose link
+	// was revoked, which is exactly the report in #68.
+	w.Header().Set("Cache-Control", "private, no-store")
+	// Before the comparison, so a guess past the limit costs nothing and tells
+	// nothing, the right password included.
+	if password != "" && !s.sharePwRate.allow(sharePwKey(token, s.clientIP(r))) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(sharePasswordForm(token, true)))
+		return
+	}
+	pageID, needPW, pwOK, found := s.resolveShare(token, password)
 	if !found {
 		w.WriteHeader(404)
 		w.Write([]byte(`<!doctype html><html><head><meta charset="utf-8"><title>salt.md</title><style>` + htmlDocStyle + `</style></head><body><h1>Not found</h1><p>This link is invalid or has expired.</p></body></html>`))
@@ -130,14 +135,16 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sharePasswordForm(token, wrong)))
 		return
 	}
-	w.Write([]byte(s.pageHTML(p, false, s.printOptionsFor(p), &pubView{Token: token, View: publicDocView(r), AutoPrint: r.URL.Query().Get("print") == "1"})))
+	opts := publicPrintOptions(s.printOptionsFor(p))
+	docCSP(w, &opts)
+	w.Write([]byte(s.pageHTML(p, false, opts, &pubView{Token: token, View: publicDocView(r), AutoPrint: r.URL.Query().Get("print") == "1"})))
 	// A ?pw= address that just opened must not keep the secret in the bar,
 	// and the tab should remember it like the gates do: the server verified
 	// it to render this page, so staging it into session storage is exact —
 	// a reload reopens through the gate script without asking again.
 	if r.Method != http.MethodPost && password != "" {
 		if pwJSON, err := json.Marshal(password); err == nil {
-			w.Write([]byte(`<script>(function(){try{` +
+			w.Write([]byte(`<script nonce="` + opts.Nonce + `">(function(){try{` +
 				`var m=location.pathname.match(/^\/public\/([a-f0-9]+)$/);if(!m)return;` +
 				`var k='salt:share-pw:'+m[1];` +
 				`try{sessionStorage.setItem(k,` + string(pwJSON) + `);sessionStorage.removeItem(k+':failed')}catch(e){}` +
@@ -163,4 +170,29 @@ func (s *Server) servePublicAppShell(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Robots-Tag", "noindex")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(b)
+
+}
+
+// publicPrintOptions trims the print view down to what an anonymous visitor
+// may read. The signed-in print view renders every optional part and hides the
+// unchosen ones by class, so its side panel can switch them on without asking
+// the server. A visitor has no panel, so a hidden part is only data sitting in
+// the source: every comment on the page with its author's name, and the names
+// of the workspace and the instance. The names go out only when the house style
+// actually shows them, on a cover. Comments never do: a discussion about a page
+// is not part of what was published.
+func publicPrintOptions(o printOptions) printOptions {
+	o.Comments = false
+	o.CommentL = nil
+	if !o.Cover || !o.Workspace {
+		o.WSName, o.Instance = "", ""
+	}
+	return o
+}
+
+// sharePwKey keys the password limit by link and address together: by address
+// alone one guesser would lock everybody behind the same proxy out of every
+// protected page, by link alone a stranger could lock the link for everyone.
+func sharePwKey(token, ip string) string {
+	return tokenHash(token)[:16] + "|" + ip
 }

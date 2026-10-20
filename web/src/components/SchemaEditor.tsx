@@ -71,9 +71,12 @@ export default function SchemaEditor({
   collections,
   onSave,
   onClose,
+  initialTab,
 }: {
   config: CollectionConfig;
   collections?: { id: string; title: string }[];
+  /** Which tab the dialog opens on — the block toast jumps straight in. */
+  initialTab?: 'props' | 'process';
   onSave: (c: CollectionConfig) => Promise<void>;
   onClose: () => void;
 }) {
@@ -81,7 +84,7 @@ export default function SchemaEditor({
   const [dragProperty, setDragProperty] = useState<string | null>(null);
   const [dropProperty, setDropProperty] = useState<{ id: string; after: boolean } | null>(null);
   const [views, setViews] = useState<ViewDef[]>(config.views);
-  const [tab, setTab] = useState<'props' | 'process'>('props');
+  const [tab, setTab] = useState<'props' | 'process'>(initialTab ?? 'props');
   // Lightweight process: absent = no rules. The status defaults to the first
   // select property so opening the tab never shows a dead picker.
   const [workflow, setWorkflow] = useState<WorkflowConfig | undefined>(config.workflow);

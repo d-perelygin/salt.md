@@ -47,6 +47,28 @@
 - `vite build` and `go build` must run from the repo root for the binary to
   embed the fresh `web/dist` (running them under `web/` builds nothing Go).
 
+## Upstream / merge workflow (user conventions)
+
+- Questionable changes are never pushed without the user: collect open
+  questions and decide together (usually in the morning); keep them out of PRs.
+- Deploy only on explicit request, through the separate deploy session.
+- One commit per fix; commit named files only, never `git add -A` (it once
+  staged committed conflict markers).
+- Scratch dirs as `tmp/` inside the working dir, never `/tmp`.
+- Take as much as possible from upstream; strip em-dash churn from new PRs and
+  keep new prose in repo style. Never resurrect what the fork removed on
+  purpose (`es.json`).
+- Verify by execution: `go test`, `npm run check`, seed/shoot screenshots,
+  CI status of every PR.
+- When pulling upstream, the user's first attention is UX/UI: what changed
+  visually and behaviorally. Present review lists split by kind (visual /
+  experiential / security).
+- Stack order: timeline (#64) first, calendar (#75) on top, shared code in one
+  module (`viewSpan.tsx`, `SpanMode`, `formatMonthYear`).
+- Backports: adapt tests to fork infrastructure (named feeds, SPA shell) and
+  prove fail-before/pass-after for each regression test.
+- Never touch others' state: foreign stashes, ports, sibling worktrees.
+
 ## Agent skills
 
 ### Issue tracker

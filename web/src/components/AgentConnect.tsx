@@ -185,7 +185,7 @@ export default function AgentConnectModal({
       const chosen = wsScope === 'current' && currentWs ? [currentWs] : [];
       const res = await api.createToken('agent', scope, chosen);
       setToken(res.token);
-      toast(t('Token created — shown only once'));
+      toast.success(t('Token created — shown only once'));
     } catch (e) {
       toast((e as Error).message || t('The token could not be created'));
     } finally {
@@ -197,7 +197,7 @@ export default function AgentConnectModal({
   const copy = () => {
     void navigator.clipboard?.writeText(snippet);
     setCopied(true);
-    toast(t('Setup copied'));
+    toast.success(t('Setup copied'));
     setTimeout(() => setCopied(false), 1500);
   };
 
@@ -250,7 +250,7 @@ export default function AgentConnectModal({
           <div className="agent-token">
             {token ? (
               <div className="agent-token-fresh">
-                <code onClick={() => { void navigator.clipboard?.writeText(token); toast(t('Token copied')); }}>{token}</code>
+                <code onClick={() => { void navigator.clipboard?.writeText(token); toast.success(t('Token copied')); }}>{token}</code>
                 <span className="dialog-hint">{t('Visible only now — already filled into the snippet below.')}</span>
               </div>
             ) : (
