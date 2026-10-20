@@ -21,7 +21,7 @@ func sharePasswordForm(token string, notice string) string {
 	}
 	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>salt.md: protected page</title><style>` + htmlDocStyle + `</style></head><body>` +
 		`<h1>🔒 Protected page</h1><p>This page is protected by a password.</p>` + msg +
-		`<form method="post" action="/public/` + html.EscapeString(token) + `">` +
+		`<form id="pwform" method="post" action="/public/` + html.EscapeString(token) + `">` +
 		`<input type="password" name="pw" placeholder="Password" autofocus style="padding:9px 11px;border:1px solid #ddd;border-radius:8px;font-size:15px"> ` +
 		`<button type="submit" style="padding:9px 14px;border:none;border-radius:8px;background:#2f7d4f;color:#fff;font-size:15px;cursor:pointer">Open</button>` +
 		`</form></body></html>`
@@ -62,8 +62,10 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if needPW && !pwOK {
+		// A wrong password redisplays the gate with the error: a POST that
+		// failed, or a ?pw= address that did.
 		notice := ""
-		if submitted {
+		if submitted || (r.Method != http.MethodPost && password != "") {
 			w.WriteHeader(403)
 			notice = "Wrong password."
 		}
@@ -84,18 +86,6 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		// redirects back to GET and drops the password, so a correct password
 		// looped forever. Collections always get the shell, password or not.
 		s.servePublicAppShell(w, r)
-		return
-	}
-	if needPW && !pwOK {
-		// A wrong password redisplays the gate with the error: a POST that
-		// failed, or a ?pw= address that did. The script records the latter
-		// so it is not retried in a loop.
-		notice := ""
-		if submitted || (r.Method != http.MethodPost && password != "") {
-			w.WriteHeader(403)
-			notice = "Wrong password."
-		}
-		w.Write([]byte(sharePasswordForm(token, notice)))
 		return
 	}
 	opts := publicPrintOptions(s.printOptionsFor(p))
