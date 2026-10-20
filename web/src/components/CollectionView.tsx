@@ -25,8 +25,6 @@ import type {
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
 import { openPage, openPageAux } from '../pageOpen';
 import { ModePicker, useSettingsHint } from '../viewSpan';
-import AnchoredMenu from './AnchoredMenu';
-import { useMenuDismiss } from '../modal';
 import { AgentDot } from './AgentBadge';
 import { planCard, isBlank, zoneOf, contactKind, needsLabel } from '../cardLayout';
 import SchemaEditor from './SchemaEditor';
