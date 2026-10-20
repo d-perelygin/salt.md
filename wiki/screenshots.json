@@ -80,7 +80,7 @@
       ],
       "takenAt": {
         "web/src/components/Sidebar.tsx": "e0b23759da3c",
-        "web/src/components/Editor.tsx": "f0b321fd5422",
+        "web/src/components/Editor.tsx": "1634f5dca7bd",
         "web/src/App.tsx": "01670467188c",
         "web/src/theme.css": "b1c3dece61ce"
       }
@@ -141,7 +141,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Editor.tsx": "f0b321fd5422",
+        "web/src/components/Editor.tsx": "1634f5dca7bd",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -456,7 +456,7 @@
       ],
       "takenAt": {
         "server/public.go": "4443a5311527",
-        "web/src/components/Editor.tsx": "f0b321fd5422",
+        "web/src/components/Editor.tsx": "1634f5dca7bd",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -585,7 +585,7 @@
       ],
       "takenAt": {
         "web/src/components/AgentConnect.tsx": "e9f21eada0c2",
-        "server/mcp.go": "c217852b4e04",
+        "server/mcp.go": "b06c860d8c76",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"
