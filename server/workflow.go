@@ -226,13 +226,31 @@ func checklistDone(props map[string]json.RawMessage, key string) bool {
 	return true
 }
 
+// schemaIndex keys schema properties by id for the transition checks below.
+func schemaIndex(raw string) map[string]PropSchema {
+	idx := map[string]PropSchema{}
+	for _, p := range parseSchemaProps(raw) {
+		idx[p.ID] = p
+	}
+	return idx
+}
+
+// propName is the human name for 409 reasons, falling back to the id when
+// the property is gone (stale rule pointing at a deleted column).
+func propName(schemas map[string]PropSchema, id string) string {
+	if p, ok := schemas[id]; ok && p.Name != "" {
+		return p.Name
+	}
+	return id
+}
+
 // checkWorkflowTransition enforces allow-list + precondition + asked-for
 // fields for a status move. merged holds the row AFTER the incoming patch is
 // applied, patch holds only what this request carries: `always` answers must
 // arrive in the request, `if_empty` ones may already be on the row.
 // It returns the matching rules and auto-apply property updates (set_prop,
 // set_today, assign_me) plus webhook URLs to fire after commit.
-func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch map[string]json.RawMessage, actorID string, names map[string]string) (matched []workflowRule, auto map[string]any, hooks []string, reason string) {
+func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch map[string]json.RawMessage, actorID string, schemas map[string]PropSchema) (matched []workflowRule, auto map[string]any, hooks []string, reason string) {
 	auto = map[string]any{}
 	for _, r := range cfg.Rules {
 		if r.When.Type != "status_to" || r.When.To != to {
@@ -265,10 +283,7 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 		for _, a := range r.Do {
 			switch a.Type {
 			case "require_prop":
-				name := names[a.Prop]
-				if name == "" {
-					name = a.Prop
-				}
+				name := propName(schemas, a.Prop)
 				if a.Mode == "always" {
 					if !propNonEmpty(patch, a.Prop) {
 						reason = fmt.Sprintf("fill in %s before moving", name)
@@ -286,6 +301,17 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 				var v any
 				if len(a.Value) > 0 {
 					_ = json.Unmarshal(a.Value, &v)
+				}
+				// A relative day ("today+7d") resolves at the moment the rule
+				// fires, borrowing the filter words' grammar (see smartdate.go).
+				// Anything else — including a bad word — is stored as written,
+				// and the reader sees the cell exactly as typed.
+				if str, ok := v.(string); ok {
+					if p, found := schemas[a.Prop]; found && p.Type == "date" {
+						if day, ok := resolveSmartDate(str, time.Now().UTC()); ok {
+							v = day
+						}
+					}
 				}
 				auto[a.Prop] = v
 			case "set_today":
@@ -309,7 +335,7 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 // so there is no allow-list; preconditions and asked-for fields are enforced
 // against the row as it will stand (merged) and the values this write carries
 // (patch), exactly like on a transition.
-func checkWorkflowCreation(cfg *workflowConfig, merged, patch map[string]json.RawMessage, actorID string, names map[string]string) (matched []workflowRule, auto map[string]any, hooks []string, reason string) {
+func checkWorkflowCreation(cfg *workflowConfig, merged, patch map[string]json.RawMessage, actorID string, schemas map[string]PropSchema) (matched []workflowRule, auto map[string]any, hooks []string, reason string) {
 	auto = map[string]any{}
 	for _, r := range cfg.Rules {
 		if r.When.Type != "created" {
@@ -329,10 +355,7 @@ func checkWorkflowCreation(cfg *workflowConfig, merged, patch map[string]json.Ra
 		for _, a := range r.Do {
 			switch a.Type {
 			case "require_prop":
-				name := names[a.Prop]
-				if name == "" {
-					name = a.Prop
-				}
+				name := propName(schemas, a.Prop)
 				if a.Mode == "always" {
 					if !propNonEmpty(patch, a.Prop) {
 						reason = fmt.Sprintf("fill in %s to create", name)
@@ -350,6 +373,17 @@ func checkWorkflowCreation(cfg *workflowConfig, merged, patch map[string]json.Ra
 				var v any
 				if len(a.Value) > 0 {
 					_ = json.Unmarshal(a.Value, &v)
+				}
+				// A relative day ("today+7d") resolves at the moment the rule
+				// fires, borrowing the filter words' grammar (see smartdate.go).
+				// Anything else — including a bad word — is stored as written,
+				// and the reader sees the cell exactly as typed.
+				if str, ok := v.(string); ok {
+					if p, found := schemas[a.Prop]; found && p.Type == "date" {
+						if day, ok := resolveSmartDate(str, time.Now().UTC()); ok {
+							v = day
+						}
+					}
 				}
 				auto[a.Prop] = v
 			case "set_today":

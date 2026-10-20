@@ -3,6 +3,7 @@ import Portal from './components/Portal';
 import { t } from './i18n';
 import type { PromptField } from './workflow';
 import { SelectCell } from './components/PropertyValue';
+import WorkflowDateInput from './components/WorkflowDateInput';
 import type { PropDef } from './types';
 
 // In-app confirm / prompt dialogs (replacing native window.confirm/prompt,
@@ -154,11 +155,9 @@ export function DialogHost() {
                         />
                       )
                     ) : f.kind === 'date' ? (
-                      <input
-                        type="date"
-                        className="prop-input"
-                        value={(answers[f.key] as string) ?? ''}
-                        onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
+                      <WorkflowDateInput
+                        value={answers[f.key]}
+                        onChange={(v) => setAnswers((p) => ({ ...p, [f.key]: v }))}
                       />
                     ) : f.kind === 'person' ? (
                       <select

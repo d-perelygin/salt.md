@@ -316,15 +316,12 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 		var schemaRaw, workflowRaw string
 		if err := s.db.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, *body.ParentID).Scan(&schemaRaw, &workflowRaw); err == nil {
 			if cfg := parseWorkflow(workflowRaw); cfg != nil {
-				names := map[string]string{}
-				for _, p := range parseSchemaProps(schemaRaw) {
-					names[p.ID] = p.Name
-				}
+				schemas := schemaIndex(schemaRaw)
 				merged := map[string]json.RawMessage{}
 				json.Unmarshal([]byte(props), &merged)
 				patch := map[string]json.RawMessage{}
 				json.Unmarshal([]byte(props), &patch)
-				_, auto, hooks, reason := checkWorkflowCreation(cfg, merged, patch, userID, names)
+				_, auto, hooks, reason := checkWorkflowCreation(cfg, merged, patch, userID, schemas)
 				if reason != "" {
 					httpError(w, 409, reason)
 					return
@@ -719,14 +716,11 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 			var schemaRaw, workflowRaw string
 			if err := tx.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, parentID).Scan(&schemaRaw, &workflowRaw); err == nil {
 				if cfg := parseWorkflow(workflowRaw); cfg != nil {
-					names := map[string]string{}
-					for _, p := range parseSchemaProps(schemaRaw) {
-						names[p.ID] = p.Name
-					}
+					schemas := schemaIndex(schemaRaw)
 					newStatus := propString(merged, cfg.StatusPropID)
 					oldStatus := propString(before, cfg.StatusPropID)
 					if newStatus != oldStatus && newStatus != "" {
-						_, auto, hooks, reason := checkWorkflowTransition(cfg, oldStatus, newStatus, merged, patch, requestUser(r).ID, names)
+						_, auto, hooks, reason := checkWorkflowTransition(cfg, oldStatus, newStatus, merged, patch, requestUser(r).ID, schemas)
 						if reason != "" {
 							httpError(w, 409, reason)
 							return
@@ -801,16 +795,13 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 		var aschema, aworkflow string
 		if err := tx.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, arrivalParent).Scan(&aschema, &aworkflow); err == nil {
 			if cfg := parseWorkflow(aworkflow); cfg != nil {
-				names := map[string]string{}
-				for _, p := range parseSchemaProps(aschema) {
-					names[p.ID] = p.Name
-				}
+				aschemas := schemaIndex(aschema)
 				u := requestUser(r)
 				if before != nil {
 					from := propString(before, cfg.StatusPropID)
 					to := propString(merged, cfg.StatusPropID)
 					if from != to && to != "" {
-						_, auto, hooks, reason := checkWorkflowTransition(cfg, from, to, merged, patch, u.ID, names)
+						_, auto, hooks, reason := checkWorkflowTransition(cfg, from, to, merged, patch, u.ID, aschemas)
 						if reason != "" {
 							httpError(w, 409, reason)
 							return
@@ -825,7 +816,7 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 						workflowEvent = "workflow.transition:" + to
 					}
 				}
-				_, auto, hooks, reason := checkWorkflowCreation(cfg, merged, patch, u.ID, names)
+				_, auto, hooks, reason := checkWorkflowCreation(cfg, merged, patch, u.ID, aschemas)
 				if reason != "" {
 					httpError(w, 409, reason)
 					return

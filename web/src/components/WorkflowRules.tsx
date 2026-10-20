@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowRule } from '../types';
 import { t } from '../i18n';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
+import WorkflowDateInput from './WorkflowDateInput';
 import {
   analyzeWorkflow,
   describeAutoActions,
@@ -18,9 +19,9 @@ function emptyRule(firstOpt: string): WorkflowRule {
   return {
     id: newRuleId(),
     when: { type: 'status_to', to: firstOpt },
-    // A fresh action starts blank, like in Shortcuts — the reader picks the
-    // kind and its target. Blank actions simply do not travel on save.
-    do: [{ type: 'set_today', prop: '' }],
+    // A fresh rule carries one blank action, like in Shortcuts — the reader
+    // picks the kind and its target. Blank actions do not travel on save.
+    do: [{ type: 'set_prop', prop: '', value: '' }],
   };
 }
 
@@ -272,11 +273,7 @@ export default function WorkflowRules({
                       const at = e.target.value as WorkflowAction['type'];
                       if (!at) return;
                       const prop =
-                        at === 'set_today'
-                          ? schema.find((p) => p.type === 'date')?.id ?? ''
-                          : at === 'assign_me'
-                            ? schema.find((p) => p.type === 'person')?.id ?? ''
-                            : '';
+                        at === 'assign_me' ? schema.find((p) => p.type === 'person')?.id ?? '' : '';
                       const next: WorkflowAction =
                         at === 'webhook'
                           ? { type: 'webhook', url: '' }
@@ -292,7 +289,6 @@ export default function WorkflowRules({
                   >
                     <option value="">{t('+ Add action')}</option>
                     <option value="set_prop">{t('Set a property')}</option>
-                    <option value="set_today">{t('Stamp today')}</option>
                     <option value="assign_me">{t('Assign me')}</option>
                     <option value="require_prop">{t('Ask for a property')}</option>
                     <option value="require_comment">{t('Ask for a comment')}</option>
@@ -621,14 +617,7 @@ function SetValueInput({
     );
   }
   if (def.type === 'date') {
-    return (
-      <input
-        type="date"
-        className="prop-input"
-        value={typeof value === 'string' ? value : ''}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    );
+    return <WorkflowDateInput value={value} onChange={onChange} />;
   }
   if (def.type === 'person') {
     // Person cells always hold a list, single or not — store the same shape.

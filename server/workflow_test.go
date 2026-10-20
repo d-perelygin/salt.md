@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The workflow guard: a status move the rules forbid is a 409, an allowed one
@@ -126,6 +127,28 @@ func TestWorkflowGuardEndToEnd(t *testing.T) {
 	}
 	if m["closed"] == nil || m["closed"] == "" {
 		t.Fatalf("set_today action did not stamp the date: %v", m)
+	}
+}
+
+func TestWorkflowRelativeDateResolvesAtFireTime(t *testing.T) {
+	s, cookie, row := workflowFixture(t)
+	var col string
+	if err := s.db.QueryRow(`SELECT parent_id FROM pages WHERE id = ?`, row).Scan(&col); err != nil {
+		t.Fatal(err)
+	}
+	// A relative word in a set_prop is resolved when the rule fires, not when
+	// it is saved: the stored day is absolute.
+	wf := `{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"b","name":"B"}]},{"id":"closed","name":"Closed","type":"date"}],"views":[],"workflow":{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"status_to","to":"b"},"do":[{"type":"set_prop","prop":"closed","value":"today+7d"}]}]}}`
+	if rec := putWorkflow(t, s, cookie, col, wf); rec.Code != 200 {
+		t.Fatalf("PUT workflow: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := patchStatus(t, s, cookie, row, "b"); rec.Code != 200 {
+		t.Fatalf("move: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	got, _ := rowProps(t, s, row)["closed"].(string)
+	want, ok := resolveSmartDate("today+7d", time.Now().UTC())
+	if !ok || got != want {
+		t.Fatalf("closed = %q, want resolved %q", got, want)
 	}
 }
 
