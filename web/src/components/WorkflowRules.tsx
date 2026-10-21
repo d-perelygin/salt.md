@@ -782,20 +782,33 @@ function WorkflowScheme({
   const rules = workflow?.rules ?? [];
   const live = new Set(statusOpts.map((o) => o.id));
   const propName = (id: string) => schema.find((p) => p.id === id)?.name ?? id;
-  type Edge = { from: string; to: string; rules: WorkflowRule[] };
+  type Edge = { from: string; to: string; rules: WorkflowRule[]; free: boolean };
   const edgeMap = new Map<string, Edge>();
+  const targeted = new Set<string>();
   for (const r of rules) {
     if (r.when.type !== 'status_to') continue;
     const to = (r.when as { to: string }).to;
     if (!live.has(to)) continue;
+    targeted.add(to);
     const froms =
       r.allowFrom && r.allowFrom.length > 0
         ? r.allowFrom.filter((f) => live.has(f) && f !== to)
         : statusOpts.map((o) => o.id).filter((id) => id !== to);
     for (const f of froms) {
       const k = `${f}${to}`;
-      if (!edgeMap.has(k)) edgeMap.set(k, { from: f, to, rules: [] });
+      if (!edgeMap.has(k)) edgeMap.set(k, { from: f, to, rules: [], free: false });
       edgeMap.get(k)!.rules.push(r);
+    }
+  }
+  // Roads no rule names: with no rule targeting a status, every incoming
+  // move is allowed (see allowed() in analyzeWorkflow) — draw them too, or
+  // the map shows only the guarded roads and hides the open ones.
+  for (const to of statusOpts) {
+    if (!live.has(to.id) || targeted.has(to.id)) continue;
+    for (const f of statusOpts) {
+      if (f.id === to.id) continue;
+      const k = `${f.id}${to.id}`;
+      if (!edgeMap.has(k)) edgeMap.set(k, { from: f.id, to: to.id, rules: [], free: true });
     }
   }
   const edges = [...edgeMap.values()];
@@ -856,19 +869,32 @@ function WorkflowScheme({
     const s = above ? -1 : 1;
     const cx = (x1 + x2) / 2;
     const cy = y0 + s * 2 * h;
-    const tip = [
-      ...e.rules.flatMap((r) => [
-        ...describeAutoActions(r, schema),
-        ...(r.do ?? []).flatMap((a) => {
-          if (a.type === 'require_prop') return [t('Ask {name}', { name: propName(a.prop) })];
-          if (a.type === 'require_comment') return [t('Comment')];
-          return [];
-        }),
-      ]),
-    ].join('\n');
+    const tip = e.free
+      ? t('Allowed — no rule')
+      : [
+          ...e.rules.flatMap((r) => [
+            ...describeAutoActions(r, schema),
+            ...(r.do ?? []).flatMap((a) => {
+              if (a.type === 'require_prop') return [t('Ask {name}', { name: propName(a.prop) })];
+              if (a.type === 'require_comment') return [t('Comment')];
+              return [];
+            }),
+            ...(r.whenProps ?? []).map((c) =>
+              c.op === 'is_not'
+                ? t('Only if {prop} is not {value}', {
+                    prop: propName(c.prop),
+                    value: condDisplay(schema, c),
+                  })
+                : t('Only if {prop} is {value}', {
+                    prop: propName(c.prop),
+                    value: condDisplay(schema, c),
+                  }),
+            ),
+          ]),
+        ].join('\n');
     const apexY = y0 + s * h;
     return (
-      <g key={`${e.from}>${e.to}`}>
+      <g key={`${e.from}>${e.to}`} className={e.free ? 'free' : undefined}>
         {tip && <title>{tip}</title>}
         <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} />
         <polygon points={head(cx, cy, x2, y0)} />

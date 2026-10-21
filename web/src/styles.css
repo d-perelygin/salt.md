@@ -4028,6 +4028,15 @@ body.is-col-resizing {
   stroke-width: 1.5;
   fill: none;
 }
+/* Roads no rule guards: allowed by default, drawn dashed so the map shows
+ *  the open roads apart from the guarded ones. */
+.workflow-scheme-svg .free path {
+  stroke-dasharray: 5 4;
+  opacity: 0.55;
+}
+.workflow-scheme-svg .free polygon {
+  opacity: 0.55;
+}
 .workflow-scheme-svg polygon {
   fill: currentColor;
 }
