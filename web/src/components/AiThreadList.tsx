@@ -48,12 +48,9 @@ export default function AiThreadList(props: {
   onDelete: (id: string) => void;
   onRefresh: () => void;
   onMarkRead?: (id: string) => void;
-  mode?: 'chats' | 'agents';
-  onNewAgent?: () => void;
   hideNew?: boolean;
 }) {
-  const mode = props.mode ?? 'chats';
-  const list = mode === 'agents' ? props.threads.filter((th) => th.hasRuns) : props.threads;
+  const list = props.threads;
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const menuRef = useRef<HTMLSpanElement>(null);
   useMenuDismiss(menuFor !== null, menuRef, () => setMenuFor(null));
@@ -99,18 +96,13 @@ export default function AiThreadList(props: {
 
   return (
     <div>
-      {!props.hideNew && mode === 'agents' && (
-        <button className="ai-newchat" onClick={() => props.onNewAgent?.()}>
-          <Plus size={15} /> {t('New agent')}
-        </button>
-      )}
-      {!props.hideNew && mode !== 'agents' && (
+      {!props.hideNew && (
         <button className="ai-newchat" onClick={props.onNew}>
           <Plus size={15} /> {t('New chat')}
         </button>
       )}
       {list.length === 0 && (
-        <div className="sb-empty">{mode === 'agents' ? t('No agents yet') : t('No chats yet')}</div>
+        <div className="sb-empty">{t('No chats yet')}</div>
       )}
       {list.map((th) => {
         const pageTitle = th.pageTitle || props.pagesById.get(th.pageId)?.title || '';

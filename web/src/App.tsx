@@ -1946,17 +1946,6 @@ export default function App() {
         }}
         onMarkRead={(id) => markChatReadLocal(id)}
         onNewChat={() => setActiveChatId(null)}
-        onNewAgent={() => {
-          void (async () => {
-            try {
-              const r = await api.createAIThread({ title: t('New agent') });
-              setActiveChatId(r.id);
-              void loadAiThreads();
-            } catch {
-              /* keep current */
-            }
-          })();
-        }}
         onChatDeleted={(id) => {
           if (activeChatId === id) setActiveChatId(null);
         }}

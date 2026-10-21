@@ -459,10 +459,10 @@ and writes through the same tools, and can keep working after you close the tab.
   and can be cancelled; changes land in the document history and can be reverted.
 - **Permissions and audit:** the agent acts as you, within your access, and its
   changes are recorded in the activity log with `source=ai`.
-- **Agent sessions:** the sidebar's Chats view has an Agents section listing
-  threads with agent runs, and "New agent" starts one. Each run shows its
-  trace (plan, tool calls, results) under a "Worked for …" header, and the
-  pages it created appear in the Artifacts panel — click one to open it.
+- **Agent sessions:** the sidebar's Chats view lists every thread; threads
+  with agent runs show the same trace (plan, tool calls, results) under a
+  "Worked for …" header, and the pages a run created appear under the text
+  in Artifacts — click one to open it.
 - **Approvals:** the composer lets you choose Always ask, Review for me
   (only unsafe actions pause) or Skip all approvals; a paused run waits for
   your Approve or Reject.

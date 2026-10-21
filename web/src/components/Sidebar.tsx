@@ -90,7 +90,6 @@ interface Props {
   activeChatId?: string | null;
   onSelectChat?: (id: string) => void;
   onNewChat?: () => void;
-  onNewAgent?: () => void;
   onChatDeleted?: (id: string) => void;
   onRefreshChats?: () => void;
   onMarkRead?: (id: string) => void;
@@ -797,7 +796,6 @@ export default function Sidebar({
   activeChatId = null,
   onSelectChat,
   onNewChat,
-  onNewAgent,
   onChatDeleted,
   onRefreshChats,
   onMarkRead,
@@ -1469,23 +1467,6 @@ export default function Sidebar({
             onRefresh={() => onRefreshChats?.()}
             onMarkRead={(id) => onMarkRead?.(id)}
           />
-          <div className="ai-section-label">{t('Agents')}</div>
-          <AiThreadList
-            mode="agents"
-            hideNew
-            threads={aiThreads}
-            activeId={activeChatId}
-            pagesById={byIdAll}
-            onSelect={(id) => onSelectChat?.(id)}
-            onNew={() => onNewChat?.()}
-            onNewAgent={() => onNewAgent?.()}
-            onDelete={(id) => onChatDeleted?.(id)}
-            onRefresh={() => onRefreshChats?.()}
-            onMarkRead={(id) => onMarkRead?.(id)}
-          />
-          <button className="ai-newchat" onClick={() => onNewAgent?.()}>
-            <span>✨＋</span> {t('New agent')}
-          </button>
         </div>
       )}
       {sidebarMode === 'docs' && favPages.length > 0 && (
