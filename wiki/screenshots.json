@@ -299,7 +299,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "a2673e4df9e4",
+        "web/src/components/CollectionView.tsx": "d9a56deb8497",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -333,7 +333,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "a2673e4df9e4",
+        "web/src/components/CollectionView.tsx": "d9a56deb8497",
         "web/src/cardLayout.ts": "eb7f92584275",
         "web/src/theme.css": "b1c3dece61ce"
       }
@@ -367,7 +367,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "a2673e4df9e4",
+        "web/src/components/CollectionView.tsx": "d9a56deb8497",
         "web/src/theme.css": "b1c3dece61ce"
       }
     },
@@ -585,7 +585,7 @@
       ],
       "takenAt": {
         "web/src/components/AgentConnect.tsx": "e9f21eada0c2",
-        "server/mcp.go": "66bf77d3f056",
+        "server/mcp.go": "1ea114ac452a",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"

@@ -1,11 +1,13 @@
 import { Fragment, useEffect, useState } from 'react';
-import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowRule } from '../types';
+import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowPropCond, WorkflowRule } from '../types';
 import { t } from '../i18n';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
 import { confirm } from '../dialog';
 import WorkflowDateInput from './WorkflowDateInput';
 import {
   analyzeWorkflow,
+  condDisplay,
+  condPropTypes,
   describeAutoActions,
   fixWorkflowIssue,
   issueText,
@@ -170,7 +172,10 @@ export default function WorkflowRules({
   const [simBusy, setSimBusy] = useState(false);
   const [ifOpen, setIfOpen] = useState<Record<string, boolean>>({});
   const hasIf = (r: WorkflowRule) =>
-    (r.allowFrom?.length ?? 0) > 0 || !!r.precondition?.checklistProp || !!r.precondition?.requiredProp;
+    (r.allowFrom?.length ?? 0) > 0 ||
+    !!r.precondition?.checklistProp ||
+    !!r.precondition?.requiredProp ||
+    (r.whenProps?.length ?? 0) > 0;
   // A filled If shows itself; an empty one stays tucked away. The toggle
   // only records explicit collapses/opens on top of that.
   const isIfOpen = (r: WorkflowRule) => ifOpen[r.id] ?? hasIf(r);
@@ -180,7 +185,7 @@ export default function WorkflowRules({
       const rows: SimRow[] = [];
       for (const o of statusOpts) {
         if (o.id === from) continue;
-        const matched = matchRules(workflow, from, o.id);
+        const matched = matchRules(workflow, schema, {}, from, o.id);
         const targeted = (rules ?? []).filter(
           (r) => r.when.type === 'status_to' && (r.when as { to: string }).to === o.id,
         );
@@ -198,7 +203,22 @@ export default function WorkflowRules({
         for (const r of targeted) {
           if (matched.includes(r)) continue;
           const need = (r.allowFrom ?? []).map((id) => statusOpts.find((x) => x.id === id)?.name ?? id);
-          detail.push(t('Skipped — needs {from}', { from: need.join(', ') }));
+          if (need.length > 0) detail.push(t('Skipped — needs {from}', { from: need.join(', ') }));
+          for (const c of r.whenProps ?? []) {
+            const def = schema.find((p) => p.id === c.prop);
+            if (!def || !c.value) continue;
+            detail.push(
+              c.op === 'is_not'
+                ? t('Skipped — needs {prop} not {value}', {
+                    prop: def.name,
+                    value: condDisplay(schema, c),
+                  })
+                : t('Skipped — needs {prop} {value}', {
+                    prop: def.name,
+                    value: condDisplay(schema, c),
+                  }),
+            );
+          }
         }
         const fields = await neededPrompts(workflow, schema, '', {}, from, o.id);
         for (const f of fields) detail.push(f.kind === 'comment' ? t('Comment') : f.label);
@@ -514,6 +534,94 @@ export default function WorkflowRules({
                         </option>
                       ))}
                   </select>
+                  <label>{t('Only if value')}</label>
+                  {(r.whenProps ?? []).map((c, ci) => {
+                    const cdef = schema.find((p) => p.id === c.prop);
+                    const setCond = (next: WorkflowPropCond) =>
+                      updateRule(r.id, {
+                        whenProps: (r.whenProps ?? []).map((x, j) => (j === ci ? next : x)),
+                      });
+                    return (
+                      <div key={ci} className="workflow-row">
+                        <select
+                          className="prop-select"
+                          value={c.prop}
+                          aria-label={t('Property')}
+                          onChange={(e) => setCond({ prop: e.target.value, op: c.op, value: '' })}
+                        >
+                          <option value="">{t('Property…')}</option>
+                          {schema
+                            .filter((p) => p.id !== statusPropId && condPropTypes.includes(p.type))
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                        </select>
+                        <select
+                          className="prop-select"
+                          value={c.op}
+                          aria-label={t('Condition')}
+                          onChange={(e) => setCond({ ...c, op: e.target.value as WorkflowPropCond['op'] })}
+                        >
+                          <option value="is">{t('is')}</option>
+                          <option value="is_not">{t('is not')}</option>
+                        </select>
+                        {cdef && (cdef.type === 'select' || cdef.type === 'multiselect') ? (
+                          <select
+                            className="prop-select"
+                            value={c.value}
+                            aria-label={t('Value')}
+                            onChange={(e) => setCond({ ...c, value: e.target.value })}
+                          >
+                            <option value="">{t('Value…')}</option>
+                            {(cdef.options ?? []).map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            className="prop-input"
+                            value={c.value}
+                            aria-label={t('Value')}
+                            placeholder={t('Value…')}
+                            onChange={(e) => setCond({ ...c, value: e.target.value })}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          className="icon-btn danger"
+                          title={t('Remove condition')}
+                          aria-label={t('Remove condition')}
+                          onClick={() =>
+                            updateRule(r.id, {
+                              whenProps: (r.whenProps ?? []).filter((_, j) => j !== ci),
+                            })
+                          }
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <div className="workflow-row">
+                    <button
+                      type="button"
+                      className="btn-sm"
+                      onClick={() =>
+                        updateRule(r.id, {
+                          whenProps: [...(r.whenProps ?? []), { prop: '', op: 'is', value: '' } as WorkflowPropCond],
+                        })
+                      }
+                    >
+                      {t('+ Only if value')}
+                    </button>
+                  </div>
+                  <div className="dialog-hint">
+                    {t('A mismatch skips the rule — another rule may take the same move.')}
+                  </div>
                 </div>
                 )}
 

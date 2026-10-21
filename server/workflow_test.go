@@ -408,3 +408,123 @@ func TestWorkflowRequireAskCollapse(t *testing.T) {
 		t.Fatalf("answered move: got %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
 }
+
+// Row-value conditions: sister rules split one transition by a property
+// value. A mismatch skips the rule (another may take the move); only a row
+// matching nothing is refused, naming the value it needs.
+func TestWorkflowValueCondsEndToEnd(t *testing.T) {
+	s, cookie, row := workflowFixture(t)
+	var col string
+	if err := s.db.QueryRow(`SELECT parent_id FROM pages WHERE id = ?`, row).Scan(&col); err != nil {
+		t.Fatal(err)
+	}
+	wf := `{"schema":[
+		{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"done","name":"Done"}]},
+		{"id":"kind","name":"Kind","type":"select","options":[{"id":"bug","name":"Bug"},{"id":"task","name":"Task"},{"id":"other","name":"Other"}]},
+		{"id":"note","name":"Note","type":"text"}],
+		"views":[],"workflow":{"statusPropId":"status","rules":[
+		{"id":"r1","when":{"type":"status_to","to":"done"},"whenProps":[{"prop":"kind","op":"is","value":"bug"}],"do":[{"type":"require_prop","prop":"note","mode":"if_empty"}]},
+		{"id":"r2","when":{"type":"status_to","to":"done"},"whenProps":[{"prop":"kind","op":"is","value":"task"}]}
+	]}}`
+	if rec := putWorkflow(t, s, cookie, col, wf); rec.Code != 200 {
+		t.Fatalf("PUT workflow: %d %s", rec.Code, rec.Body.String())
+	}
+	setKind := func(id, kind string) {
+		t.Helper()
+		if rec := patchProps(t, s, cookie, id, `{"propsPatch":{"kind":"`+kind+`"}}`); rec.Code != 200 {
+			t.Fatalf("set kind: got %d (%s)", rec.Code, rec.Body.String())
+		}
+	}
+	bug := row
+	setKind(bug, "bug")
+	task := makeRow(t, s, col, "a")
+	setKind(task, "task")
+	other := makeRow(t, s, col, "a")
+	setKind(other, "other")
+
+	// A bug needs its note: refused bare, allowed answered.
+	if rec := patchStatus(t, s, cookie, bug, "done"); rec.Code != 409 {
+		t.Fatalf("bare bug move: got %d, want 409 (%s)", rec.Code, rec.Body.String())
+	} else if body := rec.Body.String(); !strings.Contains(body, "fill in Note") {
+		t.Fatalf("bare bug move names the ask, got %s", body)
+	}
+	if rec := patchProps(t, s, cookie, bug, `{"propsPatch":{"status":"done","note":"repro"}}`); rec.Code != 200 {
+		t.Fatalf("answered bug move: got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// A task takes the sister rule: no note asked, move lands.
+	if rec := patchStatus(t, s, cookie, task, "done"); rec.Code != 200 {
+		t.Fatalf("task move: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Anything else matches no rule: refused, naming the value it needs.
+	if rec := patchStatus(t, s, cookie, other, "done"); rec.Code != 409 {
+		t.Fatalf("other move: got %d, want 409 (%s)", rec.Code, rec.Body.String())
+	} else if body := rec.Body.String(); !strings.Contains(body, "Kind") {
+		t.Fatalf("other move names the value miss, got %s", body)
+	}
+	if got := rowProps(t, s, other)["status"]; got != "a" {
+		t.Fatalf("refused move changed status to %v", got)
+	}
+}
+
+func TestPropCondHolds(t *testing.T) {
+	schemas := map[string]PropSchema{
+		"kind": {ID: "kind", Type: "select"},
+		"tags": {ID: "kind", Type: "multiselect"},
+		"n":    {ID: "n", Type: "number"},
+	}
+	raw := func(s string) map[string]json.RawMessage {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(s), &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	cases := []struct {
+		name  string
+		props map[string]json.RawMessage
+		cond  workflowPropCond
+		want  bool
+	}{
+		{"select is", raw(`{"kind":"bug"}`), workflowPropCond{Prop: "kind", Op: "is", Value: "bug"}, true},
+		{"select is miss", raw(`{"kind":"task"}`), workflowPropCond{Prop: "kind", Op: "is", Value: "bug"}, false},
+		{"select is-not", raw(`{"kind":"task"}`), workflowPropCond{Prop: "kind", Op: "is_not", Value: "bug"}, true},
+		{"select empty is-not", raw(`{}`), workflowPropCond{Prop: "kind", Op: "is_not", Value: "bug"}, true},
+		{"select empty is", raw(`{}`), workflowPropCond{Prop: "kind", Op: "is", Value: "bug"}, false},
+		{"multi contains", raw(`{"tags":["a","bug"]}`), workflowPropCond{Prop: "tags", Op: "is", Value: "bug"}, true},
+		{"multi misses", raw(`{"tags":["a"]}`), workflowPropCond{Prop: "tags", Op: "is", Value: "bug"}, false},
+		{"number", raw(`{"n":5}`), workflowPropCond{Prop: "n", Op: "is", Value: "5"}, true},
+		{"unknown prop", raw(`{"kind":"bug"}`), workflowPropCond{Prop: "nope", Op: "is", Value: "bug"}, false},
+	}
+	for _, tc := range cases {
+		if got := propCondHolds(schemas, tc.props, tc.cond); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestWorkflowValueCondValidation(t *testing.T) {
+	schema := parseSchemaProps(`[{"id":"status","type":"select","options":[{"id":"a"},{"id":"b"}]},{"id":"kind","type":"select","options":[{"id":"bug"}]},{"id":"note","type":"text"},{"id":"list","type":"checklist"}]`)
+	good := &workflowConfig{StatusPropID: "status", Rules: []workflowRule{
+		{ID: "r1", When: workflowWhen{Type: "status_to", To: "b"}, WhenProps: []workflowPropCond{{Prop: "kind", Op: "is", Value: "bug"}}},
+		{ID: "r2", When: workflowWhen{Type: "status_to", To: "b"}, WhenProps: []workflowPropCond{{Prop: "note", Op: "is_not", Value: "x"}}},
+	}}
+	if err := validateWorkflow(good, schema); err != nil {
+		t.Fatalf("good workflow rejected: %v", err)
+	}
+	for name, conds := range map[string][]workflowPropCond{
+		"unknown prop":  {{Prop: "nope", Op: "is", Value: "bug"}},
+		"wrong type":    {{Prop: "list", Op: "is", Value: "bug"}},
+		"bad op":        {{Prop: "kind", Op: "equals", Value: "bug"}},
+		"empty value":   {{Prop: "kind", Op: "is", Value: ""}},
+		"unknown value": {{Prop: "kind", Op: "is", Value: "task"}},
+	} {
+		cfg := &workflowConfig{StatusPropID: "status", Rules: []workflowRule{
+			{ID: "r1", When: workflowWhen{Type: "status_to", To: "b"}, WhenProps: conds},
+		}}
+		if err := validateWorkflow(cfg, schema); err == nil {
+			t.Errorf("%s: expected rejection, got nil", name)
+		}
+	}
+}

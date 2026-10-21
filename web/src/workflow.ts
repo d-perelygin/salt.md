@@ -1,4 +1,4 @@
-import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowRule } from './types';
+import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowPropCond, WorkflowRule } from './types';
 import { api } from './api';
 import { promptWorkflow } from './dialog';
 import { toast } from './toast';
@@ -32,11 +32,15 @@ export function workflowBlockReason(
     (r) => r.when.type === 'status_to' && (r.when as { to: string }).to === to,
   );
   if (targeted.length === 0) return null;
-  const matched = matchRules(workflow, from, to);
+  const matched = matchRules(workflow, schema, rowProps, from, to);
   const asked = new Set(
     matched.flatMap((r) => (r.do ?? []).filter((a) => a.type === 'require_prop').map((a) => a.prop)),
   );
   if (matched.length === 0) {
+    // No rule fires: either the sources or the row values miss. Name the
+    // miss — "only from X" lies when the sources are fine but a value is not.
+    const valueMiss = firstValueMiss(schema, targeted, rowProps, from);
+    if (valueMiss) return { message: valueMiss };
     const froms = [...new Set(targeted.flatMap((r) => r.allowFrom ?? []))].map(optName);
     return {
       message: t('“{to}” only takes cards from {froms} — move it back there first, or loosen the rule in the process.', {
@@ -75,6 +79,73 @@ function checklistDone(v: unknown): boolean {
 
 function isEmpty(v: unknown): boolean {
   return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+}
+
+// Property types a value condition may name. Selects compare option ids,
+// multiselects contain them, text and numbers compare as written — every
+// other type compares ambiguously, so the editor does not offer it.
+export const condPropTypes: PropDef['type'][] = ['select', 'multiselect', 'text', 'number'];
+
+function condValues(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map(String);
+  if (v === undefined || v === null) return [];
+  return [String(v)];
+}
+
+/** One row-value condition against the row's current values. Unknown
+ *  properties never hold: the rule stays silent rather than misfiring. */
+export function propCondHolds(schema: PropDef[], rowProps: Record<string, unknown>, cond: WorkflowPropCond): boolean {
+  const def = schema.find((p) => p.id === cond.prop);
+  if (!def || !cond.value) return false;
+  const vals = condValues(rowProps[cond.prop]);
+  const hit =
+    def.type === 'multiselect' ? vals.includes(cond.value) : vals.length > 0 && vals[0] === cond.value;
+  return cond.op === 'is_not' ? !hit : hit;
+}
+
+export function whenPropsHold(
+  schema: PropDef[],
+  rowProps: Record<string, unknown>,
+  rule: WorkflowRule,
+): boolean {
+  return (rule.whenProps ?? []).every((c) => propCondHolds(schema, rowProps, c));
+}
+
+/** Display value of a condition: option names for selects, raw text else. */
+export function condDisplay(schema: PropDef[], cond: WorkflowPropCond): string {
+  const def = schema.find((p) => p.id === cond.prop);
+  if (def && (def.type === 'select' || def.type === 'multiselect')) {
+    return def.options?.find((o) => o.id === cond.value)?.name ?? cond.value;
+  }
+  return cond.value;
+}
+
+/** When no rule fires but some targeted rule clears the sources, the miss is
+ *  on values: name the first failing condition so the reader knows what to set. */
+function firstValueMiss(
+  schema: PropDef[],
+  targeted: WorkflowRule[],
+  rowProps: Record<string, unknown>,
+  from: string,
+): string | null {
+  const propName = (id: string) => schema.find((p) => p.id === id)?.name ?? id;
+  for (const r of targeted) {
+    if (r.allowFrom && r.allowFrom.length > 0 && !r.allowFrom.includes(from)) continue;
+    for (const c of r.whenProps ?? []) {
+      if (!propCondHolds(schema, rowProps, c)) {
+        return c.op === 'is_not'
+          ? t('“{prop}” must not be “{value}” to move here — change it, then move.', {
+              prop: propName(c.prop),
+              value: condDisplay(schema, c),
+            })
+          : t('“{prop}” must be “{value}” to move here — set it, then move.', {
+              prop: propName(c.prop),
+              value: condDisplay(schema, c),
+            });
+      }
+    }
+  }
+  return null;
 }
 
 // A checklist ask is satisfied only when fully ticked — a half-done list
@@ -127,6 +198,7 @@ export async function neededPrompts(
   for (const r of workflow.rules ?? []) {
     if (r.when.type !== 'status_to' || (r.when as { to: string }).to !== to) continue;
     if (r.allowFrom && r.allowFrom.length > 0 && !r.allowFrom.includes(from)) continue;
+    if (!whenPropsHold(schema, rowProps, r)) continue;
     for (let i = 0; i < (r.do ?? []).length; i++) {
       const a = r.do[i];
       if (a.type === 'require_prop') {
@@ -158,11 +230,13 @@ export async function neededPrompts(
  *  copy is already made. */
 export function creationBlockReason(
   workflow: WorkflowConfig | undefined,
+  schema: PropDef[],
   baseProps: Record<string, unknown>,
 ): string | null {
   if (!workflow || !workflow.statusPropId) return null;
   for (const r of workflow.rules ?? []) {
     if (r.when.type !== 'created') continue;
+    if (!whenPropsHold(schema, baseProps, r)) continue;
     if (r.precondition?.checklistProp && !checklistDone(baseProps[r.precondition.checklistProp])) {
       return 'Finish the checklist first.';
     }
@@ -221,6 +295,7 @@ export async function neededCreationPrompts(
   const fields: PromptField[] = [];
   for (const r of workflow.rules ?? []) {
     if (r.when.type !== 'created') continue;
+    if (!whenPropsHold(schema, baseProps, r)) continue;
     for (let i = 0; i < (r.do ?? []).length; i++) {
       const a = r.do[i];
       if (a.type === 'require_prop') {
@@ -246,6 +321,7 @@ export interface WorkflowIssue {
     | 'bad-target'
     | 'bad-source'
     | 'bad-prop'
+    | 'bad-propvalue'
     | 'set-checklist'
     | 'conflict'
     | 'ask-dupe'
@@ -267,6 +343,11 @@ export function issueText(issue: WorkflowIssue): string {
       return t('“Only from” names “{name}”, which is no longer a status option.', { name: String(d.name ?? '') });
     case 'bad-prop':
       return t('“{name}” is not usable here — the property is gone or has the wrong type.', { name: String(d.name ?? '') });
+    case 'bad-propvalue':
+      return t('“{value}” is no longer an option of “{prop}”.', {
+        value: String(d.name ?? ''),
+        prop: String(d.prop ?? ''),
+      });
     case 'set-checklist':
       return t('“{name}” is a checklist — it can only be asked for, not set.', { name: String(d.name ?? '') });
     case 'conflict':
@@ -283,12 +364,21 @@ export function issueText(issue: WorkflowIssue): string {
 }
 
 // Two rules co-fire for a target when their gates overlap — an empty gate
-// always overlaps, otherwise their allowed sources must intersect.
+// always overlaps, otherwise their allowed sources must intersect. Value
+// conditions narrow further: two rules demanding different values (or one
+// demanding what the other forbids) for the same property never meet.
 function gatesOverlap(a: WorkflowRule, b: WorkflowRule): boolean {
   const fa = a.allowFrom ?? [];
   const fb = b.allowFrom ?? [];
-  if (fa.length === 0 || fb.length === 0) return true;
-  return fa.some((x) => fb.includes(x));
+  if (fa.length > 0 && fb.length > 0 && !fa.some((x) => fb.includes(x))) return false;
+  for (const ca of a.whenProps ?? []) {
+    for (const cb of b.whenProps ?? []) {
+      if (ca.prop !== cb.prop || !ca.value || !cb.value) continue;
+      if (ca.op === 'is' && cb.op === 'is' && ca.value !== cb.value) return false;
+      if (ca.op !== cb.op && ca.value === cb.value) return false;
+    }
+  }
+  return true;
 }
 
 /** Static self-check of the whole process: broken references (errors) plus
@@ -328,6 +418,30 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
     }
     if (r.precondition?.checklistProp) checkPropRef(r.id, r.precondition.checklistProp, 'checklist');
     if (r.precondition?.requiredProp) checkPropRef(r.id, r.precondition.requiredProp, 'any');
+    for (const c of r.whenProps ?? []) {
+      const def = c.prop ? byId.get(c.prop) : undefined;
+      if (c.prop && (!def || !condPropTypes.includes(def.type))) {
+        issues.push({ severity: 'error', ruleId: r.id, kind: 'bad-prop', data: { name: c.prop } });
+        continue;
+      }
+      if (c.op !== 'is' && c.op !== 'is_not') {
+        issues.push({ severity: 'error', ruleId: r.id, kind: 'bad-prop', data: { name: c.prop } });
+        continue;
+      }
+      if (
+        c.value &&
+        def &&
+        (def.type === 'select' || def.type === 'multiselect') &&
+        !(def.options ?? []).some((o) => o.id === c.value)
+      ) {
+        issues.push({
+          severity: 'error',
+          ruleId: r.id,
+          kind: 'bad-propvalue',
+          data: { name: c.value, prop: def.name ?? c.prop },
+        });
+      }
+    }
     for (const a of r.do ?? []) {
       if (a.type === 'set_prop') {
         const def = a.prop ? byId.get(a.prop) : undefined;
@@ -570,15 +684,19 @@ export function fixWorkflowIssue(
   }
 }
 
-/** Rules whose trigger matches this move, in order. */
+/** Rules whose trigger matches this move, in order. Value conditions read
+ *  the row as it stands (pre-dialog answers are not in it yet). */
 export function matchRules(
   workflow: WorkflowConfig | undefined,
+  schema: PropDef[],
+  rowProps: Record<string, unknown>,
   from: string,
   to: string,
 ): WorkflowRule[] {
   if (!workflow || !workflow.statusPropId) return [];
   return (workflow.rules ?? []).filter((r) => {
     if (r.when.type !== 'status_to' || (r.when as { to: string }).to !== to) return false;
+    if (!whenPropsHold(schema, rowProps, r)) return false;
     return !r.allowFrom || r.allowFrom.length === 0 || r.allowFrom.includes(from);
   });
 }

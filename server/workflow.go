@@ -35,10 +35,20 @@ type workflowPrecondition struct {
 	RequiredProp  string `json:"requiredProp"`
 }
 
+// A row-value condition: the rule fires only when the row's property is
+// (or is not) the value. Selects compare option ids, multiselects contain
+// them, text and numbers compare as written.
+type workflowPropCond struct {
+	Prop  string `json:"prop"`
+	Op    string `json:"op"`
+	Value string `json:"value"`
+}
+
 type workflowRule struct {
 	ID           string                `json:"id"`
 	When         workflowWhen          `json:"when"`
 	AllowFrom    []string              `json:"allowFrom"`
+	WhenProps    []workflowPropCond    `json:"whenProps"`
 	Precondition *workflowPrecondition `json:"precondition"`
 	Do           []workflowAction      `json:"do"`
 }
@@ -79,7 +89,8 @@ type PropSchema struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
 	Options []struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	} `json:"options"`
 }
 
@@ -126,6 +137,35 @@ func validateWorkflow(cfg *workflowConfig, schema []PropSchema) error {
 			if r.Precondition.RequiredProp != "" {
 				if _, ok := byID[r.Precondition.RequiredProp]; !ok {
 					return fmt.Errorf("rule %d: unknown required property", i+1)
+				}
+			}
+		}
+		for _, c := range r.WhenProps {
+			p, ok := byID[c.Prop]
+			if c.Prop == "" || !ok {
+				return fmt.Errorf("rule %d: unknown property in condition", i+1)
+			}
+			switch p.Type {
+			case "select", "multiselect", "text", "number":
+			default:
+				return fmt.Errorf("rule %d: conditions support select, multiselect, text and number properties", i+1)
+			}
+			if c.Op != "" && c.Op != "is" && c.Op != "is_not" {
+				return fmt.Errorf("rule %d: condition operator must be is or is_not", i+1)
+			}
+			if c.Value == "" {
+				return fmt.Errorf("rule %d: condition value is empty", i+1)
+			}
+			if p.Type == "select" || p.Type == "multiselect" {
+				known := false
+				for _, o := range p.Options {
+					if o.ID == c.Value {
+						known = true
+						break
+					}
+				}
+				if !known {
+					return fmt.Errorf("rule %d: %q is not an option of %s", i+1, c.Value, propName(byID, c.Prop))
 				}
 			}
 		}
@@ -233,6 +273,64 @@ func propNonEmpty(props map[string]json.RawMessage, key string) bool {
 	return true
 }
 
+// propCondHolds evaluates one row-value condition against the row as it
+// stands. Unknown properties never hold: the rule stays silent rather than
+// misfiring on a stale column.
+func propCondHolds(schemas map[string]PropSchema, props map[string]json.RawMessage, c workflowPropCond) bool {
+	p, ok := schemas[c.Prop]
+	if !ok || c.Value == "" {
+		return false
+	}
+	hit := false
+	if p.Type == "multiselect" {
+		if raw, present := props[c.Prop]; present && len(raw) > 0 {
+			var arr []string
+			if json.Unmarshal(raw, &arr) == nil {
+				for _, s := range arr {
+					if s == c.Value {
+						hit = true
+						break
+					}
+				}
+			} else if propString(props, c.Prop) == c.Value {
+				hit = true
+			}
+		}
+	} else {
+		hit = propString(props, c.Prop) == c.Value
+	}
+	if c.Op == "" || c.Op == "is" {
+		return hit
+	}
+	return !hit
+}
+
+// whenPropsHold: every value condition holds (AND). An empty list holds.
+func whenPropsHold(schemas map[string]PropSchema, props map[string]json.RawMessage, conds []workflowPropCond) bool {
+	for _, c := range conds {
+		if !propCondHolds(schemas, props, c) {
+			return false
+		}
+	}
+	return true
+}
+
+// condDisplay renders a condition's value the way the reader sees it:
+// option names for selects, raw text otherwise.
+func condDisplay(schemas map[string]PropSchema, c workflowPropCond) string {
+	if p, ok := schemas[c.Prop]; ok && (p.Type == "select" || p.Type == "multiselect") {
+		for _, o := range p.Options {
+			if o.ID == c.Value {
+				if o.Name != "" {
+					return o.Name
+				}
+				return o.ID
+			}
+		}
+	}
+	return c.Value
+}
+
 func checklistDone(props map[string]json.RawMessage, key string) bool {
 	raw, ok := props[key]
 	if !ok || len(raw) == 0 {
@@ -303,9 +401,36 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 				continue
 			}
 		}
+		if !whenPropsHold(schemas, merged, r.WhenProps) {
+			continue
+		}
 		matched = append(matched, r)
 	}
 	if len(targeted) > 0 && len(matched) == 0 {
+		// Name a value miss when the sources are fine: "not allowed from
+		// this status" lies when a row value is what misses.
+		for _, r := range targeted {
+			if len(r.AllowFrom) > 0 {
+				ok := false
+				for _, f := range r.AllowFrom {
+					if f == from {
+						ok = true
+						break
+					}
+				}
+				if !ok {
+					continue
+				}
+			}
+			for _, c := range r.WhenProps {
+				if !propCondHolds(schemas, merged, c) {
+					if c.Op == "is_not" {
+						return nil, nil, nil, fmt.Sprintf("%s must not be %q to move here", propName(schemas, c.Prop), condDisplay(schemas, c))
+					}
+					return nil, nil, nil, fmt.Sprintf("%s must be %q to move here", propName(schemas, c.Prop), condDisplay(schemas, c))
+				}
+			}
+		}
 		return nil, nil, nil, "transition is not allowed from this status"
 	}
 	for _, r := range matched {
@@ -383,6 +508,9 @@ func checkWorkflowCreation(cfg *workflowConfig, merged, patch map[string]json.Ra
 		}
 	}
 	for _, r := range created {
+		if !whenPropsHold(schemas, merged, r.WhenProps) {
+			continue
+		}
 		if r.Precondition != nil {
 			if r.Precondition.ChecklistProp != "" && !checklistDone(merged, r.Precondition.ChecklistProp) {
 				reason = "checklist is not complete"

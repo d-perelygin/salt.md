@@ -870,7 +870,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       const base = { ...tmplProps, ...preset };
       const fromRaw = tmplProps[wf.statusPropId];
       const from = Array.isArray(fromRaw) ? ((fromRaw[0] as string) ?? '') : ((fromRaw as string) ?? '');
-      const blocked = creationBlockReason(wf, base);
+      const blocked = creationBlockReason(wf, schema, base);
       if (blocked) {
         toast(t(blocked));
         return undefined;

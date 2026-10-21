@@ -287,6 +287,8 @@ export default function SchemaEditor({
     // and simply do not travel on save. A rule with no finished actions is a
     // pure guard (allow-list + precondition, nothing automated) — it travels
     // with an empty do list and the server enforces it all the same.
+    // Half-filled value conditions go the same way: a condition without both
+    // a property and a value never holds at runtime, so it must not travel.
     // A defined-but-empty process clears the stored one: deleting every rule
     // and saving must not resurrect them on reopen.
     const stagedWf: WorkflowConfig | undefined =
@@ -295,6 +297,7 @@ export default function SchemaEditor({
             statusPropId: workflow.statusPropId,
             rules: workflow.rules.map((r) => ({
               ...r,
+              whenProps: (r.whenProps ?? []).filter((c) => c.prop && c.value),
               do: r.do.filter((a) => {
                 if (a.type === 'webhook') return a.url.trim() !== '';
                 if (a.type === 'require_comment') return true;

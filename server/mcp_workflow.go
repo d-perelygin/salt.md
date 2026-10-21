@@ -93,7 +93,7 @@ func (s *Server) mcpGetWorkflow(pageID string) (string, error) {
 		entry := map[string]any{
 			"id":      r.ID,
 			"when":    when,
-			"summary": workflowRuleSummary(r, propName, optName),
+			"summary": workflowRuleSummary(r, schemaRaw, propName, optName),
 			"actions": actions,
 		}
 		if len(froms) > 0 {
@@ -106,6 +106,17 @@ func (s *Server) mcpGetWorkflow(pageID string) (string, error) {
 			if r.Precondition.RequiredProp != "" {
 				entry["only_if_filled"] = map[string]any{"id": r.Precondition.RequiredProp, "name": propName(r.Precondition.RequiredProp)}
 			}
+		}
+		if len(r.WhenProps) > 0 {
+			conds := []any{}
+			for _, c := range r.WhenProps {
+				conds = append(conds, map[string]any{
+					"property": map[string]any{"id": c.Prop, "name": propName(c.Prop)},
+					"op":       condOpWord(c.Op),
+					"value":     condValueWord(schemaRaw, c.Prop, c.Value),
+				})
+			}
+			entry["only_if"] = conds
 		}
 		list = append(list, entry)
 	}
@@ -149,7 +160,7 @@ func workflowActionSummary(a workflowAction, propName func(string) string) map[s
 	return m
 }
 
-func workflowRuleSummary(r workflowRule, propName func(string) string, optName func(string) string) string {
+func workflowRuleSummary(r workflowRule, schemaRaw string, propName func(string) string, optName func(string) string) string {
 	parts := []string{}
 	if r.When.Type == "status_to" {
 		parts = append(parts, fmt.Sprintf("when the status becomes %s", optName(r.When.To)))
@@ -158,6 +169,9 @@ func workflowRuleSummary(r workflowRule, propName func(string) string, optName f
 	}
 	for _, f := range r.AllowFrom {
 		parts = append(parts, "only from "+optName(f))
+	}
+	for _, c := range r.WhenProps {
+		parts = append(parts, fmt.Sprintf("only if %s %s %s", propName(c.Prop), condOpWord(c.Op), condValueWord(schemaRaw, c.Prop, c.Value)))
 	}
 	if r.Precondition != nil {
 		if r.Precondition.ChecklistProp != "" {
@@ -204,6 +218,48 @@ func askModeWord(mode string) string {
 	return "if empty"
 }
 
+// condOpWord reads the way an agent wrote the operator back to it.
+func condOpWord(op string) string {
+	if op == "is_not" {
+		return "is not"
+	}
+	return "is"
+}
+
+// condValueWord renders a condition value the way the reader sees it:
+// option names for selects, raw text otherwise.
+func condValueWord(schemaRaw, propID, value string) string {
+	var schema []struct {
+		ID      string `json:"id"`
+		Type    string `json:"type"`
+		Options []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal([]byte(schemaRaw), &schema); err != nil {
+		return value
+	}
+	for _, p := range schema {
+		if p.ID != propID {
+			continue
+		}
+		if p.Type != "select" && p.Type != "multiselect" {
+			return value
+		}
+		for _, o := range p.Options {
+			if o.ID == value {
+				if o.Name != "" {
+					return o.Name
+				}
+				return o.ID
+			}
+		}
+		return value
+	}
+	return value
+}
+
 // --- Writing ---------------------------------------------------------------
 
 // The rule an agent sends. Property references are ids (get_collection lists
@@ -217,7 +273,17 @@ type workflowRuleSpec struct {
 	AllowFrom       []string             `json:"allow_from"`
 	OnlyIfChecklist string               `json:"only_if_checklist"`
 	OnlyIfFilled    string               `json:"only_if_filled"`
+	OnlyIf          []workflowCondSpec   `json:"only_if"`
 	Actions         []workflowActionSpec `json:"actions"`
+}
+
+// One row-value condition: the rule fires only when the row's property is
+// (or is not) the value. Value is an option id or NAME for selects (resolved
+// case-insensitively like status options), raw text for text and numbers.
+type workflowCondSpec struct {
+	Property string          `json:"property"`
+	Op       string          `json:"op"`
+	Value    json.RawMessage `json:"value"`
 }
 
 type workflowWhenSpec struct {
@@ -241,7 +307,7 @@ func (s *Server) mcpAddWorkflowRule(raw json.RawMessage) (string, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&spec); err != nil {
-		return "", fmt.Errorf("bad rule: %v — send {page_id, when:{type,to}, allow_from?, only_if_checklist?, only_if_filled?, actions:[{action,property?,value?,mode?,url?}]}", err)
+		return "", fmt.Errorf("bad rule: %v — send {page_id, when:{type,to}, allow_from?, only_if_checklist?, only_if_filled?, only_if:[{property,op?,value}]?, actions:[{action,property?,value?,mode?,url?}]}", err)
 	}
 	if spec.PageID == "" {
 		return "", fmt.Errorf("page_id is required")
@@ -307,7 +373,7 @@ func (s *Server) mcpAddWorkflowRule(raw json.RawMessage) (string, error) {
 	}
 	b, _ := json.Marshal(map[string]any{
 		"rule_id": rule.ID,
-		"summary": workflowRuleSummary(*rule, propName, optName),
+		"summary": workflowRuleSummary(*rule, schemaRaw, propName, optName),
 	})
 	return string(b), nil
 }
@@ -401,6 +467,24 @@ func buildWorkflowRule(spec workflowRuleSpec, schemaRaw, statusPropID string) (*
 	if pre != (workflowPrecondition{}) {
 		rule.Precondition = &pre
 	}
+	for i, c := range spec.OnlyIf {
+		propID := strings.TrimSpace(c.Property)
+		if propID == "" {
+			return nil, fmt.Errorf("only_if[%d]: property is required", i)
+		}
+		op := strings.TrimSpace(c.Op)
+		if op == "" {
+			op = "is"
+		}
+		if op != "is" && op != "is_not" {
+			return nil, fmt.Errorf("only_if[%d]: op must be \"is\" or \"is_not\"", i)
+		}
+		value, err := wfCondValue(schemaRaw, propID, c.Value)
+		if err != nil {
+			return nil, fmt.Errorf("only_if[%d]: %v", i, err)
+		}
+		rule.WhenProps = append(rule.WhenProps, workflowPropCond{Prop: propID, Op: op, Value: value})
+	}
 	for i, a := range spec.Actions {
 		action := strings.TrimSpace(a.Action)
 		if action == "" {
@@ -453,6 +537,61 @@ func buildWorkflowRule(spec workflowRuleSpec, schemaRaw, statusPropID string) (*
 		}
 	}
 	return rule, nil
+}
+
+// wfCondValue resolves a condition value the way set_properties resolves
+// values: option id or NAME (case-insensitive) for selects, raw text for
+// text and numbers. Unknown properties and foreign options refuse with the
+// list of what exists, so the retry writes itself.
+func wfCondValue(schemaRaw, propID string, raw json.RawMessage) (string, error) {
+	var s string
+	value := strings.TrimSpace(string(raw))
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &s); err == nil {
+			value = strings.TrimSpace(s)
+		} else {
+			value = strings.Trim(value, `"`)
+		}
+	}
+	if value == "" {
+		return "", fmt.Errorf("value is required")
+	}
+	var schema []struct {
+		ID      string `json:"id"`
+		Type    string `json:"type"`
+		Options []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal([]byte(schemaRaw), &schema); err != nil {
+		return "", fmt.Errorf("cannot read this database's schema")
+	}
+	for _, p := range schema {
+		if p.ID != propID {
+			continue
+		}
+		switch p.Type {
+		case "select", "multiselect", "text", "number":
+		default:
+			return "", fmt.Errorf("conditions support select, multiselect, text and number properties")
+		}
+		if p.Type != "select" && p.Type != "multiselect" {
+			return value, nil
+		}
+		names := []string{}
+		for _, o := range p.Options {
+			names = append(names, o.Name)
+			if o.ID == value || strings.EqualFold(o.Name, value) {
+				return o.ID, nil
+			}
+		}
+		if len(names) == 0 {
+			return "", fmt.Errorf("%q has no options yet", propID)
+		}
+		return "", fmt.Errorf("%q is not an option here — pick one of: %s", value, strings.Join(names, ", "))
+	}
+	return "", fmt.Errorf("unknown property %q", propID)
 }
 
 // wfOptionID resolves a status option by id or by NAME, case-insensitive —

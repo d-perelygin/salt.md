@@ -917,6 +917,7 @@ select properties that could drive one. That is the starting point for
 | `allow_from` | array of string | no |
 | `only_if_checklist` | string | no |
 | `only_if_filled` | string | no |
+| `only_if` | array | no |
 | `actions` | array | no |
 
 Appends one When/Then rule. `when` is `{"type":"status_to","to":…}` with a
@@ -925,7 +926,11 @@ status option id **or name** (`"Done"` works, case-insensitively) or
 ids or names a move may come from; empty means any. `only_if_checklist` names
 a checklist property that must be complete; `only_if_filled` names a property
 that must be filled — when the same property is also asked below, asking
-fills the requirement instead of refusing.
+fills the requirement instead of refusing. `only_if` lists row-value
+conditions `[{property, op: "is"|"is_not", value}]` picking which rows the rule
+fires for (option id or name for selects, raw text otherwise): a mismatch
+skips the rule so a sister rule may take the same move, it never refuses —
+only a row matching nothing is turned away, told which value it needs.
 
 Each action is `{action, property?, value?, mode?, url?}`:
 
