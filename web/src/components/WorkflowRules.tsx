@@ -181,13 +181,18 @@ export default function WorkflowRules({
         const fields = await neededPrompts(workflow, schema, '', {}, from, o.id);
         for (const f of fields) detail.push(f.kind === 'comment' ? t('Comment') : f.label);
         if (matched.length > 1) detail.push(t('Several rules fire here'));
+        const asked = new Set(
+          matched.flatMap((r) => (r.do ?? []).filter((a) => a.type === 'require_prop').map((a) => a.prop)),
+        );
         for (const r of matched) {
           detail.push(...describeAutoActions(r, schema));
           if (r.precondition?.checklistProp) {
             const n = schema.find((p) => p.id === r.precondition!.checklistProp)?.name ?? r.precondition.checklistProp;
             detail.push(t('{name} must be complete', { name: n }));
           }
-          if (r.precondition?.requiredProp) {
+          // A required field the rules ask for shows up once, as a question
+          // above — not as a dead end here.
+          if (r.precondition?.requiredProp && !asked.has(r.precondition.requiredProp)) {
             const n = schema.find((p) => p.id === r.precondition!.requiredProp)?.name ?? r.precondition.requiredProp;
             detail.push(t('{name} must be filled', { name: n }));
           }

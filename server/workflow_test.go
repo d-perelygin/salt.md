@@ -383,3 +383,28 @@ func TestWorkflowChecklistAskEndToEnd(t *testing.T) {
 		t.Fatalf("status = %v, want b", got)
 	}
 }
+
+// A field that is both required and asked for collapses into the ask: the
+// bare move is refused by the require step (naming the field), and answering
+// it in the same write satisfies the precondition too.
+func TestWorkflowRequireAskCollapse(t *testing.T) {
+	s, cookie, row := workflowFixture(t)
+	var col string
+	if err := s.db.QueryRow(`SELECT parent_id FROM pages WHERE id = ?`, row).Scan(&col); err != nil {
+		t.Fatal(err)
+	}
+	wf := `{"schema":[{"id":"status","name":"Status","type":"select","options":[{"id":"a","name":"A"},{"id":"b","name":"B"}]},{"id":"closed","name":"Closed","type":"date"}],"views":[],"workflow":{"statusPropId":"status","rules":[{"id":"r1","when":{"type":"status_to","to":"b"},"precondition":{"requiredProp":"closed"},"do":[{"type":"require_prop","prop":"closed","mode":"if_empty"}]}]}}`
+	if rec := putWorkflow(t, s, cookie, col, wf); rec.Code != 200 {
+		t.Fatalf("PUT workflow: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := patchStatus(t, s, cookie, row, "b")
+	if rec.Code != 409 {
+		t.Fatalf("bare move: got %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "fill in Closed") {
+		t.Fatalf("bare move reason names the ask, got %s", body)
+	}
+	if rec := patchProps(t, s, cookie, row, `{"propsPatch":{"status":"b","closed":"2026-10-20"}}`); rec.Code != 200 {
+		t.Fatalf("answered move: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+}

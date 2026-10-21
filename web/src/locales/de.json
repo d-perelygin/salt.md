@@ -1371,5 +1371,6 @@
   "Open process": "Prozess öffnen",
   "The “{name}” checklist isn’t finished — tick everything off, then move.": "Die Checkliste „{name}“ ist nicht fertig — hake alles ab, dann verschiebe.",
   "“{name}” is empty — fill it in, then move.": "„{name}“ ist leer — fülle es aus, dann verschiebe.",
-  "“{to}” only takes cards from {froms} — move it back there first, or loosen the rule in the process.": "„{to}“ nimmt nur Karten aus {froms} — lege sie erst dorthin zurück oder lockere die Regel im Prozess."
+  "“{to}” only takes cards from {froms} — move it back there first, or loosen the rule in the process.": "„{to}“ nimmt nur Karten aus {froms} — lege sie erst dorthin zurück oder lockere die Regel im Prozess.",
+  "“{prop}” is required and asked on the way into “{to}” — it will be asked once.": "„{prop}“ wird beim Eingang in „{to}“ verlangt und erfragt — einmal gefragt."
 }

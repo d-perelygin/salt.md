@@ -184,6 +184,20 @@ func validateWorkflow(cfg *workflowConfig, schema []PropSchema) error {
 	return nil
 }
 
+// askCovers: a field the firing rules themselves ask for is filled by the
+// dialog, not a reason to refuse up front — the require step's own check
+// carries the guarantee (and names the field).
+func askCovers(rules []workflowRule, prop string) bool {
+	for _, r := range rules {
+		for _, a := range r.Do {
+			if a.Type == "require_prop" && a.Prop == prop {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // requireSatisfied: asking for a checklist means getting it fully ticked —
 // anything less still blocks. Any other property counts as filled as soon
 // as it is non-empty.
@@ -300,7 +314,7 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 				reason = "checklist is not complete"
 				return nil, nil, nil, reason
 			}
-			if r.Precondition.RequiredProp != "" && !propNonEmpty(merged, r.Precondition.RequiredProp) {
+			if r.Precondition.RequiredProp != "" && !propNonEmpty(merged, r.Precondition.RequiredProp) && !askCovers(matched, r.Precondition.RequiredProp) {
 				reason = "required property is empty"
 				return nil, nil, nil, reason
 			}
@@ -362,16 +376,19 @@ func checkWorkflowTransition(cfg *workflowConfig, from, to string, merged, patch
 // (patch), exactly like on a transition.
 func checkWorkflowCreation(cfg *workflowConfig, merged, patch map[string]json.RawMessage, actorID string, schemas map[string]PropSchema) (matched []workflowRule, auto map[string]any, hooks []string, reason string) {
 	auto = map[string]any{}
+	var created []workflowRule
 	for _, r := range cfg.Rules {
-		if r.When.Type != "created" {
-			continue
+		if r.When.Type == "created" {
+			created = append(created, r)
 		}
+	}
+	for _, r := range created {
 		if r.Precondition != nil {
 			if r.Precondition.ChecklistProp != "" && !checklistDone(merged, r.Precondition.ChecklistProp) {
 				reason = "checklist is not complete"
 				return nil, nil, nil, reason
 			}
-			if r.Precondition.RequiredProp != "" && !propNonEmpty(merged, r.Precondition.RequiredProp) {
+			if r.Precondition.RequiredProp != "" && !propNonEmpty(merged, r.Precondition.RequiredProp) && !askCovers(created, r.Precondition.RequiredProp) {
 				reason = "required property is empty"
 				return nil, nil, nil, reason
 			}

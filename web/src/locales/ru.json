@@ -1450,5 +1450,6 @@
   "Open process": "Открыть процесс",
   "The “{name}” checklist isn’t finished — tick everything off, then move.": "Чеклист «{name}» не закрыт — отметьте всё и двигайте.",
   "“{name}” is empty — fill it in, then move.": "«{name}» пусто — заполните и двигайте.",
-  "“{to}” only takes cards from {froms} — move it back there first, or loosen the rule in the process.": "«{to}» принимает только из {froms} — верните карточку туда или ослабьте правило в процессе."
+  "“{to}” only takes cards from {froms} — move it back there first, or loosen the rule in the process.": "«{to}» принимает только из {froms} — верните карточку туда или ослабьте правило в процессе.",
+  "“{prop}” is required and asked on the way into “{to}” — it will be asked once.": "«{prop}» и требуется, и запрашивается на входе в «{to}» — спросят один раз."
 }

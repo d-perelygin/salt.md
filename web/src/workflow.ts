@@ -33,6 +33,9 @@ export function workflowBlockReason(
   );
   if (targeted.length === 0) return null;
   const matched = matchRules(workflow, from, to);
+  const asked = new Set(
+    matched.flatMap((r) => (r.do ?? []).filter((a) => a.type === 'require_prop').map((a) => a.prop)),
+  );
   if (matched.length === 0) {
     const froms = [...new Set(targeted.flatMap((r) => r.allowFrom ?? []))].map(optName);
     return {
@@ -50,7 +53,11 @@ export function workflowBlockReason(
         }),
       };
     }
-    if (r.precondition?.requiredProp && isEmpty(rowProps[r.precondition.requiredProp])) {
+    if (
+      r.precondition?.requiredProp &&
+      isEmpty(rowProps[r.precondition.requiredProp]) &&
+      !asked.has(r.precondition.requiredProp)
+    ) {
       return {
         message: t('“{name}” is empty — fill it in, then move.', {
           name: propName(r.precondition.requiredProp),
@@ -241,6 +248,7 @@ export interface WorkflowIssue {
     | 'bad-prop'
     | 'conflict'
     | 'ask-dupe'
+    | 'ask-req'
     | 'trap'
     | 'unreachable';
   /** Names/ids the message is built from. */
@@ -262,6 +270,8 @@ export function issueText(issue: WorkflowIssue): string {
       return t('Two rules write to “{prop}” on the way into “{to}” — the last one wins.', { prop: String(d.prop ?? ''), to: String(d.to ?? '') });
     case 'ask-dupe':
       return t('“{prop}” is asked twice on the way into “{to}” — it is asked once.', { prop: String(d.prop ?? ''), to: String(d.to ?? '') });
+    case 'ask-req':
+      return t('“{prop}” is required and asked on the way into “{to}” — it will be asked once.', { prop: String(d.prop ?? ''), to: String(d.to ?? '') });
     case 'trap':
       return t('Nobody can leave “{name}” — every way out is forbidden.', { name: String(d.name ?? '') });
     case 'unreachable':
@@ -341,10 +351,16 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
     rs.some((a, i) => rs.slice(i + 1).some((b) => gatesOverlap(a, b)));
   const setWriters = new Map<string, WorkflowRule[]>();
   const askers = new Map<string, WorkflowRule[]>();
+  const requiredBy = new Map<string, WorkflowRule[]>();
   for (const r of workflow.rules ?? []) {
     if (r.when.type !== 'status_to') continue;
     const to = (r.when as { to: string }).to;
     if (!optIds.has(to)) continue;
+    if (r.precondition?.requiredProp) {
+      const k = `${to}\0${r.precondition.requiredProp}`;
+      if (!requiredBy.has(k)) requiredBy.set(k, []);
+      requiredBy.get(k)!.push(r);
+    }
     for (const a of r.do ?? []) {
       if (a.type === 'set_prop' && a.prop) {
         const k = `${to}\0${a.prop}`;
@@ -375,6 +391,23 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
       issues.push({
         severity: 'warning',
         kind: 'ask-dupe',
+        data: { to: optName(to), prop: propName(prop) },
+      });
+    }
+  }
+  // Required and asked on one gate: not a contradiction, the ask fills the
+  // requirement — flagged once so the merge is visible.
+  for (const [k, rs] of requiredBy) {
+    const [to, prop] = k.split('\0');
+    const asking = askers.get(k) ?? [];
+    const together = [...rs, ...asking];
+    if (
+      asking.length > 0 &&
+      together.some((a, i) => together.slice(i + 1).some((b) => gatesOverlap(a, b)))
+    ) {
+      issues.push({
+        severity: 'warning',
+        kind: 'ask-req',
         data: { to: optName(to), prop: propName(prop) },
       });
     }
