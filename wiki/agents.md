@@ -294,6 +294,11 @@ database. See [Collections](collections.md) and [Properties](properties.md).
 | `comments` | List, add, resolve or reopen comments. |
 | `delete_comment` | Remove one permanently. Its own tool on purpose, so it cannot be reached by landing on the wrong enum value. |
 | `ask_user` | Ask you a question with 2-4 options and wait for the answer. In-app agent only — it never appears over MCP, where nobody could answer it. |
+| `ai_threads` | List your chat threads (titles, unread state, whether they contain agent runs). Read-only. |
+| `ai_thread_messages` | Read the messages of one of your chat threads. Read-only. |
+| `ai_thread_runs` | List the agent runs of one of your chat threads (status, task, timing, artifacts). Read-only. |
+| `ai_run` | Read one agent run: status, task, progress, error, timing, artifacts. Read-only. |
+| `ai_run_steps` | Read the trace of one agent run: plan, tool calls, results, approvals. Read-only. |
 
 A note cannot be edited or removed afterwards, by the agent that wrote it or by
 anybody else, which is exactly what makes a trail worth reading later. What a

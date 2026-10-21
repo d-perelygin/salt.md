@@ -478,6 +478,43 @@ var mcpTools = []map[string]any{
 			"properties": map[string]any{"page_id": map[string]any{"type": "string"}},
 			"required":   []string{"page_id"}},
 	},
+
+	{
+		"name":        "ai_threads",
+		"description": "List the chat threads of the signed-in user (titles, unread state, whether they contain agent runs). Read-only.",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	},
+	{
+		"name":        "ai_thread_messages",
+		"description": "Read the messages of one of your chat threads. Read-only.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"thread_id": map[string]any{"type": "string"},
+				"limit":     map[string]any{"type": "integer", "description": "Max messages to return (newest first). Omit for all."},
+			},
+			"required": []string{"thread_id"}},
+	},
+	{
+		"name":        "ai_thread_runs",
+		"description": "List the agent runs of one of your chat threads (status, task, timing, artifacts). Read-only.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{"thread_id": map[string]any{"type": "string"}},
+			"required":   []string{"thread_id"}},
+	},
+	{
+		"name":        "ai_run",
+		"description": "Read one agent run: status, task, progress, error, timing, artifacts. Read-only.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{"run_id": map[string]any{"type": "string"}},
+			"required":   []string{"run_id"}},
+	},
+	{
+		"name":        "ai_run_steps",
+		"description": "Read the trace of one agent run: plan, tool calls, results, approvals. Read-only.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{"run_id": map[string]any{"type": "string"}},
+			"required":   []string{"run_id"}},
+	},
 }
 
 // aiAgentExtraTools are tools for the built-in in-app agent only, appended to
@@ -740,6 +777,9 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 		Rules string `json:"rules"`
 		// File index (W125).
 		Under string `json:"under"`
+		// In-app AI chats (read-only over MCP).
+		ThreadID string `json:"thread_id"`
+		RunID    string `json:"run_id"`
 		// workspace(from_workspace:) — copy a workspace's structure.
 		FromWorkspace string `json:"from_workspace"`
 		// working_on — the agent presence check-in.
@@ -1231,6 +1271,16 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 			return s.mcpNote(u, args.PageID, args.Text, args.Agent, args.Label)
 		case "workspace":
 			return s.mcpWorkspace(u, args.WorkspaceID, args.Name, args.Icon, args.FromWorkspace)
+		case "ai_threads":
+			return s.mcpAIThreads(u)
+		case "ai_thread_messages":
+			return s.mcpAIThreadMessages(u, args.ThreadID, args.Limit)
+		case "ai_thread_runs":
+			return s.mcpAIThreadRuns(u, args.ThreadID)
+		case "ai_run":
+			return s.mcpAIRun(u, args.RunID)
+		case "ai_run_steps":
+			return s.mcpAIRunSteps(u, args.RunID)
 		default:
 			return "", fmt.Errorf("unknown tool %q", name)
 		}
