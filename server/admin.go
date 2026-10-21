@@ -146,9 +146,9 @@ type appSettings struct {
 	OIDCClientID  string `json:"oidcClientId"`
 	OIDCSecretSet bool   `json:"oidcSecretSet"`
 	OIDCName      string `json:"oidcName"`
-	MailProvider    string `json:"mailProvider"`
-	MailAddress     string `json:"mailAddress"`
-	MailFrom        string `json:"mailFrom"`
+	MailProvider  string `json:"mailProvider"`
+	MailAddress   string `json:"mailAddress"`
+	MailFrom      string `json:"mailFrom"`
 	// W97: may non-admins create workspaces of their own (and become their
 	// admin)? Default yes — that is how it was; the switch gives control.
 	AllowUserWorkspaces bool `json:"allowUserWorkspaces"`
@@ -157,6 +157,12 @@ type appSettings struct {
 	AgentAddressesOn   bool   `json:"agentAddressesOn"`
 	AgentAddresses     string `json:"agentAddresses"`
 	AnthropicAddresses string `json:"anthropicAddresses"`
+	// AI agent settings.
+	AIEnabled          bool   `json:"aiEnabled"`
+	AIDefaultBaseURL   string `json:"aiDefaultBaseUrl"`
+	AIDefaultModel     string `json:"aiDefaultModel"`
+	AIAllowInstanceKey bool   `json:"aiAllowInstanceKey"`
+	AIInstanceKeySet   bool   `json:"aiInstanceKeySet"`
 }
 
 func (s *Server) loadSettings() appSettings {
@@ -165,6 +171,11 @@ func (s *Server) loadSettings() appSettings {
 		SignupMode:          s.setting("signup_mode", "invite"),
 		AllowedDomains:      s.setting("allowed_domains", ""),
 		AllowUserWorkspaces: s.setting("allow_user_workspaces", "1") != "0",
+		AIEnabled:           s.setting("ai_enabled", "1") == "1",
+		AIDefaultBaseURL:    s.setting("ai_default_base_url", "https://api.openai.com/v1"),
+		AIDefaultModel:      s.setting("ai_default_model", "gpt-4o-mini"),
+		AIAllowInstanceKey:  s.setting("ai_allow_instance_key", "0") == "1",
+		AIInstanceKeySet:    s.setting("ai_instance_key_enc", "") != "",
 		SMTPHost:            s.setting("smtp_host", ""),
 		SMTPPort:            s.setting("smtp_port", "587"),
 		SMTPUser:            s.setting("smtp_user", ""),
@@ -253,6 +264,11 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		AllowUserWorkspaces *bool   `json:"allowUserWorkspaces"`
 		AgentAddressesOn    *bool   `json:"agentAddressesOn"`
 		AgentAddresses      *string `json:"agentAddresses"`
+		AIEnabled           *bool   `json:"aiEnabled"`
+		AIDefaultBaseURL    *string `json:"aiDefaultBaseUrl"`
+		AIDefaultModel      *string `json:"aiDefaultModel"`
+		AIAllowInstanceKey  *bool   `json:"aiAllowInstanceKey"`
+		AIInstanceKey       *string `json:"aiInstanceKey"` // "" leaves unchanged
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
@@ -300,13 +316,35 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		s.setSetting("trust_proxy", v)
 	}
 	if body.AllowUserWorkspaces != nil {
-		// "0" = explicitly off; anything else allowed (the default). Do not write
-		// "", or the value falls back to the default "1".
 		v := "1"
 		if !*body.AllowUserWorkspaces {
 			v = "0"
 		}
 		s.setSetting("allow_user_workspaces", v)
+	}
+	if body.AIEnabled != nil {
+		v := "0"
+		if *body.AIEnabled {
+			v = "1"
+		}
+		s.setSetting("ai_enabled", v)
+	}
+	set("ai_default_base_url", body.AIDefaultBaseURL)
+	set("ai_default_model", body.AIDefaultModel)
+	if body.AIAllowInstanceKey != nil {
+		v := "0"
+		if *body.AIAllowInstanceKey {
+			v = "1"
+		}
+		s.setSetting("ai_allow_instance_key", v)
+	}
+	if body.AIInstanceKey != nil && strings.TrimSpace(*body.AIInstanceKey) != "" {
+		key, err := s.aiEncKey()
+		if err == nil {
+			if enc, err := encryptSecret(strings.TrimSpace(*body.AIInstanceKey), key); err == nil {
+				s.setSetting("ai_instance_key_enc", enc)
+			}
+		}
 	}
 	set("https_domain", body.HTTPSDomain)
 	set("mail_from_override", body.MailFrom)

@@ -54,7 +54,7 @@ type Server struct {
 	// in every real build; set only by tests, whose receiver lives on an address
 	// safeDial refuses by design (see webhooks.go).
 	webhookTransport http.RoundTripper
-	dist fs.FS
+	dist             fs.FS
 }
 
 // Close stops background maintenance and releases the database. Call on
@@ -363,6 +363,27 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 
 	// The agent skill, generated for this instance (see skill.go).
 	m.HandleFunc("GET /api/skill", s.auth(s.handleSkill))
+
+	// AI agent endpoints.
+	m.HandleFunc("GET /api/ai/settings", s.auth(s.handleGetAISettings))
+	m.HandleFunc("PUT /api/ai/settings", s.auth(s.handlePutAISettings))
+	m.HandleFunc("GET /api/ai/threads", s.auth(s.handleListAIThreads))
+	m.HandleFunc("POST /api/ai/threads", s.auth(s.handleCreateAIThread))
+	m.HandleFunc("GET /api/ai/threads/{id}/messages", s.auth(s.handleGetAIThreadMessages))
+	m.HandleFunc("DELETE /api/ai/threads/{id}", s.auth(s.handleDeleteAIThread))
+	m.HandleFunc("PATCH /api/ai/threads/{id}", s.auth(s.handleRenameAIThread))
+	m.HandleFunc("POST /api/ai/threads/{id}/read", s.auth(s.handleReadAIThread))
+	m.HandleFunc("POST /api/ai/chat", s.auth(s.handleAIChat))
+	m.HandleFunc("POST /api/ai/generate", s.auth(s.handleAIGenerate))
+	m.HandleFunc("POST /api/ai/runs", s.auth(s.handleCreateAIRun))
+	m.HandleFunc("GET /api/ai/runs/{id}", s.auth(s.handleGetAIRun))
+	m.HandleFunc("GET /api/ai/runs/{id}/steps", s.auth(s.handleListAIRunSteps))
+	m.HandleFunc("GET /api/ai/threads/{id}/runs", s.auth(s.handleListAIThreadRuns))
+	m.HandleFunc("GET /api/ai/runs/{id}/events", s.auth(s.handleGetAIRunEvents))
+	m.HandleFunc("POST /api/ai/runs/{id}/cancel", s.auth(s.handleCancelAIRun))
+	m.HandleFunc("POST /api/ai/runs/{id}/approve", s.auth(s.handleApproveAIRun))
+	m.HandleFunc("POST /api/ai/runs/{id}/answer", s.auth(s.handleAnswerAIRun))
+	m.HandleFunc("POST /api/ai/attachments", s.auth(s.handleUploadAIAttachment))
 
 	m.HandleFunc("GET /api/events", s.auth(s.handleEvents))
 	m.HandleFunc("GET /api/presence", s.auth(s.handlePresence))

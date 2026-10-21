@@ -480,6 +480,31 @@ var mcpTools = []map[string]any{
 	},
 }
 
+// aiAgentExtraTools are tools for the built-in in-app agent only, appended to
+// mcpTools when the server builds the agent's tool list. They are NOT part of
+// the MCP catalogue (external agents must never see them): ask_user pauses the
+// run and waits for an answer typed in the browser, which has no meaning over
+// MCP — a call from there would hang until the wait times out.
+var aiAgentExtraTools = []map[string]any{
+	{
+		"name":        "ask_user",
+		"description": "Ask the user a clarifying question and wait for their answer. Use this INSTEAD of guessing whenever a task is ambiguous or a critical detail is missing (which page? which database? which option?). Ask one question per call with 2-4 concrete options; the user can always also type a free-text answer, so 'other' needs no option of its own. Prefer asking through this tool over asking in plain text — plain-text questions stall the run, this tool pauses it and resumes with the answer.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"question": map[string]any{"type": "string", "description": "The single question to ask."},
+				"options": map[string]any{"type": "array", "description": "2-4 concrete answer options.",
+					"items": map[string]any{"type": "object",
+						"properties": map[string]any{
+							"label":       map[string]any{"type": "string", "description": "Short option label shown as a button."},
+							"description": map[string]any{"type": "string", "description": "One-line explanation of this option."},
+						},
+						"required": []string{"label"}}},
+				"multiple": map[string]any{"type": "boolean", "description": "Allow picking several options at once (default false)."},
+			},
+			"required": []string{"question", "options"}},
+	},
+}
+
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
@@ -759,6 +784,12 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 		name == "working_on" || name == "note" ||
 		// Workspace rules (W123): a proposal is inert, but it IS a write.
 		name == "propose_workspace_rules"
+	// ask_user is an in-app agent tool, not an MCP tool: it pauses the run
+	// and waits for an answer typed in the browser. Reject it here so an
+	// external agent guessing the name fails fast instead of hanging.
+	if name == "ask_user" {
+		return "", fmt.Errorf("ask_user is not available over MCP — it works only for the built-in in-app agent")
+	}
 	switch name {
 	case "revisions":
 		// Reading the history is a read; putting a page back is not.

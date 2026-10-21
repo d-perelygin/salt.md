@@ -18,6 +18,7 @@ import { compare } from '../format';
 import { plural, t } from '../i18n';
 import { openPage, openPageAux, peekPanel } from '../pageOpen';
 import AgentConnectModal from './AgentConnect';
+import AiThreadList, { type AiThread } from './AiThreadList';
 import BreakGlassLog from './BreakGlassLog';
 import TemplateGallery from './TemplateGallery';
 import BlueprintLibrary from './BlueprintLibrary';
@@ -26,7 +27,7 @@ import StrandedWorkspaces from './StrandedWorkspaces';
 import { modalOpen, useExclusiveModal, useMenuDismiss } from '../modal';
 import { chordFor, hint, useShortcut } from '../keys';
 import { focusRegion, focusedKey, navItem, useNavRegion, withFocusSurvival } from '../nav';
-import { Sun, Moon, Search, Library, Plus, Table2, FileText, Trash2, LayoutTemplate, Tag, ChevronRight, ChevronDown, Users, Check, Download, Upload, Image, PanelLeftClose, PanelLeftOpen, Pencil, Star, ShieldAlert, ScrollText, Paperclip, SquareArrowOutUpRight, Copy, CornerUpRight, CornerLeftUp, Undo2, X, MoreHorizontal, Settings2, Globe } from 'lucide-react';
+import { Sun, Moon, Search, Library, Plus, Table2, FileText, Trash2, LayoutTemplate, Tag, ChevronRight, ChevronDown, Users, Check, Download, Upload, Image, PanelLeftClose, PanelLeftOpen, Pencil, Star, ShieldAlert, ScrollText, Paperclip, SquareArrowOutUpRight, Copy, CornerUpRight, CornerLeftUp, Undo2, X, MoreHorizontal, Settings2, Globe, Home, MessageCircle } from 'lucide-react';
 import { AgentDot } from './AgentBadge';
 import { tagColorClass } from '../tags';
 import { childrenForSection, topLevelForDocs } from '../treeMode';
@@ -81,6 +82,18 @@ interface Props {
   // Choice of typeface: it belongs to the person, not to the instance.
   fontPref?: FontPref;
   onSetFont?: (f: FontPref) => void;
+  // AI chats mode: under the search bar the sidebar switches between the
+  // document tree and the unified chat list (global + per-document threads).
+  sidebarMode?: 'docs' | 'chats';
+  onSidebarModeChange?: (m: 'docs' | 'chats') => void;
+  aiThreads?: AiThread[];
+  activeChatId?: string | null;
+  onSelectChat?: (id: string) => void;
+  onNewChat?: () => void;
+  onNewAgent?: () => void;
+  onChatDeleted?: (id: string) => void;
+  onRefreshChats?: () => void;
+  onMarkRead?: (id: string) => void;
   // Desktop collapse state: when collapsed, the sidebar appears as a hover
   // overlay and the collapse button flips into a "pin open" button — so users
   // can re-pin right from the overlay instead of hunting the hamburger behind it.
@@ -778,6 +791,16 @@ export default function Sidebar({
   onSetFont,
   collapsed = false,
   onExpand,
+  sidebarMode = 'docs',
+  onSidebarModeChange,
+  aiThreads = [],
+  activeChatId = null,
+  onSelectChat,
+  onNewChat,
+  onNewAgent,
+  onChatDeleted,
+  onRefreshChats,
+  onMarkRead,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     // An open tree stays open: which branches were expanded is part of the
@@ -1416,15 +1439,56 @@ export default function Sidebar({
           )}
         </div>
       </div>
-      <button className="sidebar-search" onClick={onOpenSearch}>
-        <span className="sidebar-item-label"><Search size={15} /> {t('Search')}</span>
-        {/* Was hardcoded to ⌘K, which was simply wrong everywhere search.open
-            is Ctrl+K (every non-Apple platform). Read from the registry
-            instead, the same source the shortcut sheet and every menu use, so
-            this can never say something the keyboard does not back up. */}
+      <button className="ai-search" onClick={onOpenSearch} title={t('Search or ask')}>
+        <Search size={15} />
+        <span style={{ flex: 1, textAlign: 'left' }}>{t('Search or ask')}</span>
         <span className="kbd">{chordFor('search.open')}</span>
       </button>
-      {favPages.length > 0 && (
+      <div className="ai-side-tabs" role="tablist" aria-label={t('Sidebar mode')}>
+        <button className={'ai-side-tab' + (sidebarMode === 'docs' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'docs'} onClick={() => onSidebarModeChange?.('docs')}>
+          <Home size={15} /> {t('Home')}
+        </button>
+        <button className={'ai-side-tab' + (sidebarMode === 'chats' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'chats'} onClick={() => onSidebarModeChange?.('chats')}>
+          <MessageCircle size={15} /> {t('Chat')}
+        </button>
+      </div>
+      {sidebarMode === 'chats' && (
+        <div className="tree">
+          <button className="ai-newchat" onClick={() => onNewChat?.()}>
+            <Plus size={15} /> {t('New chat')}
+          </button>
+          <div className="ai-section-label">{t('Chats')}</div>
+          <AiThreadList
+            hideNew
+            threads={aiThreads}
+            activeId={activeChatId}
+            pagesById={byIdAll}
+            onSelect={(id) => onSelectChat?.(id)}
+            onNew={() => onNewChat?.()}
+            onDelete={(id) => onChatDeleted?.(id)}
+            onRefresh={() => onRefreshChats?.()}
+            onMarkRead={(id) => onMarkRead?.(id)}
+          />
+          <div className="ai-section-label">{t('Agents')}</div>
+          <AiThreadList
+            mode="agents"
+            hideNew
+            threads={aiThreads}
+            activeId={activeChatId}
+            pagesById={byIdAll}
+            onSelect={(id) => onSelectChat?.(id)}
+            onNew={() => onNewChat?.()}
+            onNewAgent={() => onNewAgent?.()}
+            onDelete={(id) => onChatDeleted?.(id)}
+            onRefresh={() => onRefreshChats?.()}
+            onMarkRead={(id) => onMarkRead?.(id)}
+          />
+          <button className="ai-newchat" onClick={() => onNewAgent?.()}>
+            <span>✨＋</span> {t('New agent')}
+          </button>
+        </div>
+      )}
+      {sidebarMode === 'docs' && favPages.length > 0 && (
         <SidebarSection id="fav" label={t('Favourites')} icon={<Star size={17} />} count={favPages.length}>
           {favPages.map((p) => (
               <FlatRow
@@ -1443,7 +1507,7 @@ export default function Sidebar({
           }
         </SidebarSection>
       )}
-      {tagCounts.length > 0 && (
+      {sidebarMode === 'docs' && tagCounts.length > 0 && (
         <SidebarSection id="tags" label="Tags" icon={<Tag size={17} />} count={tagCounts.length}>
           <div className="tag-cloud">
               {tagCounts.map(([t, n]) => (
@@ -1467,7 +1531,7 @@ export default function Sidebar({
           </div>
         </SidebarSection>
       )}
-      {tagFilter ? (
+      {sidebarMode === 'docs' && tagFilter ? (
         <div className="tree tag-filtered">
           <div className="tag-filter-banner">
             <span>
@@ -1498,7 +1562,7 @@ export default function Sidebar({
             </div>
           ))}
         </div>
-      ) : (
+      ) : sidebarMode === 'docs' ? (
         <div className="tree">
           {notesList}
           {/* In notes mode the middle column IS the document list — repeating
@@ -1542,10 +1606,10 @@ export default function Sidebar({
           </SidebarSection>
           )}
         </div>
-      )}
+      ) : null}
       {/* The ＋ of the Templates section means "start from a template" — which
           is the gallery, where you can see one before copying it. */}
-      {templatePages.length > 0 && (
+      {sidebarMode === 'docs' && templatePages.length > 0 && (
         <SidebarSection
           id="tpl"
           label={t('Templates')}

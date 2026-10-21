@@ -62,6 +62,11 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
   const [allowUserWs, setAllowUserWs] = useState(true);
   // Agent keys from listed addresses only (server/agent_addresses.go).
   const [agentAddr, setAgentAddr] = useState({ on: false, list: '', anthropic: '' });
+  const [aiEnabled, setAiEnabled] = useState(true);
+  const [aiDefaultBaseUrl, setAiDefaultBaseUrl] = useState('https://api.openai.com/v1');
+  const [aiDefaultModel, setAiDefaultModel] = useState('gpt-4o-mini');
+  const [aiAllowInstanceKey, setAiAllowInstanceKey] = useState(false);
+  const [aiInstanceKey, setAiInstanceKey] = useState('');
   const [passSet, setPassSet] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -121,6 +126,10 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
         });
         setAllowUserWs(v.allowUserWorkspaces !== false);
         setAgentAddr({ on: v.agentAddressesOn, list: v.agentAddresses, anthropic: v.anthropicAddresses });
+        setAiEnabled(v.aiEnabled !== false);
+        setAiDefaultBaseUrl(v.aiDefaultBaseUrl || 'https://api.openai.com/v1');
+        setAiDefaultModel(v.aiDefaultModel || 'gpt-4o-mini');
+        setAiAllowInstanceKey(v.aiAllowInstanceKey === true);
         setHttpsEnabled(v.httpsEnabled);
         setOauthSet({ google: v.googleSecretSet, ms: v.msSecretSet, oidc: v.oidcSecretSet });
         setMail({ provider: v.mailProvider, address: v.mailAddress });
@@ -234,6 +243,11 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
         allowUserWorkspaces: allowUserWs,
         agentAddressesOn: agentAddr.on,
         agentAddresses: agentAddr.list,
+        aiEnabled,
+        aiDefaultBaseUrl: aiDefaultBaseUrl,
+        aiDefaultModel: aiDefaultModel,
+        aiAllowInstanceKey: aiAllowInstanceKey,
+        aiInstanceKey: aiInstanceKey || undefined,
         maxUploadMb: num('maxUploadMb', 1, 2048),
         trashDays: num('trashDays', 0, 3650),
         auditDays: num('auditDays', 0, 3650),
@@ -350,6 +364,22 @@ ingress:
                     <input className="prop-input" type="number" min={0} max={3650} value={s.trashDays} onChange={(e) => set('trashDays', e.target.value)} />
                     <label>{t('Sign-in session length (days)')}</label>
                     <input className="prop-input" type="number" min={1} max={365} value={s.sessionDays} onChange={(e) => set('sessionDays', e.target.value)} />
+
+                    <h3 style={{ marginTop: 16 }}>{t('AI agent')}</h3>
+                    <label className="check-label">
+                      <input type="checkbox" checked={aiEnabled} onChange={(e) => setAiEnabled(e.target.checked)} />
+                      {t('Enable AI')}
+                    </label>
+                    <label>{t('Default base URL')}</label>
+                    <input className="prop-input" value={aiDefaultBaseUrl} onChange={(e) => setAiDefaultBaseUrl(e.target.value)} />
+                    <label>{t('Default model')}</label>
+                    <input className="prop-input" value={aiDefaultModel} onChange={(e) => setAiDefaultModel(e.target.value)} />
+                    <label className="check-label">
+                      <input type="checkbox" checked={aiAllowInstanceKey} onChange={(e) => setAiAllowInstanceKey(e.target.checked)} />
+                      {t('Allow shared instance key')}
+                    </label>
+                    <label>{t('Instance API key (leave blank to keep)')}</label>
+                    <input className="prop-input" type="password" value={aiInstanceKey} onChange={(e) => setAiInstanceKey(e.target.value)} />
                   </>
                 )}
 

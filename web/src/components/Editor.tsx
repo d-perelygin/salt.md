@@ -48,11 +48,13 @@ import NoteTrail from './NoteTrail';
 import { FilePreview, isPreviewable } from './FilePreview';
 import StructurePanel, { structurePanelOpen, setStructurePanelOpen } from './StructurePanel';
 import { AgentPresence } from './AgentBadge';
+import AiInlineAssistant from './AiInlineAssistant';
+import AiBlockComposer from './AiBlockComposer';
 import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2} from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Sparkles} from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -2545,8 +2547,104 @@ function BlockContent({
   }
 
   // Slash menu: default items + column layout + our custom blocks.
+  // In-document AI entry points (Notion-style): AI Block generates content into
+  // the doc, Ask AI opens the side chat with the current selection as a quote.
+  // Neither writes anything to the chat history.
+  const [aiBlockOpen, setAiBlockOpen] = useState(false);
+  const [aiBlockSelection, setAiBlockSelection] = useState('');
+  const selectedNow = () => {
+    try {
+      const t = editor.getSelectedText?.() ?? '';
+      if (t.trim()) return t;
+    } catch {
+      /* fall through to the DOM selection */
+    }
+    try {
+      return window.getSelection()?.toString() ?? '';
+    } catch {
+      return '';
+    }
+  };
+  const askAi = () => {
+    const sel = selectedNow();
+    // The "/" line itself must go: Ask AI changes nothing in the document, so
+    // leaving a bare slash block behind would be litter from the menu.
+    try {
+      const pos = editor.getTextCursorPosition?.();
+      const b = pos?.block as { id?: string; type?: string; content?: { text?: string }[] } | undefined;
+      const txt = Array.isArray(b?.content) ? (b.content ?? []).map((c) => c?.text ?? '').join('') : '';
+      if (b?.id && b.type === 'paragraph' && txt.trim() === '/') editor.removeBlocks([b.id]);
+    } catch {
+      /* best effort */
+    }
+    window.dispatchEvent(new CustomEvent('salt:ai-ask', { detail: { pageId, selection: sel } }));
+  };
+  useShortcut({
+    id: 'ai.ask',
+    keys: ['mod+j'],
+    whileTyping: true,
+    label: () => t('Ask AI'),
+    group: () => t('AI'),
+    run: () => {
+      if (modalOpen()) return false;
+      askAi();
+      return true;
+    },
+  });
+  // Insert generated markdown below the cursor (AI Block / chat "Insert").
+  useEffect(() => {
+    const onInsert = (e: Event) => {
+      const d = (e as CustomEvent<{ pageId?: string; markdown?: string }>).detail;
+      if (!d || (d.pageId && d.pageId !== pageId) || !d.markdown) return;
+      void (async () => {
+        try {
+          const blocks = await editor.tryParseMarkdownToBlocks(d.markdown as string);
+          if (!blocks.length) return;
+          let ref: string | undefined;
+          try {
+            ref = editor.getTextCursorPosition?.()?.block?.id;
+          } catch {
+            /* fall through */
+          }
+          if (!ref) {
+            const last = editor.document[editor.document.length - 1];
+            ref = last?.id;
+          }
+          if (ref) editor.insertBlocks(blocks, ref, 'after');
+          else editor.insertBlocks(blocks, editor.document[editor.document.length - 1], 'after');
+        } catch {
+          toast(t('Could not insert'));
+        }
+      })();
+    };
+    window.addEventListener('salt:ai-insert', onInsert);
+    return () => window.removeEventListener('salt:ai-insert', onInsert);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, pageId]);
+
   const getSlashItems = async (query: string) => {
     const custom = [
+      {
+        title: t('AI Block'),
+        subtext: t('Generate content from any instruction'),
+        aliases: ['ai', 'ии', 'generate', 'сгенерировать', 'написать', 'aiblock', 'ки', 'искусственный интеллект'], // i18n-ok: search aliases, deliberately trilingual
+        group: 'AI',
+        icon: <Sparkles size={18} />,
+        onItemClick: () => {
+          insertOrUpdateBlockForSlashMenu(editor, { type: 'paragraph' } as never);
+          setAiBlockSelection(selectedNow());
+          setAiBlockOpen(true);
+        },
+      },
+      {
+        title: t('Ask AI'),
+        subtext: t('Ask about the page or selection'),
+        aliases: ['ask', 'ai', 'спросить', 'вопрос', 'ии', 'askai'], // i18n-ok: search aliases, deliberately trilingual
+        group: 'AI',
+        icon: <Sparkles size={18} />,
+        badge: '⌘J',
+        onItemClick: askAi,
+      },
       {
         title: t('Diagram'),
         subtext: t('A flow chart written as text'),
@@ -3024,6 +3122,18 @@ function BlockContent({
           />
         </BlockNoteView>
         </BlockContext.Provider>
+        <div style={{ position: 'relative' }}>
+          <AiInlineAssistant editor={editor} pageId={provider.pageId} />
+        </div>
+        {aiBlockOpen && (
+          <AiBlockComposer
+            pageId={provider.pageId}
+            selection={aiBlockSelection}
+            pagesById={pagesById}
+            onClose={() => setAiBlockOpen(false)}
+            onInserted={() => onPagesChanged()}
+          />
+        )}
         {!structureOpen && (
           <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}

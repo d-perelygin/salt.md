@@ -5,6 +5,9 @@ import { WifiOff } from 'lucide-react';
 import type { Me, PageMeta, User, Workspace } from './types';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
+import AiChatPanel from './components/AiChatPanel';
+import AiChatView from './components/AiChatView';
+import type { AiThread } from './components/AiThreadList';
 import PeekPanel from './components/PeekPanel';
 import TabBar from './components/TabBar';
 import SearchModal from './components/SearchModal';
@@ -261,6 +264,71 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [indexOpen, setIndexOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [aiChatOpen, setAiChatOpen] = useState(false);
+  // Quote handed to the side panel by in-document Ask AI (selection as a
+  // quote — the document itself is never modified).
+  const [aiQuote, setAiQuote] = useState<string | null>(null);
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const d = (e as CustomEvent<{ selection?: string }>).detail;
+      if (d?.selection) setAiQuote(d.selection);
+      else setAiQuote(null);
+      setAiChatOpen(true);
+    };
+    window.addEventListener('salt:ai-ask', onAsk);
+    return () => window.removeEventListener('salt:ai-ask', onAsk);
+  }, []);
+  // Sidebar mode: document tree vs unified AI chat list (global + per-doc).
+  const [sidebarMode, setSidebarMode] = useState<'docs' | 'chats'>('docs');
+  const [aiThreads, setAiThreads] = useState<AiThread[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const loadAiThreads = useCallback(async () => {
+    try {
+      setAiThreads((await api.listAIThreads()) as AiThread[]);
+    } catch {
+      /* keep current */
+    }
+  }, []);
+  useEffect(() => {
+    if (me?.authenticated) void loadAiThreads();
+  }, [me?.authenticated, loadAiThreads]);
+  // Deep links to a chat (?chat=<id>, from "Copy link" / "Open in new tab"):
+  // land straight in the Chats view with that thread selected.
+  useEffect(() => {
+    if (!me?.authenticated) return;
+    try {
+      const id = new URLSearchParams(window.location.search).get('chat');
+      if (id) {
+        setSidebarMode('chats');
+        setActiveChatId(id);
+      }
+    } catch {
+      /* no deep link */
+    }
+  }, [me?.authenticated]);
+  // The list must notice work that finished elsewhere (a background run in
+  // another tab, or the agent answering while you read a document): refresh
+  // when the window regains focus and every 20s while chats are visible.
+  useEffect(() => {
+    if (!me?.authenticated) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadAiThreads();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    const iv = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadAiThreads();
+    }, 20000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+      window.clearInterval(iv);
+    };
+  }, [me?.authenticated, loadAiThreads]);
+  const markChatReadLocal = useCallback((id: string) => {
+    const ts = new Date().toISOString();
+    setAiThreads((prev) => prev.map((th) => (th.id === id ? { ...th, lastReadAt: ts } : th)));
+  }, []);
   // Desktop-only: collapse the sidebar entirely (mobile uses the drawer). The
   // editor's hamburger reopens it. Persisted so it stays collapsed across loads.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -1864,6 +1932,35 @@ export default function App() {
         onSelectTag={setNotesTag}
         notesModeSetting={notesMode}
         onToggleNotesMode={toggleNotesMode}
+        sidebarMode={sidebarMode}
+        onSidebarModeChange={(m) => {
+          setSidebarMode(m);
+          if (m === 'chats') void loadAiThreads();
+        }}
+        aiThreads={aiThreads}
+        activeChatId={activeChatId}
+        onSelectChat={(id) => {
+          setActiveChatId(id);
+          void api.markAIThreadRead(id).catch(() => {});
+          markChatReadLocal(id);
+        }}
+        onMarkRead={(id) => markChatReadLocal(id)}
+        onNewChat={() => setActiveChatId(null)}
+        onNewAgent={() => {
+          void (async () => {
+            try {
+              const r = await api.createAIThread({ title: t('New agent') });
+              setActiveChatId(r.id);
+              void loadAiThreads();
+            } catch {
+              /* keep current */
+            }
+          })();
+        }}
+        onChatDeleted={(id) => {
+          if (activeChatId === id) setActiveChatId(null);
+        }}
+        onRefreshChats={() => void loadAiThreads()}
         onOpenShortcuts={() => setHelpOpen(true)}
         fontPref={fontPref}
         onSetFont={setFontPref}
@@ -1882,7 +1979,18 @@ export default function App() {
         />
       )}
       <main className="main">
-        {indexOpen ? (
+        {sidebarMode === 'chats' ? (
+          <AiChatView
+            threadId={activeChatId}
+            pagesById={pagesById}
+            onOpenPage={(id) => navigate(id)}
+            onThreadCreated={(id) => {
+              setActiveChatId(id);
+              void loadAiThreads();
+            }}
+            onThreadsChanged={() => void loadAiThreads()}
+          />
+        ) : indexOpen ? (
           <IndexView
             pages={pages}
             favorites={favorites}
@@ -2042,7 +2150,10 @@ export default function App() {
         />
       )}
       {helpOpen && <ShortcutSheet onClose={() => setHelpOpen(false)} />}
-      {searchOpen && (
+      {sidebarMode !== 'chats' && (
+        <button onClick={() => setAiChatOpen(true)} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 999, width: 44, height: 44, borderRadius: '50%', background: 'var(--primary)', color: 'var(--primary-foreground)', border: 'none', cursor: 'pointer' }}>AI</button>
+      )}
+      {aiChatOpen && <AiChatPanel pageId={currentId ?? undefined} threadId={activeChatId} quote={aiQuote} onQuoteConsumed={() => setAiQuote(null)} onClose={() => { setAiChatOpen(false); setAiQuote(null); void loadAiThreads(); }} />}      {searchOpen && (
         <SearchModal
           recent={(() => {
             try {

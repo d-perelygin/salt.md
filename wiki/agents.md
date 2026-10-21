@@ -293,6 +293,7 @@ database. See [Collections](collections.md) and [Properties](properties.md).
 | `note` | One line onto a page's raw trail: dated, append-only, permanent. |
 | `comments` | List, add, resolve or reopen comments. |
 | `delete_comment` | Remove one permanently. Its own tool on purpose, so it cannot be reached by landing on the wrong enum value. |
+| `ask_user` | Ask you a question with 2-4 options and wait for the answer. In-app agent only — it never appears over MCP, where nobody could answer it. |
 
 A note cannot be edited or removed afterwards, by the agent that wrote it or by
 anybody else, which is exactly what makes a trail worth reading later. What a
@@ -433,3 +434,40 @@ reason, because the caller already knows the workspace is theirs.
 the catalogue it fetched when it connected. After an update that renames or
 merges tools, the old names linger in a running session until it reconnects, and
 calling an old name to "check" only proves the client is stale.
+
+## In-app AI agent
+
+salt.md also ships an AI assistant inside the interface. It is a separate thing
+from the MCP agents above: it runs on the server under your own account, reads
+and writes through the same tools, and can keep working after you close the tab.
+
+- **Settings:** each person configures their own OpenAI-compatible endpoint,
+  model and API key in their profile. An admin can additionally enable a shared
+  instance key and turn AI off globally.
+- **Chat:** a floating button opens a chat panel bound to the current page; a
+  second chat in the sidebar covers the whole workspace. Attachments (text,
+  Markdown, CSV, JSON, PDF) are read into the conversation.
+- **Inline:** selecting text in the editor offers rewrite, summarize, translate
+  and grammar fixes, with a preview before the text is replaced.
+- **Background runs:** a task can be handed to the agent ("create a page from
+  this file", "fill this database"). It executes on the server, shows progress,
+  and can be cancelled; changes land in the document history and can be reverted.
+- **Permissions and audit:** the agent acts as you, within your access, and its
+  changes are recorded in the activity log with `source=ai`.
+- **Agent sessions:** the sidebar's Chats view has an Agents section listing
+  threads with agent runs, and "New agent" starts one. Each run shows its
+  trace (plan, tool calls, results) under a "Worked for …" header, and the
+  pages it created appear in the Artifacts panel — click one to open it.
+- **Approvals:** the composer lets you choose Always ask, Review for me
+  (only unsafe actions pause) or Skip all approvals; a paused run waits for
+  your Approve or Reject.
+- **Questions:** when the agent needs a decision it asks through `ask_user` —
+  a card with options and a free-text field; the run pauses and resumes with
+  your answer.
+- **In the document:** `/` offers AI Block (generates content into the page,
+  never saved to chats) and Ask AI (opens the side panel with your selection
+  as a quote). `@` mentions pages in any chat input. Chat answers render as
+  Markdown, with page links that open in place.
+- **Retry and regenerate:** a failed or cancelled run offers Retry with the same
+  task; any assistant answer offers ↻ to regenerate it. Assistant answers can
+  be copied, and (on a document) inserted into the page below the cursor.

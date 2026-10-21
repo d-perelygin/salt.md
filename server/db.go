@@ -209,6 +209,91 @@ CREATE TABLE IF NOT EXISTS page_notes (
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_page_notes_page ON page_notes(page_id, created_at);
+-- AI agent (in-app). Per-user LLM settings.
+CREATE TABLE IF NOT EXISTS user_ai_settings (
+	user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+	base_url TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	format TEXT NOT NULL DEFAULT 'chat',
+	temperature REAL NOT NULL DEFAULT 0.7,
+	api_key_enc TEXT NOT NULL DEFAULT '',
+	approval TEXT NOT NULL DEFAULT 'review',
+	updated_at TEXT NOT NULL DEFAULT ''
+);
+-- AI chat threads (personal to the user).
+CREATE TABLE IF NOT EXISTS ai_threads (
+	id TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	workspace_id TEXT NOT NULL DEFAULT '',
+	page_id TEXT NOT NULL DEFAULT '',
+	title TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	last_read_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_ai_threads_user ON ai_threads(user_id, updated_at);
+-- AI chat messages.
+CREATE TABLE IF NOT EXISTS ai_messages (
+	id TEXT PRIMARY KEY,
+	thread_id TEXT NOT NULL REFERENCES ai_threads(id) ON DELETE CASCADE,
+	role TEXT NOT NULL,
+	content TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	tokens_in INTEGER NOT NULL DEFAULT 0,
+	tokens_out INTEGER NOT NULL DEFAULT 0,
+	attachments TEXT NOT NULL DEFAULT '[]',
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_messages_thread ON ai_messages(thread_id, created_at);
+-- AI background runs.
+CREATE TABLE IF NOT EXISTS ai_runs (
+	id TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	thread_id TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'queued',
+	task TEXT NOT NULL DEFAULT '',
+	plan TEXT NOT NULL DEFAULT '',
+	progress TEXT NOT NULL DEFAULT '',
+	error TEXT NOT NULL DEFAULT '',
+	started_at TEXT NOT NULL DEFAULT '',
+	finished_at TEXT NOT NULL DEFAULT '',
+	cancel_requested INTEGER NOT NULL DEFAULT 0,
+	pending_tool TEXT NOT NULL DEFAULT '',
+	pending_args TEXT NOT NULL DEFAULT '',
+	approved INTEGER NOT NULL DEFAULT 0,
+	artifacts TEXT NOT NULL DEFAULT '[]',
+	pending_answer TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_ai_runs_user ON ai_runs(user_id, started_at);
+-- AI agent steps (OpenChamber-style trace: thinking + tool calls + results).
+-- One row per visible step of a background run; the UI renders them as the
+-- "Thinking / Script" blocks. Kept beside ai_runs so a thread can show what
+-- the agent did, not just the final message.
+CREATE TABLE IF NOT EXISTS ai_steps (
+	id TEXT PRIMARY KEY,
+	run_id TEXT NOT NULL REFERENCES ai_runs(id) ON DELETE CASCADE,
+	thread_id TEXT NOT NULL DEFAULT '',
+	user_id TEXT NOT NULL DEFAULT '',
+	seq INTEGER NOT NULL DEFAULT 0,
+	kind TEXT NOT NULL DEFAULT 'thinking',
+	title TEXT NOT NULL DEFAULT '',
+	body TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'done',
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_steps_run ON ai_steps(run_id, seq);
+CREATE INDEX IF NOT EXISTS idx_ai_steps_thread ON ai_steps(thread_id, seq);
+-- AI attachments with extracted text.
+CREATE TABLE IF NOT EXISTS ai_attachments (
+	id TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	thread_id TEXT NOT NULL DEFAULT '',
+	file_name TEXT NOT NULL DEFAULT '',
+	extracted_text TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'pending',
+	error TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
 -- Signing in to the desktop app through the real browser (desktop_auth.go).
 -- One row per sign-in in flight, alive for five minutes. The code is stored
 -- HASHED, like every other credential here: a dump of this table must not be a
@@ -647,6 +732,30 @@ func openDB(path string) (*sql.DB, error) {
 	db.Exec(`DELETE FROM app_settings WHERE key LIKE 'ics_token_%'`)
 	// Record the schema/app version so an operator (and future migrations) can
 	// see what a data dir was last written by. Additive, idempotent.
+	if err := ensureColumn(db, "user_ai_settings", "format", `format TEXT NOT NULL DEFAULT 'chat'`); err != nil {
+		return nil, fmt.Errorf("migrate user_ai_settings.format: %w", err)
+	}
+	if err := ensureColumn(db, "user_ai_settings", "approval", `approval TEXT NOT NULL DEFAULT 'review'`); err != nil {
+		return nil, fmt.Errorf("migrate user_ai_settings.approval: %w", err)
+	}
+	if err := ensureColumn(db, "ai_runs", "pending_tool", `pending_tool TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate ai_runs.pending_tool: %w", err)
+	}
+	if err := ensureColumn(db, "ai_runs", "pending_args", `pending_args TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate ai_runs.pending_args: %w", err)
+	}
+	if err := ensureColumn(db, "ai_runs", "approved", `approved INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return nil, fmt.Errorf("migrate ai_runs.approved: %w", err)
+	}
+	if err := ensureColumn(db, "ai_runs", "artifacts", `artifacts TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return nil, fmt.Errorf("migrate ai_runs.artifacts: %w", err)
+	}
+	if err := ensureColumn(db, "ai_runs", "pending_answer", `pending_answer TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate ai_runs.pending_answer: %w", err)
+	}
+	if err := ensureColumn(db, "ai_threads", "last_read_at", `last_read_at TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate ai_threads.last_read_at: %w", err)
+	}
 	db.Exec(`INSERT INTO schema_meta (key, value) VALUES ('version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, Version)
 	return db, nil

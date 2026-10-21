@@ -138,6 +138,11 @@ export const api = {
       agentAddressesOn: boolean;
       agentAddresses: string;
       anthropicAddresses: string;
+      aiEnabled: boolean;
+      aiDefaultBaseUrl: string;
+      aiDefaultModel: string;
+      aiAllowInstanceKey: boolean;
+      aiInstanceKeySet: boolean;
       maxUploadMb: number;
       trashDays: number;
       auditDays: number;
@@ -831,4 +836,39 @@ export const api = {
       };
       xhr.send(fd);
     }),
+  // AI agent
+  getAISettings: () => req<{ baseUrl: string; model: string; format: string; temperature: number; hasKey: boolean; approval: string }>('/api/ai/settings'),
+  putAISettings: (body: { baseUrl?: string; model?: string; format?: string; temperature?: number; apiKey?: string; approval?: string }) =>
+    req<{ ok: boolean }>('/api/ai/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  listAIThreads: (pageId?: string) =>
+    req<any[]>(`/api/ai/threads${pageId ? `?page_id=${encodeURIComponent(pageId)}` : ''}`),
+  createAIThread: (body: { workspaceId?: string; pageId?: string; title?: string }) =>
+    req<{ id: string }>('/api/ai/threads', { method: 'POST', body: JSON.stringify(body) }),
+  getAIThreadMessages: (id: string) => req<any[]>(`/api/ai/threads/${id}/messages`),
+  deleteAIThread: (id: string) => req<{ ok: boolean }>(`/api/ai/threads/${id}`, { method: 'DELETE' }),
+  renameAIThread: (id: string, title: string) =>
+    req<{ ok: boolean }>(`/api/ai/threads/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  markAIThreadRead: (id: string) =>
+    req<{ ok: boolean }>(`/api/ai/threads/${id}/read`, { method: 'POST', body: '{}' }),
+  createAIRun: (body: { threadId?: string; task: string; pageId?: string }) =>
+    req<{ id: string; threadId: string }>('/api/ai/runs', { method: 'POST', body: JSON.stringify(body) }),
+  getAIRun: (id: string) => req<any>(`/api/ai/runs/${id}`),
+  cancelAIRun: (id: string) => req<{ ok: boolean }>(`/api/ai/runs/${id}/cancel`, { method: 'POST', body: '{}' }),
+  approveAIRun: (id: string, approved: boolean) =>
+    req<{ ok: boolean }>(`/api/ai/runs/${id}/approve`, { method: 'POST', body: JSON.stringify({ approved }) }),
+  answerAIRun: (id: string, answer: string) =>
+    req<{ ok: boolean }>(`/api/ai/runs/${id}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
+  getAIRunSteps: (id: string) => req<any[]>(`/api/ai/runs/${id}/steps`),
+  getAIThreadRuns: (id: string) => req<any[]>(`/api/ai/threads/${id}/runs`),
+  generateAI: (body: { prompt: string; selection?: string; pageId?: string; includePage?: boolean; model?: string; mentions?: string[] }) =>
+    fetch('/api/ai/generate', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  uploadAIAttachment: (file: File, threadId?: string) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (threadId) fd.append('threadId', threadId);
+    return fetch('/api/ai/attachments', { method: 'POST', credentials: 'same-origin', body: fd }).then(async (res) => {
+      if (!res.ok) throw new Error('upload failed');
+      return res.json() as Promise<{ id: string; fileName: string; status: string; textLength: number; text?: string }>;
+    });
+  },
 };

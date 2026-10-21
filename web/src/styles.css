@@ -215,6 +215,32 @@ button {
   background: var(--active);
 }
 
+/* Documents/Chats switch under the search bar (Notion-style AI entry). */
+.sb-mode-toggle {
+  display: flex;
+  margin: 0 12px 10px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--hover);
+  gap: 2px;
+}
+.sb-mode-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 7px 0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.sb-mode-btn.active {
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
 .kbd {
   font-size: 11px;
   border: 1px solid var(--border);
@@ -12669,3 +12695,4 @@ body:has(.live-down) .update-banner {
   padding: 2px 7px;
   white-space: nowrap;
 }
+
