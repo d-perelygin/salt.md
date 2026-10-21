@@ -4027,6 +4027,23 @@ body.is-col-resizing {
   border: 1px solid transparent;
   background: transparent;
   color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+/* A self-check finding that repairs itself in one tap — the draft changes,
+   Save still applies. */
+.workflow-fix {
+  flex: none;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  cursor: pointer;
 }
 button.workflow-issue {
   cursor: pointer;

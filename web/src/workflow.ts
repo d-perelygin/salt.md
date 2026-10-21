@@ -1,4 +1,4 @@
-import type { PropDef, WorkflowConfig, WorkflowRule } from './types';
+import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowRule } from './types';
 import { api } from './api';
 import { promptWorkflow } from './dialog';
 import { toast } from './toast';
@@ -246,6 +246,7 @@ export interface WorkflowIssue {
     | 'bad-target'
     | 'bad-source'
     | 'bad-prop'
+    | 'set-checklist'
     | 'conflict'
     | 'ask-dupe'
     | 'ask-req'
@@ -266,6 +267,8 @@ export function issueText(issue: WorkflowIssue): string {
       return t('“Only from” names “{name}”, which is no longer a status option.', { name: String(d.name ?? '') });
     case 'bad-prop':
       return t('“{name}” is not usable here — the property is gone or has the wrong type.', { name: String(d.name ?? '') });
+    case 'set-checklist':
+      return t('“{name}” is a checklist — it can only be asked for, not set.', { name: String(d.name ?? '') });
     case 'conflict':
       return t('Two rules write to “{prop}” on the way into “{to}” — the last one wins.', { prop: String(d.prop ?? ''), to: String(d.to ?? '') });
     case 'ask-dupe':
@@ -277,6 +280,15 @@ export function issueText(issue: WorkflowIssue): string {
     case 'unreachable':
       return t('Nobody can move into “{name}” — only creating a row there works.', { name: String(d.name ?? '') });
   }
+}
+
+// Two rules co-fire for a target when their gates overlap — an empty gate
+// always overlaps, otherwise their allowed sources must intersect.
+function gatesOverlap(a: WorkflowRule, b: WorkflowRule): boolean {
+  const fa = a.allowFrom ?? [];
+  const fb = b.allowFrom ?? [];
+  if (fa.length === 0 || fb.length === 0) return true;
+  return fa.some((x) => fb.includes(x));
 }
 
 /** Static self-check of the whole process: broken references (errors) plus
@@ -310,7 +322,7 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
       }
       for (const from of r.allowFrom ?? []) {
         if (!optIds.has(from)) {
-          issues.push({ severity: 'error', ruleId: r.id, kind: 'bad-source', data: { name: from } });
+          issues.push({ severity: 'error', ruleId: r.id, kind: 'bad-source', data: { name: from, id: from } });
         }
       }
     }
@@ -320,7 +332,12 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
       if (a.type === 'set_prop') {
         const def = a.prop ? byId.get(a.prop) : undefined;
         if (a.prop && def?.type === 'checklist') {
-          issues.push({ severity: 'error', ruleId: r.id, kind: 'bad-prop', data: { name: a.prop } });
+          issues.push({
+            severity: 'error',
+            ruleId: r.id,
+            kind: 'set-checklist',
+            data: { name: def.name ?? a.prop, id: a.prop },
+          });
         } else {
           checkPropRef(r.id, a.prop, 'any');
         }
@@ -339,14 +356,6 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
 
   // Several rules may write one field or ask one question: harmless when
   // they can never fire together, worth flagging when they can. Two rules
-  // co-fire for a target when their gates overlap — an empty gate always
-  // overlaps, otherwise their allowed sources must intersect.
-  const gatesOverlap = (a: WorkflowRule, b: WorkflowRule): boolean => {
-    const fa = a.allowFrom ?? [];
-    const fb = b.allowFrom ?? [];
-    if (fa.length === 0 || fb.length === 0) return true;
-    return fa.some((x) => fb.includes(x));
-  };
   const coFires = (rs: WorkflowRule[]): boolean =>
     rs.some((a, i) => rs.slice(i + 1).some((b) => gatesOverlap(a, b)));
   const setWriters = new Map<string, WorkflowRule[]>();
@@ -381,7 +390,7 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
       issues.push({
         severity: 'warning',
         kind: 'conflict',
-        data: { to: optName(to), prop: propName(prop) },
+        data: { to: optName(to), toId: to, prop: propName(prop), propId: prop },
       });
     }
   }
@@ -391,7 +400,7 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
       issues.push({
         severity: 'warning',
         kind: 'ask-dupe',
-        data: { to: optName(to), prop: propName(prop) },
+        data: { to: optName(to), toId: to, prop: propName(prop), propId: prop },
       });
     }
   }
@@ -408,7 +417,7 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
       issues.push({
         severity: 'warning',
         kind: 'ask-req',
-        data: { to: optName(to), prop: propName(prop) },
+        data: { to: optName(to), toId: to, prop: propName(prop), propId: prop },
       });
     }
   }
@@ -438,6 +447,127 @@ export function analyzeWorkflow(workflow: WorkflowConfig | undefined, schema: Pr
     }
   }
   return issues;
+}
+
+// All the ways the self-check's fixable findings repair themselves, in one
+// place so the issue row is just a button. Pure draft edits — nothing is
+// saved until the reader presses Save. Returns null when there is nothing
+// safe to do (a trap, a conflict, a truly unknown property).
+export function fixWorkflowIssue(
+  workflow: WorkflowConfig | undefined,
+  schema: PropDef[],
+  issue: WorkflowIssue,
+): WorkflowConfig | undefined {
+  if (!workflow) return undefined;
+  const byId = new Map(schema.map((x) => [x.id, x]));
+  const rules = workflow.rules ?? [];
+  const at = (id?: string | null) => rules.find((r) => r.id === id);
+  const d = issue.data ?? {};
+  switch (issue.kind) {
+    case 'bad-source': {
+      // A dead source id simply drops out of the allow-list.
+      const r = at(issue.ruleId);
+      const dead = String(d.id ?? '');
+      if (!r || !(r.allowFrom ?? []).includes(dead)) return undefined;
+      const allowFrom = (r.allowFrom ?? []).filter((x) => x !== dead);
+      return {
+        ...workflow,
+        rules: rules.map((x) => (x.id === r.id ? { ...x, allowFrom } : x)),
+      };
+    }
+    case 'set-checklist': {
+      // A checklist cannot be set — but it can be asked for, which is
+      // almost certainly what the step meant.
+      const r = at(issue.ruleId);
+      const prop = String(d.id ?? '');
+      if (!r || byId.get(prop)?.type !== 'checklist') return undefined;
+      let touched = false;
+      const do_: WorkflowAction[] = (r.do ?? []).map((a) => {
+        if (a.type === 'set_prop' && a.prop === prop) {
+          touched = true;
+          return { type: 'require_prop', prop, mode: 'if_empty' } as const;
+        }
+        return a;
+      });
+      if (!touched) return undefined;
+      return { ...workflow, rules: rules.map((x) => (x.id === r.id ? { ...x, do: do_ } : x)) };
+    }
+    case 'ask-dupe': {
+      // Several firing rules ask one field: keep the one the dialog would
+      // ask anyway ("always" beats "if empty", otherwise the first).
+      const to = String(d.toId ?? '');
+      const prop = String(d.propId ?? '');
+      const firing = rules.filter(
+        (r) =>
+          r.when.type === 'status_to' &&
+          (r.when as { to: string }).to === to &&
+          (r.do ?? []).some((a) => a.type === 'require_prop' && a.prop === prop),
+      );
+      if (firing.length < 2 || !firing.some((a, i) => firing.slice(i + 1).some((b) => gatesOverlap(a, b)))) {
+        return undefined;
+      }
+      const cands: { rule: WorkflowRule; idx: number; always: boolean }[] = [];
+      for (const r of firing) {
+        (r.do ?? []).forEach((a, idx) => {
+          if (a.type !== 'require_prop' || a.prop !== prop) return;
+          cands.push({ rule: r, idx, always: (a as { mode?: string }).mode === 'always' });
+        });
+      }
+      // The dialog asks once: "always" wins over "if empty", otherwise order.
+      const best = cands.find((c) => c.always) ?? cands[0];
+      if (!best) return undefined;
+      const drop = new Set(firing.flatMap((r) => (r.do ?? []).map((_, idx) => `${r.id}${idx}`)));
+      drop.delete(`${best.rule.id}${best.idx}`);
+      if (drop.size === 0) return undefined;
+      return {
+        ...workflow,
+        rules: rules.map((r) => {
+          if (!firing.some((f) => f.id === r.id)) return r;
+          return { ...r, do: (r.do ?? []).filter((_, idx) => !drop.has(`${r.id}${idx}`)) };
+        }),
+      };
+    }
+    case 'ask-req': {
+      // The ask already fills the requirement — drop the redundant gate.
+      const to = String(d.toId ?? '');
+      const prop = String(d.propId ?? '');
+      const asking = rules.filter(
+        (r) =>
+          r.when.type === 'status_to' &&
+          (r.when as { to: string }).to === to &&
+          (r.do ?? []).some((a) => a.type === 'require_prop' && a.prop === prop),
+      );
+      const needing = rules.filter(
+        (r) =>
+          r.when.type === 'status_to' &&
+          (r.when as { to: string }).to === to &&
+          r.precondition?.requiredProp === prop,
+      );
+      const together = [...needing, ...asking];
+      if (
+        asking.length === 0 ||
+        needing.length === 0 ||
+        !together.some((a, i) => together.slice(i + 1).some((b) => gatesOverlap(a, b)))
+      ) {
+        return undefined;
+      }
+      return {
+        ...workflow,
+        rules: rules.map((r) => {
+          if (!needing.some((n) => n.id === r.id)) return r;
+          if (!asking.some((a) => gatesOverlap(r, a))) return r;
+          if (!r.precondition?.checklistProp) {
+            const { precondition: _drop, ...kept } = r;
+            void _drop;
+            return kept;
+          }
+          return { ...r, precondition: { ...r.precondition, requiredProp: undefined } };
+        }),
+      };
+    }
+    default:
+      return undefined;
+  }
 }
 
 /** Rules whose trigger matches this move, in order. */

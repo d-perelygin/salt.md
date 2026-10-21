@@ -7,10 +7,12 @@ import WorkflowDateInput from './WorkflowDateInput';
 import {
   analyzeWorkflow,
   describeAutoActions,
+  fixWorkflowIssue,
   issueText,
   matchRules,
   neededPrompts,
   type PromptField,
+  type WorkflowIssue,
 } from '../workflow';
 
 let ruleCounter = 0;
@@ -119,6 +121,24 @@ export default function WorkflowRules({
   const addRule = () => {
     addSeparateRule(effTarget === '__created' ? { type: 'created' } : { type: 'status_to', to: effTarget });
     setNewTarget('');
+  };
+
+  // One-click repairs for the self-check's safe findings: a dead source
+  // drops out, a set-on-checklist becomes an ask, a doubled ask or a
+  // required-plus-asked collapses to one. Draft only — Save still applies.
+  // bad-target deletes through the rule's own confirm; a broken status id
+  // never reaches the check (the tab falls back to the first select).
+  const fixableKinds = new Set(['bad-source', 'set-checklist', 'ask-dupe', 'ask-req', 'bad-target']);
+  const applyFix = (iss: WorkflowIssue) => {
+    if (iss.kind === 'bad-target' && iss.ruleId) {
+      void askRemoveRule(iss.ruleId);
+      return;
+    }
+    const next = fixWorkflowIssue(workflow, schema, iss);
+    if (next) {
+      commit(next);
+      if (iss.ruleId) setOpenRule(iss.ruleId);
+    }
   };
 
   const askRemoveRule = async (id: string) => {
@@ -245,19 +265,48 @@ export default function WorkflowRules({
                 className={'workflow-issue ' + (iss.severity === 'error' ? 'workflow-issue-error' : 'workflow-issue-warn')}
                 onClick={() => {
                   setOpenRule(iss.ruleId!);
-                  if (iss.kind === 'bad-source' || iss.kind === 'bad-prop') {
+                  if (iss.kind === 'bad-source' || iss.kind === 'bad-prop' || iss.kind === 'set-checklist') {
                     setIfOpen((p) => ({ ...p, [iss.ruleId as string]: true }));
                   }
                 }}
               >
-                {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+                <span>
+                  {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+                </span>
+                {fixableKinds.has(iss.kind) && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="workflow-fix"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      applyFix(iss);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        applyFix(iss);
+                      }
+                    }}
+                  >
+                    {t('Fix')}
+                  </span>
+                )}
               </button>
             ) : (
               <div
                 key={i}
                 className={'workflow-issue ' + (iss.severity === 'error' ? 'workflow-issue-error' : 'workflow-issue-warn')}
               >
-                {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+                <span>
+                  {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+                </span>
+                {fixableKinds.has(iss.kind) && (
+                  <button type="button" className="workflow-fix" onClick={() => applyFix(iss)}>
+                    {t('Fix')}
+                  </button>
+                )}
               </div>
             ),
           )}
