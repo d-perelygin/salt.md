@@ -1305,11 +1305,9 @@
   "Base URL": "Basis-URL",
   "Model": "Modell",
   "Ask": "Fragen",
-  "Custom instruction": "Eigene Anweisung",
   "Fix grammar": "Grammatik korrigieren",
   "Replace": "Ersetzen",
   "Rewrite": "Umschreiben",
-  "Selection": "Auswahl",
   "Summarize": "Zusammenfassen",
   "Translate": "Übersetzen",
   "AI agent": "KI-Agent",
@@ -1375,5 +1373,6 @@
   "Search or ask": "Suchen oder fragen",
   "Settings": "Einstellungen",
   "Type your own answer…": "Eigene Antwort schreiben…",
-  "Submit answer": "Antwort senden"
+  "Submit answer": "Antwort senden",
+  "Custom instruction…": "Eigene Anweisung…"
 }

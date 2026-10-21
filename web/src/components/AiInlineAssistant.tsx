@@ -66,27 +66,48 @@ export default function AiInlineAssistant(props: { editor: any; pageId: string }
 
   if (!selection) return null;
 
+  const opts: { label: string; instruction: string }[] = [
+    { label: t('Rewrite'), instruction: 'Rewrite the selected text to be clearer and more concise.' },
+    { label: t('Summarize'), instruction: 'Summarize the selected text.' },
+    { label: t('Translate'), instruction: 'Translate the selected text to English.' },
+    { label: t('Fix grammar'), instruction: 'Fix grammar and spelling in the selected text.' },
+  ];
+
+  function submitCustom() {
+    if (!prompt.trim()) return;
+    run(prompt);
+    setPrompt('');
+  }
+
   return (
-    <div style={{ position: 'absolute', right: 12, top: 12, zIndex: 50, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: 8, width: 320, boxShadow: '0 4px 12px rgba(0,0,0,.15)' }}>
-      <div style={{ fontSize: 12, opacity: .7, marginBottom: 6 }}>{t('Selection')}: {selection.slice(0, 60)}{selection.length > 60 ? '…' : ''}</div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
-        <button disabled={busy} onClick={() => run('Rewrite the selected text to be clearer and more concise.')} className="btn-sm">{t('Rewrite')}</button>
-        <button disabled={busy} onClick={() => run('Summarize the selected text.')} className="btn-sm">{t('Summarize')}</button>
-        <button disabled={busy} onClick={() => run('Translate the selected text to English.')} className="btn-sm">{t('Translate')}</button>
-        <button disabled={busy} onClick={() => run('Fix grammar and spelling in the selected text.')} className="btn-sm">{t('Fix grammar')}</button>
+    <div className="ai-inline-wrap">
+      <div className="ai-inline-bar">
+        <span className="ai-inline-spark" title={t('AI')}>✨</span>
+        {opts.map((o) => (
+          <button key={o.label} className="ai-inline-opt" disabled={busy} onClick={() => run(o.instruction)}>
+            {o.label}
+          </button>
+        ))}
+        <input
+          className="ai-inline-input"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitCustom(); } }}
+          placeholder={t('Custom instruction…')}
+          disabled={busy}
+        />
+        <button className="ai-inline-go" disabled={busy || !prompt.trim()} onClick={submitCustom} title={t('Ask')}>↑</button>
       </div>
-      <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t('Custom instruction')} style={{ width: '100%', marginBottom: 6 }} />
-      <button disabled={busy || !prompt.trim()} onClick={() => { run(prompt); setPrompt(''); }} className="btn-sm">{t('Ask')}</button>
       {result && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ whiteSpace: 'pre-wrap', maxHeight: 160, overflow: 'auto', padding: 6, background: 'var(--muted)', borderRadius: 6, fontSize: 13 }}>{result}</div>
+        <div className="ai-inline-result">
+          <div className="ai-inline-result-text">{result}</div>
           <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
             <button onClick={replace} className="btn-sm primary">{t('Replace')}</button>
             <button onClick={() => { setResult(''); }} className="btn-sm">{t('Dismiss')}</button>
           </div>
         </div>
       )}
-      {busy && <div style={{ marginTop: 6, fontSize: 12 }}>…</div>}
+      {busy && !result && <div className="ai-inline-busy">…</div>}
     </div>
   );
 }

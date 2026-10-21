@@ -1384,11 +1384,9 @@
   "Base URL": "Базовый URL",
   "Model": "Модель",
   "Ask": "Спросить",
-  "Custom instruction": "Своя инструкция",
   "Fix grammar": "Исправить грамматику",
   "Replace": "Заменить",
   "Rewrite": "Переписать",
-  "Selection": "Выделение",
   "Summarize": "Суммаризовать",
   "Translate": "Перевести",
   "AI agent": "AI-агент",
@@ -1454,5 +1452,6 @@
   "Search or ask": "Поиск или вопрос",
   "Settings": "Настройки",
   "Type your own answer…": "Напишите свой ответ…",
-  "Submit answer": "Отправить ответ"
+  "Submit answer": "Отправить ответ",
+  "Custom instruction…": "Своя инструкция…"
 }
