@@ -63,5 +63,10 @@ await withFixture(async ({ page, api, base, path }) => {
   await eventually(async () => (await ifBlock.locator('.select-cell-value', { hasText: 'Bug' }).count()) === 1);
   assert.equal(await ifBlock.locator('.workflow-row select.prop-select').count(), 2);
 
+  // A shut rule still says what it needs: the second head summarizes its If.
+  const secondHead = page.locator('.workflow-head').nth(1);
+  await eventually(async () => (await secondHead.locator('.workflow-if-summary').count()) === 1);
+  assert.match(await secondHead.innerText(), /Kind.*Task/);
+
   console.log('Workflow value conditions: bug asks, task passes, other is refused with the reason.');
 });

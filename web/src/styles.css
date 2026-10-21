@@ -3897,6 +3897,20 @@ body.is-col-resizing {
   color: var(--muted);
   flex: none;
 }
+/* The collapsed head's second line: what the rule needs, muted and cut —
+ * the open body below already says it in full. Last in the flex row so it
+ * wraps under When/Then instead of squeezing between them. */
+.workflow-head {
+  flex-wrap: wrap;
+}
+.workflow-if-summary {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .workflow-body {
   display: flex;
   flex-direction: column;

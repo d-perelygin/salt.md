@@ -176,6 +176,35 @@ export default function WorkflowRules({
     !!r.precondition?.checklistProp ||
     !!r.precondition?.requiredProp ||
     (r.whenProps?.length ?? 0) > 0;
+  // One line for the collapsed head: what the rule needs, so a shut rule
+  // still says what it is. Mirrors the simulator's detail — a required field
+  // the rule asks for shows as its question, not here.
+  const ifSummary = (r: WorkflowRule): string => {
+    const parts: string[] = [];
+    const froms = (r.allowFrom ?? []).map((id) => statusOpts.find((x) => x.id === id)?.name ?? id);
+    if (froms.length > 0) parts.push(froms.join(', '));
+    if (r.precondition?.checklistProp) {
+      const n = schema.find((p) => p.id === r.precondition!.checklistProp)?.name ?? r.precondition.checklistProp;
+      parts.push(t('{name} must be complete', { name: n }));
+    }
+    const asked = new Set(
+      (r.do ?? []).filter((a) => a.type === 'require_prop').map((a) => (a as { prop: string }).prop),
+    );
+    if (r.precondition?.requiredProp && !asked.has(r.precondition.requiredProp)) {
+      const n = schema.find((p) => p.id === r.precondition!.requiredProp)?.name ?? r.precondition.requiredProp;
+      parts.push(t('{name} must be filled', { name: n }));
+    }
+    for (const c of r.whenProps ?? []) {
+      const def = schema.find((p) => p.id === c.prop);
+      if (!def || !c.value) continue;
+      parts.push(
+        c.op === 'is_not'
+          ? t('{prop} is not {value}', { prop: def.name, value: condDisplay(schema, c) })
+          : t('{prop} is {value}', { prop: def.name, value: condDisplay(schema, c) }),
+      );
+    }
+    return parts.length > 0 ? t('If {conditions}', { conditions: parts.join(' · ') }) : '';
+  };
   // A filled If shows itself; an empty one stays tucked away. The toggle
   // only records explicit collapses/opens on top of that.
   const isIfOpen = (r: WorkflowRule) => ifOpen[r.id] ?? hasIf(r);
@@ -404,6 +433,7 @@ export default function WorkflowRules({
               >
                 ✕
               </button>
+              {!open && ifSummary(r) && <span className="workflow-if-summary">{ifSummary(r)}</span>}
             </div>
             {open && (
               <div className="workflow-body">
