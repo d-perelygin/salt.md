@@ -3993,6 +3993,77 @@ body.is-col-resizing {
   cursor: pointer;
   padding: 2px 0;
 }
+/* List / Scheme switch above the rules. */
+.workflow-view-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.workflow-view-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.workflow-view-tab-on {
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  border-color: var(--border);
+}
+/* Read-only process map: statuses left to right, arrows for allowed moves,
+ * a dashed box for the on-creation rules. Horizontal scroll when many. */
+.workflow-scheme {
+  overflow-x: auto;
+  padding: 4px 2px;
+}
+.workflow-scheme-svg {
+  display: block;
+  color: var(--muted);
+}
+.workflow-scheme-svg path {
+  stroke: currentColor;
+  stroke-width: 1.5;
+  fill: none;
+}
+.workflow-scheme-svg polygon {
+  fill: currentColor;
+}
+.workflow-scheme-svg text {
+  fill: var(--fg);
+  font-size: 12px;
+}
+.workflow-scheme-svg .workflow-scheme-count {
+  fill: var(--muted);
+  font-size: 11px;
+}
+.workflow-scheme-node {
+  fill: var(--sidebar-bg);
+  stroke: var(--border);
+}
+.workflow-scheme-flag {
+  fill: #b58a3b;
+}
+.workflow-scheme-created {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.workflow-scheme-created-head {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.workflow-scheme-rule {
+  font-size: 13px;
+}
 .workflow-chips {
   display: flex;
   flex-wrap: wrap;

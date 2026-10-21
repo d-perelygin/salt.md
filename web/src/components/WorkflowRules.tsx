@@ -65,6 +65,8 @@ export default function WorkflowRules({
 
   const [openRule, setOpenRule] = useState<string | null>(rules[0]?.id ?? null);
   const [newTarget, setNewTarget] = useState('');
+  // List edits the rules; Scheme is a read-only map of where cards can go.
+  const [view, setView] = useState<'list' | 'scheme'>('list');
   useEffect(() => {
     if (highlightRuleId) setOpenRule(highlightRuleId);
   }, [highlightRuleId]);
@@ -236,6 +238,28 @@ export default function WorkflowRules({
 
   return (
     <div className="workflow-list">
+      <div className="workflow-view-toggle" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'list'}
+          className={'workflow-view-tab' + (view === 'list' ? ' workflow-view-tab-on' : '')}
+          onClick={() => setView('list')}
+        >
+          {t('List')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'scheme'}
+          className={'workflow-view-tab' + (view === 'scheme' ? ' workflow-view-tab-on' : '')}
+          onClick={() => setView('scheme')}
+        >
+          {t('Scheme')}
+        </button>
+      </div>
+      {view === 'list' ? (
+      <>
       <label className="schema-template-row">
         <span>{t('Status property')}</span>
         <select className="prop-select" value={statusPropId} onChange={(e) => setStatus(e.target.value)}>
@@ -613,6 +637,179 @@ export default function WorkflowRules({
           ))}
         </div>
       )}
+      </>
+      ) : (
+      <WorkflowScheme
+        workflow={workflow}
+        schema={schema}
+        statusOpts={statusOpts}
+        issues={issues}
+        statusReady={!!statusPropId && statusOpts.length > 0}
+      />
+      )}
+    </div>
+  );
+}
+
+/** Read-only map of the process: statuses left to right, one arrow per
+ *  allowed transition (×N when several rules share it), a dashed box for
+ *  the on-creation rules. Preview only — editing stays in the list. */
+function WorkflowScheme({
+  workflow,
+  schema,
+  statusOpts,
+  issues,
+  statusReady,
+}: {
+  workflow: WorkflowConfig | undefined;
+  schema: PropDef[];
+  statusOpts: { id: string; name: string }[];
+  issues: WorkflowIssue[];
+  statusReady: boolean;
+}) {
+  if (!statusReady) {
+    return (
+      <div className="dialog-hint">
+        {t('Add a Select property first — a process needs a status to drive.')}
+      </div>
+    );
+  }
+  const rules = workflow?.rules ?? [];
+  const live = new Set(statusOpts.map((o) => o.id));
+  const propName = (id: string) => schema.find((p) => p.id === id)?.name ?? id;
+  type Edge = { from: string; to: string; rules: WorkflowRule[] };
+  const edgeMap = new Map<string, Edge>();
+  for (const r of rules) {
+    if (r.when.type !== 'status_to') continue;
+    const to = (r.when as { to: string }).to;
+    if (!live.has(to)) continue;
+    const froms =
+      r.allowFrom && r.allowFrom.length > 0
+        ? r.allowFrom.filter((f) => live.has(f) && f !== to)
+        : statusOpts.map((o) => o.id).filter((id) => id !== to);
+    for (const f of froms) {
+      const k = `${f}${to}`;
+      if (!edgeMap.has(k)) edgeMap.set(k, { from: f, to, rules: [] });
+      edgeMap.get(k)!.rules.push(r);
+    }
+  }
+  const edges = [...edgeMap.values()];
+  const created = rules.filter((r) => r.when.type === 'created');
+  const idx = new Map(statusOpts.map((o, i) => [o.id, i] as const));
+  const spanOf = (e: Edge) => Math.abs(idx.get(e.from)! - idx.get(e.to)!);
+  const fwd = edges.filter((e) => idx.get(e.from)! < idx.get(e.to)!);
+  const bwd = edges.filter((e) => idx.get(e.from)! > idx.get(e.to)!);
+  const topH = fwd.length > 0 ? 30 + 24 * Math.max(...fwd.map(spanOf)) : 16;
+  const botH = bwd.length > 0 ? 26 + 24 * Math.max(...bwd.map(spanOf)) : 12;
+  const NW = 148;
+  const NH = 52;
+  const GAP = 56;
+  const PAD = 14;
+  const X = (i: number) => PAD + i * (NW + GAP);
+  const width = PAD * 2 + statusOpts.length * NW + Math.max(0, statusOpts.length - 1) * GAP;
+  const height = topH + NH + botH;
+  const short = (n: string) => (n.length > 16 ? n.slice(0, 15) + '…' : n);
+  const flagOf = (id: string): WorkflowIssue | undefined =>
+    issues.find(
+      (i) =>
+        (i.kind === 'trap' || i.kind === 'unreachable') &&
+        statusOpts.some((o) => o.id === id && o.name === String(i.data?.name ?? '')),
+    );
+  const summarize = (r: WorkflowRule): string => {
+    const parts = [
+      ...describeAutoActions(r, schema),
+      ...(r.do ?? []).flatMap((a) => {
+        if (a.type === 'require_prop') return [t('Ask {name}', { name: propName(a.prop) })];
+        if (a.type === 'require_comment') return [t('Comment')];
+        return [];
+      }),
+    ];
+    return parts.length > 0 ? parts.join(' · ') : t('Guard only');
+  };
+  // Arrowhead at the end of a quadratic curve, drawn by hand — markers do
+  // not inherit the theme colour reliably.
+  const head = (cx: number, cy: number, x2: number, y2: number): string => {
+    const dx = x2 - cx;
+    const dy = y2 - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const L = 9;
+    const W = 4.5;
+    const bx = x2 - ux * L;
+    const by = y2 - uy * L;
+    return `${x2},${y2} ${bx - uy * W},${by + ux * W} ${bx + uy * W},${by - ux * W}`;
+  };
+  const renderEdge = (e: Edge) => {
+    const i = idx.get(e.from)!;
+    const j = idx.get(e.to)!;
+    const above = i < j;
+    const h = 30 + 24 * (Math.abs(i - j) - 1);
+    const x1 = X(i) + NW / 2;
+    const x2 = X(j) + NW / 2;
+    const y0 = above ? topH : topH + NH;
+    const s = above ? -1 : 1;
+    const cx = (x1 + x2) / 2;
+    const cy = y0 + s * 2 * h;
+    const tip = [
+      ...e.rules.flatMap((r) => [
+        ...describeAutoActions(r, schema),
+        ...(r.do ?? []).flatMap((a) => {
+          if (a.type === 'require_prop') return [t('Ask {name}', { name: propName(a.prop) })];
+          if (a.type === 'require_comment') return [t('Comment')];
+          return [];
+        }),
+      ]),
+    ].join('\n');
+    const apexY = y0 + s * h;
+    return (
+      <g key={`${e.from}>${e.to}`}>
+        {tip && <title>{tip}</title>}
+        <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} />
+        <polygon points={head(cx, cy, x2, y0)} />
+        {e.rules.length > 1 && (
+          <text x={cx} y={apexY + (above ? -6 : 14)} textAnchor="middle" className="workflow-scheme-count">
+            ×{e.rules.length}
+          </text>
+        )}
+      </g>
+    );
+  };
+  return (
+    <div className="workflow-scheme">
+      {created.length > 0 && (
+        <div className="workflow-scheme-created">
+          <div className="workflow-scheme-created-head">
+            {t('On creation')} · {created.length}
+          </div>
+          {created.map((r) => (
+            <div key={r.id} className="workflow-scheme-rule">
+              {summarize(r)}
+            </div>
+          ))}
+        </div>
+      )}
+      <svg className="workflow-scheme-svg" width={width} height={height} role="img">
+        {edges.map(renderEdge)}
+        {statusOpts.map((o, i) => {
+          const flag = flagOf(o.id);
+          return (
+            <g key={o.id}>
+              <title>{o.name}</title>
+              <rect x={X(i)} y={topH} width={NW} height={NH} rx={8} className="workflow-scheme-node" />
+              <text x={X(i) + NW / 2} y={topH + NH / 2 + 5} textAnchor="middle" className="workflow-scheme-label">
+                {short(o.name)}
+              </text>
+              {flag && (
+                <g>
+                  <title>{issueText(flag)}</title>
+                  <circle cx={X(i) + NW - 13} cy={topH + 13} r={5} className="workflow-scheme-flag" />
+                </g>
+              )}
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }

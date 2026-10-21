@@ -1453,5 +1453,8 @@
   "“{to}” only takes cards from {froms} — move it back there first, or loosen the rule in the process.": "«{to}» принимает только из {froms} — верните карточку туда или ослабьте правило в процессе.",
   "“{prop}” is required and asked on the way into “{to}” — it will be asked once.": "«{prop}» и требуется, и запрашивается на входе в «{to}» — спросят один раз.",
   "“{name}” is a checklist — it can only be asked for, not set.": "«{name}» — это чеклист: его можно только спрашивать, а не устанавливать.",
-  "Fix": "Исправить"
+  "Fix": "Исправить",
+  "Scheme": "Схема",
+  "Ask {name}": "Спросить {name}",
+  "Guard only": "Только сторожит"
 }
