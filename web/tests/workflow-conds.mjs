@@ -54,5 +54,14 @@ await withFixture(async ({ page, api, base, path }) => {
   assert.match(await page.locator('.toaster, .toast').first().innerText(), /Kind.*Bug/);
   assert.equal(await statusOf('OtherRow'), 'a');
 
+  // The rule editor uses the standard option picker for the condition value,
+  // not a native dropdown: the first rule's card opens by default, and its If
+  // row shows the Bug chip in a select-cell.
+  await page.getByRole('button', { name: 'Properties', exact: true }).click();
+  await page.getByRole('button', { name: /^Process/ }).click();
+  const ifBlock = page.locator('.workflow-if').first();
+  await eventually(async () => (await ifBlock.locator('.select-cell-value', { hasText: 'Bug' }).count()) === 1);
+  assert.equal(await ifBlock.locator('.workflow-row select.prop-select').count(), 2);
+
   console.log('Workflow value conditions: bug asks, task passes, other is refused with the reason.');
 });

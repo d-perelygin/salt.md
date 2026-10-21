@@ -568,19 +568,16 @@ export default function WorkflowRules({
                           <option value="is_not">{t('is not')}</option>
                         </select>
                         {cdef && (cdef.type === 'select' || cdef.type === 'multiselect') ? (
-                          <select
-                            className="prop-select"
+                          // The standard option picker, like the set-prop value
+                          // input below — not a second native dropdown. The
+                          // condition holds one value (multiselects: contains),
+                          // so the picker stays single-pick either way.
+                          <SelectCell
+                            def={cdef}
                             value={c.value}
-                            aria-label={t('Value')}
-                            onChange={(e) => setCond({ ...c, value: e.target.value })}
-                          >
-                            <option value="">{t('Value…')}</option>
-                            {(cdef.options ?? []).map((o) => (
-                              <option key={o.id} value={o.id}>
-                                {o.name}
-                              </option>
-                            ))}
-                          </select>
+                            multi={false}
+                            onChange={(v) => setCond({ ...c, value: typeof v === 'string' ? v : '' })}
+                          />
                         ) : (
                           <input
                             className="prop-input"
