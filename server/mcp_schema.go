@@ -742,6 +742,19 @@ func (s *Server) mcpCreateRows(userID, pageID string, rows json.RawMessage) (str
 	var pos float64
 	s.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM pages WHERE parent_id = ?`, pageID).Scan(&pos)
 
+	// The process's creation rules run for agent rows exactly like browser
+	// rows: automatic steps fold in, asked-for fields must travel with the
+	// create. A refusal names the row and the reason — and writes nothing to
+	// it — so the agent fills in what is missing and retries.
+	var createCfg *workflowConfig
+	var createSchemas map[string]PropSchema
+	if schemaRaw, _, workflowRaw, err := s.collectionConfig(pageID); err == nil {
+		createCfg = parseWorkflow(workflowRaw)
+		if createCfg != nil {
+			createSchemas = schemaIndex(schemaRaw)
+		}
+	}
+
 	ids := []string{}
 	for _, r := range list {
 		if strings.TrimSpace(r.Title) == "" {
@@ -754,8 +767,37 @@ func (s *Server) mcpCreateRows(userID, pageID string, rows json.RawMessage) (str
 			return "", fmt.Errorf("created %d row(s), then failed on %q: %w", len(ids), r.Title, err)
 		}
 		pos++
-		if len(r.Properties) > 0 {
-			if _, err := s.mcpSetProperties(id, r.Properties, nil); err != nil {
+		propsJSON := r.Properties
+		if createCfg != nil {
+			patch := map[string]json.RawMessage{}
+			if len(r.Properties) > 0 {
+				if err := json.Unmarshal(r.Properties, &patch); err != nil {
+					return "", fmt.Errorf("created %d row(s), then failed on %q: properties must be a JSON object", len(ids), r.Title)
+				}
+			}
+			s.normalizePropValues(id, patch)
+			merged := map[string]json.RawMessage{}
+			for k, v := range patch {
+				merged[k] = v
+			}
+			if _, auto, hooks, reason := checkWorkflowCreation(createCfg, merged, patch, userID, createSchemas); reason != "" {
+				return "", fmt.Errorf("created %d row(s), then row %q was refused: %s — fill in what is missing and retry (nothing was written to it)", len(ids), r.Title, reason)
+			} else {
+				for k, v := range auto {
+					if b, err := json.Marshal(v); err == nil {
+						patch[k] = json.RawMessage(b)
+					}
+				}
+				if b, err := json.Marshal(patch); err == nil {
+					propsJSON = json.RawMessage(b)
+				}
+				for _, target := range hooks {
+					go fireWorkflowHook(target, id, "workflow.created")
+				}
+			}
+		}
+		if len(propsJSON) > 0 {
+			if _, err := s.mcpSetPropertiesEx(id, propsJSON, nil, true); err != nil {
 				return "", fmt.Errorf("created %d row(s), then failed setting properties on %q: %w", len(ids)+1, r.Title, err)
 			}
 		}

@@ -151,7 +151,7 @@ func validateWorkflow(cfg *workflowConfig, schema []PropSchema) error {
 				switch p.Type {
 				case "text", "date", "person", "select", "multiselect", "checklist":
 				default:
-					return fmt.Errorf("rule %d: only text, date, person, select or checklist can be asked for", i+1)
+					return fmt.Errorf("rule %d: only text, date, person, select, multiselect or checklist can be asked for", i+1)
 				}
 				if a.Mode != "" && a.Mode != "always" && a.Mode != "if_empty" {
 					return fmt.Errorf("rule %d: unknown ask mode", i+1)

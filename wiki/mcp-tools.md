@@ -1,7 +1,7 @@
 # MCP tools
 
 salt.md speaks MCP (Model Context Protocol) on one endpoint, `/mcp`, and offers
-**33 tools**. This page is the complete reference: every tool, every parameter,
+**36 tools**. This page is the complete reference: every tool, every parameter,
 what comes back, and what can go wrong. It is written for the person wiring an
 agent up and for the agent itself.
 
@@ -169,7 +169,7 @@ to it.
 | --- | --- |
 | Orientation | `list`, `search`, `get_page`, `get_links`, `whoami`, `get_workspace`, `get_permissions` |
 | Pages | `create_page`, `update_page`, `write_content`, `duplicate_page`, `set_trashed`, `save_as_template`, `upload_file`, `embed_database` |
-| Databases | `create_database`, `get_collection`, `update_schema`, `query_rows`, `create_rows`, `set_properties`, `set_view`, `delete_view` |
+| Databases | `create_database`, `get_collection`, `update_schema`, `query_rows`, `create_rows`, `set_properties`, `set_view`, `delete_view`, `get_workflow`, `add_workflow_rule`, `remove_workflow_rule` |
 | History and talk | `revisions`, `comments`, `delete_comment`, `note` |
 | Sharing | `set_sharing` |
 | Workspaces | `workspace`, `propose_workspace_rules` |
@@ -800,6 +800,11 @@ JSON that then went quiet:
 
 An open board updates live, so a person watching sees the row move.
 
+Changing a status the process guards runs the same rules as a board drag: a
+refused move comes back as an error naming what is missing (`cannot move: …`),
+answered by setting the missing fields and moving again. Creating rows runs
+the on-creation rules the same way.
+
 Returns `Set N property/properties on row <id>`. Errors: `properties is
 required`; `properties must be a JSON object`; `page "…" not found`; `page "…"
 is in the trash`.
@@ -886,6 +891,72 @@ deliberate choice and not a value an agent lands on by mistake.
 
 Errors: `cannot delete the last view — a database needs at least one`;
 `view "…" not found — call get_collection for the ids`.
+
+### get_workflow
+
+| Parameter | Type | Required |
+| --- | --- | --- |
+| `page_id` | string | yes |
+
+Reads the database's business process: the status property and every
+When/Then rule in plain words — what triggers, who may enter from where, what
+is asked or set — with rule ids for `remove_workflow_rule`. Status options and
+properties come back as `{id, name}` pairs; read the names, write the ids.
+
+A database with no process answers that every move is allowed, plus the
+select properties that could drive one. That is the starting point for
+`add_workflow_rule`.
+
+### add_workflow_rule
+
+| Parameter | Type | Required |
+| --- | --- | --- |
+| `page_id` | string | yes |
+| `status_property` | string | only for the very first rule |
+| `when` | object | yes |
+| `allow_from` | array of string | no |
+| `only_if_checklist` | string | no |
+| `only_if_filled` | string | no |
+| `actions` | array | no |
+
+Appends one When/Then rule. `when` is `{"type":"status_to","to":…}` with a
+status option id **or name** (`"Done"` works, case-insensitively) or
+`{"type":"created"}` for rows arriving fresh. `allow_from` lists the option
+ids or names a move may come from; empty means any. `only_if_checklist` names
+a checklist property that must be complete; `only_if_filled` names a property
+that must be filled — when the same property is also asked below, asking
+fills the requirement instead of refusing.
+
+Each action is `{action, property?, value?, mode?, url?}`:
+
+- **set**: write a value (`property` + `value`). Dates accept relative words
+  like `today+7d`, resolved when the rule fires. A checklist cannot be set,
+  only asked for.
+- **ask**: ask the mover for a property first (`mode` `always` or `if_empty`,
+  default `if_empty`).
+- **ask_comment**: ask for a comment, same modes, default `always`.
+- **assign_me**: the mover lands in a person property.
+- **set_today**: today lands in a date property.
+- **webhook**: POST `url` after the write, fire-and-forget.
+
+The first rule also needs `status_property`: the id of the select property
+driving the process. One status per database — naming another one later is
+refused.
+
+Everything is validated before anything is stored, and a refusal names the
+exact problem (`"Shipped" is not a status option here — pick one of: To do,
+In progress, Done`). Fix it and retry. Returns the rule id and a one-line
+summary — read it back, it is the process in the agent's own words.
+
+### remove_workflow_rule
+
+| Parameter | Type | Required |
+| --- | --- | --- |
+| `page_id` | string | yes |
+| `rule_id` | string | yes |
+
+Deletes the rule `get_workflow` reported under that id. The rest of the
+process is untouched. Errors: `no rule "…" on this database`.
 
 ## History, comments and notes
 
