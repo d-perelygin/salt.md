@@ -3971,12 +3971,7 @@ body.is-col-resizing {
   padding: 3px 10px;
   font-size: 12px;
 }
-/* The single way to add a rule: one wide button under the last group. */
-.workflow-add-rule {
-  width: 100%;
-  padding: 10px;
-  font-size: 14px;
-}
+
 .workflow-if {
   display: flex;
   flex-direction: column;

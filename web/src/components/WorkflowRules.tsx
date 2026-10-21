@@ -62,6 +62,7 @@ export default function WorkflowRules({
     commit({ statusPropId, rules: rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
 
   const [openRule, setOpenRule] = useState<string | null>(rules[0]?.id ?? null);
+  const [newTarget, setNewTarget] = useState('');
   useEffect(() => {
     if (highlightRuleId) setOpenRule(highlightRuleId);
   }, [highlightRuleId]);
@@ -105,12 +106,19 @@ export default function WorkflowRules({
     setOpenRule(r.id);
   };
 
-  // One way to add a rule: a new gate goes to the first status that has
-  // none yet, otherwise to the usual default — When stays editable in
-  // the card itself.
+  // The target picker suggests the second still-gateless status (the first
+  // one is usually where rows start), or the only one left, or — when every
+  // status already has a gate — the usual default for a second branch.
+  // The suggestion is just a preselect: every status stays pickable.
+  const bareTargets = statusOpts
+    .filter((o) => !groups.some((g) => g.key === `to:${o.id}`))
+    .map((o) => o.id);
+  const smartTarget = bareTargets[1] ?? bareTargets[0] ?? defaultTargetId(statusOpts);
+  const effTarget =
+    newTarget === '__created' || statusOpts.some((o) => o.id === newTarget) ? newTarget : smartTarget;
   const addRule = () => {
-    const bare = statusOpts.find((o) => !groups.some((g) => g.key === `to:${o.id}`));
-    addSeparateRule({ type: 'status_to', to: bare?.id ?? defaultTargetId(statusOpts) });
+    addSeparateRule(effTarget === '__created' ? { type: 'created' } : { type: 'status_to', to: effTarget });
+    setNewTarget('');
   };
 
   const askRemoveRule = async (id: string) => {
@@ -490,14 +498,28 @@ export default function WorkflowRules({
         );
       })}
 
-      <button
-        type="button"
-        className="btn workflow-add-rule"
-        disabled={!statusPropId || statusOpts.length === 0}
-        onClick={addRule}
-      >
-        {t('+ Add rule')}
-      </button>
+      <div className="workflow-row">
+        <select
+          className="prop-select"
+          value={effTarget}
+          onChange={(e) => setNewTarget(e.target.value)}
+        >
+          {statusOpts.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+          <option value="__created">{t('On creation')}</option>
+        </select>
+        <button
+          type="button"
+          className="btn"
+          disabled={!statusPropId || statusOpts.length === 0}
+          onClick={addRule}
+        >
+          {t('+ Add rule')}
+        </button>
+      </div>
 
       {statusOpts.length > 1 && (
         <div className="workflow-sim">
