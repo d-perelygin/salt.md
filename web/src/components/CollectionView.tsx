@@ -816,8 +816,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     const patch: Partial<CollectionConfig> = {};
     if (!config || next.schema !== config.schema) patch.schema = next.schema;
     if (!config || next.views !== config.views) patch.views = next.views;
+    // The process rides the same save: reference compare is enough, the
+    // editor hands over a fresh object on every keystroke.
+    if (!config || next.workflow !== config.workflow) patch.workflow = next.workflow;
     setConfig(next);
-    if (!patch.schema && !patch.views) return;
+    if (!patch.schema && !patch.views && !patch.workflow) return;
     await api.putCollection(collectionId, patch);
   };
 
