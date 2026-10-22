@@ -224,6 +224,38 @@ var mcpTools = []map[string]any{
 			"required":   []string{"page_id"}},
 	},
 	{
+		"name":        "get_workflow",
+		"description": "Read a database's business process: the status property and every When/Then rule in plain words (what triggers, who may enter from where, what is asked or set), with rule ids. No process stored means every move is allowed.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"page_id": map[string]any{"type": "string", "description": "The database page id"}},
+			"required": []string{"page_id"}},
+	},
+	{
+		"name":        "add_workflow_rule",
+		"description": "Add one When/Then rule to a database's process (moving a card into the target status then runs it). The first rule also needs status_property: the id of a select property driving the process (get_collection lists ids; get_workflow lists select candidates when no process exists yet). when is {type: \"status_to\", to: status option id or NAME} or {type: \"created\"}. allow_from lists status option ids or names the move may come from (empty means any). only_if_checklist names a checklist property that must be complete; only_if_filled names a property that must be filled — when the same property is also asked below, the dialog fills the requirement instead of refusing. only_if lists row-value conditions [{property, op: \"is\"|\"is_not\" (default is), value}] that pick which rows the rule fires for: a mismatch skips the rule (another rule may take the same move), it never refuses. Value is an option id or name for selects, raw text for text and numbers. actions: [{action:\"set\",property,value}, {action:\"ask\",property,mode:\"always\"|\"if_empty\" (default if_empty)}, {action:\"ask_comment\",mode?}, {action:\"assign_me\",property}, {action:\"set_today\",property}, {action:\"webhook\",url}]. A checklist cannot be set, only asked for; set on dates accepts relative words like today+7d. Refusals name the exact problem — fix it and retry. Moving a guarded card runs these rules too: a refused move tells the agent what is missing.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"page_id":           map[string]any{"type": "string", "description": "The database page id"},
+				"status_property":   map[string]any{"type": "string", "description": "Select property id driving the process. Required for the very first rule only."},
+				"when":              map[string]any{"type": "object", "description": "{type: status_to|created, to?: status option id or name}"},
+				"allow_from":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Status option ids or names the move may come from (empty means any)"},
+				"only_if_checklist": map[string]any{"type": "string", "description": "Checklist property id that must be complete"},
+				"only_if_filled":    map[string]any{"type": "string", "description": "Property id that must be filled"},
+				"only_if":           map[string]any{"type": "array", "description": "Row-value conditions picking which rows the rule fires for: [{property, op: is|is_not, value}]. A mismatch skips the rule, never refuses.", "items": map[string]any{"type": "object"}},
+				"actions":           map[string]any{"type": "array", "description": "Steps: {action: set|ask|ask_comment|assign_me|set_today|webhook, property?, value?, mode?, url?}", "items": map[string]any{"type": "object"}}},
+			"required": []string{"page_id", "when"}},
+	},
+	{
+		"name":        "remove_workflow_rule",
+		"description": "Delete one process rule by the id get_workflow reported. The rest of the process is untouched.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"page_id": map[string]any{"type": "string", "description": "The database page id"},
+				"rule_id": map[string]any{"type": "string", "description": "Rule id from get_workflow"}},
+			"required": []string{"page_id", "rule_id"}},
+	},
+	{
 		"name":        "update_schema",
 		"description": "Add or change properties on a database. MERGES — properties you do not mention stay untouched. Pass an existing id to change that property, omit the id to add a new one. Removing a property keeps the values in the rows, so re-adding it brings them back.",
 		"inputSchema": map[string]any{"type": "object",
@@ -816,7 +848,7 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 		name == "set_trashed" || name == "upload_file" ||
 		name == "set_properties" || name == "create_database" ||
 		name == "duplicate_page" ||
-		name == "update_schema" || name == "set_view" || name == "delete_view" ||
+		name == "update_schema" || name == "add_workflow_rule" || name == "remove_workflow_rule" || name == "set_view" || name == "delete_view" ||
 		name == "create_rows" ||
 		name == "delete_comment" ||
 		name == "set_sharing" ||
@@ -867,7 +899,7 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 	// the UI does — the MCP surface is not a side door.
 	if args.PageID != "" {
 		switch name {
-		case "get_page", "query_rows", "get_collection", "get_permissions", "working_on":
+		case "get_page", "query_rows", "get_collection", "get_workflow", "get_permissions", "working_on":
 			if !s.canRead(userID, args.PageID) {
 				return "", fmt.Errorf("page %q not found", args.PageID)
 			}
@@ -888,7 +920,7 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 				return "", fmt.Errorf("page %q not found", args.PageID)
 			}
 		case "write_content", "update_page", "set_trashed", "upload_file", "set_properties", "duplicate_page",
-			"embed_database", "update_schema", "set_view", "delete_view", "create_rows", "set_sharing":
+			"embed_database", "update_schema", "add_workflow_rule", "remove_workflow_rule", "set_view", "delete_view", "create_rows", "set_sharing":
 			// set_trashed comes along here: canWrite checks only workspace and
 			// role, not the trash — so a trashed page stays checkable, or nobody
 			// could ever restore it.
@@ -1124,6 +1156,22 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 			return wrapUntrusted(out), nil
 		case "update_schema":
 			return s.mcpUpdateSchema(args.PageID, args.Properties, args.RemoveProperties)
+		case "get_workflow":
+			return s.mcpGetWorkflow(args.PageID)
+		case "add_workflow_rule":
+			return s.mcpAddWorkflowRule(rawArgs)
+		case "remove_workflow_rule":
+			var rm struct {
+				PageID string `json:"page_id"`
+				RuleID string `json:"rule_id"`
+			}
+			if err := json.Unmarshal(rawArgs, &rm); err != nil {
+				return "", fmt.Errorf("invalid arguments: %v", err)
+			}
+			if rm.PageID == "" {
+				rm.PageID = args.PageID
+			}
+			return s.mcpRemoveWorkflowRule(rm.PageID, rm.RuleID)
 		case "set_view":
 			// No view_id creates, an id updates — the same shape update_schema has.
 			spec := viewSpec{

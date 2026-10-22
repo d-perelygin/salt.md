@@ -312,6 +312,36 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	userID := u.ID
 
+	// Arrival in a collection runs its creation rules: automatic steps fold
+	// into the stored row, asked-for fields must travel with the create (the
+	// interface prompts for them beforehand), webhooks fire after the insert.
+	var createHooks []string
+	if body.ParentID != nil {
+		var schemaRaw, workflowRaw string
+		if err := s.db.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, *body.ParentID).Scan(&schemaRaw, &workflowRaw); err == nil {
+			if cfg := parseWorkflow(workflowRaw); cfg != nil {
+				schemas := schemaIndex(schemaRaw)
+				merged := map[string]json.RawMessage{}
+				json.Unmarshal([]byte(props), &merged)
+				patch := map[string]json.RawMessage{}
+				json.Unmarshal([]byte(props), &patch)
+				_, auto, hooks, reason := checkWorkflowCreation(cfg, merged, patch, userID, schemas)
+				if reason != "" {
+					httpError(w, 409, reason)
+					return
+				}
+				for k, v := range auto {
+					if b, err := json.Marshal(v); err == nil {
+						merged[k] = json.RawMessage(b)
+					}
+				}
+				if b, err := json.Marshal(merged); err == nil {
+					props = string(b)
+				}
+				createHooks = hooks
+			}
+		}
+	}
 	// Exactly-once creates for retried requests (offline outbox flushes from
 	// two tabs replay the same op): a repeated key returns the first answer
 	// instead of a second page. Scoped per user like the MCP keys.
@@ -387,6 +417,11 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 	s.pagesChanged()
 	s.rowChanged(id)
 	s.fireWebhook("page.created", id)
+	// Per-rule creation webhooks: fire-and-forget after the row exists. An
+	// unreachable URL must never roll back the create.
+	for _, target := range createHooks {
+		go fireWorkflowHook(target, id, "workflow.created")
+	}
 	if body.IdempotencyKey != "" {
 		if b, err := json.Marshal(p); err == nil {
 			s.storeIdempotent(userID+"\x00"+body.IdempotencyKey, string(b))
@@ -527,6 +562,10 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	args := []any{now()}
 	metaChanged := false
 	auditProps := ""
+	// Per-rule webhook URLs collected by the workflow guard below; fired
+	// fire-and-forget after the commit, never inside the transaction.
+	var workflowHooks []string
+	var workflowEvent string
 
 	if body.IsTemplate != nil {
 		v := 0
@@ -656,8 +695,15 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	// Field-level props merge: only the changed keys are sent, so two devices
 	// editing different properties of the same row don't clobber each other.
 	// A key set to null deletes it.
+	//
+	// merged/before/patch are hoisted: a reparent later in this function
+	// (arrival in a collection) runs creation rules against the same maps,
+	// and the props write lands once, afterwards, with every auto-action
+	// folded in.
+	var merged, before, patch map[string]json.RawMessage
+	var arrivalParent string
 	if len(body.PropsPatch) > 0 {
-		var patch map[string]json.RawMessage
+		patch = map[string]json.RawMessage{}
 		if err := json.Unmarshal(body.PropsPatch, &patch); err != nil {
 			httpError(w, 400, "propsPatch must be a JSON object")
 			return
@@ -667,9 +713,9 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 			httpError(w, 404, "page not found")
 			return
 		}
-		merged := map[string]json.RawMessage{}
+		merged = map[string]json.RawMessage{}
 		json.Unmarshal([]byte(current), &merged)
-		before := map[string]json.RawMessage{}
+		before = map[string]json.RawMessage{}
 		json.Unmarshal([]byte(current), &before)
 		for k, v := range patch {
 			if string(v) == "null" {
@@ -678,31 +724,39 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 				merged[k] = v
 			}
 		}
-		mergedJSON, err := json.Marshal(merged)
-		if err != nil {
-			httpError(w, 500, err.Error())
-			return
-		}
-		sets = append(sets, "props = ?")
-		args = append(args, string(mergedJSON))
-		metaChanged = true
-
-		// Record WHAT changed, not just that something did.
-		//
-		// This used to write nothing at all, and that had a consequence nobody
-		// would guess: the "last activity" column reads the person from the
-		// newest log entry, so a property edited in the browser moved the time
-		// and left the previous person's name standing. The column named the
-		// wrong human, which is worse than naming nobody.
-		//
-		// It also means the log finally covers the ordinary case — somebody
-		// moves a card on a board — and that a change made in the browser can
-		// be taken back the same way an agent's can.
-		if diff := propsDiff(before, patch); len(diff) > 0 {
-			if b, err := json.Marshal(diff); err == nil {
-				auditProps = string(b)
+		// Lightweight business process: when this row lives in a collection
+		// with a workflow and the status property changed, enforce the
+		// allow-list + precondition, then fold auto-actions into the same
+		// write. Deny is 409 with a reason; the client rolls back + toasts.
+		var parentID string
+		if err := tx.QueryRow(`SELECT COALESCE(parent_id,'') FROM pages WHERE id = ?`, id).Scan(&parentID); err == nil && parentID != "" {
+			var schemaRaw, workflowRaw string
+			if err := tx.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, parentID).Scan(&schemaRaw, &workflowRaw); err == nil {
+				if cfg := parseWorkflow(workflowRaw); cfg != nil {
+					schemas := schemaIndex(schemaRaw)
+					newStatus := propString(merged, cfg.StatusPropID)
+					oldStatus := propString(before, cfg.StatusPropID)
+					if newStatus != oldStatus && newStatus != "" {
+						_, auto, hooks, reason := checkWorkflowTransition(cfg, oldStatus, newStatus, merged, patch, requestUser(r).ID, schemas)
+						if reason != "" {
+							httpError(w, 409, reason)
+							return
+						}
+						for k, v := range auto {
+							if b, err := json.Marshal(v); err == nil {
+								merged[k] = json.RawMessage(b)
+								patch[k] = json.RawMessage(b)
+							}
+						}
+						workflowHooks = hooks
+						workflowEvent = "workflow.transition:" + newStatus
+					}
+				}
 			}
 		}
+		// The props write itself lands after the reparent block below: arrival
+		// in a collection may fold in more auto-actions, and the stored
+		// row carries all of them at once.
 	}
 
 	if len(body.ParentID) > 0 {
@@ -735,8 +789,93 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 			}
 			sets = append(sets, "parent_id = ?")
 			args = append(args, parentID)
+			arrivalParent = parentID
 		}
 		metaChanged = true
+	}
+	// Arrival in a collection runs that collection's own rules: creation
+	// rules fire because the row is new there, and status rules fire for the
+	// status it arrives with (a + button prescribes the column, so the move
+	// into Done is a move like any other). Deny is 409 with a reason.
+	var arrivalHooks []string
+	if arrivalParent != "" {
+		if merged == nil {
+			var current string
+			if err := tx.QueryRow(`SELECT props FROM pages WHERE id = ?`, id).Scan(&current); err != nil {
+				httpError(w, 404, "page not found")
+				return
+			}
+			merged = map[string]json.RawMessage{}
+			json.Unmarshal([]byte(current), &merged)
+			patch = map[string]json.RawMessage{}
+		}
+		var aschema, aworkflow string
+		if err := tx.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, arrivalParent).Scan(&aschema, &aworkflow); err == nil {
+			if cfg := parseWorkflow(aworkflow); cfg != nil {
+				aschemas := schemaIndex(aschema)
+				u := requestUser(r)
+				if before != nil {
+					from := propString(before, cfg.StatusPropID)
+					to := propString(merged, cfg.StatusPropID)
+					if from != to && to != "" {
+						_, auto, hooks, reason := checkWorkflowTransition(cfg, from, to, merged, patch, u.ID, aschemas)
+						if reason != "" {
+							httpError(w, 409, reason)
+							return
+						}
+						for k, v := range auto {
+							if b, err := json.Marshal(v); err == nil {
+								merged[k] = json.RawMessage(b)
+								patch[k] = json.RawMessage(b)
+							}
+						}
+						workflowHooks = append(workflowHooks, hooks...)
+						workflowEvent = "workflow.transition:" + to
+					}
+				}
+				_, auto, hooks, reason := checkWorkflowCreation(cfg, merged, patch, u.ID, aschemas)
+				if reason != "" {
+					httpError(w, 409, reason)
+					return
+				}
+				for k, v := range auto {
+					if b, err := json.Marshal(v); err == nil {
+						merged[k] = json.RawMessage(b)
+						patch[k] = json.RawMessage(b)
+					}
+				}
+				arrivalHooks = hooks
+			}
+		}
+	}
+	if merged != nil {
+		mergedJSON, err := json.Marshal(merged)
+		if err != nil {
+			httpError(w, 500, err.Error())
+			return
+		}
+		sets = append(sets, "props = ?")
+		args = append(args, string(mergedJSON))
+		metaChanged = true
+
+		// Record WHAT changed, not just that something did.
+		//
+		// This used to write nothing at all, and that had a consequence nobody
+		// would guess: the "last activity" column reads the person from the
+		// newest log entry, so a property edited in the browser moved the time
+		// and left the previous person's name standing. The column named the
+		// wrong human, which is worse than naming nobody.
+		//
+		// It also means the log finally covers the ordinary case — somebody
+		// moves a card on a board — and that a change made in the browser can
+		// be taken back the same way an agent's can.
+		if before != nil {
+			if diff := propsDiff(before, patch); len(diff) > 0 {
+				if b, err := json.Marshal(diff); err == nil {
+					auditProps = string(b)
+				}
+			}
+		}
 	}
 	if body.Position != nil {
 		sets = append(sets, "position = ?")
@@ -785,6 +924,14 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	if auditProps != "" {
 		u := requestUser(r)
 		s.auditChanges("human", u.ID, u.Name, "set_properties", id, s.pageWorkspace(id), "", auditProps)
+	}
+	// Per-rule webhooks: fire-and-forget after the write is stored. An
+	// unreachable URL must never roll back the transition or the arrival.
+	for _, target := range workflowHooks {
+		go fireWorkflowHook(target, id, workflowEvent)
+	}
+	for _, target := range arrivalHooks {
+		go fireWorkflowHook(target, id, "workflow.created")
 	}
 	if body.Title != nil || len(body.Content) > 0 || len(body.Props) > 0 {
 		if err := s.reindexPage(id); err != nil {

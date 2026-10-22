@@ -3877,6 +3877,385 @@ body.is-col-resizing {
   margin-top: 16px;
 }
 
+/* Schema editor tabs: Properties | Process. Quiet segmented control — the
+   process stays one click away without shouting at readers who never use it. */
+.schema-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.schema-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.schema-tab-on {
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+/* Workflow rules: one rule reads as one sentence (When … Then …), details
+   unfold inside. Same building blocks as the schema rows above. */
+.workflow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.workflow-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--fg);
+  text-align: left;
+}
+.workflow-then {
+  color: var(--muted);
+  flex: none;
+}
+/* The collapsed head's second line: what the rule needs, muted and cut —
+ * the open body below already says it in full. Last in the flex row so it
+ * wraps under When/Then instead of squeezing between them. */
+.workflow-head {
+  flex-wrap: wrap;
+}
+.workflow-if-summary {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workflow-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.workflow-body > label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.workflow-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Inputs split the row evenly: a zero basis (not content size) decides the
+ * shares, otherwise a width:100% select eats the whole row and leaves the
+ * neighbour a dash. Labels and icon buttons never flex. */
+.workflow-row .prop-select,
+.workflow-row .prop-input,
+.workflow-row .select-cell {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+.workflow-row > .workflow-act,
+.workflow-row > .icon-btn {
+  flex: none;
+}
+.workflow-act {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+.workflow-more {
+  align-self: flex-start;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.workflow-adv {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.workflow-adv > label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Process map: one gate section per status the rules lead into, plus
+ * creation. The head names the gate; the foot holds the two ways to
+ * extend it — a step into the first rule, or a separate branch. */
+.workflow-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 0 2px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.workflow-group-head .btn {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.workflow-if {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.workflow-if > label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.workflow-if-toggle {
+  align-self: flex-start;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+/* List / Scheme switch above the rules. */
+.workflow-view-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.workflow-view-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.workflow-view-tab-on {
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  border-color: var(--border);
+}
+/* Read-only process map: statuses left to right, arrows for allowed moves,
+ * a dashed box for the on-creation rules. Horizontal scroll when many. */
+.workflow-scheme {
+  overflow-x: auto;
+  padding: 4px 2px;
+}
+.workflow-scheme-svg {
+  display: block;
+  color: var(--muted);
+}
+.workflow-scheme-svg path {
+  stroke: currentColor;
+  stroke-width: 1.5;
+  fill: none;
+}
+/* Roads no rule guards: allowed by default, drawn dashed so the map shows
+ *  the open roads apart from the guarded ones. */
+.workflow-scheme-svg .free path {
+  stroke-dasharray: 5 4;
+  opacity: 0.55;
+}
+.workflow-scheme-svg .free polygon {
+  opacity: 0.55;
+}
+.workflow-scheme-svg polygon {
+  fill: currentColor;
+}
+.workflow-scheme-svg text {
+  fill: var(--fg);
+  font-size: 12px;
+}
+.workflow-scheme-svg .workflow-scheme-count {
+  fill: var(--muted);
+  font-size: 11px;
+}
+.workflow-scheme-node {
+  fill: var(--sidebar-bg);
+  stroke: var(--border);
+}
+.workflow-scheme-flag {
+  fill: #b58a3b;
+}
+.workflow-scheme-created {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.workflow-scheme-created-head {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.workflow-scheme-rule {
+  font-size: 13px;
+}
+.workflow-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* Selected workflow chips read as chosen, not tinted: a solid ink fill with
+ *  ink-contrast text. The option tint in theme.css paints every .prop-chip
+ *  with !important, so this answers with the same weight — scoped to the
+ *  selected state only, and winning on specificity (:root + two classes)
+ *  regardless of which sheet loads last. */
+:root .prop-chip.prop-chip-on {
+  background: var(--pill-dark) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--bg) !important;
+  -webkit-text-fill-color: var(--bg) !important;
+  outline: none;
+}
+
+/* Process self-check: findings above the rules, clickable when they name a
+ * rule. Errors block saving; warnings are advice. */
+.workflow-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.workflow-issue {
+  text-align: left;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+/* A self-check finding that repairs itself in one tap — the draft changes,
+   Save still applies. */
+.workflow-fix {
+  flex: none;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+button.workflow-issue {
+  cursor: pointer;
+}
+.workflow-issue-error {
+  border-color: var(--danger);
+}
+.workflow-issue-warn {
+  border-color: var(--border);
+  color: var(--muted);
+}
+.schema-item-error {
+  outline: 2px solid var(--danger);
+}
+
+/* Try-a-move simulator: pick a source status, read what every transition
+ * would do — pass, ask or refuse, and why. */
+.workflow-sim {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.workflow-sim > label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.workflow-sim-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.workflow-sim-row .dialog-hint {
+  margin: 0;
+}
+
+/* The shared select editor inside a rule row: it renders inline-block by
+ * default (a table cell), which collapses to a dash here. In a rule it is
+ * an input like the others — half the row, with a visible edge. */
+.workflow-row .select-cell {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+.workflow-row .select-cell-value,
+.workflow-ask-row .select-cell-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+.workflow-ask-row .select-cell {
+  display: flex;
+}
+
+/* Move dialog: what the step asks for before the card lands. One labeled
+   input per require-step, in the order the rules list them. */
+.workflow-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 12px;
+}
+.workflow-ask-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.workflow-ask-row > span {
+  color: var(--muted);
+}
+.workflow-ask-row textarea {
+  resize: vertical;
+}
+/* A checklist ask fills the row: the list itself plus the tick-everything
+   hint underneath. */
+.workflow-ask-check {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.workflow-ask-check .prop-checklist {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
 /* Schema editor: relation / rollup / formula config */
 
 .schema-item {

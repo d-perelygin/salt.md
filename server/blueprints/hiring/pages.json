@@ -1,0 +1,123 @@
+[
+  {
+    "id": "5a17b500000000000000000000000001",
+    "parentId": null,
+    "type": "collection",
+    "title": "Candidates",
+    "icon": "👤",
+    "cover": "",
+    "description": "One row per candidate. An offer goes out only after an interview.",
+    "tags": [],
+    "props": {},
+    "content": [],
+    "position": 1,
+    "visibility": "workspace",
+    "isTemplate": false,
+    "createdAt": "",
+    "updatedAt": "",
+    "schema": [
+      {
+        "id": "stage",
+        "name": "Stage",
+        "type": "select",
+        "options": [
+          {
+            "id": "applied",
+            "name": "Applied",
+            "color": "#787774"
+          },
+          {
+            "id": "screening",
+            "name": "Screening",
+            "color": "#337ea9"
+          },
+          {
+            "id": "interview",
+            "name": "Interview",
+            "color": "#9065b0"
+          },
+          {
+            "id": "offer",
+            "name": "Offer",
+            "color": "#cb912f"
+          },
+          {
+            "id": "hired",
+            "name": "Hired",
+            "color": "#448361"
+          },
+          {
+            "id": "rejected",
+            "name": "Rejected",
+            "color": "#d44c47"
+          }
+        ]
+      },
+      {
+        "id": "owner",
+        "name": "Owner",
+        "type": "person"
+      },
+      {
+        "id": "interview_on",
+        "name": "Interview on",
+        "type": "date"
+      },
+      {
+        "id": "hired_on",
+        "name": "Hired on",
+        "type": "date"
+      }
+    ],
+    "views": [
+      {
+        "id": "board",
+        "name": "Board",
+        "type": "board",
+        "groupBy": "stage"
+      },
+      {
+        "id": "table",
+        "name": "Table",
+        "type": "table"
+      }
+    ],
+    "workflow": {
+      "statusPropId": "stage",
+      "rules": [
+        {
+          "id": "r_interview",
+          "when": {
+            "type": "status_to",
+            "to": "interview"
+          },
+          "allowFrom": [
+            "screening"
+          ],
+          "do": [
+            {
+              "type": "assign_me",
+              "prop": "owner"
+            }
+          ]
+        },
+        {
+          "id": "r_hired",
+          "when": {
+            "type": "status_to",
+            "to": "hired"
+          },
+          "allowFrom": [
+            "offer"
+          ],
+          "do": [
+            {
+              "type": "set_today",
+              "prop": "hired_on"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

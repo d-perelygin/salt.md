@@ -25,5 +25,23 @@
     "accent": "#9065b0",
     "tags": ["Marketing", "Solo"],
     "price": ""
+  },
+  {
+    "id": "requests",
+    "title": "Request tracker",
+    "tagline": "Requests on a board that refuses to skip steps.",
+    "icon": "📥",
+    "accent": "#cb912f",
+    "tags": ["Team", "Process"],
+    "price": ""
+  },
+  {
+    "id": "hiring",
+    "title": "Hiring",
+    "tagline": "Candidates on a board that hires in order.",
+    "icon": "👤",
+    "accent": "#9065b0",
+    "tags": ["Team", "Process"],
+    "price": ""
   }
 ]

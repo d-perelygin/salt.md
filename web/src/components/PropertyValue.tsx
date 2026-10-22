@@ -67,7 +67,10 @@ function chip(opt: PropOption | undefined, fallback: string) {
 // clamped fixed position so it never runs off-screen or gets clipped by the
 // scrolling table. Colour editing is a second panel (not a nested popover) so it
 // stays on-screen on mobile.
-function SelectCell({
+//
+// Shared with the workflow move dialog and the rule editor: picking from the
+// same popover everywhere beats maintaining a second picker.
+export function SelectCell({
   def,
   value,
   multi,
@@ -349,7 +352,7 @@ function NumberDisplay({ value, def, compact }: { value: unknown; def: PropDef; 
 // percentage: two truths that drift apart, and the reason a Trello-style card
 // reads as "half done" is that the ticks and the bar cannot disagree.
 
-function checklistItems(value: unknown): ChecklistItem[] {
+export function checklistItems(value: unknown): ChecklistItem[] {
   if (!Array.isArray(value)) return [];
   // Tolerant like the select cell: an agent may write plain strings, and older
   // rows may carry items without an id.

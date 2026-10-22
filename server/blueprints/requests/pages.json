@@ -1,0 +1,125 @@
+[
+  {
+    "id": "5a17b400000000000000000000000001",
+    "parentId": null,
+    "type": "collection",
+    "title": "Requests",
+    "icon": "📥",
+    "cover": "",
+    "description": "One row per request. Done needs a finished checklist — the board refuses the move otherwise.",
+    "tags": [],
+    "props": {},
+    "content": [],
+    "position": 1,
+    "visibility": "workspace",
+    "isTemplate": false,
+    "createdAt": "",
+    "updatedAt": "",
+    "schema": [
+      {
+        "id": "status",
+        "name": "Status",
+        "type": "select",
+        "options": [
+          {
+            "id": "new",
+            "name": "New",
+            "color": "#787774"
+          },
+          {
+            "id": "triage",
+            "name": "Triage",
+            "color": "#337ea9"
+          },
+          {
+            "id": "in_progress",
+            "name": "In progress",
+            "color": "#cb912f"
+          },
+          {
+            "id": "done",
+            "name": "Done",
+            "color": "#448361"
+          }
+        ]
+      },
+      {
+        "id": "owner",
+        "name": "Owner",
+        "type": "person"
+      },
+      {
+        "id": "acceptance",
+        "name": "Acceptance",
+        "type": "checklist"
+      },
+      {
+        "id": "closed",
+        "name": "Closed on",
+        "type": "date"
+      }
+    ],
+    "views": [
+      {
+        "id": "board",
+        "name": "Board",
+        "type": "board",
+        "groupBy": "status"
+      },
+      {
+        "id": "table",
+        "name": "Table",
+        "type": "table"
+      }
+    ],
+    "workflow": {
+      "statusPropId": "status",
+      "rules": [
+        {
+          "id": "r0",
+          "when": {
+            "type": "created"
+          },
+          "do": [
+            {
+              "type": "assign_me",
+              "prop": "owner"
+            }
+          ]
+        },
+        {
+          "id": "r_triage",
+          "when": {
+            "type": "status_to",
+            "to": "triage"
+          },
+          "do": [
+            {
+              "type": "assign_me",
+              "prop": "owner"
+            }
+          ]
+        },
+        {
+          "id": "r_done",
+          "when": {
+            "type": "status_to",
+            "to": "done"
+          },
+          "allowFrom": [
+            "in_progress"
+          ],
+          "precondition": {
+            "checklistProp": "acceptance"
+          },
+          "do": [
+            {
+              "type": "set_today",
+              "prop": "closed"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

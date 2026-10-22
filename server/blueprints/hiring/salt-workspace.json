@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "saltVersion": "blueprint",
+  "exportedAt": "",
+  "workspace": {
+    "name": "Hiring",
+    "icon": "👤",
+    "image": "",
+    "rules": "# How we work here\n\n**Candidates** answers *who is in the pipeline*. One row per candidate, the board shows the stage.\n\n## No skipping stages\n\nAn interview happens only after a screening, an offer only after an interview. The board refuses jumps — move the card through each stage.\n\n## Moving assigns\n\nTaking a candidate to Interview assigns whoever moved the card. Hired stamps the date by itself.\n"
+  },
+  "pages": 1,
+  "files": 0
+}

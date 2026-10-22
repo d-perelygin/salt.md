@@ -1,12 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react';
 import { api } from '../api';
-import type { CollectionConfig, PropDef, PropType, ViewDef } from '../types';
+import type { CollectionConfig, PropDef, PropType, ViewDef, WorkflowConfig } from '../types';
+import { analyzeWorkflow, issueText } from '../workflow';
 import { isSystemRef } from '../types';
 import Portal from './Portal';
+import WorkflowRules from './WorkflowRules';
 import { useExclusiveModal } from '../modal';
 import { OPTION_HEXES, optionPalette } from '../selectOptions';
 import { renameSelectOption, moveSelectOption, reorderSelectOption } from '../renameSelectOption';
 import { confirm } from '../dialog';
+import { toast } from '../toast';
 import { GripVertical, Check, Trash2 } from 'lucide-react';
 import { t } from '../i18n';
 import { loadMembers, type Member } from './PropertyValue';
@@ -68,9 +71,12 @@ export default function SchemaEditor({
   collections,
   onSave,
   onClose,
+  initialTab,
 }: {
   config: CollectionConfig;
   collections?: { id: string; title: string }[];
+  /** Which tab the dialog opens on — the block toast jumps straight in. */
+  initialTab?: 'props' | 'process';
   onSave: (c: CollectionConfig) => Promise<void>;
   onClose: () => void;
 }) {
@@ -78,6 +84,30 @@ export default function SchemaEditor({
   const [dragProperty, setDragProperty] = useState<string | null>(null);
   const [dropProperty, setDropProperty] = useState<{ id: string; after: boolean } | null>(null);
   const [views, setViews] = useState<ViewDef[]>(config.views);
+  const [tab, setTab] = useState<'props' | 'process'>(initialTab ?? 'props');
+  // Lightweight process: absent = no rules. The status defaults to the first
+  // select property so opening the tab never shows a dead picker.
+  const [workflow, setWorkflow] = useState<WorkflowConfig | undefined>(config.workflow);
+  // A rule the save-guard wants the reader to look at (broken reference).
+  const [focusRule, setFocusRule] = useState<string | null>(null);
+  // Whatever the dialog opened with, for the unsaved-changes question.
+  const initialJson = useRef(
+    JSON.stringify({
+      schema: config.schema,
+      views: config.views,
+      newFromTemplate: config.newFromTemplate ?? '',
+      workflow: config.workflow ?? null,
+    }),
+  );
+  const draftJson = () =>
+    JSON.stringify({ schema, views, newFromTemplate: newFromTemplate ?? '', workflow: workflow ?? null });
+  const tryClose = async () => {
+    if (draftJson() !== initialJson.current) {
+      const ok = await confirm(t('Close without saving?'), { confirmText: t('Discard') });
+      if (!ok) return;
+    }
+    onClose();
+  };
   // Which template new rows are made from, if any. Templates come from their
   // own endpoint (see the sidebar): the page tree no longer carries them.
   const [newFromTemplate, setNewFromTemplate] = useState(config.newFromTemplate ?? '');
@@ -92,7 +122,7 @@ export default function SchemaEditor({
       alive = false;
     };
   }, []);
-  useExclusiveModal(onClose);
+  useExclusiveModal(tryClose);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<PropType>('select');
   // The option currently being edited ("propId:optId").
@@ -253,7 +283,47 @@ export default function SchemaEditor({
     // A template chosen above that is gone by now is dropped: new rows must
     // never point at a dead page (the server re-checks this too).
     const tpl = templates.some((p) => p.id === newFromTemplate) ? newFromTemplate : undefined;
-    await onSave({ schema: colored, views: fixedViews, ...(tpl ? { newFromTemplate: tpl } : {}) });
+    // Blank actions are drafts, not errors: they stay on screen while edited
+    // and simply do not travel on save. A rule with no finished actions is a
+    // pure guard (allow-list + precondition, nothing automated) — it travels
+    // with an empty do list and the server enforces it all the same.
+    // Half-filled value conditions go the same way: a condition without both
+    // a property and a value never holds at runtime, so it must not travel.
+    // A defined-but-empty process clears the stored one: deleting every rule
+    // and saving must not resurrect them on reopen.
+    const stagedWf: WorkflowConfig | undefined =
+      workflow?.statusPropId
+        ? {
+            statusPropId: workflow.statusPropId,
+            rules: workflow.rules.map((r) => ({
+              ...r,
+              whenProps: (r.whenProps ?? []).filter((c) => c.prop && c.value),
+              do: r.do.filter((a) => {
+                if (a.type === 'webhook') return a.url.trim() !== '';
+                if (a.type === 'require_comment') return true;
+                return !!a.prop;
+              }),
+            })),
+          }
+        : undefined;
+    // Broken references never reach the server: it would reject the whole
+    // save for one dead row. Point at the rule instead.
+    if (stagedWf) {
+      const errors = analyzeWorkflow(stagedWf, colored).filter((i) => i.severity === 'error');
+      if (errors.length > 0) {
+        const first = errors[0];
+        if (first.ruleId) setFocusRule(first.ruleId);
+        setTab('process');
+        toast(issueText(first));
+        return;
+      }
+    }
+    try {
+      await onSave({ schema: colored, views: fixedViews, ...(tpl ? { newFromTemplate: tpl } : {}), ...(stagedWf ? { workflow: stagedWf } : {}) });
+    } catch (e) {
+      toast((e as Error).message || t('Not saved'));
+      return;
+    }
     onClose();
   };
 
@@ -499,9 +569,29 @@ export default function SchemaEditor({
 
   return (
     <Portal>
-    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) void tryClose(); }}>
       <div className="dialog wide">
         <h2>{t('Collection properties')}</h2>
+        <div className="schema-tabs">
+          <button
+            type="button"
+            className={'schema-tab' + (tab === 'props' ? ' schema-tab-on' : '')}
+            onClick={() => setTab('props')}
+          >
+            {t('Properties')}
+          </button>
+          <button
+            type="button"
+            className={'schema-tab' + (tab === 'process' ? ' schema-tab-on' : '')}
+            onClick={() => setTab('process')}
+          >
+            {t('Process')}{workflow?.rules?.length ? ` · ${workflow.rules.length}` : ''}
+          </button>
+        </div>
+        {tab === 'process' ? (
+          <WorkflowRules schema={schema} workflow={workflow} onChange={setWorkflow} highlightRuleId={focusRule} />
+        ) : (
+        <>
         <div className="schema-list">
           {schema.map((p) => (
             <div
@@ -712,9 +802,11 @@ export default function SchemaEditor({
             {t('A + button duplicates the template, then fills in what it prescribes — the column, the day. The rest — values, text — comes from the template.')}
           </div>
         </div>
+        </>
+        )}
 
         <div className="dialog-buttons">
-          <button className="btn" onClick={onClose}>{t('Cancel')}</button>
+          <button className="btn" onClick={() => void tryClose()}>{t('Cancel')}</button>
           <button className="btn primary" onClick={save}>{t('Save')}</button>
         </div>
       </div>

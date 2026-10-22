@@ -1,5 +1,15 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, ApiError } from '../api';
+import {
+  answersToPatch,
+  commentAnswer,
+  creationBlockReason,
+  neededCreationPrompts,
+  neededPrompts,
+  planStatusMove,
+  postMoveComment,
+  workflowBlockReason,
+} from '../workflow';
 import { onRefresh } from '../pwa';
 import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
@@ -22,7 +32,7 @@ import { tagColorClass } from '../tags';
 import { compare, firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, today, weekdayNames } from '../format';
 import { isUnfinishedRelativeDay, resolveSmartDate } from '../smartdate';
 import { plural, t } from '../i18n';
-import { confirm, promptText } from '../dialog';
+import { confirm, promptText, promptWorkflow } from '../dialog';
 import type {
   CollectionConfig,
   Filter,
@@ -454,6 +464,20 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     embed?.onViewId(id);
   };
   const [schemaOpen, setSchemaOpen] = useState(false);
+  const [schemaTab, setSchemaTab] = useState<'props' | 'process'>('props');
+
+  // A blocked drag explains itself: what stops the card and where the rule
+  // lives — one tap opens the process at the right place.
+  const blockToast = (message: string) =>
+    toast.warning(message, {
+      action: {
+        label: t('Open process'),
+        run: () => {
+          setSchemaTab('process');
+          setSchemaOpen(true);
+        },
+      },
+    });
   // A timeline made from the + menu opens its own settings: which dates it reads
   // is the first thing it needs, and an empty diagram says nothing about it.
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
@@ -792,8 +816,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     const patch: Partial<CollectionConfig> = {};
     if (!config || next.schema !== config.schema) patch.schema = next.schema;
     if (!config || next.views !== config.views) patch.views = next.views;
+    // The process rides the same save: reference compare is enough, the
+    // editor hands over a fresh object on every keystroke.
+    if (!config || next.workflow !== config.workflow) patch.workflow = next.workflow;
     setConfig(next);
-    if (!patch.schema && !patch.views) return;
+    if (!patch.schema && !patch.views && !patch.workflow) return;
     await api.putCollection(collectionId, patch);
   };
 
@@ -817,6 +844,57 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // less. Anywhere else the server default — MAX+1, the bottom — stays.
     const topPos = opts?.prependBefore !== undefined ? opts.prependBefore - 1 : undefined;
     const tpl = config?.newFromTemplate;
+    // Creation handshake: rules firing on arrival may need answers, and a
+    // prescribed status may be guarded. Ask before anything exists, so
+    // backing out makes no row at all — the server re-checks on write.
+    let preset: Record<string, unknown> = { ...(presetProps ?? {}) };
+    let createComment: string | null = null;
+    const wf = config?.workflow;
+    const statusToRaw = wf?.statusPropId ? preset[wf.statusPropId] : undefined;
+    const statusTo =
+      statusToRaw === undefined || statusToRaw === null || statusToRaw === ''
+        ? ''
+        : Array.isArray(statusToRaw)
+          ? ((statusToRaw[0] as string) ?? '')
+          : (statusToRaw as string);
+    if (wf && (wf.rules?.some((r) => r.when.type === 'created') || (statusTo && wf.statusPropId))) {
+      let tmplProps: Record<string, unknown> = {};
+      if (tpl) {
+        try {
+          const t = await api.getPage(tpl);
+          tmplProps = (t.props ?? {}) as Record<string, unknown>;
+        } catch {
+          tmplProps = {};
+        }
+      }
+      const base = { ...tmplProps, ...preset };
+      const fromRaw = tmplProps[wf.statusPropId];
+      const from = Array.isArray(fromRaw) ? ((fromRaw[0] as string) ?? '') : ((fromRaw as string) ?? '');
+      const blocked = creationBlockReason(wf, schema, base);
+      if (blocked) {
+        toast(t(blocked));
+        return undefined;
+      }
+      if (statusTo && statusTo !== from) {
+        const reason = workflowBlockReason(wf, schema, base, from, statusTo);
+        if (reason) {
+          blockToast(reason.message);
+          return undefined;
+        }
+      }
+      const fields = [
+        ...(await neededCreationPrompts(wf, schema, base)),
+        ...(statusTo && statusTo !== from ? await neededPrompts(wf, schema, '', base, from, statusTo) : []),
+      ];
+      if (fields.length > 0) {
+        const answers = await promptWorkflow(pages.get(collectionId)?.title || t('Untitled'), fields, {
+          okText: t('Create row'),
+        });
+        if (!answers) return undefined;
+        Object.assign(preset, answersToPatch(fields, answers));
+        createComment = commentAnswer(fields, answers);
+      }
+    }
     if (tpl) {
       try {
         const dup = await api.duplicatePage(tpl, true);
@@ -832,7 +910,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             }
             await api.updatePage(dup.id, {
               parentId: collectionId,
-              propsPatch: presetProps ?? {},
+              propsPatch: preset,
               ...(topPos !== undefined ? { position: topPos } : {}),
             });
             if (topPos !== undefined) {
@@ -844,6 +922,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             // was made rather than failing the press, let alone making two.
             toast(t('The template could not be used'));
           }
+          if (createComment) void postMoveComment(dup.id, createComment);
           if (!peekPanel(dup.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(dup.id);
           return dup.id;
         }
@@ -853,13 +932,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       }
     }
     try {
-      const created = await api.createPage(collectionId, 'Untitled', 'doc', presetProps);
+      const created = await api.createPage(collectionId, 'Untitled', 'doc', preset);
       if (created?.id) {
         if (topPos !== undefined) {
           touchRows();
           setRows((prev) => prev.map((r) => (r.id === created.id ? { ...r, position: topPos } : r)));
           await savePageUpdate(created.id, { position: topPos }, { label: t('Change') });
         }
+        if (createComment) void postMoveComment(created.id, createComment);
         // A row with no name yet: the caret belongs in its title.
         if (!peekPanel(created.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(created.id);
         return created.id;
@@ -875,7 +955,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         title: t('Untitled'),
         icon: '',
         cover: '',
-        props: presetProps ?? {},
+        props: preset,
         position: topPos ?? Date.now(),
         tags: [],
       };
@@ -888,7 +968,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         kind: 'create-page',
         pageId: tempId,
         parentId: collectionId,
-        payload: { title: 'Untitled', type: 'doc', props: presetProps ?? {} },
+        payload: { title: 'Untitled', type: 'doc', props: preset },
         label: t('Untitled'),
       });
       if (topPos !== undefined) {
@@ -1010,6 +1090,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     try {
       await api.updatePage(rowId, { propsPatch: patch });
     } catch (e) {
+      // A 409 is the workflow guard refusing a status move: the server is
+      // the truth, so the optimistic card goes back via reload and the
+      // reader sees the reason, not a generic failure.
+      if (e instanceof ApiError && e.status === 409) {
+        toast(e.message);
+        void loadRows();
+        return;
+      }
       // Temp rows and dead networks journal into the outbox (remapped on
       // flush); anything else is a real failure worth a toast.
       if (isTempId(rowId) || isOfflineError(e)) {
@@ -1034,9 +1122,28 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         await writeProps(rowId, patch);
         return;
       }
+      // A multi-prop gesture that moves the status asks first, like a drag.
+      const wf = configRef.current?.workflow ?? config?.workflow;
+      let comment: string | null = null;
+      if (wf && wf.statusPropId && patch[wf.statusPropId] !== undefined) {
+        const cur = me.props[wf.statusPropId];
+        const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
+        const rawTo = patch[wf.statusPropId] as string | string[];
+        const to = Array.isArray(rawTo) ? (rawTo[0] as string) ?? '' : (rawTo as string) ?? '';
+        const reason = workflowBlockReason(wf, schema, me.props, from, to);
+        if (reason) {
+          blockToast(reason.message);
+          return;
+        }
+        const plan = await planStatusMove(wf, schema, rowId, me.props, from, to, statusOptionName(wf.statusPropId, to));
+        if (!plan) return;
+        Object.assign(patch, plan.patch);
+        comment = plan.comment;
+      }
       const olds: Record<string, unknown> = {};
       for (const k of Object.keys(patch)) olds[k] = cleared(me.props[k]);
       await writeProps(rowId, patch);
+      if (comment) void postMoveComment(rowId, comment);
       const v = view;
       if (v && JSON.stringify(olds) !== JSON.stringify(patch)) {
         pushUndo(v.id, {
@@ -1055,16 +1162,37 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     await savePageUpdate(rowId, { position }, { label: t('Change') });
   };
 
-  const setRowProp = (rowId: string, propId: string, value: unknown): Promise<void> =>
+  const setRowProp = (rowId: string, propId: string, value: unknown, extra?: Record<string, unknown>): Promise<void> =>
     // Serialized with every other mutation of this view (see series): the
     // olds are read inside, at execution, so a step queued behind a slow
     // write still captures the world as the write left it.
     series(view?.id, async () => {
       const live = rowsRef.current;
       const me = live.find((r) => r.id === rowId);
-      const oldVal = cleared(me?.props[propId]);
+      const patch: Record<string, unknown> = { ...(extra ?? {}) };
+      const wf = configRef.current?.workflow ?? config?.workflow;
+      // Every status edit funnels through here — board, card, table: a move
+      // that needs answers asks first, once, before anything is written.
+      // Cancel backs the whole gesture out, card included.
+      if (wf && wf.statusPropId === propId) {
+        const cur = me?.props[propId];
+        const from = Array.isArray(cur) ? (cur[0] as string) ?? '' : (cur as string) ?? '';
+        const rawTo = value as string | string[];
+        const to = Array.isArray(rawTo) ? (rawTo[0] as string) ?? '' : (rawTo as string) ?? '';
+        const reason = workflowBlockReason(wf, schema, me?.props ?? {}, from, to);
+        if (reason) {
+          blockToast(reason.message);
+          return;
+        }
+        const plan = await planStatusMove(wf, schema, rowId, me?.props ?? {}, from, to, statusOptionName(propId, to));
+        if (!plan) return;
+        Object.assign(patch, plan.patch);
+        if (plan.comment) void postMoveComment(rowId, plan.comment);
+      }
+      const olds: Record<string, unknown> = {};
+      for (const k of [propId, ...Object.keys(patch)]) olds[k] = cleared(me?.props[k]);
       const oldPos = me?.position;
-      await writeProp(rowId, propId, value);
+      await writeProps(rowId, { [propId]: value, ...patch });
       // A board card whose group value changes moves columns without being put
       // anywhere: top of the new one.
       let newPos: number | undefined;
@@ -1077,15 +1205,15 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             : boardColumnRows(live, boardGroupBy, optId);
         newPos = await placeRowOnTop(rowId, siblings);
       }
-      if (v && !isTempId(rowId) && JSON.stringify(oldVal) !== JSON.stringify(value)) {
+      if (v && !isTempId(rowId) && JSON.stringify(olds[propId]) !== JSON.stringify(value)) {
         pushUndo(v.id, {
           label: t('Change'),
           undo: async () => {
-            await writeProp(rowId, propId, oldVal);
+            await writeProps(rowId, olds);
             if (newPos !== undefined && oldPos !== undefined) await writePos(rowId, oldPos);
           },
           redo: async () => {
-            await writeProp(rowId, propId, value);
+            await writeProps(rowId, { [propId]: value, ...patch });
             if (newPos !== undefined) await writePos(rowId, newPos);
           },
         });
@@ -1114,6 +1242,12 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     } catch (e) {
       toast((e as Error).message || t('Could not be moved to the trash'));
     }
+  };
+
+  // Option display name, for the move dialog's title ("Move to Review?").
+  const statusOptionName = (propId: string, optId: string): string => {
+    const def = schema.find((p) => p.id === propId);
+    return def?.options?.find((o) => o.id === optId)?.name ?? optId;
   };
 
   const setGroupValue = async (rowId: string, propId: string, optId: string) => {
@@ -1202,7 +1336,26 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       const oldVal = cleared(me?.props[groupBy]);
       const oldPos = me?.position;
       const newVal = groupValueFor(schema, groupBy, optId);
-      await writeProp(rowId, groupBy, newVal);
+      // A cross-column drop writes straight through: ask for answers here,
+      // the same handshake setRowProp runs. Cancel backs the drag out.
+      let extra: Record<string, unknown> = {};
+      const wf = configRef.current?.workflow;
+      if (wf && wf.statusPropId === groupBy) {
+        const fromRaw = me?.props[groupBy];
+        const from = Array.isArray(fromRaw) ? (fromRaw[0] as string) ?? '' : (fromRaw as string) ?? '';
+        const toRaw = newVal as string | string[];
+        const to = Array.isArray(toRaw) ? (toRaw[0] as string) ?? '' : (toRaw as string) ?? '';
+        const reason = workflowBlockReason(wf, schema, me?.props ?? {}, from, to);
+        if (reason) {
+          blockToast(reason.message);
+          return;
+        }
+        const plan = await planStatusMove(wf, schema, rowId, me?.props ?? {}, from, to, statusOptionName(groupBy, to));
+        if (!plan) return;
+        extra = plan.patch;
+        if (plan.comment) void postMoveComment(rowId, plan.comment);
+      }
+      await writeProps(rowId, { [groupBy]: newVal, ...extra });
       const position = positionFor(newOrder, rowId, live);
       if (position !== undefined) {
         touchRows();
@@ -1217,7 +1370,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           if (position !== undefined && oldPos !== undefined) await writePos(rowId, oldPos);
         },
         redo: async () => {
-          await writeProp(rowId, groupBy, newVal);
+          await writeProps(rowId, { [groupBy]: newVal, ...extra });
           if (position !== undefined) await writePos(rowId, position);
         },
       });
@@ -1569,7 +1722,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             second copy of the collection (#22). */}
         {!embed && <ColumnsControl schema={schema} view={view} onChange={updateView} />}
         {!embed && (
-          <button className="btn-sm" onClick={() => setSchemaOpen(true)}>
+          <button className="btn-sm" onClick={() => { setSchemaTab('props'); setSchemaOpen(true); }}>
             <Settings2 size={14} /> {t('Properties')}
           </button>
         )}
@@ -1780,6 +1933,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       )}
       {schemaOpen && (
         <SchemaEditor
+          initialTab={schemaTab}
           config={config}
           collections={[...pages.values()]
             // A template is a snapshot, not a database rows can point at.

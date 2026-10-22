@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import Portal from './components/Portal';
 import { t } from './i18n';
+import type { PromptField } from './workflow';
+import { SelectCell, checklistItems } from './components/PropertyValue';
+import WorkflowDateInput from './components/WorkflowDateInput';
+import type { ChecklistItem, PropDef } from './types';
 
 // In-app confirm / prompt dialogs (replacing native window.confirm/prompt,
 // which look out of place and can't be styled). Promise-based: call
@@ -22,7 +26,16 @@ type PromptReq = {
   confirmText?: string;
   resolve: (v: string | null) => void;
 };
-type Req = ConfirmReq | PromptReq;
+// A status move that needs answers first: one dialog, one input per
+// require-step, a single patch on confirm. Cancel leaves the card alone.
+type WorkflowReq = {
+  kind: 'workflow';
+  title: string;
+  fields: PromptField[];
+  okText?: string;
+  resolve: (v: Record<string, unknown> | null) => void;
+};
+type Req = ConfirmReq | PromptReq | WorkflowReq;
 
 export function confirm(
   message: string,
@@ -46,9 +59,87 @@ export function promptText(
   });
 }
 
+/** Ask for the answers a status move needs. Resolves with keyed answers, or
+ *  null when the mover backs out — then nothing moves. */
+export function promptWorkflow(
+  title: string,
+  fields: PromptField[],
+  opts?: { okText?: string },
+): Promise<Record<string, unknown> | null> {
+  return new Promise((resolve) => {
+    window.dispatchEvent(
+      new CustomEvent('salt:dialog', { detail: { kind: 'workflow', title, fields, ...opts, resolve } }),
+    );
+  });
+}
+
+function cleanAnswers(
+  fields: PromptField[],
+  answers: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...answers };
+  for (const f of fields) {
+    if (f.kind !== 'checklist') continue;
+    const v = out[f.key];
+    if (Array.isArray(v)) {
+      out[f.key] = (v as ChecklistItem[]).filter((i) => i && i.text.trim() !== '');
+    }
+  }
+  return out;
+}
+
+// The move dialog's face for a checklist ask: the row's current items,
+// tickable on the spot, with room for new sub-tasks. Same shapes as the
+// cell editor (PropertyValue), deliberately open — not a summary.
+function ChecklistAsk({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (v: ChecklistItem[]) => void;
+}) {
+  const items = checklistItems(value);
+  const write = (next: ChecklistItem[]) => onChange(next.length ? next : []);
+  const toggle = (id: string) => write(items.map((i) => (i.id === id ? { ...i, done: !i.done } : i)));
+  const setText = (id: string, text: string) => write(items.map((i) => (i.id === id ? { ...i, text } : i)));
+  const remove = (id: string) => write(items.filter((i) => i.id !== id));
+  const add = () =>
+    write([...items, { id: 'i' + Date.now().toString(36) + items.length, text: '', done: false }]);
+  return (
+    <div className="prop-checklist">
+      {items.map((it) => (
+        <div key={it.id} className={'pcl-item' + (it.done ? ' is-done' : '')}>
+          <input type="checkbox" checked={it.done} onChange={() => toggle(it.id)} />
+          <input
+            className="pcl-text"
+            value={it.text}
+            placeholder={t('Sub-task')}
+            onChange={(e) => setText(it.id, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                add();
+              }
+            }}
+          />
+          <button type="button" className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
+            ✕
+          </button>
+        </div>
+      ))}
+      <div className="pcl-actions">
+        <button type="button" className="pcl-add" onClick={add}>
+          + {t('Sub-task')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function DialogHost() {
   const [req, setReq] = useState<Req | null>(null);
   const [value, setValue] = useState('');
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -56,6 +147,11 @@ export function DialogHost() {
       const detail = (e as CustomEvent<Req>).detail;
       setReq(detail);
       setValue(detail.kind === 'prompt' ? detail.defaultValue ?? '' : '');
+      if (detail.kind === 'workflow') {
+        const init: Record<string, unknown> = {};
+        for (const f of detail.fields) init[f.key] = f.value;
+        setAnswers(init);
+      }
     };
     window.addEventListener('salt:dialog', onReq);
     return () => window.removeEventListener('salt:dialog', onReq);
@@ -76,20 +172,101 @@ export function DialogHost() {
 
   const cancel = () => {
     if (req.kind === 'confirm') req.resolve(false);
+    else if (req.kind === 'workflow') req.resolve(null);
     else req.resolve(null);
     setReq(null);
   };
   const ok = () => {
     if (req.kind === 'confirm') req.resolve(true);
+    else if (req.kind === 'workflow') req.resolve(cleanAnswers(req.fields, answers));
     else req.resolve(value.trim() ? value.trim() : null);
     setReq(null);
   };
+  const workflowReady =
+    req?.kind === 'workflow' &&
+    req.fields.every((f) => {
+      const v = answers[f.key];
+      if (f.kind === 'multiselect') return Array.isArray(v) && v.length > 0;
+      if (f.kind === 'person') return typeof v === 'string' && v !== '';
+      if (f.kind === 'checklist') {
+        const named = checklistItems(v).filter((i) => i.text.trim() !== '');
+        return named.length > 0 && named.every((i) => i.done);
+      }
+      return typeof v === 'string' && v.trim() !== '';
+    });
 
   return (
     <Portal>
       <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) cancel(); }}>
         <div className="dialog confirm-dialog" role="dialog" aria-modal="true">
-          <p className="confirm-message">{req.message}</p>
+          {req.kind === 'workflow' ? (
+            <>
+              <p className="confirm-message">{req.title}</p>
+              <div className="workflow-ask">
+                {req.fields.map((f) => (
+                  <label key={f.key} className="workflow-ask-row">
+                    <span>{f.kind === 'comment' ? t('Comment') : f.label}</span>
+                    {f.kind === 'text' || f.kind === 'comment' ? (
+                      f.kind === 'comment' ? (
+                        <textarea
+                          className="prop-input"
+                          rows={3}
+                          value={(answers[f.key] as string) ?? ''}
+                          onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
+                        />
+                      ) : (
+                        <input
+                          className="prop-input"
+                          value={(answers[f.key] as string) ?? ''}
+                          onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
+                        />
+                      )
+                    ) : f.kind === 'date' ? (
+                      <WorkflowDateInput
+                        value={answers[f.key]}
+                        onChange={(v) => setAnswers((p) => ({ ...p, [f.key]: v }))}
+                      />
+                    ) : f.kind === 'person' ? (
+                      <select
+                        className="prop-select"
+                        value={(answers[f.key] as string) ?? ''}
+                        onChange={(e) => setAnswers((p) => ({ ...p, [f.key]: e.target.value }))}
+                      >
+                        <option value="">{t('Select…')}</option>
+                        {(f.members ?? []).map((m) => (
+                          <option key={m.userId} value={m.userId}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : f.kind === 'checklist' ? (
+                      <span className="workflow-ask-check">
+                        <ChecklistAsk
+                          value={answers[f.key]}
+                          onChange={(v) => setAnswers((p) => ({ ...p, [f.key]: v }))}
+                        />
+                        <span className="dialog-hint">{t('Tick everything to continue')}</span>
+                      </span>
+                    ) : f.kind === 'select' || f.kind === 'multiselect' ? (
+                      <SelectCell
+                        def={{
+                          id: f.prop ?? '',
+                          name: f.label,
+                          type: f.kind,
+                          options: (f.options ?? []) as PropDef['options'],
+                        }}
+                        value={(answers[f.key] as string | string[]) ?? (f.kind === 'multiselect' ? [] : '')}
+                        multi={f.kind === 'multiselect'}
+                        onChange={(v) => setAnswers((p) => ({ ...p, [f.key]: v as string | string[] }))}
+                      />
+                    ) : null}
+                  </label>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="confirm-message">{req.message}</p>
+          )}
           {req.kind === 'prompt' && (
             <input
               ref={inputRef}
@@ -104,8 +281,12 @@ export function DialogHost() {
           )}
           <div className="dialog-buttons">
             <button className="btn" onClick={cancel}>{t('Cancel')}</button>
-            <button className={'btn ' + (req.kind === 'confirm' && req.danger ? 'danger' : 'primary')} onClick={ok}>
-              {req.confirmText ?? (req.kind === 'prompt' ? t('OK') : t('Confirm'))}
+            <button
+              className={'btn ' + (req.kind === 'confirm' && req.danger ? 'danger' : 'primary')}
+              onClick={ok}
+              disabled={req.kind === 'workflow' && !workflowReady}
+            >
+              {req.kind === 'workflow' ? (req.okText ?? t('Move card')) : (req.confirmText ?? (req.kind === 'prompt' ? t('OK') : t('Confirm')))}
             </button>
           </div>
         </div>

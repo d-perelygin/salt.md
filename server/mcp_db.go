@@ -63,6 +63,14 @@ func (s *Server) mcpQueryRows(u *user, pageID string, groups [][]rowFilter, sort
 // mcpSetProperties field-level-merges the given property values into a row's
 // props, mirroring the REST propsPatch semantics (null clears a key).
 func (s *Server) mcpSetProperties(pageID string, properties json.RawMessage, actor *user) (string, error) {
+	return s.mcpSetPropertiesEx(pageID, properties, actor, false)
+}
+
+// mcpSetPropertiesEx is mcpSetProperties with one extra question answered by
+// the caller: is this row brand new (fresh), so no status move happened and
+// the transition guard must stay out of the way — creation rules are checked
+// by the create path itself, before the first value lands.
+func (s *Server) mcpSetPropertiesEx(pageID string, properties json.RawMessage, actor *user, fresh bool) (string, error) {
 	if len(properties) == 0 {
 		return "", fmt.Errorf("properties is required")
 	}
@@ -75,6 +83,52 @@ func (s *Server) mcpSetProperties(pageID string, properties json.RawMessage, act
 	// MUST come before tx.Begin(): the pool holds exactly ONE connection, so a
 	// query inside the open transaction would block forever.
 	s.normalizePropValues(pageID, patch)
+
+	// The process guards agent writes exactly like browser writes: a status
+	// change runs the transition rules, auto-actions fold into the same
+	// write, webhooks fire after it. A refusal names the reason, so the agent
+	// can answer what is missing and retry — the same loop the move dialog
+	// runs for a human.
+	actorID := ""
+	if actor != nil {
+		actorID = actor.ID
+	}
+	var wfAuto map[string]any
+	var wfHooks []string
+	var wfEvent string
+	if !fresh {
+		var parentID, currentRaw string
+		if err := s.db.QueryRow(`SELECT COALESCE(parent_id,''), COALESCE(props,'{}') FROM pages WHERE id = ?`, pageID).Scan(&parentID, &currentRaw); err == nil && parentID != "" {
+			var schemaRaw, workflowRaw string
+			if err := s.db.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, parentID).Scan(&schemaRaw, &workflowRaw); err == nil {
+				if cfg := parseWorkflow(workflowRaw); cfg != nil {
+					schemas := schemaIndex(schemaRaw)
+					before := map[string]json.RawMessage{}
+					_ = json.Unmarshal([]byte(currentRaw), &before)
+					merged := map[string]json.RawMessage{}
+					_ = json.Unmarshal([]byte(currentRaw), &merged)
+					for k, v := range patch {
+						if string(v) == "null" {
+							delete(merged, k)
+						} else {
+							merged[k] = v
+						}
+					}
+					from := propString(before, cfg.StatusPropID)
+					to := propString(merged, cfg.StatusPropID)
+					if to != "" && to != from {
+						if _, auto, hooks, reason := checkWorkflowTransition(cfg, from, to, merged, patch, actorID, schemas); reason != "" {
+							return "", fmt.Errorf("cannot move row to this status: %s — call get_workflow on the database to see the gates", reason)
+						} else {
+							wfAuto = auto
+							wfHooks = hooks
+							wfEvent = "workflow.transition:" + to
+						}
+					}
+				}
+			}
+		}
+	}
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -110,6 +164,11 @@ func (s *Server) mcpSetProperties(pageID string, properties json.RawMessage, act
 		}
 		changed = append(changed, k)
 	}
+	for k, v := range wfAuto {
+		if b, err := json.Marshal(v); err == nil {
+			merged[k] = json.RawMessage(b)
+		}
+	}
 	mergedJSON, err := json.Marshal(merged)
 	if err != nil {
 		return "", err
@@ -125,6 +184,11 @@ func (s *Server) mcpSetProperties(pageID string, properties json.RawMessage, act
 	// An open board must show the move without a reload — that is the whole
 	// point of an agent working while somebody watches.
 	s.rowChanged(pageID)
+	// Per-rule webhooks: fire-and-forget, like the browser path. An
+	// unreachable URL must never roll back the write.
+	for _, target := range wfHooks {
+		go fireWorkflowHook(target, pageID, wfEvent)
+	}
 
 	// Its own audit entry, carrying the diff — the generic one in the MCP
 	// dispatch has no way to know what changed. set_properties is excluded
