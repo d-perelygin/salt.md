@@ -53,7 +53,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2} from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2 } from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -608,7 +608,7 @@ function RowProperties({
     api
       .getCollection(parentId)
       .then((c) => alive && setConfig(c))
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       alive = false;
     };
@@ -673,24 +673,24 @@ function RowProperties({
         }}
       />
       <div className="row-props">
-      {config.schema.map((p) => (
-        <div key={p.id} className="row-prop">
-          <div className="row-prop-label" title={p.name}>
-            {p.name}
+        {config.schema.map((p) => (
+          <div key={p.id} className="row-prop">
+            <div className="row-prop-label" title={p.name}>
+              {p.name}
+            </div>
+            <div className="row-prop-value">
+              <PropertyValue
+                def={p}
+                value={props[p.id]}
+                onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
+                onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
+                readOnly={!canEdit}
+                onOpen={onOpen}
+                openers={openers}
+              />
+            </div>
           </div>
-          <div className="row-prop-value">
-            <PropertyValue
-              def={p}
-              value={props[p.id]}
-              onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
-              onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
-              readOnly={!canEdit}
-              onOpen={onOpen}
-              openers={openers}
-            />
-          </div>
-        </div>
-      ))}
+        ))}
       </div>
     </>
   );
@@ -887,7 +887,7 @@ function PageHeader({
       api
         .listComments(pageId)
         .then((l) => alive && setOpenComments(l.filter((c) => !c.resolvedAt).length))
-        .catch(() => {});
+        .catch(() => { });
     void count();
     // The panel says when it changed something. An event rather than a prop:
     // the count has to be right whether the panel is open or not, so the header
@@ -1322,7 +1322,7 @@ function PageHeader({
   };
 
   const stopShare = async () => {
-    await api.unsharePage(pageId).catch(() => {});
+    await api.unsharePage(pageId).catch(() => { });
     setShareUrl(null);
     forgetUrl();
     setShareOff(true);
@@ -1410,7 +1410,7 @@ function PageHeader({
         const r = await api.importZip(file);
         toast.success(
           t('Imported {pages}', { pages: plural(r.created, '{n} page', '{n} pages') }) +
-            (r.skipped ? ', ' + t('{n} skipped', { n: r.skipped }) : ''),
+          (r.skipped ? ', ' + t('{n} skipped', { n: r.skipped }) : ''),
         );
         onPagesChanged();
       } else {
@@ -1553,34 +1553,34 @@ function PageHeader({
               "comments are off" rather than "the panel is closed", which is a
               different and alarming thing to say about a page. */}
           {canComment && (
-          <button
-            className={'icon-btn topbar-wide-only' + (commentsOpen ? ' is-on' : '')}
-            title={commentsOpen ? t('Hide comments') : t('Show comments')}
-            onClick={() => onToggleComments(!commentsOpen)}
-          >
-            <MessageSquare size={17} />
-            {openComments > 0 && <span className="badge-count">{openComments}</span>}
-          </button>
+            <button
+              className={'icon-btn topbar-wide-only' + (commentsOpen ? ' is-on' : '')}
+              title={commentsOpen ? t('Hide comments') : t('Show comments')}
+              onClick={() => onToggleComments(!commentsOpen)}
+            >
+              <MessageSquare size={17} />
+              {openComments > 0 && <span className="badge-count">{openComments}</span>}
+            </button>
           )}
           {/* In the side peek these two move into the ⋯ menu below — a narrow
               panel has no room for a full desktop topbar. */}
           {!onPeekClose && (
-          <>
-          <button
-            className={'icon-btn' + (structureOpen ? ' is-on' : '')}
-            title={structureOpen ? t('Hide structure') : t('Show structure')}
-            onClick={onToggleStructure}
-          >
-            <PanelRight size={17} />
-          </button>
-          <button
-            className={'icon-btn' + (favorite ? ' active-star' : '')}
-            title={favorite ? t('Remove from favorites') : t('Add to favorites')}
-            onClick={() => onToggleFavorite(pageId)}
-          >
-            <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
-          </button>
-          </>
+            <>
+              <button
+                className={'icon-btn' + (structureOpen ? ' is-on' : '')}
+                title={structureOpen ? t('Hide structure') : t('Show structure')}
+                onClick={onToggleStructure}
+              >
+                <PanelRight size={17} />
+              </button>
+              <button
+                className={'icon-btn' + (favorite ? ' active-star' : '')}
+                title={favorite ? t('Remove from favorites') : t('Add to favorites')}
+                onClick={() => onToggleFavorite(pageId)}
+              >
+                <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
+              </button>
+            </>
           )}
           <div className="access-wrap" ref={accessWrapRef}>
             <button
@@ -1793,17 +1793,17 @@ function PageHeader({
                   </button>
                 )}
                 {canComment && (
-                <button
-                  className="menu-item"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    // Always OPENS them — an entry that toggles would be a
-                    // no-op half the time somebody reaches for it.
-                    onToggleComments(true);
-                  }}
-                >
-                  <MessageSquare size={15} /> {t('To the comments')}
-                </button>
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      // Always OPENS them — an entry that toggles would be a
+                      // no-op half the time somebody reaches for it.
+                      onToggleComments(true);
+                    }}
+                  >
+                    <MessageSquare size={15} /> {t('To the comments')}
+                  </button>
                 )}
                 <button
                   className="menu-item"
@@ -1820,16 +1820,16 @@ function PageHeader({
                     here, so nothing becomes unreachable. */}
                 <div className="menu-sep narrow-only" />
                 {canComment && (
-                <button
-                  className="menu-item narrow-only"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    onToggleComments(!commentsOpen);
-                  }}
-                >
-                  <MessageSquare size={15} />{' '}
-                  {commentsOpen ? t('Hide comments') : t('Show comments')}
-                </button>
+                  <button
+                    className="menu-item narrow-only"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      onToggleComments(!commentsOpen);
+                    }}
+                  >
+                    <MessageSquare size={15} />{' '}
+                    {commentsOpen ? t('Hide comments') : t('Show comments')}
+                  </button>
                 )}
                 <button
                   className="menu-item narrow-only"
@@ -1926,258 +1926,258 @@ function PageHeader({
           only the slim topbar stays. Crucial on mobile, where a static header
           left just a tiny scrolling window. */}
       <div className={'page-body' + (cover ? ' has-cover' : '')} ref={bodyRef} data-page-id={pageId}>
-      {/* Cover, icon row and head share a wrapper so all three can hold the
+        {/* Cover, icon row and head share a wrapper so all three can hold the
           viewport's left edge on table pages, where the page scrolls sideways
           under them (see .page-head-wrap in styles.css). display: contents by
           default, so this changes no layout until that class lands. */}
-      <div className="page-head-wrap">
-      {cover && (
-        <div className="page-cover" style={coverStyle(cover)}>
-          <div className="page-cover-actions">
-            <input
-              ref={coverInput}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={onCoverFile}
-            />
-            <button className="cover-btn" onClick={() => setCoverMenuOpen((o) => !o)}>
-              {t('Change cover')}
-            </button>
-            <button className="cover-btn" onClick={() => setCoverValue('')}>
-              {t('Remove')}
-            </button>
-            {coverMenuOpen && (
-              <CoverMenu
-                onGradient={setCoverValue}
-                onUpload={() => coverInput.current?.click()}
-                onClose={() => setCoverMenuOpen(false)}
+        <div className="page-head-wrap">
+          {cover && (
+            <div className="page-cover" style={coverStyle(cover)}>
+              <div className="page-cover-actions">
+                <input
+                  ref={coverInput}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={onCoverFile}
+                />
+                <button className="cover-btn" onClick={() => setCoverMenuOpen((o) => !o)}>
+                  {t('Change cover')}
+                </button>
+                <button className="cover-btn" onClick={() => setCoverValue('')}>
+                  {t('Remove')}
+                </button>
+                {coverMenuOpen && (
+                  <CoverMenu
+                    onGradient={setCoverValue}
+                    onUpload={() => coverInput.current?.click()}
+                    onClose={() => setCoverMenuOpen(false)}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+          {/* The icon row lives OUTSIDE .page-head so it can dock (sticky) on the
+          collapsed cover strip while scrolling — the big emoji stays fully
+          visible instead of sliding half-hidden under the banner. */}
+          <div className={'page-icon-row' + (page.type === 'collection' ? ' page-icon-row--db' : '')}>
+            {icon && (
+              <button className="page-icon icon-trigger" onClick={() => setIconPickerOpen((o) => !o)}>
+                <PageIcon icon={icon} size={54} />
+              </button>
+            )}
+            {iconPickerOpen && (
+              <IconPicker
+                pageId={pageId}
+                onPick={(e) => {
+                  setIcon(e);
+                  setIconPickerOpen(false);
+                  saveMeta({ icon: e });
+                }}
+                onRemove={() => {
+                  setIcon('');
+                  setIconPickerOpen(false);
+                  saveMeta({ icon: '' });
+                }}
+                onClose={() => setIconPickerOpen(false)}
+              />
+            )}
+            {historyOpen && (
+              <HistoryModal
+                pageId={pageId}
+                onClose={() => setHistoryOpen(false)}
+                onRestored={onPagesChanged}
               />
             )}
           </div>
-        </div>
-      )}
-      {/* The icon row lives OUTSIDE .page-head so it can dock (sticky) on the
-          collapsed cover strip while scrolling — the big emoji stays fully
-          visible instead of sliding half-hidden under the banner. */}
-      <div className={'page-icon-row' + (page.type === 'collection' ? ' page-icon-row--db' : '')}>
-        {icon && (
-          <button className="page-icon icon-trigger" onClick={() => setIconPickerOpen((o) => !o)}>
-            <PageIcon icon={icon} size={54} />
-          </button>
-        )}
-        {iconPickerOpen && (
-          <IconPicker
-            pageId={pageId}
-            onPick={(e) => {
-              setIcon(e);
-              setIconPickerOpen(false);
-              saveMeta({ icon: e });
-            }}
-            onRemove={() => {
-              setIcon('');
-              setIconPickerOpen(false);
-              saveMeta({ icon: '' });
-            }}
-            onClose={() => setIconPickerOpen(false)}
-          />
-        )}
-        {historyOpen && (
-          <HistoryModal
-            pageId={pageId}
-            onClose={() => setHistoryOpen(false)}
-            onRestored={onPagesChanged}
-          />
-        )}
-      </div>
-      <div className={'page-head' + (cover ? ' with-cover' : '') + (page.type === 'collection' ? ' page-head--db' : '')}>
-        <textarea
-          ref={titleRef}
-          {...navItem('title', { keepTabOrder: true })}
-          className="page-title"
-          value={title}
-          placeholder={t('Untitled')}
-          rows={1}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            saveMeta({ title: e.target.value });
-          }}
-          onKeyDown={(e) => {
-            // A title is a single line of text: Enter never inserts a newline
-            // (it jumps into the body instead of breaking the title).
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              // The region knows how to focus its own items, including the one
-              // that wraps a ProseMirror rather than being an input.
-              focusKey(regionId, 'body');
-            }
-          }}
-        />
-        {/* A permanently visible add row BELOW the title (rather than buttons
+          <div className={'page-head' + (cover ? ' with-cover' : '') + (page.type === 'collection' ? ' page-head--db' : '')}>
+            <textarea
+              ref={titleRef}
+              {...navItem('title', { keepTabOrder: true })}
+              className="page-title"
+              value={title}
+              placeholder={t('Untitled')}
+              rows={1}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                saveMeta({ title: e.target.value });
+              }}
+              onKeyDown={(e) => {
+                // A title is a single line of text: Enter never inserts a newline
+                // (it jumps into the body instead of breaking the title).
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  // The region knows how to focus its own items, including the one
+                  // that wraps a ProseMirror rather than being an input.
+                  focusKey(regionId, 'body');
+                }
+              }}
+            />
+            {/* A permanently visible add row BELOW the title (rather than buttons
             hidden behind hover — unreachable on touch devices as soon as there
             was a cover). Shows only what is still missing: emoji, cover,
             description. */}
-        {canEdit && (!icon || !cover || (!showDesc && !description)) && (
-          <div className="head-adders">
-            <input
-              ref={coverInput}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={onCoverFile}
-            />
-            {!icon && (
-              <button className="add-btn" onClick={() => setIconPickerOpen((o) => !o)}>
-                <Smile size={14} /> {t('Emoji')}
-              </button>
-            )}
-            {!cover && (
-              <button className="add-btn cover-trigger" onClick={() => setCoverMenuOpen((o) => !o)}>
-                <ImageIcon size={14} /> {t('Cover')}
-              </button>
-            )}
-            {!showDesc && !description && (
-              <button className="add-btn" onClick={() => setShowDesc(true)}>
-                <AlignLeft size={14} /> {t('Description')}
-              </button>
-            )}
-            {/* Cover menu only here while NO cover exists — with one, the
+            {canEdit && (!icon || !cover || (!showDesc && !description)) && (
+              <div className="head-adders">
+                <input
+                  ref={coverInput}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={onCoverFile}
+                />
+                {!icon && (
+                  <button className="add-btn" onClick={() => setIconPickerOpen((o) => !o)}>
+                    <Smile size={14} /> {t('Emoji')}
+                  </button>
+                )}
+                {!cover && (
+                  <button className="add-btn cover-trigger" onClick={() => setCoverMenuOpen((o) => !o)}>
+                    <ImageIcon size={14} /> {t('Cover')}
+                  </button>
+                )}
+                {!showDesc && !description && (
+                  <button className="add-btn" onClick={() => setShowDesc(true)}>
+                    <AlignLeft size={14} /> {t('Description')}
+                  </button>
+                )}
+                {/* Cover menu only here while NO cover exists — with one, the
                 "Change cover" button top right renders it (W32c: two instances
                 on the same state eat each other's clicks). */}
-            {!cover && coverMenuOpen && (
-              <CoverMenu
-                onGradient={setCoverValue}
-                onUpload={() => coverInput.current?.click()}
-                onClose={() => setCoverMenuOpen(false)}
-              />
-            )}
-          </div>
-        )}
-        {(showDesc || description) && (
-          <div className="page-description">
-            {canEdit ? (
-              <textarea
-                value={description}
-                placeholder={t('Add a description…')}
-                rows={1}
-                autoFocus={showDesc && !description}
-                onChange={(e) => {
-                  changeDescription(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = e.target.scrollHeight + 'px';
-                }}
-                onBlur={(e) => {
-                  if (!e.target.value.trim()) setShowDesc(false);
-                }}
-                ref={(el) => {
-                  if (el) {
-                    el.style.height = 'auto';
-                    el.style.height = el.scrollHeight + 'px';
-                  }
-                }}
-              />
-            ) : (
-              <div>{description}</div>
-            )}
-          </div>
-        )}
-        {(canEdit || tags.length > 0) && (
-          <div className="page-tags">
-            {tags.map((t) => (
-              <TagChip
-                key={t}
-                tag={t}
-                colors={tagColors}
-                canEdit={canEdit}
-                onRemove={() => removeTag(t)}
-                onSetColor={(c) => onSetTagColor(t, c)}
-              />
-            ))}
-            {canEdit && (
-              <span className="tag-input-wrap">
-                <input
-                  className="page-tag-input"
-                  value={tagDraft}
-                  placeholder={tags.length ? t('+ Tag') : t('+ Add a tag')}
-                  onChange={(e) => {
-                    setTagDraft(e.target.value);
-                    setTagSuggestOpen(true);
-                    setTagSel(0);
-                  }}
-                  onFocus={() => setTagSuggestOpen(true)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                      if (!tagHits.length) return;
-                      e.preventDefault();
-                      const d = e.key === 'ArrowDown' ? 1 : -1;
-                      setTagSel((i) => (i + d + tagHits.length) % tagHits.length);
-                    } else if (e.key === 'Enter' || e.key === ',' || e.key === 'Tab') {
-                      // A highlighted suggestion beats the raw text — otherwise
-                      // Enter creates a duplicate after all.
-                      const pick = tagSuggestOpen ? tagHits[tagSel] : undefined;
-                      if (!pick && !tagDraft.trim()) return; // Tab darf normal weiterspringen
-                      e.preventDefault();
-                      addTag(pick?.tag);
-                    } else if (e.key === 'Escape') {
-                      setTagSuggestOpen(false);
-                    } else if (e.key === 'Backspace' && !tagDraft && tags.length) {
-                      removeTag(tags[tags.length - 1]);
-                    }
-                  }}
-                  onBlur={() => {
-                    // Clicks on a suggestion only fire after the blur.
-                    setTimeout(() => {
-                      setTagSuggestOpen(false);
-                      addTag();
-                    }, 120);
-                  }}
-                />
-                {tagSuggestOpen && tagHits.length > 0 && (
-                  <div className="tag-suggest">
-                    {tagHits.map((s, i) => (
-                      <button
-                        key={s.tag}
-                        type="button"
-                        className={'tag-suggest-item' + (i === tagSel ? ' on' : '')}
-                        onMouseDown={(e) => e.preventDefault()} // Blur zuvorkommen
-                        onClick={() => addTag(s.tag)}
-                      >
-                        <span className={'tag-chip ' + tagColorClass(s.tag, tagColors)}>#{s.tag}</span>
-                        <span className="tag-suggest-count">{s.count}</span>
-                        {s.similar && <span className="tag-suggest-hint">{t('similar')}</span>}
-                      </button>
-                    ))}
-                  </div>
+                {!cover && coverMenuOpen && (
+                  <CoverMenu
+                    onGradient={setCoverValue}
+                    onUpload={() => coverInput.current?.click()}
+                    onClose={() => setCoverMenuOpen(false)}
+                  />
                 )}
-              </span>
+              </div>
+            )}
+            {(showDesc || description) && (
+              <div className="page-description">
+                {canEdit ? (
+                  <textarea
+                    value={description}
+                    placeholder={t('Add a description…')}
+                    rows={1}
+                    autoFocus={showDesc && !description}
+                    onChange={(e) => {
+                      changeDescription(e.target.value);
+                      e.target.style.height = 'auto';
+                      e.target.style.height = e.target.scrollHeight + 'px';
+                    }}
+                    onBlur={(e) => {
+                      if (!e.target.value.trim()) setShowDesc(false);
+                    }}
+                    ref={(el) => {
+                      if (el) {
+                        el.style.height = 'auto';
+                        el.style.height = el.scrollHeight + 'px';
+                      }
+                    }}
+                  />
+                ) : (
+                  <div>{description}</div>
+                )}
+              </div>
+            )}
+            {(canEdit || tags.length > 0) && (
+              <div className="page-tags">
+                {tags.map((t) => (
+                  <TagChip
+                    key={t}
+                    tag={t}
+                    colors={tagColors}
+                    canEdit={canEdit}
+                    onRemove={() => removeTag(t)}
+                    onSetColor={(c) => onSetTagColor(t, c)}
+                  />
+                ))}
+                {canEdit && (
+                  <span className="tag-input-wrap">
+                    <input
+                      className="page-tag-input"
+                      value={tagDraft}
+                      placeholder={tags.length ? t('+ Tag') : t('+ Add a tag')}
+                      onChange={(e) => {
+                        setTagDraft(e.target.value);
+                        setTagSuggestOpen(true);
+                        setTagSel(0);
+                      }}
+                      onFocus={() => setTagSuggestOpen(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                          if (!tagHits.length) return;
+                          e.preventDefault();
+                          const d = e.key === 'ArrowDown' ? 1 : -1;
+                          setTagSel((i) => (i + d + tagHits.length) % tagHits.length);
+                        } else if (e.key === 'Enter' || e.key === ',' || e.key === 'Tab') {
+                          // A highlighted suggestion beats the raw text — otherwise
+                          // Enter creates a duplicate after all.
+                          const pick = tagSuggestOpen ? tagHits[tagSel] : undefined;
+                          if (!pick && !tagDraft.trim()) return; // Tab darf normal weiterspringen
+                          e.preventDefault();
+                          addTag(pick?.tag);
+                        } else if (e.key === 'Escape') {
+                          setTagSuggestOpen(false);
+                        } else if (e.key === 'Backspace' && !tagDraft && tags.length) {
+                          removeTag(tags[tags.length - 1]);
+                        }
+                      }}
+                      onBlur={() => {
+                        // Clicks on a suggestion only fire after the blur.
+                        setTimeout(() => {
+                          setTagSuggestOpen(false);
+                          addTag();
+                        }, 120);
+                      }}
+                    />
+                    {tagSuggestOpen && tagHits.length > 0 && (
+                      <div className="tag-suggest">
+                        {tagHits.map((s, i) => (
+                          <button
+                            key={s.tag}
+                            type="button"
+                            className={'tag-suggest-item' + (i === tagSel ? ' on' : '')}
+                            onMouseDown={(e) => e.preventDefault()} // Blur zuvorkommen
+                            onClick={() => addTag(s.tag)}
+                          >
+                            <span className={'tag-chip ' + tagColorClass(s.tag, tagColors)}>#{s.tag}</span>
+                            <span className="tag-suggest-count">{s.count}</span>
+                            {s.similar && <span className="tag-suggest-hint">{t('similar')}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+            {page.parentId && pagesById.get(page.parentId)?.type === 'collection' && (
+              <RowProperties
+                pageId={pageId}
+                parentId={page.parentId}
+                initialProps={page.props}
+                canEdit={canEdit}
+                onOpen={onOpenInNewTab ?? onNavigate}
+                openers={{ onNavigate, onOpenInNewTab }}
+              />
             )}
           </div>
-        )}
-        {page.parentId && pagesById.get(page.parentId)?.type === 'collection' && (
-          <RowProperties
-            pageId={pageId}
-            parentId={page.parentId}
-            initialProps={page.props}
-            canEdit={canEdit}
-            onOpen={onOpenInNewTab ?? onNavigate}
-            openers={{ onNavigate, onOpenInNewTab }}
-          />
-        )}
-      </div>
-      {children}
-      </div>
-      {/* The raw trail stays at the foot of the document. Comments moved to a
+          {children}
+        </div>
+        {/* The raw trail stays at the foot of the document. Comments moved to a
           panel beside it (CommentsPanel) because people WORK in them; the trail
           is read, rarely, when somebody doubts the written-up version — and
           under the account it supports is exactly where it belongs.
 
           Only for documents and rows: a database page carries its table down
           here, and anything below that is lost. */}
-      {page.type !== 'collection' && (
-        <div className="trail-wrap">
-          <NoteTrail pageId={pageId} canWrite={canEdit} />
-        </div>
-      )}
+        {page.type !== 'collection' && (
+          <div className="trail-wrap">
+            <NoteTrail pageId={pageId} canWrite={canEdit} />
+          </div>
+        )}
       </div>
     </>
   );
@@ -2432,6 +2432,78 @@ function BlockContent({
     uploadFile: (file: File) => api.upload(file, pageId),
     // Column layout: edge-drop cursor + its dictionary entries.
     dictionary: coreEn,
+    pasteHandler: ({ event, editor: ed, defaultPasteHandler }) => {
+      const types = event.clipboardData?.types || [];
+      if (types.includes('blocknote/html') || types.includes('vscode-editor-data')) {
+        return defaultPasteHandler();
+      }
+      if (event.clipboardData?.files && event.clipboardData.files.length > 0) {
+        return defaultPasteHandler();
+      }
+
+      const plain = event.clipboardData?.getData('text/plain') ?? '';
+      const html = event.clipboardData?.getData('text/html') ?? '';
+
+      // Complex structural elements (tables, code blocks, quotes) belong to HTML parser
+      const hasComplexHtml = /<(?:table|thead|tbody|tr|td|th|pre|code|blockquote)\b/i.test(html);
+      if (hasComplexHtml) {
+        return defaultPasteHandler();
+      }
+
+      const lines = plain.split(/\r?\n/).map((l) => l.trimEnd());
+      const nonEmptyLines = lines.filter((l) => l.trim().length > 0);
+
+      if (nonEmptyLines.length > 1) {
+        // If markdown parses it into multiple blocks (e.g. lists or headings), paste as markdown
+        const mdBlocks = ed.tryParseMarkdownToBlocks(plain);
+        if (mdBlocks.length > 1) {
+          ed.pasteMarkdown(plain);
+          return true;
+        }
+
+        // Plain multi-line text (e.g. list copied from notes/chat on phone):
+        // Match current block type if cursor is inside a list
+        let currentType: string | undefined;
+        try {
+          currentType = ed.getTextCursorPosition()?.block?.type;
+        } catch {
+          // cursor outside or unknown
+        }
+
+        if (currentType === 'checkListItem') {
+          const md = nonEmptyLines.map((l) => `- [ ] ${l.replace(/^[-*•]\s*(\[[ xX]\]\s*)?/, '')}`).join('\n');
+          ed.pasteMarkdown(md);
+          return true;
+        }
+        if (currentType === 'bulletListItem') {
+          const md = nonEmptyLines.map((l) => `- ${l.replace(/^[-*•]\s*/, '')}`).join('\n');
+          ed.pasteMarkdown(md);
+          return true;
+        }
+        if (currentType === 'numberedListItem') {
+          const md = nonEmptyLines.map((l, i) => `${i + 1}. ${l.replace(/^\d+[.)]\s*/, '')}`).join('\n');
+          ed.pasteMarkdown(md);
+          return true;
+        }
+
+        // Default: paste as separate paragraph blocks
+        const md = nonEmptyLines.join('\n\n');
+        ed.pasteMarkdown(md);
+        return true;
+      }
+
+      // If HTML from mobile has no block tags (<p>), tryParseHTMLToBlocks returns 0 blocks.
+      // Fall back to plain text so the paste is never silently dropped.
+      if (html) {
+        const parsedHtmlBlocks = ed.tryParseHTMLToBlocks(html);
+        if (parsedHtmlBlocks.length === 0 && plain) {
+          ed.pasteText(plain);
+          return true;
+        }
+      }
+
+      return defaultPasteHandler();
+    },
   });
 
   // Doc undo for the ⋯ menu: BlockNote's own history, announced so the
@@ -3032,17 +3104,17 @@ function BlockContent({
         {/* The database block renders inside the editor and would otherwise
             not reach the page list, the tag colours or navigation. */}
         <BlockContext.Provider value={{ pagesById, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, pageId: provider.pageId }}>
-        <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false}>
-          <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
-          <SuggestionMenuController
-            triggerCharacter="@"
-            getItems={getMentionItems}
-          />
-          <SuggestionMenuController
-            triggerCharacter="["
-            getItems={getWikiItems}
-          />
-        </BlockNoteView>
+          <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false}>
+            <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
+            <SuggestionMenuController
+              triggerCharacter="@"
+              getItems={getMentionItems}
+            />
+            <SuggestionMenuController
+              triggerCharacter="["
+              getItems={getWikiItems}
+            />
+          </BlockNoteView>
         </BlockContext.Provider>
         {!structureOpen && (
           <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
@@ -3076,7 +3148,7 @@ function Backlinks({
     api
       .backlinks(pageId)
       .then((l) => alive && setLinks(l))
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       alive = false;
     };

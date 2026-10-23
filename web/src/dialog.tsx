@@ -193,6 +193,36 @@ function ChecklistAsk({
     }
   };
 
+  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>, it: ChecklistItem, index: number) => {
+    const text = e.clipboardData.getData('text/plain');
+    if (!text || (!text.includes('\n') && !text.includes('\r'))) return;
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim().replace(/^[-*•]\s*(\[[ xX]\]\s*)?/, ''))
+      .filter((l) => l !== '');
+    if (lines.length <= 1) return;
+    e.preventDefault();
+    const input = e.currentTarget;
+    const selStart = input.selectionStart ?? it.text.length;
+    const selEnd = input.selectionEnd ?? it.text.length;
+    const before = it.text.slice(0, selStart);
+    const after = it.text.slice(selEnd);
+    const firstText = (before + lines[0]).trim();
+    const nextItems: ChecklistItem[] = [...items];
+    nextItems[index] = { ...it, text: firstText };
+    const newItems: ChecklistItem[] = lines.slice(1).map((l, i) => {
+      const isLast = i === lines.length - 2;
+      return {
+        id: 'i' + (Date.now() + i + 1).toString(36) + Math.random().toString(36).slice(2, 6),
+        text: isLast ? (l + after).trim() : l,
+        done: false,
+      };
+    });
+    nextItems.splice(index + 1, 0, ...newItems);
+    focusIdRef.current = newItems[newItems.length - 1].id;
+    write(nextItems);
+  };
+
   return (
     <div className="prop-checklist">
       {items.map((it, idx) => (
@@ -258,6 +288,7 @@ function ChecklistAsk({
             placeholder={t('Sub-task')}
             onChange={(e) => setText(it.id, e.target.value)}
             onKeyDown={(e) => onKeyDown(e, it, idx)}
+            onPaste={(e) => onPaste(e, it, idx)}
           />
           <button type="button" className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
             ✕
