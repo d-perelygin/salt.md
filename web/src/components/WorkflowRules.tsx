@@ -888,6 +888,9 @@ function WorkflowScheme({
     const by = y2 - uy * L;
     return `${x2},${y2} ${bx - uy * W},${by + ux * W} ${bx + uy * W},${by - ux * W}`;
   };
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
+
   const renderEdge = (e: Edge) => {
     const i = idx.get(e.from)!;
     const j = idx.get(e.to)!;
@@ -923,11 +926,30 @@ function WorkflowScheme({
           ]),
         ].join('\n');
     const apexY = y0 + s * h;
+    const edgeKey = `${e.from}>${e.to}`;
+    const isOut = hoveredNode === e.from;
+    const isIn = hoveredNode === e.to;
+    const isEdgeHovered = hoveredEdge === edgeKey;
+    const isConn = isOut || isIn || isEdgeHovered;
+    const isDim = (hoveredNode !== null || hoveredEdge !== null) && !isConn;
+    const cls = [
+      e.free ? 'free' : '',
+      isConn ? 'is-active' : '',
+      isOut ? 'is-outgoing' : '',
+      isIn ? 'is-incoming' : '',
+      isDim ? 'is-dimmed' : '',
+    ].filter(Boolean).join(' ');
     return (
-      <g key={`${e.from}>${e.to}`} className={e.free ? 'free' : undefined}>
+      <g
+        key={edgeKey}
+        className={cls || undefined}
+        onMouseEnter={() => setHoveredEdge(edgeKey)}
+        onMouseLeave={() => setHoveredEdge((h) => (h === edgeKey ? null : h))}
+      >
         {tip && <title>{tip}</title>}
         <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} />
         <polygon points={head(cx, cy, x2, y0)} />
+        <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} className="workflow-scheme-hit" />
         {e.rules.length > 1 && (
           <text x={cx} y={apexY + (above ? -6 : 14)} textAnchor="middle" className="workflow-scheme-count">
             ×{e.rules.length}
@@ -951,13 +973,50 @@ function WorkflowScheme({
         </div>
       )}
       <svg className="workflow-scheme-svg" width={width} height={height} role="img">
-        {edges.map(renderEdge)}
+        {((hoveredNode || hoveredEdge)
+          ? [...edges].sort((a, b) => {
+              const aActive =
+                (hoveredNode && (a.from === hoveredNode || a.to === hoveredNode)) ||
+                hoveredEdge === `${a.from}>${a.to}`
+                  ? 1
+                  : 0;
+              const bActive =
+                (hoveredNode && (b.from === hoveredNode || b.to === hoveredNode)) ||
+                hoveredEdge === `${b.from}>${b.to}`
+                  ? 1
+                  : 0;
+              return aActive - bActive;
+            })
+          : edges
+        ).map(renderEdge)}
         {statusOpts.map((o, i) => {
           const flag = flagOf(o.id);
+          const isNodeHovered = hoveredNode === o.id;
+          const isNodeConnected = hoveredEdge
+            ? edges.some(
+                (e) => `${e.from}>${e.to}` === hoveredEdge && (e.from === o.id || e.to === o.id),
+              )
+            : false;
           return (
-            <g key={o.id}>
+            <g
+              key={o.id}
+              className={isNodeHovered || isNodeConnected ? 'is-hovered' : undefined}
+              onMouseEnter={() => setHoveredNode(o.id)}
+              onMouseLeave={() => setHoveredNode((h) => (h === o.id ? null : h))}
+              style={{ cursor: 'pointer' }}
+            >
               <title>{o.name}</title>
-              <rect x={X(i)} y={topH} width={NW} height={NH} rx={8} className="workflow-scheme-node" />
+              <rect
+                x={X(i)}
+                y={topH}
+                width={NW}
+                height={NH}
+                rx={8}
+                className={
+                  'workflow-scheme-node' +
+                  (isNodeHovered || isNodeConnected ? ' is-hovered' : '')
+                }
+              />
               <text x={X(i) + NW / 2} y={topH + NH / 2 + 5} textAnchor="middle" className="workflow-scheme-label">
                 {short(o.name)}
               </text>

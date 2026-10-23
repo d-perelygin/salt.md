@@ -4041,6 +4041,7 @@ body.is-col-resizing {
   stroke: currentColor;
   stroke-width: 1.5;
   fill: none;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
 }
 /* Roads no rule guards: allowed by default, drawn dashed so the map shows
  *  the open roads apart from the guarded ones. */
@@ -4053,6 +4054,7 @@ body.is-col-resizing {
 }
 .workflow-scheme-svg polygon {
   fill: currentColor;
+  transition: fill 0.15s ease, opacity 0.15s ease;
 }
 .workflow-scheme-svg text {
   fill: var(--fg);
@@ -4065,6 +4067,43 @@ body.is-col-resizing {
 .workflow-scheme-node {
   fill: var(--sidebar-bg);
   stroke: var(--border);
+  transition: stroke 0.15s ease, fill 0.15s ease;
+}
+.workflow-scheme-node.is-hovered {
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: var(--hover);
+}
+.workflow-scheme-svg g.is-dimmed {
+  opacity: 0.15;
+  transition: opacity 0.15s ease;
+}
+.workflow-scheme-svg g.is-active path {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  opacity: 1;
+}
+.workflow-scheme-svg g.is-active polygon {
+  fill: var(--accent);
+  opacity: 1;
+}
+.workflow-scheme-svg g.is-active.is-incoming path {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+}
+.workflow-scheme-svg g.is-active.is-incoming polygon {
+  fill: var(--accent);
+}
+.workflow-scheme-svg g.is-active .workflow-scheme-count {
+  fill: var(--accent);
+  font-weight: 600;
+}
+.workflow-scheme-hit {
+  fill: none !important;
+  stroke: transparent !important;
+  stroke-width: 14 !important;
+  pointer-events: stroke;
+  cursor: pointer;
 }
 .workflow-scheme-flag {
   fill: #b58a3b;
@@ -9602,6 +9641,15 @@ g.is-bad > .tl-dep-path { stroke: var(--danger); }
   pointer-events: none;
 }
 g.is-bad > .tl-dep-head { stroke: var(--danger); }
+g.is-active > .tl-dep-path,
+g.is-active > .tl-dep-head {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.tl-arrows g.is-dimmed {
+  opacity: 0.2;
+  transition: opacity 0.15s ease;
+}
 .tl-dep-hit {
   fill: none;
   stroke: transparent;

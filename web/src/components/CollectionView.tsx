@@ -5590,8 +5590,15 @@ function TimelineView({
                     const y1 = a.from * ROW_H + 20;
                     const y2 = a.to * ROW_H + 20;
                     const d = arrowPathD(x1, y1, x2, y2);
+                    const isConn = hovered ? a.pred === hovered || a.succ === hovered : false;
+                    const isDim = hovered ? !isConn : false;
+                    const gCls = [
+                      a.bad ? 'is-bad' : '',
+                      isConn ? 'is-active' : '',
+                      isDim ? 'is-dimmed' : '',
+                    ].filter(Boolean).join(' ');
                     return (
-                      <g key={a.key} className={a.bad ? 'is-bad' : undefined}>
+                      <g key={a.key} className={gCls || undefined}>
                         <path d={d} className="tl-dep-path" />
                         <polyline points={arrowHeadPoints(x2, y2)} className="tl-dep-head" />
                         <path
