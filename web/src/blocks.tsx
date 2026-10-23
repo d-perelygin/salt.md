@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { createReactBlockSpec } from '@blocknote/react';
-import { Table2 } from 'lucide-react';
+import { Table2, Sparkles, RotateCw, Settings } from 'lucide-react';
 import { useBlockCtx } from './blockContext';
 import { openPage, openPageAux } from './pageOpen';
 import { MERMAID_REV, renderMermaid } from './mermaidLoader';
 import { PageIcon } from './pageIcon';
 import CollectionView, { type EmbedState } from './components/CollectionView';
 import { plural, t } from './i18n';
+import { api } from './api';
 
 // Custom salt.md block types (Welle 17): callout, table of contents, bookmark.
 // Columns are ours (columnsSpec, at the end of this file) and wired in pageLink.tsx.
@@ -613,3 +614,189 @@ export const mermaidSpec = createReactBlockSpec(
     },
   },
 );
+
+// ---- AI Block (Notion-style) ----
+// An inline block with optional title, prompt, Generate button, hover toolbar,
+// and directly editable inline content area.
+export const aiBlockSpec = createReactBlockSpec(
+  {
+    type: 'ai',
+    propSchema: {
+      title: { default: '' },
+      prompt: { default: '' },
+      status: { default: 'draft' },
+    },
+    content: 'inline',
+  } as const,
+  {
+    render: (props) => {
+      const { block, editor, contentRef } = props;
+      const { pageId } = useBlockCtx();
+      const title = String((block.props as { title?: string }).title ?? '');
+      const prompt = String((block.props as { prompt?: string }).prompt ?? '');
+      const status = String((block.props as { status?: string }).status ?? 'draft');
+
+      const [draftTitle, setDraftTitle] = useState(title);
+      const [draftPrompt, setDraftPrompt] = useState(prompt);
+      const [editing, setEditing] = useState(status === 'draft' || (!prompt && !title));
+      const [busy, setBusy] = useState(false);
+      const [error, setError] = useState('');
+
+      const generate = async (customPrompt?: string) => {
+        const p = customPrompt ?? draftPrompt ?? prompt;
+        if (busy) return;
+        setBusy(true);
+        setError('');
+        try {
+          const res = await api.generateAI({
+            prompt: p.trim() || 'Generate helpful content',
+            pageId,
+          });
+          if (!res.ok) throw new Error('Failed');
+          const full = await res.text();
+          let acc = '';
+          for (const line of full.split('\n')) {
+            if (!line.startsWith('data:')) continue;
+            const data = line.slice(5).trim();
+            if (!data || data === '[DONE]') continue;
+            try {
+              const j = JSON.parse(data);
+              if (j.type === 'delta') acc += j.content;
+            } catch {}
+          }
+          if (acc) {
+            editor.updateBlock(block, {
+              props: {
+                title: draftTitle,
+                prompt: p,
+                status: 'ready',
+              },
+              content: [{ type: 'text', text: acc, styles: {} }],
+            } as never);
+            setEditing(false);
+          }
+        } catch {
+          setError(t('Generation failed. Please try again.'));
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const saveConfig = () => {
+        editor.updateBlock(block, {
+          props: {
+            title: draftTitle,
+            prompt: draftPrompt,
+            status: 'ready',
+          },
+        } as never);
+        setEditing(false);
+      };
+
+      return (
+        <div className="bn-ai-block" data-editing={editing ? 'true' : 'false'}>
+          {editing ? (
+            <div className="bn-ai-block-draft" contentEditable={false}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 13 }}>
+                  <Sparkles size={15} style={{ color: 'var(--accent)' }} />
+                  <span>{t('AI block')}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    type="button"
+                    className="btn-sm"
+                    onClick={saveConfig}
+                  >
+                    {t('Done')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-sm primary"
+                    style={{ background: 'var(--accent)', color: 'var(--accent-fg, #fff)' }}
+                    disabled={busy}
+                    onClick={() => void generate()}
+                  >
+                    <Sparkles size={13} style={{ marginRight: 4 }} />
+                    {busy ? t('Generating…') : t('Generate')}
+                  </button>
+                </div>
+              </div>
+              <input
+                type="text"
+                placeholder={t('Optional title…')}
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+              />
+              <textarea
+                rows={2}
+                placeholder={t('What should AI write? e.g. Summarize, draft outline…')}
+                value={draftPrompt}
+                onChange={(e) => setDraftPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    void generate();
+                  }
+                }}
+              />
+              {error && <div style={{ color: 'var(--danger, #e53e3e)', fontSize: 12 }}>{error}</div>}
+            </div>
+          ) : (
+            <>
+              <div className="bn-ai-block-header" contentEditable={false}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+                  <Sparkles size={14} style={{ color: 'var(--accent)', flex: 'none' }} />
+                  <span className="bn-ai-block-title">
+                    {title || prompt || t('AI Block')}
+                  </span>
+                </div>
+                <div className="bn-ai-block-actions" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button
+                    type="button"
+                    className="btn-sm"
+                    disabled={busy}
+                    onClick={() => void generate(prompt)}
+                    title={t('Regenerate')}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: '2px 8px', fontSize: 12 }}
+                  >
+                    <RotateCw size={12} className={busy ? 'spin' : ''} />
+                    <span>{busy ? t('Generating…') : t('Generate')}</span>
+                  </button>
+                </div>
+                <div className="bn-ai-block-toolbar">
+                  <button
+                    type="button"
+                    className="btn-sm"
+                    onClick={() => void generate(prompt)}
+                    title={t('Regenerate')}
+                    disabled={busy}
+                    style={{ padding: '2px 6px', fontSize: 12 }}
+                  >
+                    <RotateCw size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-sm"
+                    onClick={() => setEditing(true)}
+                    title={t('Settings')}
+                    style={{ padding: '2px 6px', fontSize: 12 }}
+                  >
+                    <Settings size={12} />
+                  </button>
+                </div>
+              </div>
+              {title && prompt && (
+                <div className="bn-ai-block-prompt-preview" contentEditable={false}>
+                  {prompt}
+                </div>
+              )}
+            </>
+          )}
+          <div className="bn-ai-block-content" ref={contentRef} />
+        </div>
+      );
+    },
+  },
+);
+

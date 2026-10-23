@@ -279,7 +279,20 @@ export default function App() {
     return () => window.removeEventListener('salt:ai-ask', onAsk);
   }, []);
   // Sidebar mode: document tree vs unified AI chat list (global + per-doc).
-  const [sidebarMode, setSidebarMode] = useState<'docs' | 'chats'>('docs');
+  const [sidebarMode, setSidebarMode] = useState<'docs' | 'chats'>(() => {
+    try {
+      return localStorage.getItem('salt-sidebar-mode') === 'chats' ? 'chats' : 'docs';
+    } catch {
+      return 'docs';
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('salt-sidebar-mode', sidebarMode);
+    } catch {
+      /* best-effort */
+    }
+  }, [sidebarMode]);
   const [aiThreads, setAiThreads] = useState<AiThread[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const loadAiThreads = useCallback(async () => {
@@ -2140,9 +2153,28 @@ export default function App() {
       )}
       {helpOpen && <ShortcutSheet onClose={() => setHelpOpen(false)} />}
       {sidebarMode !== 'chats' && (
-        <button onClick={() => setAiChatOpen(true)} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 999, width: 44, height: 44, borderRadius: '50%', background: 'var(--primary)', color: 'var(--primary-foreground)', border: 'none', cursor: 'pointer' }}>AI</button>
+        <button onClick={() => setAiChatOpen(true)} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 999, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}>✨</button>
       )}
-      {aiChatOpen && <AiChatPanel pageId={currentId ?? undefined} threadId={activeChatId} quote={aiQuote} onQuoteConsumed={() => setAiQuote(null)} onClose={() => { setAiChatOpen(false); setAiQuote(null); void loadAiThreads(); }} />}      {searchOpen && (
+      {aiChatOpen && sidebarMode === 'docs' && (
+        <AiChatPanel
+          pageId={currentId ?? undefined}
+          threadId={activeChatId}
+          threads={aiThreads}
+          pagesById={pagesById}
+          onSelectThread={(id) => {
+            setActiveChatId(id);
+            void loadAiThreads();
+          }}
+          quote={aiQuote}
+          onQuoteConsumed={() => setAiQuote(null)}
+          onClose={() => {
+            setAiChatOpen(false);
+            setAiQuote(null);
+            void loadAiThreads();
+          }}
+        />
+      )}
+      {searchOpen && (
         <SearchModal
           recent={(() => {
             try {

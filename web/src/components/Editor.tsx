@@ -3,6 +3,15 @@ import {
   useCreateBlockNote,
   SuggestionMenuController,
   getDefaultReactSlashMenuItems,
+  FormattingToolbar,
+  FormattingToolbarController,
+  BlockTypeSelect,
+  BasicTextStyleButton,
+  TextAlignButton,
+  ColorStyleButton,
+  NestBlockButton,
+  UnnestBlockButton,
+  CreateLinkButton,
 } from '@blocknote/react';
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core';
 import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
@@ -49,8 +58,7 @@ import NoteTrail from './NoteTrail';
 import { FilePreview, isPreviewable } from './FilePreview';
 import StructurePanel, { structurePanelOpen, setStructurePanelOpen } from './StructurePanel';
 import { AgentPresence } from './AgentBadge';
-import AiInlineAssistant from './AiInlineAssistant';
-import AiBlockComposer from './AiBlockComposer';
+import AiFormattingDropdown from './AiFormattingDropdown';
 import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
@@ -2567,11 +2575,6 @@ function BlockContent({
   }
 
   // Slash menu: default items + column layout + our custom blocks.
-  // In-document AI entry points (Notion-style): AI Block generates content into
-  // the doc, Ask AI opens the side chat with the current selection as a quote.
-  // Neither writes anything to the chat history.
-  const [aiBlockOpen, setAiBlockOpen] = useState(false);
-  const [aiBlockSelection, setAiBlockSelection] = useState('');
   const selectedNow = () => {
     try {
       const t = editor.getSelectedText?.() ?? '';
@@ -2585,6 +2588,27 @@ function BlockContent({
       return '';
     }
   };
+
+  useEffect(() => {
+    const unsub = editor.onSelectionChange(() => {
+      try {
+        const text = editor.getSelectedText?.() ?? '';
+        const trimmed = text.trim();
+        window.dispatchEvent(
+          new CustomEvent('salt:editor-selection', {
+            detail: { text: trimmed },
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => {
+      try {
+        unsub();
+      } catch {}
+    };
+  }, [editor]);
   const askAi = () => {
     const sel = selectedNow();
     // The "/" line itself must go: Ask AI changes nothing in the document, so
@@ -2651,9 +2675,14 @@ function BlockContent({
         group: 'AI',
         icon: <Sparkles size={18} />,
         onItemClick: () => {
-          insertOrUpdateBlockForSlashMenu(editor, { type: 'paragraph' } as never);
-          setAiBlockSelection(selectedNow());
-          setAiBlockOpen(true);
+          insertOrUpdateBlockForSlashMenu(editor, {
+            type: 'ai',
+            props: {
+              prompt: selectedNow(),
+              title: '',
+              status: 'draft',
+            },
+          } as never);
         },
       },
       {
@@ -3130,7 +3159,7 @@ function BlockContent({
         {/* The database block renders inside the editor and would otherwise
             not reach the page list, the tag colours or navigation. */}
         <BlockContext.Provider value={{ pagesById, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, pageId: provider.pageId }}>
-        <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false}>
+        <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false} formattingToolbar={false}>
           <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
           <SuggestionMenuController
             triggerCharacter="@"
@@ -3140,20 +3169,28 @@ function BlockContent({
             triggerCharacter="["
             getItems={getWikiItems}
           />
+          <FormattingToolbarController
+            formattingToolbar={() => (
+              <FormattingToolbar>
+                <BlockTypeSelect key="blockTypeSelect" />
+                <AiFormattingDropdown key="aiDropdown" editor={editor} pageId={provider.pageId} />
+                <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
+                <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
+                <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
+                <BasicTextStyleButton basicTextStyle="strike" key="strikeStyleButton" />
+                <BasicTextStyleButton basicTextStyle="code" key="codeStyleButton" />
+                <TextAlignButton textAlignment="left" key="textAlignLeftButton" />
+                <TextAlignButton textAlignment="center" key="textAlignCenterButton" />
+                <TextAlignButton textAlignment="right" key="textAlignRightButton" />
+                <ColorStyleButton key="colorStyleButton" />
+                <NestBlockButton key="nestBlockButton" />
+                <UnnestBlockButton key="unnestBlockButton" />
+                <CreateLinkButton key="createLinkButton" />
+              </FormattingToolbar>
+            )}
+          />
         </BlockNoteView>
         </BlockContext.Provider>
-        <div style={{ position: 'relative' }}>
-          <AiInlineAssistant editor={editor} pageId={provider.pageId} />
-        </div>
-        {aiBlockOpen && (
-          <AiBlockComposer
-            pageId={provider.pageId}
-            selection={aiBlockSelection}
-            pagesById={pagesById}
-            onClose={() => setAiBlockOpen(false)}
-            onInserted={() => onPagesChanged()}
-          />
-        )}
         {!structureOpen && (
           <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}

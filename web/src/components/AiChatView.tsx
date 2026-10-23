@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { t } from '../i18n';
+import { useMenuDismiss } from '../modal';
 import type { PageMeta } from '../types';
 import AiAgentStep, { type AiStep } from './AiAgentStep';
 import AiMarkdown from './AiMarkdown';
@@ -56,6 +57,12 @@ export default function AiChatView(props: {
   const [approval, setApproval] = useApprovalMode();
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [workspaceModalOpen, setWorkspaceModalOpen] = useState(false);
+  const [workspaceFilter, setWorkspaceFilter] = useState('');
+  const attachMenuRef = useRef<HTMLDivElement>(null);
+  useMenuDismiss(attachMenuOpen, attachMenuRef, () => setAttachMenuOpen(false));
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -82,7 +89,7 @@ export default function AiChatView(props: {
       }
       setArtifacts(ids);
       if (latest && latest.startedAt && latest.finishedAt && latest.status !== 'running' && latest.status !== 'queued') {
-        const ms = new Date(latest.finishedAt).getTime() - new Date(latest.startedAt).getTime();
+        const ms = Date.parse(latest.finishedAt) - Date.parse(latest.startedAt);
         if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
         // Show the trace of the latest finished run.
         api.getAIRunSteps(latest.id).then((st) => {
@@ -120,6 +127,28 @@ export default function AiChatView(props: {
     }
     return out.slice(0, 8);
   }
+
+  useEffect(() => {
+    if (!pendingQuestion) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'textarea' || tag === 'input') return;
+      const num = parseInt(e.key, 10);
+      if (!isNaN(num) && num >= 1 && num <= pendingQuestion.options.length) {
+        e.preventDefault();
+        const opt = pendingQuestion.options[num - 1];
+        if (opt) {
+          setPicked((prev) =>
+            pendingQuestion.multiple
+              ? (prev.includes(opt.label) ? prev.filter((x) => x !== opt.label) : [...prev, opt.label])
+              : (prev.includes(opt.label) ? [] : [opt.label]),
+          );
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [pendingQuestion]);
 
   function onInputChange(v: string) {
     setInput(v);
@@ -215,6 +244,7 @@ export default function AiChatView(props: {
     if (!id) return;
     if (!reuseTask) setMessages((m) => [...m, { role: 'user', content: text }]);
     setLastRun(null);
+    setLastError(null);
     setPendingQuestion(null);
     setPicked([]);
     setFreeText('');
@@ -263,6 +293,9 @@ export default function AiChatView(props: {
             }
             if (j.type === 'status') {
               const err = typeof j.error === 'string' ? j.error : '';
+              if (j.status === 'failed') {
+                setLastError(err || t('Agent run failed'));
+              }
               setRunStatus(j.status === 'completed' ? '' : ((j.progress || j.status) + (err && j.status === 'failed' ? `: ${err.slice(0, 200)}` : '')));
               setWaitingApproval(j.status === 'waiting_approval');
               if (j.status === 'waiting_user' && j.pendingTool === 'ask_user' && typeof j.pendingArgs === 'string') {
@@ -293,7 +326,7 @@ export default function AiChatView(props: {
       try {
         const done = await api.getAIRun(r.id).catch(() => null) as any;
         if (done && done.startedAt && done.finishedAt) {
-          const ms = new Date(done.finishedAt).getTime() - new Date(done.startedAt).getTime();
+          const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
           if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
         }
         const runs = await api.getAIThreadRuns(id).catch(() => [] as any[]);
@@ -307,7 +340,8 @@ export default function AiChatView(props: {
         setArtifacts(ids);
       } catch { /* ignore */ }
       props.onThreadsChanged();
-    } catch {
+    } catch (err: any) {
+      setLastError(err?.message || t('Run failed'));
       setRunStatus(t('Run failed'));
     } finally {
       setAgentBusy(false);
@@ -395,22 +429,25 @@ export default function AiChatView(props: {
             </div>
           ))}
           {showTrace && (
-            <div className="ai-trace">
-              <button className="ai-trace-head" onClick={() => setTraceOpen((v) => !v)}>
-                {liveDuration !== null
-                  ? `${t('Working for')} ${formatDuration(liveDuration)} …`
-                  : doneDuration !== null
-                    ? `${t('Worked for')} ${formatDuration(doneDuration)} ${traceOpen ? '▾' : '›'}`
-                    : `${t('Agent trace')} ${traceOpen ? '▾' : '›'}`}
-              </button>
-              {traceOpen && (steps.length > 0 ? steps : histSteps).map((s) => <AiAgentStep key={s.id} step={s} />)}
-              {runStatus && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{runStatus}</div>}
-              {!agentBusy && lastRun && (lastRun.status === 'failed' || lastRun.status === 'cancelled') && (
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-                  <button className="btn-sm primary" onClick={() => void runAsAgent(lastRun.task)}>{t('Retry')}</button>
-                  {lastRun.error && <span style={{ fontSize: 12, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>{lastRun.error.slice(0, 200)}</span>}
+            <div style={{ margin: '8px 0' }}>
+              <div className="ai-actions-bar">
+                <button className="ai-actions-toggle" onClick={() => setTraceOpen((v) => !v)} type="button">
+                  <span style={{ fontSize: 10 }}>{traceOpen ? '▼' : '▶'}</span>
+                  <span>
+                    {liveDuration !== null
+                      ? `${t('Working for')} ${formatDuration(liveDuration)} … (${steps.length})`
+                      : doneDuration !== null
+                        ? `${t('Worked for')} ${formatDuration(doneDuration)} (${steps.length > 0 ? steps.length : histSteps.length} ${t('steps')})`
+                        : `${t('Agent actions')} (${steps.length > 0 ? steps.length : histSteps.length})`}
+                  </span>
+                </button>
+              </div>
+              {traceOpen && (
+                <div className="ai-actions-list">
+                  {(steps.length > 0 ? steps : histSteps).map((s) => <AiAgentStep key={s.id} step={s} />)}
                 </div>
               )}
+              {runStatus && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{runStatus}</div>}
               {waitingApproval && runId && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <button className="btn-sm primary" onClick={() => void decide(true)}>{t('Approve')}</button>
@@ -419,11 +456,30 @@ export default function AiChatView(props: {
               )}
             </div>
           )}
+          {lastError && (
+            <div className="ai-error-card">
+              <div className="ai-error-head">
+                <span>⚠️</span>
+                <span>{t('Agent encountered an error')}</span>
+              </div>
+              <div className="ai-error-body">{lastError}</div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                {lastRun?.task && (
+                  <button className="btn-sm primary" onClick={() => void runAsAgent(lastRun.task)}>
+                    {t('Retry')}
+                  </button>
+                )}
+                <button className="btn-sm" onClick={() => setLastError(null)}>
+                  {t('Dismiss')}
+                </button>
+              </div>
+            </div>
+          )}
           {pendingQuestion && (
             <div className="ai-question-card">
               <div className="ai-question-title"><span>❓</span><span>{pendingQuestion.question}</span></div>
               <div className="ai-question-options">
-                {pendingQuestion.options.map((o) => {
+                {pendingQuestion.options.map((o, idx) => {
                   const on = picked.includes(o.label);
                   return (
                     <button
@@ -435,9 +491,14 @@ export default function AiChatView(props: {
                           : (on ? [] : [o.label]),
                       )}
                       title={o.description || o.label}
+                      type="button"
                     >
-                      <span className="ai-question-opt-label">{o.label}</span>
-                      {o.description && <span className="ai-question-opt-desc">{o.description}</span>}
+                      <span className="ai-question-opt-num">{idx + 1}</span>
+                      <div className="ai-question-opt-body">
+                        <span className="ai-question-opt-label">{o.label}</span>
+                        {o.description && <span className="ai-question-opt-desc">{o.description}</span>}
+                      </div>
+                      {on && <span className="ai-question-opt-check">✓</span>}
                     </button>
                   );
                 })}
@@ -521,11 +582,62 @@ export default function AiChatView(props: {
               disabled={agentBusy}
             />
             <div className="ai-composer-bar">
-              <button className="ai-attach" onClick={() => fileRef.current?.click()} title={t('Attach files')} disabled={agentBusy}>+</button>
+              <div style={{ position: 'relative', display: 'inline-flex' }} ref={attachMenuRef}>
+                <button
+                  className="ai-attach"
+                  onClick={() => setAttachMenuOpen((v) => !v)}
+                  title={t('Attach')}
+                  disabled={agentBusy}
+                  type="button"
+                >
+                  +
+                </button>
+                {attachMenuOpen && (
+                  <div
+                    className="menu"
+                    style={{
+                      position: 'absolute',
+                      bottom: 'calc(100% + 6px)',
+                      left: 0,
+                      zIndex: 60,
+                      minWidth: 200,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        const next = input ? (input.endsWith(' ') ? input + '@' : input + ' @') : '@';
+                        setInput(next);
+                        onInputChange(next);
+                      }}
+                    >
+                      📄 {t('Mention note (@)')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        fileRef.current?.click();
+                      }}
+                    >
+                      💻 {t('File from computer')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        setWorkspaceModalOpen(true);
+                      }}
+                    >
+                      🗂️ {t('File from workspace')}
+                    </button>
+                  </div>
+                )}
+              </div>
               <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.json,.pdf" style={{ display: 'none' }} onChange={(e) => void attachPicked(e)} />
               <AiApprovalSelect value={approval} onChange={setApproval} />
               <span className="spacer" />
-              <span className="ai-model-label">{t('Auto')}</span>
               <button className="ai-send" onClick={() => void runAsAgent()} disabled={agentBusy} title={t('Send')}>{agentBusy ? '…' : '↑'}</button>
               {agentBusy && runId && (
                 <button className="ai-iconbtn" onClick={() => { void api.cancelAIRun(runId).catch(() => {}); }} title={t('Cancel')}>
@@ -535,6 +647,73 @@ export default function AiChatView(props: {
             </div>
           </div>
         </div>
+        {workspaceModalOpen && (
+          <div
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1200,
+              background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+            onClick={() => setWorkspaceModalOpen(false)}
+          >
+            <div
+              style={{
+                background: 'var(--card)', color: 'var(--card-foreground)',
+                border: '1px solid var(--border)', borderRadius: 12,
+                boxShadow: '0 16px 48px rgba(0,0,0,0.3)', width: 480, maxWidth: 'calc(100vw - 32px)',
+                maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong style={{ fontSize: 15 }}>{t('Attach from workspace')}</strong>
+                <button className="ai-iconbtn" onClick={() => setWorkspaceModalOpen(false)} type="button">✕</button>
+              </div>
+              <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
+                <input
+                  autoFocus
+                  placeholder={t('Search workspace pages…')}
+                  value={workspaceFilter}
+                  onChange={(e) => setWorkspaceFilter(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'inherit', fontSize: 13 }}
+                />
+              </div>
+              <div style={{ overflowY: 'auto', padding: '6px 8px', flex: 1, maxHeight: 360 }}>
+                {[...props.pagesById.values()]
+                  .filter((p) => !p.trashed && (p.title || t('Untitled')).toLowerCase().includes(workspaceFilter.toLowerCase()))
+                  .slice(0, 30)
+                  .map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={async () => {
+                        setWorkspaceModalOpen(false);
+                        setWorkspaceFilter('');
+                        try {
+                          const text = await api.exportText(p.id);
+                          setFiles((prev) => [...prev, { name: p.title || t('Untitled page'), text: text || '' }]);
+                        } catch {
+                          setFiles((prev) => [...prev, { name: p.title || t('Untitled page'), text: '' }]);
+                        }
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                        padding: '8px 12px', border: 'none', background: 'transparent',
+                        borderRadius: 6, color: 'inherit', textAlign: 'left', cursor: 'pointer', fontSize: 14,
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--hover)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <span>📄</span>
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.title || t('Untitled page')}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          </div>
+        )}
         {chipPageId !== '' && (
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             {[t('Summarize this page'), t('Translate this page'), t('Analyze for insights')].map((s) => (
