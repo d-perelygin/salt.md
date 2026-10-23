@@ -9091,6 +9091,35 @@ a.btn {
   display: flex;
   align-items: center;
   gap: 6px;
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 4px;
+}
+.pcl-item.pcl-dragging {
+  opacity: 0.35;
+}
+.pcl-item.pcl-drop-before {
+  border-top-color: var(--accent);
+}
+.pcl-item.pcl-drop-after {
+  border-bottom-color: var(--accent);
+}
+.pcl-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  cursor: grab;
+  opacity: 0.4;
+  user-select: none;
+  flex: none;
+}
+.pcl-drag-handle:hover {
+  opacity: 1;
+  color: var(--fg);
+}
+.pcl-drag-handle:active {
+  cursor: grabbing;
 }
 .pcl-item.is-done .pcl-text {
   text-decoration: line-through;

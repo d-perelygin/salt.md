@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { GripVertical } from 'lucide-react';
 import Portal from './components/Portal';
 import { t } from './i18n';
 import type { PromptField } from './workflow';
@@ -99,28 +100,159 @@ function ChecklistAsk({
   onChange: (v: ChecklistItem[]) => void;
 }) {
   const items = checklistItems(value);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const focusIdRef = useRef<string | null>(null);
+  const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+
   const write = (next: ChecklistItem[]) => onChange(next.length ? next : []);
   const toggle = (id: string) => write(items.map((i) => (i.id === id ? { ...i, done: !i.done } : i)));
   const setText = (id: string, text: string) => write(items.map((i) => (i.id === id ? { ...i, text } : i)));
   const remove = (id: string) => write(items.filter((i) => i.id !== id));
-  const add = () =>
-    write([...items, { id: 'i' + Date.now().toString(36) + items.length, text: '', done: false }]);
+
+  useEffect(() => {
+    if (focusIdRef.current) {
+      const el = inputRefs.current.get(focusIdRef.current);
+      if (el) {
+        el.focus();
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      }
+      focusIdRef.current = null;
+    }
+  }, [items]);
+
+  const add = (afterIndex?: number) => {
+    const newId = 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    focusIdRef.current = newId;
+    if (afterIndex !== undefined && afterIndex >= 0 && afterIndex < items.length) {
+      const next = [...items];
+      next.splice(afterIndex + 1, 0, { id: newId, text: '', done: false });
+      write(next);
+    } else {
+      write([...items, { id: newId, text: '', done: false }]);
+    }
+  };
+
+  const moveItem = (id: string, targetId: string, after: boolean) => {
+    const source = items.findIndex((i) => i.id === id);
+    const target = items.findIndex((i) => i.id === targetId);
+    if (source < 0 || target < 0 || source === target) return;
+    const next = [...items];
+    const [item] = next.splice(source, 1);
+    next.splice(target - (source < target ? 1 : 0) + Number(after), 0, item);
+    write(next);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, it: ChecklistItem, index: number) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (it.text.trim()) {
+        add(index);
+      }
+    } else if (e.key === 'Backspace' && it.text === '') {
+      e.preventDefault();
+      if (items.length > 1) {
+        const targetIndex = index > 0 ? index - 1 : index + 1;
+        focusIdRef.current = items[targetIndex]?.id ?? null;
+      }
+      remove(it.id);
+    } else if (e.altKey && e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (index > 0) {
+        focusIdRef.current = it.id;
+        moveItem(it.id, items[index - 1].id, false);
+      }
+    } else if (e.altKey && e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (index < items.length - 1) {
+        focusIdRef.current = it.id;
+        moveItem(it.id, items[index + 1].id, true);
+      }
+    } else if (e.key === 'ArrowUp') {
+      if (index > 0) {
+        const prevEl = inputRefs.current.get(items[index - 1].id);
+        if (prevEl) {
+          e.preventDefault();
+          prevEl.focus();
+        }
+      }
+    } else if (e.key === 'ArrowDown') {
+      if (index < items.length - 1) {
+        const nextEl = inputRefs.current.get(items[index + 1].id);
+        if (nextEl) {
+          e.preventDefault();
+          nextEl.focus();
+        }
+      }
+    }
+  };
+
   return (
     <div className="prop-checklist">
-      {items.map((it) => (
-        <div key={it.id} className={'pcl-item' + (it.done ? ' is-done' : '')}>
+      {items.map((it, idx) => (
+        <div
+          key={it.id}
+          className={
+            'pcl-item' +
+            (it.done ? ' is-done' : '') +
+            (dragId === it.id ? ' pcl-dragging' : '') +
+            (dropTarget?.id === it.id ? (dropTarget.after ? ' pcl-drop-after' : ' pcl-drop-before') : '')
+          }
+          onDragOver={(e) => {
+            if (!dragId || dragId === it.id) return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'move';
+            const bounds = e.currentTarget.getBoundingClientRect();
+            setDropTarget({
+              id: it.id,
+              after: e.clientY > bounds.top + bounds.height / 2,
+            });
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+              if (dropTarget?.id === it.id) setDropTarget(null);
+            }
+          }}
+          onDrop={(e) => {
+            if (!dragId || dragId === it.id) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const bounds = e.currentTarget.getBoundingClientRect();
+            moveItem(dragId, it.id, e.clientY > bounds.top + bounds.height / 2);
+            setDragId(null);
+            setDropTarget(null);
+          }}
+        >
+          <span
+            className="pcl-drag-handle"
+            draggable
+            title={t('Drag to reorder')}
+            onDragStart={(e) => {
+              e.stopPropagation();
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', it.id);
+              setDragId(it.id);
+            }}
+            onDragEnd={() => {
+              setDragId(null);
+              setDropTarget(null);
+            }}
+          >
+            <GripVertical size={13} />
+          </span>
           <input type="checkbox" checked={it.done} onChange={() => toggle(it.id)} />
           <input
+            ref={(el) => {
+              if (el) inputRefs.current.set(it.id, el);
+              else inputRefs.current.delete(it.id);
+            }}
             className="pcl-text"
             value={it.text}
             placeholder={t('Sub-task')}
             onChange={(e) => setText(it.id, e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                add();
-              }
-            }}
+            onKeyDown={(e) => onKeyDown(e, it, idx)}
           />
           <button type="button" className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
             ✕
@@ -128,7 +260,7 @@ function ChecklistAsk({
         </div>
       ))}
       <div className="pcl-actions">
-        <button type="button" className="pcl-add" onClick={add}>
+        <button type="button" className="pcl-add" onClick={() => add()}>
           + {t('Sub-task')}
         </button>
       </div>
