@@ -2483,7 +2483,7 @@ function BlockContent({
   // falls through untouched everywhere else.
   useShortcut({
     id: 'checkbox.toggle',
-    keys: ['ctrl+enter'],
+    keys: ['mod+enter', 'ctrl+enter'],
     scope: 'editor',
     whileTyping: true,
     when: () => canEdit && focusedKey(regionId) === 'body',

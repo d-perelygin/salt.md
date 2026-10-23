@@ -145,6 +145,11 @@ function ChecklistAsk({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, it: ChecklistItem, index: number) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      toggle(it.id);
+      return;
+    }
     if (e.key === 'Enter') {
       e.preventDefault();
       if (it.text.trim()) {
