@@ -171,7 +171,7 @@ func (s *Server) handlePutAISettings(w http.ResponseWriter, r *http.Request) {
 		temp = 0.7
 	}
 	if body.BaseURL != nil {
-		bs = strings.TrimSpace(*body.BaseURL)
+		bs = normalizeAIBaseURL(*body.BaseURL)
 	}
 	if body.Model != nil {
 		model = strings.TrimSpace(*body.Model)
@@ -215,6 +215,13 @@ func (s *Server) handlePutAISettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
+func normalizeAIBaseURL(raw string) string {
+	u := strings.TrimRight(strings.TrimSpace(raw), "/")
+	u = strings.TrimSuffix(u, "/responses")
+	u = strings.TrimSuffix(u, "/chat/completions")
+	return u
+}
+
 // resolveAIConfig returns base_url, model, format, temperature, apiKey, approval for a user.
 func (s *Server) resolveAIConfig(u *user) (string, string, string, float64, string, string, error) {
 	if !s.aiEnabled() {
@@ -239,6 +246,7 @@ func (s *Server) resolveAIConfig(u *user) (string, string, string, float64, stri
 	if bs == "" {
 		bs = s.setting("ai_default_base_url", "https://api.openai.com/v1")
 	}
+	bs = normalizeAIBaseURL(bs)
 	if model == "" {
 		model = s.setting("ai_default_model", "gpt-4o-mini")
 	}
@@ -250,9 +258,9 @@ func (s *Server) resolveAIConfig(u *user) (string, string, string, float64, stri
 	if err != nil {
 		return "", "", "", 0, "", "", err
 	}
-	if apiKey == "" && s.setting("ai_allow_instance_key", "0") == "1" {
+	if apiKey == "" {
 		enc2 := s.setting("ai_instance_key_enc", "")
-		if enc2 != "" {
+		if enc2 != "" && (s.setting("ai_allow_instance_key", "1") == "1" || u.IsAdmin) {
 			apiKey, _ = decryptSecret(enc2, key)
 		}
 	}

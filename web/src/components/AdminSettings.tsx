@@ -65,7 +65,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiDefaultBaseUrl, setAiDefaultBaseUrl] = useState('https://api.openai.com/v1');
   const [aiDefaultModel, setAiDefaultModel] = useState('gpt-4o-mini');
-  const [aiAllowInstanceKey, setAiAllowInstanceKey] = useState(false);
+  const [aiAllowInstanceKey, setAiAllowInstanceKey] = useState(true);
   const [aiInstanceKey, setAiInstanceKey] = useState('');
   const [passSet, setPassSet] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -379,7 +379,15 @@ ingress:
                       {t('Allow shared instance key')}
                     </label>
                     <label>{t('Instance API key (leave blank to keep)')}</label>
-                    <input className="prop-input" type="password" value={aiInstanceKey} onChange={(e) => setAiInstanceKey(e.target.value)} />
+                    <input
+                      className="prop-input"
+                      type="password"
+                      value={aiInstanceKey}
+                      onChange={(e) => {
+                        setAiInstanceKey(e.target.value);
+                        if (e.target.value.trim()) setAiAllowInstanceKey(true);
+                      }}
+                    />
                   </>
                 )}
 

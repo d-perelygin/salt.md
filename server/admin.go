@@ -329,6 +329,10 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		s.setSetting("ai_enabled", v)
 	}
+	if body.AIDefaultBaseURL != nil {
+		norm := normalizeAIBaseURL(*body.AIDefaultBaseURL)
+		body.AIDefaultBaseURL = &norm
+	}
 	set("ai_default_base_url", body.AIDefaultBaseURL)
 	set("ai_default_model", body.AIDefaultModel)
 	if body.AIAllowInstanceKey != nil {
@@ -343,6 +347,9 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			if enc, err := encryptSecret(strings.TrimSpace(*body.AIInstanceKey), key); err == nil {
 				s.setSetting("ai_instance_key_enc", enc)
+				if body.AIAllowInstanceKey == nil {
+					s.setSetting("ai_allow_instance_key", "1")
+				}
 			}
 		}
 	}

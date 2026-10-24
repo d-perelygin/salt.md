@@ -654,7 +654,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "f6f93a345b3e",
+        "web/src/components/AdminSettings.tsx": "aa3b7ab5f758",
         "server/instance.go": "01c9c75cf304",
         "web/src/theme.css": "b1c3dece61ce"
       },
@@ -693,7 +693,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "f6f93a345b3e",
+        "web/src/components/AdminSettings.tsx": "aa3b7ab5f758",
         "server/oauth.go": "147dd4ccb577",
         "web/src/theme.css": "b1c3dece61ce"
       },
@@ -733,9 +733,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "f6f93a345b3e",
+        "web/src/components/AdminSettings.tsx": "aa3b7ab5f758",
         "server/mail_oauth.go": "d58b546dbcb4",
-        "server/admin.go": "54ee30f4ca02",
+        "server/admin.go": "0b7581bc5520",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"
@@ -772,7 +772,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "f6f93a345b3e",
+        "web/src/components/AdminSettings.tsx": "aa3b7ab5f758",
         "web/src/theme.css": "b1c3dece61ce"
       },
       "element": ".dialog"
@@ -810,7 +810,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "f6f93a345b3e",
+        "web/src/components/AdminSettings.tsx": "aa3b7ab5f758",
         "server/webhooks.go": "49e796d4fa6b",
         "web/src/theme.css": "b1c3dece61ce"
       },
@@ -850,7 +850,7 @@
       ],
       "element": ".dialog",
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "f6f93a345b3e",
+        "web/src/components/AdminSettings.tsx": "aa3b7ab5f758",
         "server/export_html.go": "372f318a033d",
         "web/src/theme.css": "b1c3dece61ce"
       }
@@ -888,7 +888,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "f6f93a345b3e",
+        "web/src/components/AdminSettings.tsx": "aa3b7ab5f758",
         "server/backup.go": "7b11cc725a0a",
         "web/src/theme.css": "b1c3dece61ce"
       },
@@ -922,8 +922,8 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "f6f93a345b3e",
-        "server/admin.go": "54ee30f4ca02",
+        "web/src/components/AdminSettings.tsx": "aa3b7ab5f758",
+        "server/admin.go": "0b7581bc5520",
         "server/lifecycle_account.go": "2f5f063e736e",
         "web/src/theme.css": "b1c3dece61ce"
       },
