@@ -92,17 +92,40 @@ export default function AiChatPanel(props: {
   const streamingRef = useRef(false);
 
   useEffect(() => {
-    if (!threadId) { setMessages([]); setSteps([]); setHistSteps([]); setHistDuration(null); return; }
-    api.getAIThreadMessages(threadId).then((r) => { if (!streamingRef.current) setMessages(r as Msg[]); }).catch(() => {});
-    api.getAIThreadRuns(threadId).then((runs: any[]) => {
+    if (!threadId) {
+      setMessages([]);
+      setSteps([]);
+      setHistSteps([]);
+      setHistDuration(null);
+      setLastError(null);
+      setLastRun(null);
+      return;
+    }
+    Promise.all([
+      api.getAIThreadMessages(threadId).catch(() => [] as Msg[]),
+      api.getAIThreadRuns(threadId).catch(() => [] as any[]),
+    ]).then(([rawMsgs, runs]) => {
+      if (streamingRef.current) return;
+      const msgs = [...rawMsgs];
       const done = [...runs].reverse().find((run) => run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled');
+      if (done && done.status === 'failed') {
+        if (msgs.length === 0 || msgs[msgs.length - 1].role !== 'user') {
+          msgs.push({ role: 'user', content: done.task });
+        }
+        setLastError(done.error || t('Agent run failed'));
+        setLastRun({ id: done.id, task: done.task, status: done.status, error: done.error || '' });
+      } else {
+        setLastError(null);
+        setLastRun(null);
+      }
+      setMessages(msgs);
       if (!done) return;
       if (done.startedAt && done.finishedAt) {
         const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
         if (Number.isFinite(ms) && ms >= 0) setHistDuration(ms);
       }
       api.getAIRunSteps(done.id).then((st) => {
-        if (Array.isArray(st) && st.length) setHistSteps(st as AiStep[]);
+        if (Array.isArray(st) && st.length && !streamingRef.current) setHistSteps(st as AiStep[]);
       }).catch(() => {});
     }).catch(() => {});
   }, [threadId]);
@@ -188,8 +211,14 @@ export default function AiChatPanel(props: {
       const filesBlock = files.length
         ? 'Attached files:\n' + files.filter((f) => f.text).slice(0, 3).map((f) => `--- ${f.name} ---\n${f.text.slice(0, 4000)}`).join('\n') + '\n\n'
         : '';
-      const fullTask = quoteBlock + filesBlock + text;
-      const r = await api.createAIRun({ threadId: id, task: fullTask, pageId: props.pageId });
+      const fullTask = reuseTask ? reuseTask : (quoteBlock + filesBlock + text);
+      const r = await api.createAIRun({
+        threadId: id,
+        task: fullTask,
+        prompt: reuseTask ? undefined : text,
+        retry: !!reuseTask,
+        pageId: props.pageId,
+      });
       setRunId(r.id);
       setQuote('');
       setAutoQuote('');

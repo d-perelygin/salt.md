@@ -800,7 +800,7 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 }
 
 // runAIBackgroundResponses runs the agent using OpenAI Responses API.
-func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, threadID, task, pageID, baseURL, model string, temp float64, apiKey, approvalMode, sys string) {
+func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, threadID, task, pageID, baseURL, model string, temp float64, apiKey, approvalMode, sys, userMsgID string) {
 	// Build tools in Responses format.
 	tools := make([]map[string]any, 0, len(mcpTools))
 	for _, t := range mcpTools {
@@ -822,7 +822,7 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 	// input accumulates items; the thread history goes first so follow-ups,
 	// corrections and answers to the agent's questions carry over.
 	input := []map[string]any{}
-	for _, h := range s.aiThreadHistory(threadID, 8) {
+	for _, h := range s.aiThreadHistory(threadID, userMsgID, 8) {
 		input = append(input, map[string]any{"role": h[0], "content": h[1]})
 	}
 	input = append(input, map[string]any{"role": "user", "content": task})
@@ -853,12 +853,14 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 		resp, err := client.Do(req)
 		if err != nil {
 			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
 		}
 		rb, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode >= 400 {
 			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, string(rb), now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
 		}
 		var out map[string]any
@@ -1575,8 +1577,14 @@ func aiAgentSystemPrompt(today string) string {
 // aiThreadHistory returns the thread's recent messages, truncated, so a run
 // continues the conversation: the user's answers to the agent's questions,
 // corrections, and follow-ups.
-func (s *Server) aiThreadHistory(threadID string, limit int) [][2]string {
-	rows, err := s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?`, threadID, limit)
+func (s *Server) aiThreadHistory(threadID, excludeMsgID string, limit int) [][2]string {
+	var rows *sql.Rows
+	var err error
+	if excludeMsgID != "" {
+		rows, err = s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? AND id != ? ORDER BY created_at DESC LIMIT ?`, threadID, excludeMsgID, limit)
+	} else {
+		rows, err = s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?`, threadID, limit)
+	}
 	if err != nil {
 		return nil
 	}
@@ -1626,12 +1634,18 @@ func (s *Server) handleCreateAIRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ThreadID string `json:"threadId"`
 		Task     string `json:"task"`
+		Prompt   string `json:"prompt"`
+		Retry    bool   `json:"retry"`
 		PageID   string `json:"pageId"`
 	}
 	decodeJSON(w, r, &body)
 	if strings.TrimSpace(body.Task) == "" {
 		httpError(w, 400, "task required")
 		return
+	}
+	prompt := strings.TrimSpace(body.Prompt)
+	if prompt == "" {
+		prompt = strings.TrimSpace(body.Task)
 	}
 	threadID := body.ThreadID
 	if threadID == "" {
@@ -1643,17 +1657,26 @@ func (s *Server) handleCreateAIRun(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.db.Exec(`INSERT INTO ai_threads (id, user_id, workspace_id, page_id, title, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
-			threadID, u.ID, wsID, body.PageID, body.Task, now(), now())
+			threadID, u.ID, wsID, body.PageID, prompt, now(), now())
+	}
+	var userMsgID string
+	if body.Retry {
+		s.db.QueryRow(`SELECT id FROM ai_messages WHERE thread_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1`, threadID).Scan(&userMsgID)
+	}
+	if userMsgID == "" {
+		userMsgID = newID()
+		s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at) VALUES (?,?,?,?,?,?)`,
+			userMsgID, threadID, "user", prompt, "", now())
 	}
 	runID := newID()
 	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, task, started_at) VALUES (?,?,?,?,?,?)`,
 		runID, u.ID, threadID, "queued", body.Task, now())
 	// launch
-	go s.runAIBackground(u, runID, threadID, body.Task, body.PageID)
+	go s.runAIBackground(u, runID, threadID, body.Task, body.PageID, userMsgID)
 	writeJSON(w, map[string]string{"id": runID, "threadId": threadID})
 }
 
-func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID string) {
+func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsgID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	runMu.Lock()
 	runCancel[runID] = cancel
@@ -1669,10 +1692,12 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID string) 
 		s.db.Exec(`INSERT INTO agent_presence (page_id, account_id, agent, label, note, started_at, last_seen) VALUES (?,?,?,?,?,?,?)
 			ON CONFLICT(page_id, account_id, agent) DO UPDATE SET last_seen=excluded.last_seen`,
 			pageID, u.ID, "salt-ai", "AI agent", task, now(), now())
+		defer s.db.Exec(`DELETE FROM agent_presence WHERE page_id=? AND account_id=? AND agent='salt-ai'`, pageID, u.ID)
 	}
 	baseURL, model, format, temp, apiKey, approvalMode, err := s.resolveAIConfig(u)
 	if err != nil {
 		s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
+		s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 		return
 	}
 	// Build OpenAI tool list from MCP catalogue.
@@ -1708,13 +1733,13 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID string) 
 	s.db.QueryRow(`SELECT workspace_id FROM ai_threads WHERE id = ?`, threadID).Scan(&threadWS)
 	sys += s.aiWorkspaceRulesBlock(pageID, threadWS)
 	if format == "responses" {
-		s.runAIBackgroundResponses(ctx, u, runID, threadID, task, pageID, baseURL, model, temp, apiKey, approvalMode, sys)
+		s.runAIBackgroundResponses(ctx, u, runID, threadID, task, pageID, baseURL, model, temp, apiKey, approvalMode, sys, userMsgID)
 		return
 	}
 	messages := []map[string]any{
 		{"role": "system", "content": sys},
 	}
-	for _, h := range s.aiThreadHistory(threadID, 8) {
+	for _, h := range s.aiThreadHistory(threadID, userMsgID, 8) {
 		messages = append(messages, map[string]any{"role": h[0], "content": h[1]})
 	}
 	messages = append(messages, map[string]any{"role": "user", "content": task})
@@ -1744,12 +1769,14 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID string) 
 		resp, err := client.Do(req)
 		if err != nil {
 			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
 		}
 		rb, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode >= 400 {
 			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, string(rb), now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
 		}
 		var out map[string]any
@@ -1757,6 +1784,7 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID string) 
 		choices, _ := out["choices"].([]any)
 		if len(choices) == 0 {
 			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, "no choices", now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
 		}
 		c0, _ := choices[0].(map[string]any)

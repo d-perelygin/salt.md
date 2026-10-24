@@ -850,7 +850,7 @@ export const api = {
     req<{ ok: boolean }>(`/api/ai/threads/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
   markAIThreadRead: (id: string) =>
     req<{ ok: boolean }>(`/api/ai/threads/${id}/read`, { method: 'POST', body: '{}' }),
-  createAIRun: (body: { threadId?: string; task: string; pageId?: string }) =>
+  createAIRun: (body: { threadId?: string; task: string; prompt?: string; retry?: boolean; pageId?: string }) =>
     req<{ id: string; threadId: string }>('/api/ai/runs', { method: 'POST', body: JSON.stringify(body) }),
   getAIRun: (id: string) => req<any>(`/api/ai/runs/${id}`),
   cancelAIRun: (id: string) => req<{ ok: boolean }>(`/api/ai/runs/${id}/cancel`, { method: 'POST', body: '{}' }),

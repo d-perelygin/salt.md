@@ -223,3 +223,70 @@ func TestRunEventsExposePendingQuestion(t *testing.T) {
 		t.Fatalf("events should expose the pending args, got:\n%s", body)
 	}
 }
+
+// Creating a run persists the user message immediately so it survives reloads
+// and failed runs, and retrying does not create duplicate messages.
+func TestCreateAIRunPersistsUserMessage(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "runmsg@example.com")
+	_ = uid
+	call := func(method, url, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, url, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Cookie", cookie)
+		s.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 1. Initial run creation
+	rec := call("POST", "/api/ai/runs", `{"task":"Full prompt with context","prompt":"User question"}`)
+	if rec.Code != 200 {
+		t.Fatalf("create run: got %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var res struct {
+		ID       string `json:"id"`
+		ThreadID string `json:"threadId"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unmarshal create run response: %v", err)
+	}
+	if res.ThreadID == "" {
+		t.Fatalf("expected non-empty threadId")
+	}
+
+	// Verify user message in ai_messages
+	var count int
+	var role, content string
+	s.db.QueryRow(`SELECT COUNT(*), role, content FROM ai_messages WHERE thread_id = ?`, res.ThreadID).Scan(&count, &role, &content)
+	if count != 1 {
+		t.Fatalf("expected 1 message in thread, got %d", count)
+	}
+	if role != "user" || content != "User question" {
+		t.Fatalf("expected role='user' and content='User question', got role=%q content=%q", role, content)
+	}
+
+	// Verify aiThreadHistory with excludeMsgID excludes the user message
+	var msgID string
+	s.db.QueryRow(`SELECT id FROM ai_messages WHERE thread_id = ?`, res.ThreadID).Scan(&msgID)
+	hist := s.aiThreadHistory(res.ThreadID, msgID, 8)
+	if len(hist) != 0 {
+		t.Fatalf("expected 0 history items when current message is excluded, got %d", len(hist))
+	}
+	histAll := s.aiThreadHistory(res.ThreadID, "", 8)
+	if len(histAll) != 1 || histAll[0][1] != "User question" {
+		t.Fatalf("expected 1 history item when not excluded, got %v", histAll)
+	}
+
+	// 2. Retry run creation
+	recRetry := call("POST", "/api/ai/runs", `{"threadId":"`+res.ThreadID+`","task":"Full prompt with context","retry":true}`)
+	if recRetry.Code != 200 {
+		t.Fatalf("retry run: got %d (%s), want 200", recRetry.Code, recRetry.Body.String())
+	}
+	var countAfter int
+	s.db.QueryRow(`SELECT COUNT(*) FROM ai_messages WHERE thread_id = ?`, res.ThreadID).Scan(&countAfter)
+	if countAfter != 1 {
+		t.Fatalf("expected message count to stay 1 after retry, got %d", countAfter)
+	}
+}
+

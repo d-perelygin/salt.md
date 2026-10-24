@@ -76,9 +76,22 @@ export default function AiChatView(props: {
   // History: messages, past runs (for the Worked-for row), and artifacts.
   // History fetches never overwrite live streaming state (see streamingRef).
   useEffect(() => {
-    if (!tid) { setMessages([]); setSteps([]); setHistSteps([]); setArtifacts([]); setHistDurationMs(null); return; }
-    api.getAIThreadMessages(tid).then((r) => { if (!streamingRef.current) setMessages(r as Msg[]); }).catch(() => {});
-    api.getAIThreadRuns(tid).then((runs: any[]) => {
+    if (!tid) {
+      setMessages([]);
+      setSteps([]);
+      setHistSteps([]);
+      setArtifacts([]);
+      setHistDurationMs(null);
+      setLastError(null);
+      setLastRun(null);
+      return;
+    }
+    Promise.all([
+      api.getAIThreadMessages(tid).catch(() => [] as Msg[]),
+      api.getAIThreadRuns(tid).catch(() => [] as any[]),
+    ]).then(([rawMsgs, runs]) => {
+      if (streamingRef.current) return;
+      const msgs = [...rawMsgs];
       const ids: string[] = [];
       let latest: any = null;
       for (const run of runs) {
@@ -89,6 +102,17 @@ export default function AiChatView(props: {
         latest = run;
       }
       setArtifacts(ids);
+      if (latest && latest.status === 'failed') {
+        if (msgs.length === 0 || msgs[msgs.length - 1].role !== 'user') {
+          msgs.push({ role: 'user', content: latest.task });
+        }
+        setLastError(latest.error || t('Agent run failed'));
+        setLastRun({ id: latest.id, task: latest.task, status: latest.status, error: latest.error || '' });
+      } else {
+        setLastError(null);
+        setLastRun(null);
+      }
+      setMessages(msgs);
       if (latest && latest.startedAt && latest.finishedAt && latest.status !== 'running' && latest.status !== 'queued') {
         const ms = Date.parse(latest.finishedAt) - Date.parse(latest.startedAt);
         if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
@@ -267,8 +291,14 @@ export default function AiChatView(props: {
       const filesBlock = files.length
         ? 'Attached files:\n' + files.filter((f) => f.text).slice(0, 3).map((f) => `--- ${f.name} ---\n${f.text.slice(0, 4000)}`).join('\n') + '\n\n'
         : '';
-      const fullTask = refBlock + filesBlock + (quote ? `Context quote:\n${quote}\n\n` : '') + text;
-      const r = await api.createAIRun({ threadId: id, task: fullTask, pageId: props.pageId });
+      const fullTask = reuseTask ? reuseTask : (refBlock + filesBlock + (quote ? `Context quote:\n${quote}\n\n` : '') + text);
+      const r = await api.createAIRun({
+        threadId: id,
+        task: fullTask,
+        prompt: reuseTask ? undefined : text,
+        retry: !!reuseTask,
+        pageId: props.pageId,
+      });
       setRunId(r.id);
       setQuote('');
       setFiles([]);
