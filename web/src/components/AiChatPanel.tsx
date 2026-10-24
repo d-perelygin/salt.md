@@ -3,6 +3,7 @@ import { api } from '../api';
 import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
 import AiAgentStep, { type AiStep } from './AiAgentStep';
+import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import type { AiThread } from './AiThreadList';
@@ -419,23 +420,11 @@ export default function AiChatPanel(props: {
           </div>
         )}
         {lastError && (
-          <div className="ai-error-card">
-            <div className="ai-error-head">
-              <span>⚠️</span>
-              <span>{t('Agent encountered an error')}</span>
-            </div>
-            <div className="ai-error-body">{lastError}</div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              {lastRun?.task && (
-                <button className="btn-sm primary" onClick={() => void runAsAgent(lastRun.task)}>
-                  {t('Retry')}
-                </button>
-              )}
-              <button className="btn-sm" onClick={() => setLastError(null)}>
-                {t('Dismiss')}
-              </button>
-            </div>
-          </div>
+          <AiErrorCard
+            error={lastError}
+            onRetry={lastRun?.task ? () => void runAsAgent(lastRun.task) : undefined}
+            onDismiss={() => setLastError(null)}
+          />
         )}
         {pendingQuestion && (
           <div className="ai-question-card">

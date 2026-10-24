@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Sparkles, ChevronDown, Check, X, ArrowUp, RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import { t } from '../i18n';
+import AiErrorCard from './AiErrorCard';
 
 export default function AiFormattingDropdown(props: {
   editor: any;
@@ -12,6 +13,8 @@ export default function AiFormattingDropdown(props: {
   const [busy, setBusy] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [result, setResult] = useState('');
+  const [error, setError] = useState('');
+  const [lastPrompt, setLastPrompt] = useState('');
   const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -60,6 +63,8 @@ export default function AiFormattingDropdown(props: {
     if (!sel || busy) return;
     setBusy(true);
     setResult('');
+    setError('');
+    setLastPrompt(instruction);
     let acc = '';
     try {
       const res = await api.generateAI({
@@ -67,7 +72,10 @@ export default function AiFormattingDropdown(props: {
         selection: sel,
         pageId: props.pageId,
       });
-      if (!res.ok) throw new Error('failed');
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(errBody || t('Generation failed. Please try again.'));
+      }
       const full = await res.text();
       for (const line of full.split('\n')) {
         if (!line.startsWith('data:')) continue;
@@ -81,8 +89,8 @@ export default function AiFormattingDropdown(props: {
           }
         } catch {}
       }
-    } catch {
-      setResult((r) => r || t('Generation failed. Please try again.'));
+    } catch (err: any) {
+      setError(err?.message || t('Generation failed. Please try again.'));
     } finally {
       setBusy(false);
     }
@@ -226,6 +234,16 @@ export default function AiFormattingDropdown(props: {
               <div className="ai-fmt-busy">
                 <RefreshCw size={14} className="spin" style={{ color: 'var(--accent)' }} />
                 <span>{t('AI is thinking…')}</span>
+              </div>
+            )}
+
+            {error && (
+              <div style={{ padding: '0 8px 8px' }}>
+                <AiErrorCard
+                  error={error}
+                  onRetry={lastPrompt ? () => void run(lastPrompt) : undefined}
+                  onDismiss={() => setError('')}
+                />
               </div>
             )}
 

@@ -8,6 +8,7 @@ import { PageIcon } from './pageIcon';
 import CollectionView, { type EmbedState } from './components/CollectionView';
 import { plural, t } from './i18n';
 import { api } from './api';
+import AiErrorCard from './components/AiErrorCard';
 
 // Custom salt.md block types (Welle 17): callout, table of contents, bookmark.
 // Columns are ours (columnsSpec, at the end of this file) and wired in pageLink.tsx.
@@ -652,7 +653,10 @@ export const aiBlockSpec = createReactBlockSpec(
             prompt: p.trim() || 'Generate helpful content',
             pageId,
           });
-          if (!res.ok) throw new Error('Failed');
+          if (!res.ok) {
+            const errBody = await res.text().catch(() => '');
+            throw new Error(errBody || t('Generation failed. Please try again.'));
+          }
           const full = await res.text();
           let acc = '';
           for (const line of full.split('\n')) {
@@ -675,8 +679,8 @@ export const aiBlockSpec = createReactBlockSpec(
             } as never);
             setEditing(false);
           }
-        } catch {
-          setError(t('Generation failed. Please try again.'));
+        } catch (err: any) {
+          setError(err?.message || t('Generation failed. Please try again.'));
         } finally {
           setBusy(false);
         }
@@ -740,7 +744,13 @@ export const aiBlockSpec = createReactBlockSpec(
                   }
                 }}
               />
-              {error && <div style={{ color: 'var(--danger, #e53e3e)', fontSize: 12 }}>{error}</div>}
+              {error && (
+                <AiErrorCard
+                  error={error}
+                  onRetry={() => void generate()}
+                  onDismiss={() => setError('')}
+                />
+              )}
             </div>
           ) : (
             <>
