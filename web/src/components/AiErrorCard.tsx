@@ -202,6 +202,25 @@ export function parseAiError(rawError: string): ParsedAiError {
   };
 }
 
+export function getFormattedErrorJson(parsed: ParsedAiError): string {
+  try {
+    const obj = JSON.parse(parsed.raw);
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return JSON.stringify(
+      {
+        error: parsed.message || parsed.raw,
+        category: parsed.category,
+        ...(parsed.code ? { code: parsed.code } : {}),
+        ...(parsed.status ? { status: parsed.status } : {}),
+        raw: parsed.raw,
+      },
+      null,
+      2,
+    );
+  }
+}
+
 export default function AiErrorCard(props: {
   error: string;
   onRetry?: () => void;
@@ -211,10 +230,11 @@ export default function AiErrorCard(props: {
   const [showDetails, setShowDetails] = useState(false);
 
   const parsed = useMemo(() => parseAiError(props.error), [props.error]);
+  const formattedJson = useMemo(() => getFormattedErrorJson(parsed), [parsed]);
 
   const copyResponse = async () => {
     try {
-      await navigator.clipboard.writeText(parsed.raw || props.error);
+      await navigator.clipboard.writeText(formattedJson);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -237,7 +257,7 @@ export default function AiErrorCard(props: {
 
       {showDetails && (
         <div className="ai-error-details">
-          <pre>{parsed.raw}</pre>
+          <pre>{formattedJson}</pre>
         </div>
       )}
 
@@ -252,7 +272,7 @@ export default function AiErrorCard(props: {
           className="btn-sm"
           onClick={() => void copyResponse()}
           type="button"
-          title={t('Copy server response')}
+          title={t('Copy JSON response')}
         >
           {copied ? (
             <>
@@ -262,7 +282,7 @@ export default function AiErrorCard(props: {
           ) : (
             <>
               <Copy size={12} style={{ marginRight: 4 }} />
-              {t('Copy response')}
+              {t('Copy JSON response')}
             </>
           )}
         </button>
