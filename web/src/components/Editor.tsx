@@ -489,6 +489,7 @@ function BlockedBanner({
 }) {
   const [rows, setRows] = useState<{ id: string; title: string; props: Record<string, unknown> }[] | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [skipWeekendsOverride, setSkipWeekendsOverride] = useState<boolean | null>(null);
   const loadRows = useCallback(() => {
     api
       .collectionRows(parentId, { limit: 500 })
@@ -567,11 +568,27 @@ function BlockedBanner({
     .map((id) => byId.get(id)!)
     .filter((p) => p && self.start <= p.end);
   if (!blockers.length) return null;
-  const skipWeekends = tlView?.tlSkipWeekends ?? false;
+  const skipWeekends = skipWeekendsOverride ?? (tlView?.tlSkipWeekends ?? false);
   const shiftDay = (d: number) => (skipWeekends ? nextWorkday(d) : d);
   const latest = Math.max(...blockers.map((p) => p.end));
   const rawTarget = shiftTarget(self, blockers);
   const target = rawTarget !== null ? shiftDay(rawTarget) : null;
+
+  const onToggleSkipWeekends = async (checked: boolean) => {
+    setSkipWeekendsOverride(checked);
+    if (!config) return;
+    const views = config.views.map((v) => {
+      if (tlView && v.id === tlView.id) {
+        return { ...v, tlSkipWeekends: checked };
+      }
+      return v;
+    });
+    try {
+      await api.putCollection(parentId, { views });
+    } catch {
+      toast(t('Could not save settings'));
+    }
+  };
 
   return (
     <div className="dep-banner" role="status">
@@ -700,6 +717,18 @@ function BlockedBanner({
                           })}
                     </button>
                   ))}
+                  <div className="menu-sep" />
+                  <label className="tl-settings-row tl-checkbox-row">
+                    <span>{t('Skip weekends')}</span>
+                    <input
+                      type="checkbox"
+                      checked={!!skipWeekends}
+                      onChange={(e) => void onToggleSkipWeekends(e.target.checked)}
+                    />
+                  </label>
+                  <div className="tl-menu-hint">
+                    {t("Shifting a task out of its blockers' way lands on a working day.")}
+                  </div>
                 </AnchoredMenu>
               </>
             )}

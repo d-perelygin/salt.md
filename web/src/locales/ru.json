@@ -1481,5 +1481,6 @@
   "Inherited from “{title}”: restricted to {mode}. Members without access to the parent note cannot open this page.": "Наследуется от «{title}»: доступ ограничен ({mode}). Участники без доступа к родительской заметке не могут открыть эту страницу.",
   "Page access… (inherited)": "Доступ к странице… (унаследован)",
   "Remove dependency with “{title}”": "Удалить зависимость с «{title}»",
-  "Shift “{title}” to finish on {d}": "Сдвинуть «{title}» до {d}"
+  "Shift “{title}” to finish on {d}": "Сдвинуть «{title}» до {d}",
+  "Could not save settings": "Не удалось сохранить настройки"
 }

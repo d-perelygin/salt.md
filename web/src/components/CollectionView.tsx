@@ -5952,6 +5952,18 @@ function TimelineView({
                                 })}
                           </button>
                         ))}
+                        <div className="menu-sep" />
+                        <label className="tl-settings-row tl-checkbox-row">
+                          <span>{t('Skip weekends')}</span>
+                          <input
+                            type="checkbox"
+                            checked={!!skipWeekends}
+                            onChange={(e) => onViewChange({ tlSkipWeekends: e.target.checked })}
+                          />
+                        </label>
+                        <div className="tl-menu-hint">
+                          {t("Shifting a task out of its blockers' way lands on a working day.")}
+                        </div>
                       </AnchoredMenu>
                     </>
                   )}

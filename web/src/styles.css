@@ -1061,6 +1061,7 @@ button {
   align-items: center;
   gap: 4px;
   padding: 2px 7px;
+  margin-right: 6px;
   background: var(--hover);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -9789,8 +9790,12 @@ g.is-active > .tl-dep-head {
 }
 .tl-conflict-sub-menu {
   z-index: 330;
-  min-width: 230px;
+  min-width: 240px;
+  max-width: 280px;
   white-space: nowrap;
+}
+.tl-conflict-sub-menu .tl-menu-hint {
+  white-space: normal;
 }
 .tl-conflict-name {
   flex: 1 1 auto;
