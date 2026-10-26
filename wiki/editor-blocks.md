@@ -513,7 +513,8 @@ print command rather than opening a print view, so it does nothing on a phone.
 **⋯ → Import (.md / .zip)** reads a Markdown file back in as a **new top-level
 page**. The importer understands headings, bullet, numbered and check lists
 (nested by indentation), quotes, fenced code with a language, images, tables,
-paragraphs, and the inline styles bold, italic, strike, code and links.
+horizontal rules (`---`, `***`, `___`), paragraphs, and the inline styles bold,
+italic, strike, code and links.
 
 A Markdown link pointing at a page of **this** instance (`/p/<id>`, or the
 `/p/<slug>-<id>` form from the address bar, or the full address that sharing
@@ -521,11 +522,10 @@ hands out) comes back as a real page link rather than a
 plain one. That is what closes the round trip: export a page, import it
 elsewhere, and its internal links are still links in the graph.
 
-Four things do not survive a full round trip, and it is better to know than to
+Three things do not survive a full round trip, and it is better to know than to
 discover:
 
 - **Headings 4, 5 and 6 come back as heading 3.** The importer clamps them.
-- **A divider comes back as a paragraph containing `---`.**
 - **Callouts, bookmarks and embedded collections come back as what they
   exported as**: a quote and two links.
 - **The title heading stays in the body.** The first heading of an imported file
