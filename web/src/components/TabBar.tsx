@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, FileText, Pin, Table2, X } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import type { PageMeta } from '../types';
@@ -38,6 +38,53 @@ export default function TabBar({
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
+  const longPressTimer = useRef<number | null>(null);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const didLongPress = useRef(false);
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    touchStartPos.current = null;
+  };
+
+  const onTouchStart = (id: string, e: React.TouchEvent) => {
+    clearLongPress();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const { clientX, clientY } = touch;
+    touchStartPos.current = { x: clientX, y: clientY };
+    longPressTimer.current = window.setTimeout(() => {
+      didLongPress.current = true;
+      setMenu({
+        id,
+        x: Math.max(8, Math.min(clientX, window.innerWidth - 240)),
+        y: Math.max(8, Math.min(clientY, window.innerHeight - 260)),
+      });
+      longPressTimer.current = null;
+    }, 450);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPos.current || !longPressTimer.current) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const dist = Math.hypot(touch.clientX - touchStartPos.current.x, touch.clientY - touchStartPos.current.y);
+    if (dist > 8) {
+      clearLongPress();
+    }
+  };
+
+  const onTouchEnd = () => {
+    clearLongPress();
+    if (didLongPress.current) {
+      window.setTimeout(() => {
+        didLongPress.current = false;
+      }, 100);
+    }
+  };
   if (tabs.length <= 1) return null; // a single doc needs no tab strip
   const isPinned = (id: string) => pinned.includes(id);
   const pinnedCount = tabs.filter(isPinned).length;
@@ -88,7 +135,14 @@ export default function TabBar({
               }
               title={title}
               draggable
-              onClick={() => onSelect(id)}
+              onTouchStart={(e) => onTouchStart(id, e)}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+              onTouchCancel={clearLongPress}
+              onClick={() => {
+                if (didLongPress.current) return;
+                onSelect(id);
+              }}
               onAuxClick={(e) => {
                 if (e.button === 1) {
                   e.preventDefault();

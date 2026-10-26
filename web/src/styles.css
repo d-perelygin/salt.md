@@ -608,6 +608,7 @@ button {
   border: 1px solid transparent;
   border-bottom: none;
   user-select: none;
+  -webkit-touch-callout: none;
 }
 .tab:hover {
   background: var(--hover);
