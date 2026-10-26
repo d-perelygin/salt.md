@@ -2454,42 +2454,67 @@ function BlockContent({
       const nonEmptyLines = lines.filter((l) => l.trim().length > 0);
 
       if (nonEmptyLines.length > 1) {
-        // If markdown parses it into multiple blocks (e.g. lists or headings), paste as markdown
-        const mdBlocks = ed.tryParseMarkdownToBlocks(plain);
-        if (mdBlocks.length > 1) {
-          ed.pasteMarkdown(plain);
-          return true;
-        }
-
-        // Plain multi-line text (e.g. list copied from notes/chat on phone):
-        // Match current block type if cursor is inside a list
-        let currentType: string | undefined;
+        let currentBlock: any;
         try {
-          currentType = ed.getTextCursorPosition()?.block?.type;
+          currentBlock = ed.getTextCursorPosition()?.block;
         } catch {
           // cursor outside or unknown
         }
 
+        const currentType = currentBlock?.type;
+        let blocksToInsert: any[] = [];
+
         if (currentType === 'checkListItem') {
           const md = nonEmptyLines.map((l) => `- [ ] ${l.replace(/^[-*•]\s*(\[[ xX]\]\s*)?/, '')}`).join('\n');
-          ed.pasteMarkdown(md);
-          return true;
-        }
-        if (currentType === 'bulletListItem') {
+          blocksToInsert = ed.tryParseMarkdownToBlocks(md);
+        } else if (currentType === 'bulletListItem') {
           const md = nonEmptyLines.map((l) => `- ${l.replace(/^[-*•]\s*/, '')}`).join('\n');
-          ed.pasteMarkdown(md);
-          return true;
-        }
-        if (currentType === 'numberedListItem') {
+          blocksToInsert = ed.tryParseMarkdownToBlocks(md);
+        } else if (currentType === 'numberedListItem') {
           const md = nonEmptyLines.map((l, i) => `${i + 1}. ${l.replace(/^\d+[.)]\s*/, '')}`).join('\n');
-          ed.pasteMarkdown(md);
-          return true;
+          blocksToInsert = ed.tryParseMarkdownToBlocks(md);
+        } else {
+          const md = plain.includes('\n\n') ? plain : nonEmptyLines.join('\n\n');
+          blocksToInsert = ed.tryParseMarkdownToBlocks(md);
+          if (blocksToInsert.length <= 1) {
+            blocksToInsert = nonEmptyLines.map((l) => ({
+              type: 'paragraph',
+              content: [l],
+            }));
+          }
         }
 
-        // Default: paste as separate paragraph blocks
-        const md = nonEmptyLines.join('\n\n');
-        ed.pasteMarkdown(md);
-        return true;
+        if (blocksToInsert.length > 0) {
+          if (currentBlock) {
+            const isCurrentEmpty =
+              !currentBlock.content ||
+              currentBlock.content.length === 0 ||
+              (currentBlock.content.length === 1 &&
+                currentBlock.content[0].type === 'text' &&
+                !currentBlock.content[0].text);
+
+            if (isCurrentEmpty) {
+              const res = ed.replaceBlocks([currentBlock.id], blocksToInsert);
+              const last = res.insertedBlocks[res.insertedBlocks.length - 1];
+              if (last) ed.setTextCursorPosition(last, 'end');
+              return true;
+            } else {
+              const inserted = ed.insertBlocks(blocksToInsert, currentBlock.id, 'after');
+              const last = inserted[inserted.length - 1];
+              if (last) ed.setTextCursorPosition(last, 'end');
+              return true;
+            }
+          } else {
+            const doc = ed.document;
+            const ref = doc[doc.length - 1];
+            if (ref) {
+              const inserted = ed.insertBlocks(blocksToInsert, ref.id, 'after');
+              const last = inserted[inserted.length - 1];
+              if (last) ed.setTextCursorPosition(last, 'end');
+              return true;
+            }
+          }
+        }
       }
 
       // If HTML from mobile has no block tags (<p>), tryParseHTMLToBlocks returns 0 blocks.
@@ -3100,7 +3125,31 @@ function BlockContent({
           {t('Drop to add to this page')}
         </div>
       )}
-      <div className="editor-inner" onClickCapture={onFileClick}>
+      <div
+        className="editor-inner"
+        onClickCapture={onFileClick}
+        onKeyDownCapture={(e) => {
+          if (e.key === 'Backspace' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+            if (surface && nothingBefore(surface)) {
+              let curType = '';
+              try {
+                curType = editor.getTextCursorPosition()?.block?.type ?? '';
+              } catch {
+                // ignore
+              }
+              // If it's a list item, heading, etc., let BlockNote revert it to paragraph first
+              if (curType && curType !== 'paragraph') {
+                return;
+              }
+              // Prevent deleting the first line; focus the title instead
+              e.preventDefault();
+              e.stopPropagation();
+              focusKey(regionId, 'title');
+            }
+          }
+        }}
+      >
         {/* The database block renders inside the editor and would otherwise
             not reach the page list, the tag colours or navigation. */}
         <BlockContext.Provider value={{ pagesById, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, pageId: provider.pageId }}>
