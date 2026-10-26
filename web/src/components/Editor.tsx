@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   useCreateBlockNote,
   SuggestionMenuController,
@@ -32,7 +32,7 @@ import AnchoredMenu from './AnchoredMenu';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
-import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, navItem, nothingBefore, useNavRegion } from '../nav';
+import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, focusRegion, navItem, nothingBefore, useNavRegion } from '../nav';
 import { openPage, openPageAux, type PageOpeners } from '../pageOpen';
 import { readPageScroll, writePageScroll } from '../pageUiState';
 import { useShortcut } from '../keys';
@@ -879,6 +879,14 @@ function expiryToDays(expiresAt?: string): number {
   return best;
 }
 
+interface PageTitleContextType {
+  title: string;
+  setTitleAndSave: (newTitle: string) => void;
+  titleRef: React.RefObject<HTMLTextAreaElement | null>;
+  registerFocusBodyStart: (fn: () => void) => void;
+}
+const PageTitleContext = createContext<PageTitleContextType | null>(null);
+
 function PageHeader({
   page,
   pageId,
@@ -927,6 +935,14 @@ function PageHeader({
   children?: React.ReactNode;
 }) {
   const [title, setTitle] = useState(page.title);
+  const focusBodyStartRef = useRef<(() => void) | null>(null);
+  const registerFocusBodyStart = useCallback((fn: () => void) => {
+    focusBodyStartRef.current = fn;
+  }, []);
+  const focusBodyStart = () => {
+    focusKey(regionId, 'body');
+    focusBodyStartRef.current?.();
+  };
   const [tags, setTags] = useState<string[]>(page.tags ?? []);
   const [tagDraft, setTagDraft] = useState('');
   const [tagSuggestOpen, setTagSuggestOpen] = useState(false);
@@ -1100,10 +1116,45 @@ function PageHeader({
       }
       if (el.dataset.navKey === 'body') {
         const surface = el.querySelector('[contenteditable="true"]');
-        // Up and left leave by the same edge, the top of the text. Asking the
-        // selection rather than the block model keeps this true inside tables,
-        // columns and nested lists.
-        return !!surface && (dir === 'up' || dir === 'left') && nothingBefore(surface);
+        // Up leaves by the top of the text to the title. Left is handled by onCollapse.
+        return !!surface && dir === 'up' && nothingBefore(surface);
+      }
+      return false;
+    },
+    onCollapse: (el, key) => {
+      if (key === 'body') {
+        const surface = el.querySelector('[contenteditable="true"]');
+        if (surface && nothingBefore(surface)) {
+          focusKey(regionId, 'title');
+          const ta = titleRef.current;
+          if (ta) {
+            ta.focus();
+            const len = ta.value.length;
+            ta.setSelectionRange(len, len);
+          }
+          requestAnimationFrame(() => {
+            const ta = titleRef.current;
+            if (ta) {
+              ta.focus();
+              const len = ta.value.length;
+              ta.setSelectionRange(len, len);
+            }
+          });
+          return true;
+        }
+      }
+      return false;
+    },
+    onExpand: (el, key) => {
+      if (key === 'title') {
+        const ta = titleRef.current;
+        if (ta) {
+          const s = { start: ta.selectionStart, end: ta.selectionEnd, length: ta.value.length };
+          if (s.start === s.end && s.start === s.length) {
+            focusBodyStart();
+            return true;
+          }
+        }
       }
       return false;
     },
@@ -1523,6 +1574,11 @@ function PageHeader({
       });
     }, 500);
   };
+
+  const setTitleAndSave = useCallback((newTitle: string) => {
+    setTitle(newTitle);
+    saveMeta({ title: newTitle });
+  }, [pageId]);
 
   // Tags: client-side clean (strip '#', dedupe) is cosmetic — the server
   // re-normalizes authoritatively on save.
@@ -2218,9 +2274,13 @@ function PageHeader({
                 // (it jumps into the body instead of breaking the title).
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  // The region knows how to focus its own items, including the one
-                  // that wraps a ProseMirror rather than being an input.
-                  focusKey(regionId, 'body');
+                  focusBodyStart();
+                } else if (e.key === 'ArrowRight' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+                  const ta = titleRef.current;
+                  if (ta && ta.selectionStart === ta.selectionEnd && ta.selectionStart === ta.value.length) {
+                    e.preventDefault();
+                    focusBodyStart();
+                  }
                 }
               }}
             />
@@ -2376,7 +2436,9 @@ function PageHeader({
               />
             )}
           </div>
-          {children}
+          <PageTitleContext.Provider value={{ title, setTitleAndSave, titleRef, registerFocusBodyStart }}>
+            {children}
+          </PageTitleContext.Provider>
         </div>
         {/* The raw trail stays at the foot of the document. Comments moved to a
           panel beside it (CommentsPanel) because people WORK in them; the trail
@@ -2594,6 +2656,19 @@ function isEffectivelyEmpty(doc: unknown[]): boolean {
   if (doc.length > 1) return false;
   const b = doc[0] as { type?: string; content?: unknown[] };
   return b?.type === 'paragraph' && (!b.content || b.content.length === 0);
+}
+
+function inlineContentToText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((item: any) => {
+      if (typeof item === 'string') return item;
+      if (typeof item?.text === 'string') return item.text;
+      if (Array.isArray(item?.content)) return inlineContentToText(item.content);
+      return '';
+    })
+    .join('');
 }
 
 function BlockContent({
@@ -3233,6 +3308,20 @@ function BlockContent({
   const [dropping, setDropping] = useState(false);
   const dragDepth = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const titleCtx = useContext(PageTitleContext);
+
+  useEffect(() => {
+    titleCtx?.registerFocusBodyStart(() => {
+      try {
+        const first = editor.document?.[0];
+        if (first) {
+          editor.setTextCursorPosition(first, 'start');
+        }
+      } catch {
+        // ignore
+      }
+    });
+  }, [editor, titleCtx]);
 
   const onDragEnter = (e: React.DragEvent) => {
     if (!canEdit || !carriesExternalFiles(e.dataTransfer)) return;
@@ -3376,9 +3465,85 @@ function BlockContent({
                 } catch {
                   // ignore
                 }
-              }
 
+                focusKey(regionId, 'title');
+                const ta = titleCtx?.titleRef?.current;
+                if (ta) {
+                  ta.focus();
+                  const len = ta.value.length;
+                  ta.setSelectionRange(len, len);
+                }
+                requestAnimationFrame(() => {
+                  const ta = titleCtx?.titleRef?.current;
+                  if (ta) {
+                    ta.focus();
+                    const len = ta.value.length;
+                    ta.setSelectionRange(len, len);
+                  }
+                });
+              } else {
+                const blockText = inlineContentToText(content);
+                const oldTitle = titleCtx?.titleRef?.current?.value ?? titleCtx?.title ?? '';
+                const oldLen = oldTitle.length;
+                const newTitle = oldTitle + blockText;
+
+                titleCtx?.setTitleAndSave(newTitle);
+
+                try {
+                  const doc = editor.document;
+                  if (doc && doc.length > 1 && curBlock) {
+                    editor.removeBlocks([curBlock]);
+                  } else if (doc && curBlock) {
+                    editor.replaceBlocks([curBlock.id], [{ type: 'paragraph' }]);
+                  }
+                } catch {
+                  // ignore
+                }
+
+                focusKey(regionId, 'title');
+                const ta = titleCtx?.titleRef?.current;
+                if (ta) {
+                  ta.focus();
+                  ta.setSelectionRange(oldLen, oldLen);
+                }
+                requestAnimationFrame(() => {
+                  const ta = titleCtx?.titleRef?.current;
+                  if (ta) {
+                    ta.focus();
+                    ta.setSelectionRange(oldLen, oldLen);
+                  }
+                });
+              }
+            }
+          } else if (e.key === 'ArrowLeft' && e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+            if (surface && nothingBefore(surface)) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (regionId === 'content') {
+                focusRegion('sidebar.tree', 0);
+              }
+            }
+          } else if (e.key === 'ArrowLeft' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+            if (surface && nothingBefore(surface)) {
+              e.preventDefault();
+              e.stopPropagation();
               focusKey(regionId, 'title');
+              const ta = titleCtx?.titleRef?.current;
+              if (ta) {
+                ta.focus();
+                const len = ta.value.length;
+                ta.setSelectionRange(len, len);
+              }
+              requestAnimationFrame(() => {
+                const ta = titleCtx?.titleRef?.current;
+                if (ta) {
+                  ta.focus();
+                  const len = ta.value.length;
+                  ta.setSelectionRange(len, len);
+                }
+              });
             }
           }
         }}
