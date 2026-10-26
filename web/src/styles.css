@@ -9717,7 +9717,7 @@ g.is-active > .tl-dep-head {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  width: 360px;
+  width: 380px;
   max-width: calc(100vw - 16px);
   /* No z-index here on purpose: it must clear .fs-backdrop, and a value set
      here would win over the one in the "menus behind the backdrop" block
@@ -9726,7 +9726,7 @@ g.is-active > .tl-dep-head {
 }
 .tl-menu-head { font-weight: 600; font-size: 13px; padding: 4px 6px 8px; }
 .tl-menu-sub { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
-.tl-menu-hint { font-size: 12px; color: var(--muted); padding: 4px 6px; }
+.tl-menu-hint { font-size: 12px; color: var(--muted); padding: 4px 6px; line-height: 1.4; }
 .tl-conflict-row {
   display: flex;
   flex-direction: column;
@@ -9736,7 +9736,23 @@ g.is-active > .tl-dep-head {
   border-radius: 8px;
 }
 .tl-conflict-row:hover { background: var(--hover); }
-.tl-conflict-row .btn-sm { align-self: flex-start; }
+.tl-conflict-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tl-conflict-more-wrap {
+  position: relative;
+  flex: none;
+}
+.tl-conflict-sub-backdrop {
+  z-index: 325;
+}
+.tl-conflict-sub-menu {
+  z-index: 330;
+  min-width: 230px;
+  white-space: nowrap;
+}
 .tl-conflict-name {
   flex: 1 1 auto;
   min-width: 0;
@@ -9771,6 +9787,27 @@ g.is-active > .tl-dep-head {
 }
 .tl-settings-row > span { flex: none; width: 64px; color: var(--muted); }
 .tl-settings-row .subitems-select { flex: 1 1 auto; min-width: 0; }
+.tl-settings-row.tl-checkbox-row,
+.tl-conflicts-menu .tl-settings-row {
+  justify-content: space-between;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.tl-settings-row.tl-checkbox-row:hover,
+.tl-conflicts-menu .tl-settings-row:hover {
+  background: var(--hover);
+}
+.tl-settings-row.tl-checkbox-row > span,
+.tl-conflicts-menu .tl-settings-row > span {
+  flex: 1 1 auto;
+  width: auto;
+  color: var(--fg);
+}
+.tl-settings-row.tl-checkbox-row input[type="checkbox"],
+.tl-conflicts-menu .tl-settings-row input[type="checkbox"] {
+  cursor: pointer;
+  margin: 0;
+}
 .tl-dep-menu { padding: 8px; }
 .tl-dep-section {
   font-size: 11px;

@@ -1395,5 +1395,8 @@
   "Fix": "Beheben",
   "Scheme": "Schema",
   "Ask {name}": "{name} erfragen",
-  "Guard only": "Nur Wache"
+  "Guard only": "Nur Wache",
+  "Remove dependency": "Abhängigkeit entfernen",
+  "Shift blocker to finish on {d}": "Blockierer vorverlegen bis {d}",
+  "Shift task and chain forward": "Aufgabe und Kette nach vorne verschieben"
 }

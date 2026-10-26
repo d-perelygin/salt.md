@@ -87,6 +87,13 @@ export function nextWorkday(day: number): number {
   return n;
 }
 
+/** The same day, or the Friday before it when it lands on a weekend. */
+export function prevWorkday(day: number): number {
+  let n = day;
+  while (new Date(n * 86400000).getUTCDay() === 0 || new Date(n * 86400000).getUTCDay() === 6) n--;
+  return n;
+}
+
 export function shiftTarget(self: DepNode, preds: DepNode[]): number | null {
   if (!preds.length) return null;
   const after = Math.max(...preds.map((p) => p.end)) + 1;

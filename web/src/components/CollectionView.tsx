@@ -48,7 +48,7 @@ import type {
 } from '../types';
 import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, isSystemRef } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
-import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
+import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, prevWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
 import { openCollectionRow, openPageAux, peekPanel, type PageOpeners } from '../pageOpen';
 import { hintSeen, markHintSeen, readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
 import { useMenuDismiss } from '../modal';
@@ -4321,6 +4321,7 @@ function TimelineView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startWithSettings]);
   const [conflictsOpen, setConflictsOpen] = useState(false);
+  const [conflictMenuKey, setConflictMenuKey] = useState<string | null>(null);
   // Row whose blocker popover is open, with the click point for positioning.
   const [depPop, setDepPop] = useState<{ id: string; x: number; y: number } | null>(null);
   const [addBlockerFor, setAddBlockerFor] = useState<string | null>(null);
@@ -4477,6 +4478,62 @@ function TimelineView({
       [startProp]: isoDay(after),
       ...(endProp ? { [endProp]: isoDay(after + dur) } : {}),
     });
+  };
+
+  const shiftBlockerEarlier = (predId: string, selfId: string) => {
+    const pred = byId.get(predId);
+    const self = byId.get(selfId);
+    if (!pred || !self) return;
+    const dur = pred.end - pred.start;
+    const targetEnd = skipWeekends ? prevWorkday(self.start - 1) : self.start - 1;
+    const targetStart = targetEnd - dur;
+    void onSetDates(predId, {
+      [startProp]: isoDay(targetStart),
+      ...(endProp ? { [endProp]: isoDay(targetEnd) } : {}),
+    });
+  };
+
+  const shiftWithChain = (rowId: string) => {
+    const self = byId.get(rowId);
+    if (!self) return;
+    const preds = (blockedBy.get(rowId) ?? []).map((id) => byId.get(id)!).filter(Boolean);
+    if (!preds.length) return;
+    const node = nodeById.get(rowId)!;
+    const predNodes = preds.map((p) => nodeById.get(p.row.id)!).filter(Boolean);
+    const target = shiftTarget(node, predNodes);
+    if (target === null) return;
+    const after = shiftDay(target);
+    const delta = after - self.start;
+    if (delta <= 0) return;
+
+    const chain = new Set<string>();
+    const queue = [rowId];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const next of depIdsOf(cur)) {
+        if (!chain.has(next)) {
+          chain.add(next);
+          queue.push(next);
+        }
+      }
+    }
+
+    const dur = self.end - self.start;
+    void onSetDates(rowId, {
+      [startProp]: isoDay(after),
+      ...(endProp ? { [endProp]: isoDay(after + dur) } : {}),
+    });
+
+    for (const succId of chain) {
+      const it = byId.get(succId);
+      if (!it) continue;
+      const itDur = it.end - it.start;
+      const newStart = it.start + delta;
+      void onSetDates(succId, {
+        [startProp]: isoDay(newStart),
+        ...(endProp ? { [endProp]: isoDay(newStart + itDur) } : {}),
+      });
+    }
   };
 
   if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
@@ -5182,44 +5239,110 @@ function TimelineView({
                 />
                 <div className="menu tl-conflicts-menu" role="listbox">
                   <div className="tl-menu-head">{t('Blocked tasks overlap their blockers')}</div>
-                  {allViolations.slice(0, 20).map((v) => (
-                    <div key={v.self.row.id + v.pred.row.id} className="tl-conflict-row">
-                      <button
-                        className="tl-conflict-name"
-                        onClick={() => {
-                          setConflictsOpen(false);
-                          openCollectionRow(
-                            { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
-                            v.self.row.id,
-                            { onNavigate, onOpenInNewTab },
-                          );
-                        }}
-                      >
-                        {v.self.row.title || t('Untitled')}
-                        <span className="tl-conflict-sub">
-                          {t('starts {a}, blocked by {b} until {c}', {
-                            a: formatDay(isoDay(v.self.start), 'dayMonth'),
-                            b: v.pred.row.title || t('Untitled'),
-                            c: formatDay(isoDay(v.pred.end), 'dayMonth'),
-                          })}
-                        </span>
-                      </button>
-                      <button
-                        className="btn-sm primary"
-                        onClick={() => {
-                          shiftAfterBlockers(v.self.row.id);
-                          setConflictsOpen(false);
-                        }}
-                      >
-                        {t('Shift to {d}', { d: formatDay(isoDay(shiftDay(v.pred.end + 1)), 'dayMonth') })}
-                      </button>
-                    </div>
-                  ))}
+                  {allViolations.slice(0, 20).map((v) => {
+                    const key = v.self.row.id + ':' + v.pred.row.id;
+                    const predTargetEnd = skipWeekends ? prevWorkday(v.self.start - 1) : v.self.start - 1;
+                    return (
+                      <div key={key} className="tl-conflict-row">
+                        <button
+                          className="tl-conflict-name"
+                          onClick={() => {
+                            setConflictsOpen(false);
+                            setConflictMenuKey(null);
+                            openCollectionRow(
+                              { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
+                              v.self.row.id,
+                              { onNavigate, onOpenInNewTab },
+                            );
+                          }}
+                        >
+                          {v.self.row.title || t('Untitled')}
+                          <span className="tl-conflict-sub">
+                            {t('starts {a}, blocked by {b} until {c}', {
+                              a: formatDay(isoDay(v.self.start), 'dayMonth'),
+                              b: v.pred.row.title || t('Untitled'),
+                              c: formatDay(isoDay(v.pred.end), 'dayMonth'),
+                            })}
+                          </span>
+                        </button>
+                        <div className="tl-conflict-actions">
+                          <button
+                            className="btn-sm primary"
+                            onClick={() => {
+                              shiftAfterBlockers(v.self.row.id);
+                              setConflictMenuKey(null);
+                              setConflictsOpen(false);
+                            }}
+                          >
+                            {t('Shift to {d}', { d: formatDay(isoDay(shiftDay(v.pred.end + 1)), 'dayMonth') })}
+                          </button>
+                          <div className="tl-conflict-more-wrap">
+                            <button
+                              className="btn-sm"
+                              aria-label={t('More actions')}
+                              title={t('More actions')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConflictMenuKey((cur) => (cur === key ? null : key));
+                              }}
+                            >
+                              <MoreHorizontal size={14} />
+                            </button>
+                            {conflictMenuKey === key && (
+                              <>
+                                <div
+                                  className="fs-backdrop tl-conflict-sub-backdrop"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConflictMenuKey(null);
+                                  }}
+                                />
+                                <AnchoredMenu className="menu tl-conflict-sub-menu">
+                                  <button
+                                    className="menu-item"
+                                    onClick={() => {
+                                      shiftBlockerEarlier(v.pred.row.id, v.self.row.id);
+                                      setConflictMenuKey(null);
+                                      setConflictsOpen(false);
+                                    }}
+                                  >
+                                    {t('Shift blocker to finish on {d}', {
+                                      d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                                    })}
+                                  </button>
+                                  <button
+                                    className="menu-item"
+                                    onClick={() => {
+                                      shiftWithChain(v.self.row.id);
+                                      setConflictMenuKey(null);
+                                      setConflictsOpen(false);
+                                    }}
+                                  >
+                                    {t('Shift task and chain forward')}
+                                  </button>
+                                  <div className="menu-sep" />
+                                  <button
+                                    className="menu-item danger"
+                                    onClick={() => {
+                                      unlink(v.pred.row.id, v.self.row.id);
+                                      setConflictMenuKey(null);
+                                    }}
+                                  >
+                                    {t('Remove dependency')}
+                                  </button>
+                                </AnchoredMenu>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                   {/* The toggle lives here, under the list, rather than in the
                       view settings: it changes nothing but what these Shift
                       buttons land on — a Saturday target becomes the Monday. */}
                   <div className="menu-sep" />
-                  <label className="tl-settings-row">
+                  <label className="tl-settings-row tl-checkbox-row">
                     <span>{t('Skip weekends')}</span>
                     <input
                       type="checkbox"

@@ -1474,5 +1474,8 @@
   "Fix": "Исправить",
   "Scheme": "Схема",
   "Ask {name}": "Спросить {name}",
-  "Guard only": "Только сторожит"
+  "Guard only": "Только сторожит",
+  "Remove dependency": "Удалить зависимость",
+  "Shift blocker to finish on {d}": "Сдвинуть блокирующую задачу до {d}",
+  "Shift task and chain forward": "Сдвинуть задачу и цепочку вперед"
 }
