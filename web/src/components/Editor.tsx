@@ -1467,6 +1467,17 @@ function PageHeader({
     return chain;
   }, [pagesById, pageId, page]);
 
+  const inheritedAccess = useMemo(() => {
+    for (let i = 0; i < breadcrumbs.length - 1; i++) {
+      const a = breadcrumbs[i];
+      if (a.visibility === 'private' || a.visibility === 'restricted') {
+        return { title: a.title, visibility: a.visibility };
+      }
+    }
+    return null;
+  }, [breadcrumbs]);
+  const isAccessRestricted = visibility !== 'workspace' || !!inheritedAccess;
+
   return (
     <>
       <header className="topbar">
@@ -1615,11 +1626,11 @@ function PageHeader({
           )}
           <div className="access-wrap" ref={accessWrapRef}>
             <button
-              className={'icon-btn topbar-wide-only' + (visibility !== 'workspace' ? ' active-star' : '')}
-              title={t('Page access…')}
+              className={'icon-btn topbar-wide-only' + (isAccessRestricted ? ' active-star' : '')}
+              title={inheritedAccess ? t('Page access… (inherited)') : t('Page access…')}
               onClick={() => setSharesOpen((o) => !o)}
             >
-              {visibility === 'workspace' ? <LockOpen size={17} /> : <Lock size={17} />}
+              {isAccessRestricted ? <Lock size={17} /> : <LockOpen size={17} />}
             </button>
             {sharesOpen && (
               <PageShares
@@ -1627,6 +1638,7 @@ function PageHeader({
                 workspaceId={page.workspaceId}
                 myUserId={user.id}
                 visibility={visibility}
+                inheritedFrom={inheritedAccess}
                 onClose={() => setSharesOpen(false)}
                 onVisibilityChange={setVisibility}
               />

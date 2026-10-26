@@ -390,9 +390,22 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
+	vis := "workspace"
+	if body.ParentID != nil && *body.ParentID != "" {
+		var ancVis string
+		err := s.db.QueryRow(`
+			WITH RECURSIVE anc(id, parent_id, visibility) AS (
+				SELECT id, parent_id, visibility FROM pages WHERE id = ?
+				UNION
+				SELECT p.id, p.parent_id, p.visibility FROM pages p JOIN anc ON p.id = anc.parent_id
+			) SELECT visibility FROM anc WHERE visibility IN ('private', 'restricted') LIMIT 1`, *body.ParentID).Scan(&ancVis)
+		if err == nil && ancVis != "" {
+			vis = ancVis
+		}
+	}
 	_, err := s.db.Exec(
-		`INSERT INTO pages (id, parent_id, title, icon, content, position, created_at, updated_at, type, props, workspace_id, owner_id, visibility) VALUES (?, ?, ?, '', '[]', ?, ?, ?, ?, ?, ?, ?, 'workspace')`,
-		id, body.ParentID, body.Title, pos, ts, ts, body.Type, props, workspaceID, userID,
+		`INSERT INTO pages (id, parent_id, title, icon, content, position, created_at, updated_at, type, props, workspace_id, owner_id, visibility) VALUES (?, ?, ?, '', '[]', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, body.ParentID, body.Title, pos, ts, ts, body.Type, props, workspaceID, userID, vis,
 	)
 	if err != nil {
 		httpError(w, 500, err.Error())

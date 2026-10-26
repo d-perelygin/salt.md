@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Lock } from 'lucide-react';
 import { api } from '../api';
 import { toast } from '../toast';
 import { isOfflineError, isTempId, savePageUpdate } from '../outbox';
@@ -6,6 +7,10 @@ import { t } from '../i18n';
 
 type Access = 'view' | 'edit';
 type Visibility = 'workspace' | 'private' | 'restricted';
+export interface InheritedAccess {
+  title: string;
+  visibility: 'private' | 'restricted';
+}
 interface Share {
   userId: string;
   name: string;
@@ -27,6 +32,7 @@ export default function PageShares({
   workspaceId,
   myUserId,
   visibility,
+  inheritedFrom,
   onClose,
   onVisibilityChange,
 }: {
@@ -34,6 +40,7 @@ export default function PageShares({
   workspaceId: string;
   myUserId: string;
   visibility: Visibility;
+  inheritedFrom?: InheritedAccess | null;
   onClose: () => void;
   onVisibilityChange: (v: Visibility) => void;
 }) {
@@ -115,7 +122,18 @@ export default function PageShares({
   return (
     <div className="menu access-menu" role="dialog" aria-label={t('Page access')}>
       <h2 className="access-title">{t('Page access')}</h2>
-          <div className="user-list">
+      {inheritedFrom && (
+        <div className="access-inherited-hint">
+          <Lock size={14} />
+          <span>
+            {t('Inherited from “{title}”: restricted to {mode}. Members without access to the parent note cannot open this page.', {
+              title: inheritedFrom.title || t('Untitled'),
+              mode: inheritedFrom.visibility === 'private' ? t('Only me') : t('Chosen members'),
+            })}
+          </span>
+        </div>
+      )}
+      <div className="user-list">
             {(
               [
                 { id: 'workspace', label: t('Everyone in the workspace') },

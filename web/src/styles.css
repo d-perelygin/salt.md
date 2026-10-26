@@ -6989,6 +6989,25 @@ body.is-unsched-carry .tl-end-space {
   padding: 2px 8px;
 }
 
+.access-inherited-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.access-inherited-hint svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--fg);
+}
+
 /* The dialog this replaces had room to spare; the menu does not. Explanatory
    lines drop to hint size, and a member row wraps: identity on the first
    line (long emails ellipsize instead of pushing the controls off), access
