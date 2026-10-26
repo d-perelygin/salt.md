@@ -53,7 +53,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2 } from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy } from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -78,6 +78,7 @@ export interface EditorProps {
   // ⋯ only moves between columns, and this menu had no entry. The page menu is
   // the one menu every page has, so it is the honest place for it.
   onTrash: (id: string) => void;
+  onDuplicate?: (id: string) => void | Promise<void>;
   onPagesChanged: () => void;
   currentWs?: string;
   workspaces?: Workspace[];
@@ -733,6 +734,7 @@ function PageHeader({
   onNavigate,
   onOpenInNewTab,
   onTrash,
+  onDuplicate,
   onLocalMeta,
   onPagesChanged,
   pagesById,
@@ -1888,6 +1890,17 @@ function PageHeader({
                 >
                   <Globe size={15} /> {t('Share to web (read-only link)')}
                 </button>
+                {onDuplicate && (
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      void onDuplicate(pageId);
+                    }}
+                  >
+                    <Copy size={15} /> {t('Duplicate')}
+                  </button>
+                )}
                 {canEdit && (
                   <button
                     className="menu-item"

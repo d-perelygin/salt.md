@@ -1931,6 +1931,7 @@ export default function App() {
               onOpenInNewTab={openInNewTab}
               onCreatePage={createPage}
               onTrash={trashPage}
+              onDuplicate={duplicatePage}
               onPagesChanged={loadPages}
               currentWs={currentWs}
               workspaces={workspaces}
@@ -2032,6 +2033,7 @@ export default function App() {
             if (id === peekId) closePeek();
             trashPage(id);
           }}
+          onDuplicate={duplicatePage}
           onPagesChanged={loadPages}
           currentWs={currentWs}
           workspaces={workspaces}
