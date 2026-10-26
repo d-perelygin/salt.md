@@ -1056,6 +1056,26 @@ button {
   background: var(--hover);
 }
 
+.crumb.crumb-ws-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.crumb.crumb-ws-badge:hover {
+  background: var(--active);
+  color: var(--fg);
+  border-color: var(--border-hover, var(--border));
+}
+
 .crumb-sep {
   color: var(--muted);
   margin: 0 2px;

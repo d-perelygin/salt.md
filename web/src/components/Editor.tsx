@@ -1663,16 +1663,14 @@ function PageHeader({
           {foreignWorkspace && (
             <span className="crumb-wrap">
               <button
-                className="crumb"
+                className="crumb crumb-ws-badge"
                 onClick={() => onSelectWorkspace?.(foreignWorkspace.id)}
                 title={foreignWorkspace.name}
               >
                 {foreignWorkspace.icon && (
-                  <>
-                    <PageIcon icon={foreignWorkspace.icon} size={13} />{' '}
-                  </>
+                  <PageIcon icon={foreignWorkspace.icon} size={13} />
                 )}
-                {foreignWorkspace.name}
+                <span>{foreignWorkspace.name}</span>
               </button>
               <span className="crumb-sep">/</span>
             </span>
@@ -3317,19 +3315,40 @@ function BlockContent({
           if (e.key === 'Backspace' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
             const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
             if (surface && nothingBefore(surface)) {
-              let curType = '';
+              let curBlock: any = null;
               try {
-                curType = editor.getTextCursorPosition()?.block?.type ?? '';
+                curBlock = editor.getTextCursorPosition()?.block;
               } catch {
                 // ignore
               }
+              const curType = curBlock?.type ?? '';
               // If it's a list item, heading, etc., let BlockNote revert it to paragraph first
               if (curType && curType !== 'paragraph') {
                 return;
               }
-              // Prevent deleting the first line; focus the title instead
+
+              const content = curBlock?.content;
+              const isEmpty =
+                !curBlock ||
+                !content ||
+                (Array.isArray(content) &&
+                  (content.length === 0 ||
+                    content.every((c: any) => c.type === 'text' && (!c.text || c.text.length === 0))));
+
               e.preventDefault();
               e.stopPropagation();
+
+              if (isEmpty) {
+                try {
+                  const doc = editor.document;
+                  if (doc && doc.length > 1 && curBlock) {
+                    editor.removeBlocks([curBlock]);
+                  }
+                } catch {
+                  // ignore
+                }
+              }
+
               focusKey(regionId, 'title');
             }
           }
