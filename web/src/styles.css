@@ -9858,6 +9858,16 @@ g.is-active > .tl-dep-head {
   padding: 0;
 }
 .tl-dep-fix { width: 100%; justify-content: center; margin: 8px 0; }
+.tl-dep-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+.tl-dep-actions .tl-dep-fix {
+  margin: 0;
+  flex: 1 1 auto;
+}
 .tl-dep-add { width: 100%; margin-top: 4px; }
 
 /* ---- Blocked-row banner in the record editor ---- */
@@ -9873,6 +9883,12 @@ g.is-active > .tl-dep-head {
 }
 .dep-banner-ic { color: var(--danger); font-size: 15px; flex: none; }
 .dep-banner-text { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.dep-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
 .dep-banner .btn-sm { flex: none; }
 
 /* ---- Sub-task tree (table hierarchy) ---- */

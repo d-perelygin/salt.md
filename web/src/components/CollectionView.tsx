@@ -4324,6 +4324,7 @@ function TimelineView({
   const [conflictMenuKey, setConflictMenuKey] = useState<string | null>(null);
   // Row whose blocker popover is open, with the click point for positioning.
   const [depPop, setDepPop] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [depMoreOpen, setDepMoreOpen] = useState(false);
   const [addBlockerFor, setAddBlockerFor] = useState<string | null>(null);
   // Drag-to-link: which row the handle was pulled from. The lasso line and
   // the target highlight are driven imperatively (refs + classList) during
@@ -5861,20 +5862,101 @@ function TimelineView({
               );
             })}
             {depPopViolations.length > 0 && (
-              <button
-                className="btn-sm primary tl-dep-fix"
-                onClick={() => {
-                  shiftAfterBlockers(depPop.id);
-                  setDepPop(null);
-                }}
-              >
-                {t('Shift to {d}, keep duration', {
-                  d: formatDay(
-                    isoDay(shiftDay(Math.max(...depPopViolations.map((v) => v.pred.end)) + 1)),
-                    'dayMonth',
-                  ),
-                })}
-              </button>
+              <div className="tl-dep-actions">
+                <button
+                  className="btn-sm primary tl-dep-fix"
+                  onClick={() => {
+                    shiftAfterBlockers(depPop.id);
+                    setDepMoreOpen(false);
+                    setDepPop(null);
+                  }}
+                >
+                  {t('Shift to {d}, keep duration', {
+                    d: formatDay(
+                      isoDay(shiftDay(Math.max(...depPopViolations.map((v) => v.pred.end)) + 1)),
+                      'dayMonth',
+                    ),
+                  })}
+                </button>
+                <div className="tl-conflict-more-wrap">
+                  <button
+                    className="btn-sm"
+                    aria-label={t('More actions')}
+                    title={t('More actions')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDepMoreOpen((o) => !o);
+                    }}
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                  {depMoreOpen && (
+                    <>
+                      <div
+                        className="fs-backdrop tl-conflict-sub-backdrop"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDepMoreOpen(false);
+                        }}
+                      />
+                      <AnchoredMenu className="menu tl-conflict-sub-menu">
+                        {depPopViolations.map((v) => {
+                          const predTargetEnd = skipWeekends
+                            ? prevWorkday(v.self.start - 1)
+                            : v.self.start - 1;
+                          return (
+                            <button
+                              key={'dep-shift-pred-' + v.pred.row.id}
+                              className="menu-item"
+                              onClick={() => {
+                                shiftBlockerEarlier(v.pred.row.id, v.self.row.id);
+                                setDepMoreOpen(false);
+                                setDepPop(null);
+                              }}
+                            >
+                              {depPopViolations.length === 1
+                                ? t('Shift blocker to finish on {d}', {
+                                    d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                                  })
+                                : t('Shift “{title}” to finish on {d}', {
+                                    title: v.pred.row.title || t('Untitled'),
+                                    d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                                  })}
+                            </button>
+                          );
+                        })}
+                        <button
+                          className="menu-item"
+                          onClick={() => {
+                            shiftWithChain(depPop.id);
+                            setDepMoreOpen(false);
+                            setDepPop(null);
+                          }}
+                        >
+                          {t('Shift task and chain forward')}
+                        </button>
+                        <div className="menu-sep" />
+                        {depPopViolations.map((v) => (
+                          <button
+                            key={'dep-unlink-' + v.pred.row.id}
+                            className="menu-item danger"
+                            onClick={() => {
+                              unlink(v.pred.row.id, v.self.row.id);
+                              setDepMoreOpen(false);
+                            }}
+                          >
+                            {depPopViolations.length === 1
+                              ? t('Remove dependency')
+                              : t('Remove dependency with “{title}”', {
+                                  title: v.pred.row.title || t('Untitled'),
+                                })}
+                          </button>
+                        ))}
+                      </AnchoredMenu>
+                    </>
+                  )}
+                </div>
+              </div>
             )}
             <div className="tl-dep-section">{t('Blocks')}</div>
             {depIdsOf(depPop.id).length === 0 && (blockedBy.get(depPop.id) ?? []).length === 0 && (

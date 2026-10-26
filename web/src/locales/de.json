@@ -1400,5 +1400,7 @@
   "Shift blocker to finish on {d}": "Blockierer vorverlegen bis {d}",
   "Shift task and chain forward": "Aufgabe und Kette nach vorne verschieben",
   "Inherited from “{title}”: restricted to {mode}. Members without access to the parent note cannot open this page.": "Geerbt von „{title}“: beschränkt auf {mode}. Mitglieder ohne Zugriff auf die übergeordnete Notiz können diese Seite nicht öffnen.",
-  "Page access… (inherited)": "Seitenzugriff… (geerbt)"
+  "Page access… (inherited)": "Seitenzugriff… (geerbt)",
+  "Remove dependency with “{title}”": "Abhängigkeit mit „{title}“ entfernen",
+  "Shift “{title}” to finish on {d}": "„{title}“ vorverlegen bis {d}"
 }

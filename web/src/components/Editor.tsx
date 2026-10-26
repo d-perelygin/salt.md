@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   useCreateBlockNote,
   SuggestionMenuController,
@@ -25,7 +25,7 @@ import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User, Work
 import { SaltProvider } from '../collab';
 import { plural, t } from '../i18n';
 import { formatDay } from '../format';
-import { blockedByMap, dayNum, depListOf, isoDay, shiftTarget, type DepNode } from '../depUtils';
+import { blockedByMap, dayNum, depListOf, isoDay, nextWorkday, prevWorkday, shiftTarget, type DepNode } from '../depUtils';
 import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import AnchoredMenu from './AnchoredMenu';
@@ -477,6 +477,7 @@ function BlockedBanner({
   config,
   canEdit,
   onShift,
+  onPagesChanged,
 }: {
   pageId: string;
   parentId: string;
@@ -484,8 +485,17 @@ function BlockedBanner({
   config: CollectionConfig;
   canEdit: boolean;
   onShift: (startProp: string, endProp: string, startIso: string, endIso: string | null) => void;
+  onPagesChanged?: () => void;
 }) {
   const [rows, setRows] = useState<{ id: string; title: string; props: Record<string, unknown> }[] | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const loadRows = useCallback(() => {
+    api
+      .collectionRows(parentId, { limit: 500 })
+      .then((r) => setRows(r.rows))
+      .catch(() => setRows([]));
+  }, [parentId]);
+
   useEffect(() => {
     let alive = true;
     setRows(null);
@@ -557,8 +567,11 @@ function BlockedBanner({
     .map((id) => byId.get(id)!)
     .filter((p) => p && self.start <= p.end);
   if (!blockers.length) return null;
+  const skipWeekends = tlView?.tlSkipWeekends ?? false;
+  const shiftDay = (d: number) => (skipWeekends ? nextWorkday(d) : d);
   const latest = Math.max(...blockers.map((p) => p.end));
-  const target = shiftTarget(self, blockers);
+  const rawTarget = shiftTarget(self, blockers);
+  const target = rawTarget !== null ? shiftDay(rawTarget) : null;
 
   return (
     <div className="dep-banner" role="status">
@@ -570,14 +583,128 @@ function BlockedBanner({
         })}
       </div>
       {target !== null && canEdit && (
-        <button
-          className="btn-sm primary"
-          onClick={() =>
-            onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null)
-          }
-        >
-          {t('Shift to {d}, keep duration', { d: formatDay(isoDay(target), 'dayMonth') })}
-        </button>
+        <div className="dep-banner-actions">
+          <button
+            className="btn-sm primary"
+            onClick={() =>
+              onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null)
+            }
+          >
+            {t('Shift to {d}, keep duration', { d: formatDay(isoDay(target), 'dayMonth') })}
+          </button>
+          <div className="tl-conflict-more-wrap">
+            <button
+              className="btn-sm"
+              aria-label={t('More actions')}
+              title={t('More actions')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMoreOpen((o) => !o);
+              }}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            {moreOpen && (
+              <>
+                <div
+                  className="fs-backdrop tl-conflict-sub-backdrop"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMoreOpen(false);
+                  }}
+                />
+                <AnchoredMenu className="menu tl-conflict-sub-menu">
+                  {blockers.map((b) => {
+                    const dur = b.end - b.start;
+                    const predTargetEnd = skipWeekends ? prevWorkday(self.start - 1) : self.start - 1;
+                    const predTargetStart = predTargetEnd - dur;
+                    return (
+                      <button
+                        key={'pred-' + b.id}
+                        className="menu-item"
+                        onClick={async () => {
+                          setMoreOpen(false);
+                          const patch: Record<string, string> = {
+                            [startProp]: isoDay(predTargetStart),
+                            ...(endProp ? { [endProp]: isoDay(predTargetEnd) } : {}),
+                          };
+                          await api.updatePage(b.id, { propsPatch: patch });
+                          loadRows();
+                          onPagesChanged?.();
+                        }}
+                      >
+                        {blockers.length === 1
+                          ? t('Shift blocker to finish on {d}', {
+                              d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                            })
+                          : t('Shift “{title}” to finish on {d}', {
+                              title: titles.get(b.id) || t('Untitled'),
+                              d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                            })}
+                      </button>
+                    );
+                  })}
+                  <button
+                    className="menu-item"
+                    onClick={async () => {
+                      setMoreOpen(false);
+                      const delta = target - self.start;
+                      if (delta <= 0) return;
+                      onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null);
+                      const chain = new Set<string>();
+                      const queue = [pageId];
+                      while (queue.length) {
+                        const cur = queue.shift()!;
+                        const it = byId.get(cur);
+                        for (const next of it?.deps ?? []) {
+                          if (!chain.has(next)) {
+                            chain.add(next);
+                            queue.push(next);
+                          }
+                        }
+                      }
+                      for (const succId of chain) {
+                        const it = byId.get(succId);
+                        if (!it) continue;
+                        const itDur = it.end - it.start;
+                        const newStart = it.start + delta;
+                        const patch: Record<string, string> = {
+                          [startProp]: isoDay(newStart),
+                          ...(endProp ? { [endProp]: isoDay(newStart + itDur) } : {}),
+                        };
+                        await api.updatePage(succId, { propsPatch: patch });
+                      }
+                      loadRows();
+                      onPagesChanged?.();
+                    }}
+                  >
+                    {t('Shift task and chain forward')}
+                  </button>
+                  <div className="menu-sep" />
+                  {blockers.map((b) => (
+                    <button
+                      key={'unlink-' + b.id}
+                      className="menu-item danger"
+                      onClick={async () => {
+                        setMoreOpen(false);
+                        const cur = b.deps.filter((id) => id !== pageId);
+                        await api.updatePage(b.id, { propsPatch: { [effDep]: cur } });
+                        loadRows();
+                        onPagesChanged?.();
+                      }}
+                    >
+                      {blockers.length === 1
+                        ? t('Remove dependency')
+                        : t('Remove dependency with “{title}”', {
+                            title: titles.get(b.id) || t('Untitled'),
+                          })}
+                    </button>
+                  ))}
+                </AnchoredMenu>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -592,6 +719,7 @@ function RowProperties({
   canEdit,
   onOpen,
   openers,
+  onPagesChanged,
 }: {
   pageId: string;
   parentId: string;
@@ -599,6 +727,7 @@ function RowProperties({
   canEdit: boolean;
   onOpen?: (id: string) => void;
   openers?: PageOpeners;
+  onPagesChanged?: () => void;
 }) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [props, setProps] = useState<Record<string, unknown>>(initialProps ?? {});
@@ -671,6 +800,7 @@ function RowProperties({
         liveProps={props}
         config={config}
         canEdit={canEdit}
+        onPagesChanged={onPagesChanged}
         onShift={(sp, ep, sIso, eIso) => {
           void setProp(sp, sIso);
           if (ep && eIso) void setProp(ep, eIso);
@@ -2215,6 +2345,7 @@ function PageHeader({
                 canEdit={canEdit}
                 onOpen={onOpenInNewTab ?? onNavigate}
                 openers={{ onNavigate, onOpenInNewTab }}
+                onPagesChanged={onPagesChanged}
               />
             )}
           </div>
