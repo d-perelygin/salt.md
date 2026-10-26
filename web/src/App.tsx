@@ -1932,6 +1932,9 @@ export default function App() {
               onCreatePage={createPage}
               onTrash={trashPage}
               onPagesChanged={loadPages}
+              currentWs={currentWs}
+              workspaces={workspaces}
+              onSelectWorkspace={switchWorkspace}
             />
           </>
         ) : workspaces.length === 0 ? (
@@ -2030,6 +2033,9 @@ export default function App() {
             trashPage(id);
           }}
           onPagesChanged={loadPages}
+          currentWs={currentWs}
+          workspaces={workspaces}
+          onSelectWorkspace={switchWorkspace}
           onClose={closePeek}
           onPrev={peekHasPrev ? () => stepPeek(-1) : undefined}
           onNext={peekHasNext ? () => stepPeek(1) : undefined}

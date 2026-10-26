@@ -21,7 +21,7 @@ import {
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
-import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User } from '../types';
+import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User, Workspace } from '../types';
 import { SaltProvider } from '../collab';
 import { plural, t } from '../i18n';
 import { formatDay } from '../format';
@@ -79,6 +79,9 @@ export interface EditorProps {
   // the one menu every page has, so it is the honest place for it.
   onTrash: (id: string) => void;
   onPagesChanged: () => void;
+  currentWs?: string;
+  workspaces?: Workspace[];
+  onSelectWorkspace?: (id: string) => void;
   // Side peek chrome (see PeekPanel): when present, the panel controls sit
   // inline at the head of this topbar instead of on a bar of their own, and
   // the structure and favorite buttons move into the ⋯ menu — a narrow panel
@@ -743,6 +746,9 @@ function PageHeader({
   onToggleStructure,
   commentsOpen,
   onToggleComments,
+  currentWs,
+  workspaces,
+  onSelectWorkspace,
   children,
 }: EditorProps & {
   page: Page;
@@ -1439,6 +1445,12 @@ function PageHeader({
     setCoverValue(url);
   };
 
+  const pageWsId = page.workspaceId ?? pagesById.get(pageId)?.workspaceId;
+  const foreignWorkspace =
+    pageWsId && currentWs && pageWsId !== currentWs
+      ? workspaces?.find((w) => w.id === pageWsId)
+      : undefined;
+
   const breadcrumbs = useMemo(() => {
     const chain: PageMeta[] = [];
     // Database rows are excluded from the tree map, so seed the chain from the
@@ -1505,6 +1517,23 @@ function PageHeader({
           </button>
         )}
         <nav className="breadcrumbs">
+          {foreignWorkspace && (
+            <span className="crumb-wrap">
+              <button
+                className="crumb"
+                onClick={() => onSelectWorkspace?.(foreignWorkspace.id)}
+                title={foreignWorkspace.name}
+              >
+                {foreignWorkspace.icon && (
+                  <>
+                    <PageIcon icon={foreignWorkspace.icon} size={13} />{' '}
+                  </>
+                )}
+                {foreignWorkspace.name}
+              </button>
+              <span className="crumb-sep">/</span>
+            </span>
+          )}
           {breadcrumbs.map((b, i) => (
             <span key={b.id} className="crumb-wrap">
               {i > 0 && <span className="crumb-sep">/</span>}
