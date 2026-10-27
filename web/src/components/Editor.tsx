@@ -9,6 +9,7 @@ import { CustomSideMenu } from './CustomDragHandleMenu';
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmentToHTML } from '@blocknote/core';
 import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
+import { TextSelection } from 'prosemirror-state';
 import { api, ApiError, materializeQuery } from '../api';
 import * as Y from 'yjs';
 import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
@@ -2954,27 +2955,47 @@ function BlockContent({
     run: () => editor.moveBlocksDown(),
   });
 
-  // Free Mod+Shift+↑/↓ so the browser and macOS perform native text selection
-  // to the beginning/end of the document rather than letting BlockNote hijack it
-  // to move blocks. nativeDefault: true stops propagation to BlockNote without
-  // calling preventDefault().
+  // Mod+Shift+↑/↓: extend text selection to start/end of document (macOS standard).
+  // Overrides BlockNote's default moveBlocksUp/Down hijacking.
   useShortcut({
-    id: 'block.freeSelectionUp',
+    id: 'block.selectToStart',
     keys: ['mod+shift+arrowup'],
     scope: 'editor',
     whileTyping: true,
-    nativeDefault: true,
     when: () => focusedKey(regionId) === 'body',
-    run: () => {},
+    run: () => {
+      const tiptap = (editor as any)._tiptapEditor;
+      if (!tiptap) return false;
+      const { state, view } = tiptap;
+      const { selection, doc } = state;
+      try {
+        const sel = TextSelection.create(doc, selection.anchor, 0);
+        view.dispatch(state.tr.setSelection(sel).scrollIntoView());
+        return true;
+      } catch {
+        return false;
+      }
+    },
   });
   useShortcut({
-    id: 'block.freeSelectionDown',
+    id: 'block.selectToEnd',
     keys: ['mod+shift+arrowdown'],
     scope: 'editor',
     whileTyping: true,
-    nativeDefault: true,
     when: () => focusedKey(regionId) === 'body',
-    run: () => {},
+    run: () => {
+      const tiptap = (editor as any)._tiptapEditor;
+      if (!tiptap) return false;
+      const { state, view } = tiptap;
+      const { selection, doc } = state;
+      try {
+        const sel = TextSelection.create(doc, selection.anchor, doc.content.size);
+        view.dispatch(state.tr.setSelection(sel).scrollIntoView());
+        return true;
+      } catch {
+        return false;
+      }
+    },
   });
 
   // Alt+Shift+↓ duplicates the block downward (VS Code style).

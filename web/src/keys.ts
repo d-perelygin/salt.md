@@ -30,9 +30,6 @@ export type Shortcut = {
   whileTyping?: boolean;
   /** Extra condition, checked at press time. */
   when?: () => boolean;
-  /** When true, calls stopPropagation() to prevent child widgets from handling the event,
-   *  but does NOT call preventDefault(), leaving the browser's native behavior intact. */
-  nativeDefault?: boolean;
   /** Evaluated when the help sheet renders, never at registration: a language
    *  change has to reach it, and check-i18n only sees a literal `t('…')` if it
    *  is written at the call site. */
@@ -152,10 +149,6 @@ function onKeyDown(e: KeyboardEvent) {
   const hit = resolve(chordOf(e), isTypingTarget(document.activeElement));
   if (!hit) return;
   if (hit.run(e) === false) return;
-  if (hit.nativeDefault) {
-    e.stopPropagation();
-    return;
-  }
   // Both, deliberately: preventDefault stops the browser's meaning of the
   // chord, stopPropagation stops the widget underneath from ALSO acting on it.
   e.preventDefault();
