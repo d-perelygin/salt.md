@@ -13,7 +13,7 @@ import Portal from './Portal';
 import AnchoredMenu from './AnchoredMenu';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
-import { PageHoverCard } from './PageHoverCard';
+import { PageHoverCard, holdWarm, releaseWarm } from './PageHoverCard';
 import TrashSection from './TrashSection';
 import { compare } from '../format';
 import { plural, t } from '../i18n';
@@ -328,7 +328,11 @@ function SidebarSection({
 
   return (
     <div className={'sb-section' + (open ? ' open' : '')}>
-      <div className="sb-section-head">
+      <div
+        className="sb-section-head"
+        onMouseEnter={holdWarm}
+        onMouseLeave={releaseWarm}
+      >
         {/* A topic looks like a row, only bolder: icon on the left, title,
             count, chevron on the right. No more micro-heading — one single row
             language for the whole sidebar. */}

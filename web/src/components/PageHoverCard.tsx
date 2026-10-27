@@ -22,10 +22,32 @@ const newTabMod = isMac ? '⌘' : 'Ctrl';
 // resets to the deliberate delay.
 let isWarm = false;
 let warmTimer: number | null = null;
+let warmHolders = 0;
 let activeCloseFn: (() => void) | null = null;
+
+export function holdWarm() {
+  warmHolders++;
+  if (warmTimer) {
+    window.clearTimeout(warmTimer);
+    warmTimer = null;
+  }
+}
+
+export function releaseWarm() {
+  warmHolders = Math.max(0, warmHolders - 1);
+  if (warmHolders === 0 && isWarm) {
+    startWarmCooldown();
+  }
+}
+
+export function resetWarm() {
+  warmHolders = 0;
+  setWarmState(false);
+}
 
 function setWarmState(warm: boolean) {
   isWarm = warm;
+  if (!warm) warmHolders = 0;
   if (warmTimer) {
     window.clearTimeout(warmTimer);
     warmTimer = null;
@@ -34,6 +56,7 @@ function setWarmState(warm: boolean) {
 
 function startWarmCooldown() {
   if (warmTimer) window.clearTimeout(warmTimer);
+  if (warmHolders > 0) return;
   warmTimer = window.setTimeout(() => {
     isWarm = false;
     warmTimer = null;
