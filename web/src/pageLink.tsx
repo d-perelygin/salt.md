@@ -9,6 +9,9 @@ import { bookmarkSpec, databaseSpec, calloutSpec, tocSpec, subpagesSpec, columns
 // the current tab, Ctrl/⌘ together with Alt stays — the same rule as every
 // other page link (see pageOpen).
 import { peekPage } from './pageOpen';
+import { useBlockCtx } from './blockContext';
+import { PageHoverCard } from './components/PageHoverCard';
+import type { PageMeta } from './types';
 
 export const pageLinkSpec = createReactInlineContentSpec(
   {
@@ -22,33 +25,58 @@ export const pageLinkSpec = createReactInlineContentSpec(
   {
     render: (props) => {
       const pid = props.inlineContent.props.pageId;
+      const { pagesById, tagColors } = useBlockCtx();
+      const page = pagesById?.get(pid);
+      const fallbackPage: PageMeta = page ?? ({
+        id: pid,
+        title: props.inlineContent.props.label || 'Untitled',
+        type: 'doc',
+        icon: '',
+        cover: '',
+        tags: [],
+        description: '',
+        snippet: '',
+        updatedAt: '',
+        parentId: null,
+        position: 0,
+        trashed: false,
+        props: {},
+        workspaceId: '',
+        ownerId: '',
+        visibility: 'workspace',
+        isTemplate: false,
+        thumb: '',
+      } as PageMeta);
+
       return (
-        <button
-          type="button"
-          className="page-link"
-          contentEditable={false}
-          onClick={(e) => {
-            if (peekPage(e, pid)) return;
-            window.dispatchEvent(
-              new CustomEvent('salt:navigate', {
-                detail: { id: pid, newTab: (e.metaKey || e.ctrlKey) && !e.altKey },
-              }),
-            );
-          }}
-          onAuxClick={(e) => {
-            if (e.button !== 1) return;
-            e.preventDefault();
-            if (peekPage(e, pid)) return;
-            window.dispatchEvent(
-              new CustomEvent('salt:navigate', {
-                detail: { id: pid, newTab: !(e.altKey && (e.metaKey || e.ctrlKey)) },
-              }),
-            );
-          }}
-        >
-          <span className="page-link-icon">🔗</span>
-          {props.inlineContent.props.label || 'Untitled'}
-        </button>
+        <PageHoverCard page={fallbackPage} side="bottom" tagColors={tagColors}>
+          <button
+            type="button"
+            className="page-link"
+            contentEditable={false}
+            onClick={(e) => {
+              if (peekPage(e, pid)) return;
+              window.dispatchEvent(
+                new CustomEvent('salt:navigate', {
+                  detail: { id: pid, newTab: (e.metaKey || e.ctrlKey) && !e.altKey },
+                }),
+              );
+            }}
+            onAuxClick={(e) => {
+              if (e.button !== 1) return;
+              e.preventDefault();
+              if (peekPage(e, pid)) return;
+              window.dispatchEvent(
+                new CustomEvent('salt:navigate', {
+                  detail: { id: pid, newTab: !(e.altKey && (e.metaKey || e.ctrlKey)) },
+                }),
+              );
+            }}
+          >
+            <span className="page-link-icon">🔗</span>
+            {props.inlineContent.props.label || 'Untitled'}
+          </button>
+        </PageHoverCard>
       );
     },
   },

@@ -50,6 +50,7 @@ import CommentsPanel, {
 import NoteTrail from './NoteTrail';
 import { FilePreview, isPreviewable } from './FilePreview';
 import StructurePanel, { structurePanelOpen, setStructurePanelOpen } from './StructurePanel';
+import { PageHoverCard } from './PageHoverCard';
 import { AgentPresence } from './AgentBadge';
 import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
@@ -3697,7 +3698,7 @@ function BlockContent({
           </BlockNoteView>
         </BlockContext.Provider>
         {!structureOpen && (
-          <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
+          <Backlinks pageId={provider.pageId} pagesById={pagesById} tagColors={tagColors} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}
       </div>
       {preview && (
@@ -3711,11 +3712,13 @@ function BlockContent({
 function Backlinks({
   pageId,
   pagesById,
+  tagColors,
   onNavigate,
   onOpenInNewTab,
 }: {
   pageId: string;
   pagesById: Map<string, PageMeta>;
+  tagColors?: Record<string, string>;
   onNavigate: (id: string | null) => void;
   onOpenInNewTab?: (id: string) => void;
 }) {
@@ -3744,15 +3747,16 @@ function Backlinks({
         <Link2 size={14} /> {t('Linked from')} · {links.length}
       </div>
       {links.map((l) => (
-        <button
-          key={l.id}
-          className="backlink-item"
-          onClick={(e) => openPage(e, l.id, { onNavigate, onOpenInNewTab })}
-          onAuxClick={(e) => openPageAux(e, l.id, { onNavigate, onOpenInNewTab })}
-        >
-          <span className="tree-icon"><PageIcon icon={l.icon} size={14} fallback={<FileText size={14} />} /></span>
-          {l.title || 'Untitled'}
-        </button>
+        <PageHoverCard key={l.id} page={pagesById.get(l.id)} side="top" tagColors={tagColors}>
+          <button
+            className="backlink-item"
+            onClick={(e) => openPage(e, l.id, { onNavigate, onOpenInNewTab })}
+            onAuxClick={(e) => openPageAux(e, l.id, { onNavigate, onOpenInNewTab })}
+          >
+            <span className="tree-icon"><PageIcon icon={l.icon} size={14} fallback={<FileText size={14} />} /></span>
+            {l.title || 'Untitled'}
+          </button>
+        </PageHoverCard>
       ))}
     </div>
   );

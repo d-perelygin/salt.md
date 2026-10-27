@@ -14,11 +14,35 @@ function coverStyle(cover: string): React.CSSProperties {
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
-const modSymbol = isMac ? '⌘' : 'Ctrl';
+const peekMod = isMac ? '⌥' : 'Alt';
+const newTabMod = isMac ? '⌘' : 'Ctrl';
+
+// Group hover state: once any card opens, subsequent cards open near-instantaneously
+// as the user glides across the sidebar or tabs. When leaving all triggers, cooldown
+// resets to the deliberate delay.
+let isWarm = false;
+let warmTimer: number | null = null;
+let activeCloseFn: (() => void) | null = null;
+
+function setWarmState(warm: boolean) {
+  isWarm = warm;
+  if (warmTimer) {
+    window.clearTimeout(warmTimer);
+    warmTimer = null;
+  }
+}
+
+function startWarmCooldown() {
+  if (warmTimer) window.clearTimeout(warmTimer);
+  warmTimer = window.setTimeout(() => {
+    isWarm = false;
+    warmTimer = null;
+  }, 350);
+}
 
 export interface PageHoverCardProps {
   page?: PageMeta | null;
-  side?: 'right' | 'bottom';
+  side?: 'right' | 'bottom' | 'top';
   tagColors?: Record<string, string>;
   disabled?: boolean;
   children: React.ReactElement;
@@ -52,10 +76,18 @@ export function PageHoverCard({
     clearTimers();
     setOpen(false);
     setPos(null);
+    if (activeCloseFn === closeImmediately) {
+      activeCloseFn = null;
+    }
   };
 
   useEffect(() => {
-    return () => clearTimers();
+    return () => {
+      clearTimers();
+      if (activeCloseFn === closeImmediately) {
+        activeCloseFn = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -102,6 +134,10 @@ export function PageHoverCard({
     }
     if (open) return;
     clearTimers();
+
+    // Warm: glide across items in 40ms. Cold: deliberate 550ms hover.
+    const delay = isWarm ? 40 : 550;
+
     openTimer.current = window.setTimeout(() => {
       if (!anchorRef.current) return;
       const rect = anchorRef.current.getBoundingClientRect();
@@ -119,6 +155,12 @@ export function PageHoverCard({
           x = Math.max(12, rect.left - CARD_W - 10);
         }
         y = Math.max(12, y);
+      } else if (side === 'top') {
+        x = Math.max(12, Math.min(rect.left, window.innerWidth - CARD_W - 12));
+        y = rect.top - CARD_H - 10;
+        if (y < 12) {
+          y = Math.min(window.innerHeight - CARD_H - 12, rect.bottom + 10);
+        }
       } else {
         x = Math.max(12, Math.min(rect.left, window.innerWidth - CARD_W - 12));
         y = rect.bottom + 10;
@@ -127,10 +169,17 @@ export function PageHoverCard({
         }
       }
 
+      // Close any previously active card instantly
+      if (activeCloseFn && activeCloseFn !== closeImmediately) {
+        activeCloseFn();
+      }
+      activeCloseFn = closeImmediately;
+
       setPos({ x, y });
       setOpen(true);
+      setWarmState(true);
       openTimer.current = null;
-    }, 400);
+    }, delay);
   };
 
   const handleMouseLeave = (e: React.MouseEvent) => {
@@ -144,16 +193,22 @@ export function PageHoverCard({
       setOpen(false);
       setPos(null);
       closeTimer.current = null;
-    }, 180);
+      if (activeCloseFn === closeImmediately) {
+        activeCloseFn = null;
+      }
+      startWarmCooldown();
+    }, 160);
   };
 
   const handleClick = (e: React.MouseEvent) => {
     closeImmediately();
+    setWarmState(false);
     (child.props as any).onClick?.(e);
   };
 
   const handleDragStart = (e: React.DragEvent) => {
     closeImmediately();
+    setWarmState(false);
     (child.props as any).onDragStart?.(e);
   };
 
@@ -162,6 +217,7 @@ export function PageHoverCard({
       window.clearTimeout(closeTimer.current);
       closeTimer.current = null;
     }
+    setWarmState(true);
   };
 
   const handleCardMouseLeave = () => {
@@ -169,6 +225,10 @@ export function PageHoverCard({
       setOpen(false);
       setPos(null);
       closeTimer.current = null;
+      if (activeCloseFn === closeImmediately) {
+        activeCloseFn = null;
+      }
+      startWarmCooldown();
     }, 150);
   };
 
@@ -237,9 +297,9 @@ export function PageHoverCard({
                   {t('Updated')} {formatRelative(page.updatedAt)}
                 </span>
                 <div className="page-hover-card-hints">
-                  <span>Shift+Click {t('to peek')}</span>
+                  <span>{peekMod}+Click {t('to peek')}</span>
                   <span className="page-hover-card-dot">•</span>
-                  <span>{modSymbol}+Click {t('new tab')}</span>
+                  <span>{newTabMod}+Click {t('new tab')}</span>
                 </div>
               </div>
             </div>
