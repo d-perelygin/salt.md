@@ -2698,7 +2698,7 @@ body:has(.icon-picker) .bn-side-menu {
   position: sticky;
   top: 0;
   background: var(--bg);
-  z-index: 5;
+  z-index: 10;
   /* Tabs plus Filter/Sort/Columns can outgrow the row (image-3); the bar
      scrolls horizontally instead of cutting them off. Same treatment the
      narrow layout already had — children must not shrink. */
@@ -4698,6 +4698,18 @@ button.relation-chip:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .tl-corner,
+  .tl-row-table {
+    position: relative;
+    left: auto;
+  }
+  .tl-col-th.tl-title-th,
+  .tl-cell.tl-title-cell {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    background: var(--bg);
   }
 }
 
@@ -9299,7 +9311,7 @@ a.btn {
 .timeline .tl-header {
   position: sticky;
   top: 46px;
-  z-index: 3;
+  z-index: 6;
   background: var(--bg);
 }
 /* With a cover the toolbar itself docks below the compact strip, so the
