@@ -5301,16 +5301,6 @@ function TimelineView({
   return (
     <div className="timeline">
       <div className="tl-controls">
-        {onToggleLabels && (
-          <button
-            className="btn-sm tl-collapse"
-            onClick={onToggleLabels}
-            aria-label={hideLabels ? t('Show the title column') : t('Hide the title column')}
-            title={hideLabels ? t('Show the title column') : t('Hide the title column')}
-          >
-            {hideLabels ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
-          </button>
-        )}
         <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
         <span className="tl-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
@@ -5554,8 +5544,19 @@ function TimelineView({
       </div>
       <div className="tl-scroll">
         <div className="tl-inner" style={{ minWidth: labelW + gridMin }}>
-          <div className="tl-header">
-            <div className="tl-corner" style={{ width: labelW }} />
+          <div className="tl-header" style={{ '--tl-sticky-left': `${labelW}px` } as React.CSSProperties}>
+            <div className="tl-corner" style={{ width: labelW }}>
+              {onToggleLabels && !hideLabels && (
+                <button
+                  className="btn-sm tl-collapse"
+                  onClick={onToggleLabels}
+                  aria-label={t('Hide the title column')}
+                  title={t('Hide the title column')}
+                >
+                  <PanelLeftClose size={15} />
+                </button>
+              )}
+            </div>
             <div className="tl-head-right">
               <div className="tl-months">
                 {months.map((m, i) => (
@@ -5564,7 +5565,19 @@ function TimelineView({
                     className="tl-month"
                     style={{ left: m.left, width: m.width }}
                   >
-                    {m.label}
+                    <div className="tl-month-sticky">
+                      {onToggleLabels && hideLabels && (!isYear || i === 0) && (
+                        <button
+                          className="btn-sm tl-collapse"
+                          onClick={onToggleLabels}
+                          aria-label={t('Show the title column')}
+                          title={t('Show the title column')}
+                        >
+                          <PanelLeftOpen size={15} />
+                        </button>
+                      )}
+                      <span className="tl-month-name">{m.label}</span>
+                    </div>
                   </div>
                 ))}
                 {todayLeft && <div className="tl-today-tick" style={{ left: todayLeft }} title={t('Today')} />}

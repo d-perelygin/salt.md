@@ -9315,6 +9315,24 @@ a.btn {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+  box-sizing: border-box;
+}
+.tl-corner[style*="width: 0"],
+.tl-corner:empty {
+  border-right: none;
+  padding: 0;
+  overflow: hidden;
+}
+.tl-corner .tl-collapse {
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 .tl-head-right {
   display: flex;
@@ -9334,7 +9352,7 @@ a.btn {
   height: 32px;
   display: flex;
   align-items: center;
-  padding-left: 8px;
+  padding: 0;
   font-size: 12px;
   font-weight: 500;
   color: var(--muted);
@@ -9342,6 +9360,29 @@ a.btn {
   box-sizing: border-box;
   white-space: nowrap;
   text-transform: capitalize;
+}
+.tl-month-sticky {
+  position: sticky;
+  left: var(--tl-sticky-left, 0px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  z-index: 2;
+}
+.tl-month-sticky .tl-collapse {
+  padding: 3px 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  margin-right: 2px;
+}
+.tl-month-name {
+  white-space: nowrap;
 }
 .tl-today-tick { position: absolute; top: 0; width: 2px; height: 32px; background: var(--danger); }
 .tl-days {
