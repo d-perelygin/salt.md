@@ -1771,26 +1771,28 @@ function PageHeader({
           {breadcrumbs.map((b, i) => (
             <span key={b.id} className="crumb-wrap">
               {i > 0 && <span className="crumb-sep">/</span>}
-              <button
-                className="crumb"
-                onClick={(e) => openPage(e, b.id, { onNavigate, onOpenInNewTab })}
-                onAuxClick={(e) => openPageAux(e, b.id, { onNavigate, onOpenInNewTab })}
-              >
-                {(() => {
-                  const ic = b.id === pageId ? icon : b.icon;
-                  const tt = (b.id === pageId ? title : b.title) || 'Untitled';
-                  return (
-                    <>
-                      {ic && (
-                        <>
-                          <PageIcon icon={ic} size={13} />{' '}
-                        </>
-                      )}
-                      {tt}
-                    </>
-                  );
-                })()}
-              </button>
+              <PageHoverCard page={b} side="bottom" tagColors={tagColors} disabled={b.id === pageId}>
+                <button
+                  className="crumb"
+                  onClick={(e) => openPage(e, b.id, { onNavigate, onOpenInNewTab })}
+                  onAuxClick={(e) => openPageAux(e, b.id, { onNavigate, onOpenInNewTab })}
+                >
+                  {(() => {
+                    const ic = b.id === pageId ? icon : b.icon;
+                    const tt = (b.id === pageId ? title : b.title) || 'Untitled';
+                    return (
+                      <>
+                        {ic && (
+                          <>
+                            <PageIcon icon={ic} size={13} />{' '}
+                          </>
+                        )}
+                        {tt}
+                      </>
+                    );
+                  })()}
+                </button>
+              </PageHoverCard>
             </span>
           ))}
         </nav>
@@ -2952,6 +2954,57 @@ function BlockContent({
     run: () => editor.moveBlocksDown(),
   });
 
+  // Free Mod+Shift+↑/↓ so the browser and macOS perform native text selection
+  // to the beginning/end of the document rather than letting BlockNote hijack it
+  // to move blocks. nativeDefault: true stops propagation to BlockNote without
+  // calling preventDefault().
+  useShortcut({
+    id: 'block.freeSelectionUp',
+    keys: ['mod+shift+arrowup'],
+    scope: 'editor',
+    whileTyping: true,
+    nativeDefault: true,
+    when: () => focusedKey(regionId) === 'body',
+    run: () => {},
+  });
+  useShortcut({
+    id: 'block.freeSelectionDown',
+    keys: ['mod+shift+arrowdown'],
+    scope: 'editor',
+    whileTyping: true,
+    nativeDefault: true,
+    when: () => focusedKey(regionId) === 'body',
+    run: () => {},
+  });
+
+  // Alt+Shift+↓ duplicates the block downward (VS Code style).
+  useShortcut({
+    id: 'block.duplicate',
+    keys: ['alt+shift+arrowdown'],
+    scope: 'editor',
+    whileTyping: true,
+    when: () => canEdit && focusedKey(regionId) === 'body',
+    label: () => t('Duplicate'),
+    group: () => t('Page'),
+    run: () => {
+      const selection = editor.getSelection();
+      const blocks = selection ? selection.blocks : [editor.getTextCursorPosition()?.block].filter(Boolean);
+      if (!blocks || blocks.length === 0) return false;
+      const last = blocks[blocks.length - 1];
+      if (!last) return false;
+      editor.insertBlocks(
+        blocks.map((b) => ({
+          type: b.type,
+          props: { ...b.props },
+          content: b.content,
+          children: b.children,
+        })) as any,
+        last.id,
+        'after',
+      );
+    },
+  });
+
   const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
 
   // The dictionary key behind an English default title ("Heading 1" behind
@@ -3746,18 +3799,40 @@ function Backlinks({
       <div className="backlinks-head">
         <Link2 size={14} /> {t('Linked from')} · {links.length}
       </div>
-      {links.map((l) => (
-        <PageHoverCard key={l.id} page={pagesById.get(l.id)} side="top" tagColors={tagColors}>
-          <button
-            className="backlink-item"
-            onClick={(e) => openPage(e, l.id, { onNavigate, onOpenInNewTab })}
-            onAuxClick={(e) => openPageAux(e, l.id, { onNavigate, onOpenInNewTab })}
-          >
-            <span className="tree-icon"><PageIcon icon={l.icon} size={14} fallback={<FileText size={14} />} /></span>
-            {l.title || 'Untitled'}
-          </button>
-        </PageHoverCard>
-      ))}
+      {links.map((l) => {
+        const linkPage: PageMeta = pagesById.get(l.id) ?? {
+          id: l.id,
+          title: l.title,
+          icon: l.icon,
+          type: 'doc',
+          cover: '',
+          parentId: null,
+          workspaceId: '',
+          tags: [],
+          description: '',
+          snippet: '',
+          updatedAt: '',
+          position: 0,
+          trashed: false,
+          props: {},
+          ownerId: '',
+          visibility: 'workspace',
+          isTemplate: false,
+          thumb: '',
+        };
+        return (
+          <PageHoverCard key={l.id} page={linkPage} side="top" tagColors={tagColors}>
+            <button
+              className="backlink-item"
+              onClick={(e) => openPage(e, l.id, { onNavigate, onOpenInNewTab })}
+              onAuxClick={(e) => openPageAux(e, l.id, { onNavigate, onOpenInNewTab })}
+            >
+              <span className="tree-icon"><PageIcon icon={l.icon} size={14} fallback={<FileText size={14} />} /></span>
+              {l.title || 'Untitled'}
+            </button>
+          </PageHoverCard>
+        );
+      })}
     </div>
   );
 }
