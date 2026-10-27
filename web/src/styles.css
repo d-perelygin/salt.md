@@ -9570,19 +9570,20 @@ body.is-tl-resizing {
   outline-offset: -1px;
 }
 .tl-bar-offscreen {
-  background: var(--card-bg, #fff);
-  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
-  color: var(--fg-muted, #888);
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  color: var(--fg);
   font-size: 11px;
   gap: 5px;
-  max-width: 140px;
   z-index: 2;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
 }
 .tl-bar-offscreen:hover {
+  background: var(--active);
   border-color: var(--accent);
-  color: var(--accent);
-  filter: brightness(1.04);
+  color: var(--fg);
+  filter: brightness(1.05);
 }
 .tl-bar-offscreen.is-past {
   left: 6px;
@@ -9591,26 +9592,31 @@ body.is-tl-resizing {
   right: 6px;
 }
 .tl-bar-offscreen .tl-offscreen-arrow {
-  font-weight: bold;
+  font-weight: 700;
   font-size: 13px;
   line-height: 1;
   color: var(--accent);
+  flex-shrink: 0;
 }
 .tl-bar-offscreen .tl-offscreen-date {
   font-weight: 500;
   font-size: 10.5px;
+  color: var(--muted);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .tl-bar-offscreen .tl-bar-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
-  opacity: 0.85;
+  font-weight: 500;
+  color: var(--fg);
+  flex: 1;
+  min-width: 0;
 }
 .tl-bar-offscreen.is-blocked {
-  border-color: color-mix(in srgb, var(--danger, #e5484d) 60%, transparent);
-  color: var(--danger, #e5484d);
+  border-color: var(--danger);
 }
 .tl-warn {
   flex: none;

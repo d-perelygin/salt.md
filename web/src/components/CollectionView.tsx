@@ -5604,6 +5604,7 @@ function TimelineView({
               if (offscreen) {
                 const offDate = offscreen === 'past' ? it.end : it.start;
                 const offDateStr = formatDay(isoDay(offDate), 'dayMonth');
+                const offW = trackW > 0 ? Math.min(136, Math.max(90, Math.floor(trackW * 0.35))) : 136;
                 return (
                   <div
                     key={row.id}
@@ -5622,6 +5623,10 @@ function TimelineView({
                           (blocked.length > 0 ? ' is-blocked' : '') +
                           (hovered === row.id ? ' is-hovered' : '')
                         }
+                        style={{
+                          [offscreen === 'past' ? 'left' : 'right']: 6,
+                          width: offW,
+                        }}
                         onClick={(e) => {
                           if (swallowClick()) return;
                           setCursor(offDate);
@@ -5813,18 +5818,22 @@ function TimelineView({
                   {arrows.length > 0 &&
                     trackW > 0 &&
                     arrows.map((a) => {
+                    const offW = Math.min(136, Math.max(90, Math.floor(trackW * 0.35)));
+                    const pastEdge = 6 + offW;
+                    const futureEdge = trackW - 6 - offW;
+
                     let x1 = a.x1 * trackW;
                     // The head stops just before the bar instead of climbing it.
                     let x2 = a.x2 * trackW - 5;
                     if (a.fromOffscreen === 'past') {
-                      x1 = Math.min(150, trackW * 0.35);
+                      x1 = pastEdge;
                     } else if (a.fromOffscreen === 'future') {
-                      x1 = Math.max(trackW - 25, trackW * 0.85);
+                      x1 = futureEdge;
                     }
                     if (a.toOffscreen === 'future') {
-                      x2 = Math.max(trackW - 150, trackW * 0.65);
+                      x2 = futureEdge - 2;
                     } else if (a.toOffscreen === 'past') {
-                      x2 = Math.min(25, trackW * 0.15);
+                      x2 = pastEdge + 2;
                     }
                     const y1 = a.from * ROW_H + 20;
                     const y2 = a.to * ROW_H + 20;
@@ -5859,11 +5868,15 @@ function TimelineView({
                   trackW > 0 &&
                   arrows.map((a) => {
                     if (hoverArrow !== a.key) return null;
+                    const offW = Math.min(136, Math.max(90, Math.floor(trackW * 0.35)));
+                    const pastEdge = 6 + offW;
+                    const futureEdge = trackW - 6 - offW;
+
                     let x2 = a.x2 * trackW - 5;
                     if (a.toOffscreen === 'future') {
-                      x2 = Math.max(trackW - 150, trackW * 0.65);
+                      x2 = futureEdge - 2;
                     } else if (a.toOffscreen === 'past') {
-                      x2 = Math.min(25, trackW * 0.15);
+                      x2 = pastEdge + 2;
                     }
                     const y2 = a.to * ROW_H + 20;
                     return (
