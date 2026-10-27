@@ -589,6 +589,15 @@
   box-shadow: var(--shadow);
 }
 
+/* BlockNote upstream sets overflow-x: auto on .bn-toolbar with height: 38px,
+   which forces overflow-y to clip. Because ToolbarSelect renders its
+   MantineMenu with withinPortal={false}, the block type dropdown was clipped
+   and invisible. overflow: visible allows the dropdown to expand out. */
+.bn-root .bn-toolbar,
+.bn-mantine .bn-toolbar {
+  overflow: visible;
+}
+
 /* The slash menu's group headings ("Basic blocks", "Media") are labels, so
    they get the label style the sidebar sections have. */
 [data-font='brand'] .bn-root .bn-suggestion-menu-label {
