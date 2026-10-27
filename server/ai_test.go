@@ -290,3 +290,44 @@ func TestCreateAIRunPersistsUserMessage(t *testing.T) {
 	}
 }
 
+func TestDeleteAIThreadCleansRuns(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "delthread@example.com")
+	tid := newID()
+	runID := newID()
+
+	s.db.Exec(`INSERT INTO ai_threads (id, user_id, title, created_at, updated_at) VALUES (?, ?, 'Thread to delete', ?, ?)`,
+		tid, uid, now(), now())
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, created_at) VALUES (?, ?, 'user', 'hello', ?)`,
+		newID(), tid, now())
+	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, task, started_at) VALUES (?, ?, ?, 'completed', 'some task', ?)`,
+		runID, uid, tid, now())
+	s.db.Exec(`INSERT INTO ai_steps (id, run_id, thread_id, user_id, kind, title, created_at) VALUES (?, ?, ?, ?, 'thinking', 'thought', ?)`,
+		newID(), runID, tid, uid, now())
+
+	req := httptest.NewRequest("DELETE", "/api/ai/threads/"+tid, nil)
+	req.Header.Set("Cookie", cookie)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("DELETE thread: got %d, want 200", rec.Code)
+	}
+
+	var threadCount, runCount, stepCount int
+	s.db.QueryRow(`SELECT COUNT(*) FROM ai_threads WHERE id = ?`, tid).Scan(&threadCount)
+	s.db.QueryRow(`SELECT COUNT(*) FROM ai_runs WHERE thread_id = ?`, tid).Scan(&runCount)
+	s.db.QueryRow(`SELECT COUNT(*) FROM ai_steps WHERE run_id = ?`, runID).Scan(&stepCount)
+
+	if threadCount != 0 {
+		t.Errorf("ai_threads not deleted: got %d, want 0", threadCount)
+	}
+	if runCount != 0 {
+		t.Errorf("ai_runs not deleted for thread: got %d, want 0", runCount)
+	}
+	if stepCount != 0 {
+		t.Errorf("ai_steps not cascade-deleted: got %d, want 0", stepCount)
+	}
+}
+
+

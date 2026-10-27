@@ -421,6 +421,7 @@ func (s *Server) handleGetAIThreadMessages(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleDeleteAIThread(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	id := r.PathValue("id")
+	s.db.Exec(`DELETE FROM ai_runs WHERE thread_id = ? AND user_id = ?`, id, u.ID)
 	s.db.Exec(`DELETE FROM ai_threads WHERE id = ? AND user_id = ?`, id, u.ID)
 	writeJSON(w, map[string]bool{"ok": true})
 }
