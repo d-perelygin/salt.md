@@ -5607,7 +5607,13 @@ function TimelineView({
       </div>
       <div className="tl-scroll">
         <div className="tl-inner" style={{ minWidth: labelW + gridMin }}>
-          <div className="tl-header" style={{ '--tl-sticky-left': `${labelW}px` } as React.CSSProperties}>
+          <div
+            className="tl-header"
+            style={{
+              '--tl-sticky-left': `${labelW}px`,
+              '--tl-month-left': `${labelW + (hideLabels ? 32 : 0)}px`,
+            } as React.CSSProperties}
+          >
             <div className="tl-corner" style={{ width: labelW }}>
               {!hideLabels && (
                 <>
@@ -5650,6 +5656,18 @@ function TimelineView({
             </div>
             <div className="tl-head-right">
               <div className="tl-months">
+                {onToggleLabels && hideLabels && (
+                  <div className="tl-expand-pin">
+                    <button
+                      className="btn-sm tl-collapse"
+                      onClick={onToggleLabels}
+                      aria-label={t('Show the title column')}
+                      title={t('Show the title column')}
+                    >
+                      <PanelLeftOpen size={15} />
+                    </button>
+                  </div>
+                )}
                 {months.map((m, i) => (
                   <div
                     key={i}
@@ -5657,16 +5675,6 @@ function TimelineView({
                     style={{ left: m.left, width: m.width }}
                   >
                     <div className="tl-month-sticky">
-                      {onToggleLabels && hideLabels && (!isYear || i === 0) && (
-                        <button
-                          className="btn-sm tl-collapse"
-                          onClick={onToggleLabels}
-                          aria-label={t('Show the title column')}
-                          title={t('Show the title column')}
-                        >
-                          <PanelLeftOpen size={15} />
-                        </button>
-                      )}
                       <span className="tl-month-name">{m.label}</span>
                     </div>
                   </div>

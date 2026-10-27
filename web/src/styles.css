@@ -9427,7 +9427,7 @@ a.btn {
 }
 .tl-month-sticky {
   position: sticky;
-  left: var(--tl-sticky-left, 0px);
+  left: var(--tl-month-left, var(--tl-sticky-left, 0px));
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -9437,8 +9437,22 @@ a.btn {
   box-sizing: border-box;
   z-index: 2;
 }
-.tl-month-sticky .tl-collapse {
-  padding: 3px 5px;
+.tl-expand-pin {
+  position: sticky;
+  left: var(--tl-sticky-left, 0px);
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  box-sizing: border-box;
+  background: var(--bg);
+  flex: none;
+}
+.tl-expand-pin .tl-collapse {
+  padding: 4px 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -9449,10 +9463,9 @@ a.btn {
   opacity: 0.55;
   border-radius: 6px;
   cursor: pointer;
-  margin-right: 2px;
   transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
-.tl-month-sticky .tl-collapse:hover {
+.tl-expand-pin .tl-collapse:hover {
   opacity: 1;
   color: var(--fg);
   background: var(--hover);
