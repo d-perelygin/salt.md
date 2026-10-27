@@ -1920,7 +1920,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           rows={viewRows}
           trayBase={trayBase}
           view={view}
-          schema={visibleSchema}
+          schema={schema}
           collectionId={collectionId}
           startProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
           endProp={view.endDateProp || ''}
