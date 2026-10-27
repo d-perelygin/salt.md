@@ -292,6 +292,124 @@ func pageMarkdown(p *page) string {
 	return h + title + "\n\n" + blocksToMarkdown(p.Content)
 }
 
+func pagePlainText(p *page) string {
+	title := p.Title
+	if title == "" {
+		title = "Untitled"
+	}
+	prefix := ""
+	if p.Icon != "" {
+		prefix = p.Icon + " "
+	}
+	return prefix + title + "\n\n" + blocksToPlainText(p.Content)
+}
+
+func blocksToPlainText(content []byte) string {
+	var blocks []mdBlock
+	if json.Unmarshal(content, &blocks) != nil {
+		return ""
+	}
+	var b strings.Builder
+	renderPlainBlocks(&b, blocks, 0)
+	return b.String()
+}
+
+func renderPlainBlocks(b *strings.Builder, blocks []mdBlock, depth int) {
+	indent := strings.Repeat("  ", depth)
+	num := 0
+	for i, blk := range blocks {
+		if blk.Type == "numberedListItem" {
+			num++
+		} else {
+			num = 0
+		}
+		switch blk.Type {
+		case "heading":
+			b.WriteString(indent + plainInline(blk.Content) + "\n\n")
+		case "bulletListItem":
+			b.WriteString(indent + "• " + plainInline(blk.Content) + "\n")
+		case "numberedListItem":
+			b.WriteString(indent + fmt.Sprintf("%d. ", num) + plainInline(blk.Content) + "\n")
+		case "checkListItem":
+			mark := "[ ] "
+			if truthy(blk.Props["checked"]) {
+				mark = "[x] "
+			}
+			b.WriteString(indent + mark + plainInline(blk.Content) + "\n")
+		case "toggleListItem":
+			b.WriteString(indent + "• " + plainInline(blk.Content) + "\n")
+		case "divider":
+			b.WriteString(indent + "---\n\n")
+		case "callout":
+			emoji := strProp(blk.Props, "emoji", "")
+			if emoji != "" {
+				emoji += " "
+			}
+			b.WriteString(indent + emoji + plainInline(blk.Content) + "\n\n")
+		case "bookmark":
+			if raw := strProp(blk.Props, "url", ""); raw != "" {
+				b.WriteString(indent + raw + "\n\n")
+			}
+		case "columnList", "column":
+			renderPlainBlocks(b, blk.Children, depth)
+			blk.Children = nil
+		case "quote":
+			b.WriteString(indent + plainInline(blk.Content) + "\n\n")
+		case "mermaid":
+			b.WriteString(indent + strProp(blk.Props, "code", "") + "\n\n")
+		case "codeBlock":
+			b.WriteString(indent + plainInline(blk.Content) + "\n\n")
+		case "image", "video", "audio", "file":
+			if name := strProp(blk.Props, "name", ""); name != "" {
+				b.WriteString(indent + name + "\n\n")
+			}
+		case "table":
+			renderPlainTable(b, blk.Content, indent)
+		default: // paragraph and unknown block types
+			if t := plainInline(blk.Content); t != "" {
+				b.WriteString(indent + t + "\n\n")
+			}
+		}
+		if len(blk.Children) > 0 {
+			renderPlainBlocks(b, blk.Children, depth+1)
+		}
+		if isListType(blk.Type) && (i == len(blocks)-1 || !isListType(blocks[i+1].Type)) {
+			b.WriteString("\n")
+		}
+	}
+}
+
+func renderPlainTable(b *strings.Builder, raw json.RawMessage, indent string) {
+	var tc struct {
+		Rows []struct {
+			Cells []json.RawMessage `json:"cells"`
+		} `json:"rows"`
+	}
+	if json.Unmarshal(raw, &tc) != nil || len(tc.Rows) == 0 {
+		return
+	}
+	renderCell := func(c json.RawMessage) string {
+		var obj struct {
+			Content json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(c, &obj); err == nil && len(obj.Content) > 0 {
+			return plainInline(obj.Content)
+		}
+		return plainInline(c)
+	}
+	for _, row := range tc.Rows {
+		b.WriteString(indent)
+		for ci, c := range row.Cells {
+			if ci > 0 {
+				b.WriteString("\t")
+			}
+			b.WriteString(renderCell(c))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+}
+
 func safeFilename(name string) string {
 	name = strings.TrimSpace(name)
 	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-", "?", "-", "\"", "'", "<", "(", ">", ")", "|", "-", "\n", " ", "\r", " ", "\t", " ")
@@ -398,6 +516,93 @@ func (s *Server) collectionMarkdown(p *page, userID string) (string, error) {
 	return b.String(), nil
 }
 
+func (s *Server) collectionPlainText(p *page, userID string) (string, error) {
+	var schemaJSON string
+	if err := s.db.QueryRow(`SELECT schema FROM collections WHERE page_id = ?`, p.ID).Scan(&schemaJSON); err != nil {
+		return pagePlainText(p), nil
+	}
+	type option struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	var schema []struct {
+		ID      string   `json:"id"`
+		Name    string   `json:"name"`
+		Type    string   `json:"type"`
+		Options []option `json:"options"`
+	}
+	json.Unmarshal([]byte(schemaJSON), &schema)
+	optionName := map[string]string{}
+	for _, prop := range schema {
+		for _, o := range prop.Options {
+			optionName[prop.ID+"/"+o.ID] = o.Name
+		}
+	}
+
+	title := p.Title
+	if title == "" {
+		title = "Untitled"
+	}
+	var b strings.Builder
+	b.WriteString(title + "\n\nTitle")
+	for _, prop := range schema {
+		b.WriteString("\t" + prop.Name)
+	}
+	b.WriteString("\n")
+
+	rule, ruleArgs := s.privateRowRule(userID, p.ID)
+	rows, err := s.db.Query(`SELECT title, props FROM pages WHERE parent_id = ? AND trashed_at IS NULL AND `+rule+` ORDER BY position, created_at`,
+		append([]any{p.ID}, ruleArgs...)...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var rowTitle, propsJSON string
+		if rows.Scan(&rowTitle, &propsJSON) != nil {
+			continue
+		}
+		if rowTitle == "" {
+			rowTitle = "Untitled"
+		}
+		var props map[string]any
+		json.Unmarshal([]byte(propsJSON), &props)
+		b.WriteString(rowTitle)
+		for _, prop := range schema {
+			cell := ""
+			switch v := props[prop.ID].(type) {
+			case string:
+				if n, ok := optionName[prop.ID+"/"+v]; ok {
+					cell = n
+				} else {
+					cell = v
+				}
+			case bool:
+				if v {
+					cell = "✓"
+				}
+			case float64:
+				cell = strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.4f", v), "0000"), ".")
+			case []any:
+				var parts []string
+				for _, item := range v {
+					if str, ok := item.(string); ok {
+						if n, ok := optionName[prop.ID+"/"+str]; ok {
+							parts = append(parts, n)
+						} else {
+							parts = append(parts, str)
+						}
+					}
+				}
+				cell = strings.Join(parts, ", ")
+			}
+			b.WriteString("\t" + cell)
+		}
+		b.WriteString("\n")
+	}
+	return b.String(), nil
+}
+
 func (s *Server) handleExportPage(w http.ResponseWriter, r *http.Request) {
 	if !s.canReadReq(r, r.PathValue("id")) {
 		httpError(w, 404, "page not found")
@@ -410,6 +615,22 @@ func (s *Server) handleExportPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		httpError(w, 500, err.Error())
+		return
+	}
+	if fmt := r.URL.Query().Get("format"); fmt == "txt" || fmt == "text" || fmt == "plain" {
+		txt := ""
+		if p.Type == "collection" {
+			txt, err = s.collectionPlainText(p, requestUser(r).ID)
+			if err != nil {
+				httpError(w, 500, err.Error())
+				return
+			}
+		} else {
+			txt = pagePlainText(p)
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": safeFilename(p.Title) + ".txt"}))
+		w.Write([]byte(txt))
 		return
 	}
 	// HTML export (?format=html) is offered for document pages — real structure

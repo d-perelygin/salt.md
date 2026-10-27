@@ -4,7 +4,7 @@ import {
   SuggestionMenuController,
   getDefaultReactSlashMenuItems,
 } from '@blocknote/react';
-import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core';
+import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmentToHTML } from '@blocknote/core';
 import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { api, ApiError, materializeQuery } from '../api';
@@ -2165,6 +2165,15 @@ function PageHeader({
                 <button
                   className="menu-item"
                   onClick={() => {
+                    api.download(`/api/export/${pageId}?format=txt`);
+                    setOverflowOpen(false);
+                  }}
+                >
+                  <FileText size={15} /> {t('Plain text (.txt)')}
+                </button>
+                <button
+                  className="menu-item"
+                  onClick={() => {
                     setOverflowOpen(false);
                     if (page.type === 'collection') {
                       setTimeout(() => window.print(), 50);
@@ -3482,6 +3491,62 @@ function BlockContent({
   useEffect(() => {
     scrollRef.current?.closest('.page-body')?.classList.toggle('is-dropping', dropping);
   }, [dropping]);
+
+  // Copy and cut handling:
+  // Inline selection (within a single block): clean plain text without Markdown symbols in text/plain.
+  // Block selection (spanning multiple blocks): keep Markdown in text/plain so structure is preserved.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleCopyOrCut = (e: ClipboardEvent) => {
+      const view = (editor as any)?._tiptapEditor?.view;
+      if (!view || view.state.selection.empty || !e.clipboardData) return;
+      if (!view.dom.contains(e.target as Node)) return;
+
+      const sel = view.state.selection;
+      if (sel.constructor.name === 'CellSelection') return;
+
+      const { from, to } = sel;
+      const fragment = view.state.doc.slice(from, to, false).content;
+      let hasBlocks = false;
+      for (let i = 0; i < fragment.childCount; i++) {
+        const child = fragment.child(i);
+        if (
+          (child.type as any).isInGroup?.('bnBlock') ||
+          child.type.name === 'blockGroup' ||
+          child.type.spec?.group === 'blockContent'
+        ) {
+          hasBlocks = true;
+          break;
+        }
+      }
+
+      if (!hasBlocks) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        e.clipboardData.clearData();
+
+        const { clipboardHTML, externalHTML } = selectedFragmentToHTML(view, editor as any);
+        const plainText = view.state.doc.textBetween(from, to, '\n', (node: any) => (node.type.name === 'hardBreak' ? '\n' : ''));
+
+        e.clipboardData.setData('blocknote/html', clipboardHTML);
+        e.clipboardData.setData('text/html', externalHTML);
+        e.clipboardData.setData('text/plain', plainText);
+
+        if (e.type === 'cut' && view.editable) {
+          view.dispatch(view.state.tr.deleteSelection());
+        }
+      }
+    };
+
+    el.addEventListener('copy', handleCopyOrCut, true);
+    el.addEventListener('cut', handleCopyOrCut, true);
+    return () => {
+      el.removeEventListener('copy', handleCopyOrCut, true);
+      el.removeEventListener('cut', handleCopyOrCut, true);
+    };
+  }, [editor]);
 
   return (
     <div className="editor-scroll" ref={scrollRef} {...navItem('body', { keepTabOrder: true })}>
