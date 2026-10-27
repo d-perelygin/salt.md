@@ -884,6 +884,7 @@ interface PageTitleContextType {
   setTitleAndSave: (newTitle: string) => void;
   titleRef: React.RefObject<HTMLTextAreaElement | null>;
   registerFocusBodyStart: (fn: () => void) => void;
+  registerSplitTitle: (fn: (afterText: string) => void) => void;
 }
 const PageTitleContext = createContext<PageTitleContextType | null>(null);
 
@@ -938,6 +939,10 @@ function PageHeader({
   const focusBodyStartRef = useRef<(() => void) | null>(null);
   const registerFocusBodyStart = useCallback((fn: () => void) => {
     focusBodyStartRef.current = fn;
+  }, []);
+  const splitTitleRef = useRef<((afterText: string) => void) | null>(null);
+  const registerSplitTitle = useCallback((fn: (afterText: string) => void) => {
+    splitTitleRef.current = fn;
   }, []);
   const focusBodyStart = () => {
     focusKey(regionId, 'body');
@@ -2270,11 +2275,35 @@ function PageHeader({
                 saveMeta({ title: e.target.value });
               }}
               onKeyDown={(e) => {
-                // A title is a single line of text: Enter never inserts a newline
-                // (it jumps into the body instead of breaking the title).
-                if (e.key === 'Enter') {
+                // A title is a single line of text: Enter never inserts a newline.
+                // If cursor is in the title, part after cursor is split into the start of body.
+                if (e.key === 'Enter' && !e.altKey && !e.metaKey && !e.ctrlKey) {
                   e.preventDefault();
-                  focusBodyStart();
+                  const ta = titleRef.current;
+                  if (!ta) {
+                    focusBodyStart();
+                    return;
+                  }
+                  const selStart = ta.selectionStart;
+                  const selEnd = ta.selectionEnd;
+                  const fullVal = ta.value;
+                  let before = fullVal.slice(0, selStart);
+                  let after = fullVal.slice(selEnd);
+
+                  if (!before.endsWith(' ') && after.startsWith(' ')) {
+                    before += ' ';
+                    after = after.slice(1);
+                  }
+
+                  if (after.length > 0) {
+                    setTitle(before);
+                    saveMeta({ title: before });
+                    ta.value = before;
+                    splitTitleRef.current?.(after);
+                    focusKey(regionId, 'body');
+                  } else {
+                    focusBodyStart();
+                  }
                 } else if (e.key === 'ArrowRight' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
                   const ta = titleRef.current;
                   if (ta && ta.selectionStart === ta.selectionEnd && ta.selectionStart === ta.value.length) {
@@ -2436,7 +2465,7 @@ function PageHeader({
               />
             )}
           </div>
-          <PageTitleContext.Provider value={{ title, setTitleAndSave, titleRef, registerFocusBodyStart }}>
+          <PageTitleContext.Provider value={{ title, setTitleAndSave, titleRef, registerFocusBodyStart, registerSplitTitle }}>
             {children}
           </PageTitleContext.Provider>
         </div>
@@ -3319,6 +3348,42 @@ function BlockContent({
         }
       } catch {
         // ignore
+      }
+    });
+  }, [editor, titleCtx]);
+
+  useEffect(() => {
+    titleCtx?.registerSplitTitle((afterText: string) => {
+      try {
+        const doc = editor.document;
+        const first = doc?.[0];
+        const newBlock = {
+          type: 'paragraph' as const,
+          content: [{ type: 'text' as const, text: afterText, styles: {} }],
+        };
+        if (!first) {
+          editor.insertBlocks([newBlock as any], null as any, 'after');
+        } else if (isEffectivelyEmpty(doc)) {
+          editor.replaceBlocks([first.id], [newBlock as any]);
+        } else {
+          editor.insertBlocks([newBlock as any], first.id, 'before');
+        }
+        const targetBlock = editor.document?.[0];
+        if (targetBlock) {
+          editor.setTextCursorPosition(targetBlock, 'start');
+        }
+        requestAnimationFrame(() => {
+          try {
+            const firstBlock = editor.document?.[0];
+            if (firstBlock) {
+              editor.setTextCursorPosition(firstBlock, 'start');
+            }
+          } catch {
+            // ignore
+          }
+        });
+      } catch (e) {
+        console.error('Failed to split title into body', e);
       }
     });
   }, [editor, titleCtx]);
