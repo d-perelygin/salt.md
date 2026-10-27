@@ -3901,15 +3901,20 @@ function ColumnsControl({
     }
   }, [open]);
 
+  const isTimeline = view.type === 'timeline';
   const hidden = new Set(
     view.hidden !== undefined
       ? view.hidden
-      : view.type === 'timeline'
+      : isTimeline
         ? schema.map((p) => p.id)
         : []
   );
   const shown = schema.filter((p) => !hidden.has(p.id));
   const hiddenProps = schema.filter((p) => hidden.has(p.id));
+  const isActive = isTimeline ? shown.length > 0 : hidden.size > 0;
+  const countBadge = isTimeline
+    ? (shown.length > 0 ? ` (${shown.length})` : '')
+    : (hidden.size > 0 ? ` (${shown.length}/${schema.length})` : '');
   const toggle = (id: string) => {
     const next = new Set(hidden);
     if (next.has(id)) next.delete(id);
@@ -3926,9 +3931,9 @@ function ColumnsControl({
 
   return (
     <div className="fs-controls">
-      <button ref={btnRef} className={'btn-sm' + (hidden.size ? ' active' : '')} onClick={() => setOpen((o) => !o)}>
+      <button ref={btnRef} className={'btn-sm' + (isActive ? ' active' : '')} onClick={() => setOpen((o) => !o)}>
         <Eye size={14} /> {t('Columns')}
-        {hidden.size ? ` (${shown.length}/${schema.length})` : ''}
+        {countBadge}
       </button>
       {open && pos && (
         <Portal>
@@ -5619,7 +5624,7 @@ function TimelineView({
                 <>
                   <div className="tl-col-th tl-title-th" style={colStyle(TITLE_COL)}>
                     <div className="tl-th-content">
-                      <span className="tl-th-label">{t('Task')}</span>
+                      {visibleProps.length > 0 && <span className="tl-th-label">{t('Task')}</span>}
                       {onToggleLabels && (
                         <button
                           className="btn-sm tl-collapse"
