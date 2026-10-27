@@ -1937,6 +1937,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
           onSetDates={(rowId, patch) => void setRowProps(rowId, patch)}
           onSetDep={(rowId, propId, ids) => void setRowProp(rowId, propId, ids)}
+          onSetProp={setRowProp}
+          onSetOptions={setPropOptions}
           hideLabels={view.tlHideLabels ?? false}
           onToggleLabels={() => updateView({ tlHideLabels: !view.tlHideLabels })}
           skipWeekends={view.tlSkipWeekends ?? false}
@@ -3899,7 +3901,13 @@ function ColumnsControl({
     }
   }, [open]);
 
-  const hidden = new Set(view.hidden ?? []);
+  const hidden = new Set(
+    view.hidden !== undefined
+      ? view.hidden
+      : view.type === 'timeline'
+        ? schema.map((p) => p.id)
+        : []
+  );
   const shown = schema.filter((p) => !hidden.has(p.id));
   const hiddenProps = schema.filter((p) => hidden.has(p.id));
   const toggle = (id: string) => {
@@ -4233,6 +4241,8 @@ function TimelineView({
   onSetDate,
   onSetDates,
   onSetDep,
+  onSetProp,
+  onSetOptions,
   hideLabels,
   onToggleLabels,
   skipWeekends,
@@ -4261,6 +4271,8 @@ function TimelineView({
   // drag moves the start and the end together.
   onSetDates: (rowId: string, patch: Record<string, string>) => void;
   onSetDep: (rowId: string, propId: string, ids: string[]) => void;
+  onSetProp?: (rowId: string, propId: string, value: unknown) => void;
+  onSetOptions?: (propId: string, options: PropOption[]) => void;
   hideLabels?: boolean;
   onToggleLabels?: () => void;
   skipWeekends?: boolean;
@@ -4269,12 +4281,63 @@ function TimelineView({
 }) {
   const DAY = 26; // px per day
   const YEARW = 140; // px per month in year mode
-  const LABELW = 190; // sticky title column width
-  // Collapsed, the title column takes no room at all and the grid keeps the
-  // width: the bars carry their own titles, so the axis is what is left to look
-  // at. `onToggleLabels` is absent where nothing may be collapsed (a public
-  // link shows the owner's choice).
-  const labelW = hideLabels ? 0 : LABELW;
+
+  const hidden = new Set(
+    view.hidden !== undefined
+      ? view.hidden
+      : schema.map((p) => p.id)
+  );
+  const visibleProps = schema.filter((p) => !hidden.has(p.id));
+
+  const colWidths = view.colWidths;
+  const [colDrag, setColDrag] = useState<{ key: string; px: number } | null>(null);
+
+  const widthOf = (key: string) => {
+    if (colDrag?.key === key) return colDrag.px;
+    if (colWidths?.[key]) return colWidths[key];
+    return key === TITLE_COL ? 190 : 120;
+  };
+
+  const colStyle = (key: string): React.CSSProperties => {
+    const px = widthOf(key);
+    return { width: px, minWidth: px, maxWidth: px, boxSizing: 'border-box' };
+  };
+
+  const startColResize = (key: string) => (e: React.PointerEvent<HTMLSpanElement>) => {
+    e.stopPropagation();
+    const th = e.currentTarget.closest('.tl-col-th') as HTMLElement | null;
+    const from = th ? th.getBoundingClientRect().width : widthOf(key);
+    const x0 = e.clientX;
+    const widthAt = (clientX: number) => Math.max(64, Math.round(from + clientX - x0));
+    document.body.classList.add('is-col-resizing');
+    const move = (ev: PointerEvent) => setColDrag({ key, px: widthAt(ev.clientX) });
+    const end = (ev: PointerEvent) => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', end);
+      document.removeEventListener('pointercancel', end);
+      document.body.classList.remove('is-col-resizing');
+      const px = widthAt(ev.clientX);
+      setColDrag(null);
+      if (px !== colWidths?.[key] && !(px === Math.round(from) && !colWidths?.[key])) {
+        onViewChange({ colWidths: { ...(colWidths ?? {}), [key]: px } });
+      }
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+  };
+
+  const resetCol = (key: string) => () => {
+    if (!colWidths?.[key]) return;
+    const next = { ...colWidths };
+    delete next[key];
+    onViewChange({ colWidths: next });
+  };
+
+  const tableWidth = widthOf(TITLE_COL) + visibleProps.reduce((sum, p) => sum + widthOf(p.id), 0);
+  // Collapsed, the title and property columns take no room at all and the grid
+  // keeps the full width.
+  const labelW = hideLabels ? 0 : tableWidth;
   const dayNum = (iso: string) => {
     const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
     return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
@@ -5546,15 +5609,43 @@ function TimelineView({
         <div className="tl-inner" style={{ minWidth: labelW + gridMin }}>
           <div className="tl-header" style={{ '--tl-sticky-left': `${labelW}px` } as React.CSSProperties}>
             <div className="tl-corner" style={{ width: labelW }}>
-              {onToggleLabels && !hideLabels && (
-                <button
-                  className="btn-sm tl-collapse"
-                  onClick={onToggleLabels}
-                  aria-label={t('Hide the title column')}
-                  title={t('Hide the title column')}
-                >
-                  <PanelLeftClose size={15} />
-                </button>
+              {!hideLabels && (
+                <>
+                  <div className="tl-col-th tl-title-th" style={colStyle(TITLE_COL)}>
+                    <div className="tl-th-content">
+                      <span className="tl-th-label">{t('Task')}</span>
+                      {onToggleLabels && (
+                        <button
+                          className="btn-sm tl-collapse"
+                          onClick={onToggleLabels}
+                          aria-label={t('Hide the title column')}
+                          title={t('Hide the title column')}
+                        >
+                          <PanelLeftClose size={15} />
+                        </button>
+                      )}
+                    </div>
+                    <span
+                      className="tl-col-resize"
+                      title={t('Drag to resize, double-click to fit the content')}
+                      onPointerDown={startColResize(TITLE_COL)}
+                      onDoubleClick={resetCol(TITLE_COL)}
+                    />
+                  </div>
+                  {visibleProps.map((p) => (
+                    <div key={p.id} className="tl-col-th" style={colStyle(p.id)}>
+                      <div className="tl-th-content">
+                        <span className="tl-th-label">{p.name}</span>
+                      </div>
+                      <span
+                        className="tl-col-resize"
+                        title={t('Drag to resize, double-click to fit the content')}
+                        onPointerDown={startColResize(p.id)}
+                        onDoubleClick={resetCol(p.id)}
+                      />
+                    </div>
+                  ))}
+                </>
               )}
             </div>
             <div className="tl-head-right">
@@ -5612,52 +5703,66 @@ function TimelineView({
               const { row } = it;
               const blocked = effDep ? violationsOf(row.id) : [];
               const label = (
-                <PageHoverCard
-                  page={rowToPageMeta(row, pages)}
-                  side="bottom"
-                  tagColors={tagColors}
-                  disabled={Boolean(drag || linkFrom)}
+                <div
+                  className={'tl-row-table' + (hovered === row.id ? ' is-hovered' : '')}
+                  style={{ width: labelW }}
+                  onMouseEnter={() => {
+                    if (!linkActiveRef.current) setHovered(row.id);
+                  }}
+                  onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
                 >
-                  <div
-                    className={'tl-label' + (hovered === row.id ? ' is-hovered' : '')}
-                    style={{ width: LABELW }}
-                    onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
-                    onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                    // The mirror of the bar's hover below: lighting the title
-                    // lights the bar, so the pair reads as one thing from either
-                    // end. Same link guard — a lasso sweeping the labels must not
-                    // re-render mid-gesture either.
-                    onMouseEnter={() => {
-                      if (!linkActiveRef.current) setHovered(row.id);
-                    }}
-                    onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
+                  <PageHoverCard
+                    page={rowToPageMeta(row, pages)}
+                    side="bottom"
+                    tagColors={tagColors}
+                    disabled={Boolean(drag || linkFrom)}
                   >
-                    {row.icon && (
-                      <span className="inline-icon">
-                        <PageIcon icon={row.icon} size={14} />
-                      </span>
-                    )}
-                    <span className="tl-label-text">{row.title || 'Untitled'}</span>
-                    {blocked.length > 0 && (
-                      <button
-                        className="tl-warn"
-                        title={plural(
-                          blocked.length,
-                          'Blocked: starts before {n} blocker ends',
-                          'Blocked: starts before {n} blockers end',
-                        )}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                          setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
-                          setAddBlockerFor(null);
-                        }}
-                      >
-                        ⚠{blocked.length > 1 ? blocked.length : ''}
-                      </button>
-                    )}
-                  </div>
-                </PageHoverCard>
+                    <div
+                      className="tl-cell tl-title-cell tl-label"
+                      style={colStyle(TITLE_COL)}
+                      onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
+                      onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
+                    >
+                      {row.icon && (
+                        <span className="inline-icon">
+                          <PageIcon icon={row.icon} size={14} />
+                        </span>
+                      )}
+                      <span className="tl-label-text">{row.title || 'Untitled'}</span>
+                      {blocked.length > 0 && (
+                        <button
+                          className="tl-warn"
+                          title={plural(
+                            blocked.length,
+                            'Blocked: starts before {n} blocker ends',
+                            'Blocked: starts before {n} blockers end',
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                            setAddBlockerFor(null);
+                          }}
+                        >
+                          ⚠{blocked.length > 1 ? blocked.length : ''}
+                        </button>
+                      )}
+                    </div>
+                  </PageHoverCard>
+                  {visibleProps.map((p) => (
+                    <div key={p.id} className="tl-cell tl-prop-cell" style={colStyle(p.id)}>
+                      <PropertyValue
+                        def={p}
+                        value={row.props[p.id]}
+                        onChange={onSetProp ? (v) => onSetProp(row.id, p.id, v) : undefined}
+                        onOptionsChange={onSetOptions ? (opts) => onSetOptions(p.id, opts) : undefined}
+                        maxChips={1}
+                        onOpen={onOpenInNewTab ?? onNavigate}
+                        openers={{ onNavigate, onOpenInNewTab }}
+                      />
+                    </div>
+                  ))}
+                </div>
               );
 
               const trackChrome = (
@@ -5982,10 +6087,15 @@ function TimelineView({
             )}
             {!hideLabels && (
               <div className="tl-row">
-                <div className="tl-label tl-add" style={{ width: LABELW }}>
-                  <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
-                    <Plus size={14} /> {t('New')}
-                  </button>
+                <div className="tl-row-table" style={{ width: labelW }}>
+                  <div className="tl-cell tl-title-cell tl-add" style={colStyle(TITLE_COL)}>
+                    <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
+                      <Plus size={14} /> {t('New')}
+                    </button>
+                  </div>
+                  {visibleProps.map((p) => (
+                    <div key={p.id} className="tl-cell tl-prop-cell" style={colStyle(p.id)} />
+                  ))}
                 </div>
                 <div className="tl-track" />
               </div>

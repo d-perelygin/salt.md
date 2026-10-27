@@ -5224,11 +5224,13 @@ body.is-unsched-carry .unsched-card {
   50% { background-color: var(--hover); }
 }
 .tl-row.is-flash .tl-label,
+.tl-row.is-flash .tl-cell,
 .tl-row.is-flash .tl-track {
   animation: tl-flash 0.9s ease-in-out 2;
 }
 @media (prefers-reduced-motion: reduce) {
   .tl-row.is-flash .tl-label,
+  .tl-row.is-flash .tl-cell,
   .tl-row.is-flash .tl-track {
     animation: none;
   }
@@ -9314,11 +9316,8 @@ a.btn {
   min-height: 32px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
-  border-right: 1px solid var(--border);
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 8px;
+  align-items: stretch;
   box-sizing: border-box;
 }
 .tl-corner[style*="width: 0"],
@@ -9326,6 +9325,55 @@ a.btn {
   border-right: none;
   padding: 0;
   overflow: hidden;
+}
+.tl-col-th {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  border-right: 1px solid var(--border);
+  box-sizing: border-box;
+  user-select: none;
+  min-height: 32px;
+}
+.tl-title-th .tl-th-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 6px;
+}
+.tl-th-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.tl-th-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tl-col-th .tl-col-resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 2;
+}
+.tl-col-th .tl-col-resize:hover,
+.tl-col-th .tl-col-resize:active {
+  background: var(--accent, #3b6fb5);
+  opacity: 0.5;
 }
 .tl-corner .tl-collapse {
   padding: 4px 6px;
@@ -9340,7 +9388,9 @@ a.btn {
   border-radius: 6px;
   cursor: pointer;
   transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  flex: none;
 }
+.tl-col-th:hover .tl-collapse,
 .tl-corner:hover .tl-collapse,
 .tl-corner .tl-collapse:hover {
   opacity: 1;
@@ -9467,6 +9517,67 @@ a.btn {
   padding: 8px 12px 24px;
 }
 .tl-row { display: flex; align-items: stretch; height: 40px; }
+.tl-row-table {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg);
+  box-sizing: border-box;
+}
+.tl-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  box-sizing: border-box;
+  font-size: 13.5px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.tl-title-cell {
+  cursor: pointer;
+  gap: 6px;
+}
+.tl-cell.tl-add {
+  cursor: default;
+}
+.tl-cell.tl-add:hover {
+  background: none;
+}
+.tl-cell.tl-add .btn-sm {
+  width: 100%;
+  justify-content: center;
+}
+.tl-row-table:hover .tl-cell,
+.tl-row-table.is-hovered .tl-cell {
+  background:
+    linear-gradient(var(--hover), var(--hover)),
+    var(--bg);
+}
+.tl-row-table.is-hovered .tl-title-cell {
+  box-shadow: inset 2px 0 0 var(--border);
+}
+.tl-prop-cell .prop-multi {
+  flex-wrap: nowrap;
+  overflow: hidden;
+  max-width: 100%;
+}
+.tl-prop-cell .prop-text {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-prop-cell .relation-open {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+}
 .tl-label {
   position: sticky;
   left: 0;
