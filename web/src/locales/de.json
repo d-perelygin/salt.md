@@ -1162,6 +1162,7 @@
   "Tunnel connected — reachable under the hostname set in the Cloudflare dashboard.": "Tunnel verbunden — erreichbar unter dem im Cloudflare-Dashboard festgelegten Hostname.",
   "Tunnel error": "Tunnel-Fehler",
   "Tunnel starting…": "Tunnel startet…",
+  "Turn into text": "In Text umwandeln",
   "Two blocks side by side": "Zwei Blöcke nebeneinander",
   "Two rules write to “{prop}” on the way into “{to}” — the last one wins.": "Zwei Regeln schreiben „{prop}\" beim Eingang in „{to}\" — die letzte gewinnt.",
   "Two sections. Good when the databases are the point.": "Zwei Abschnitte. Gut, wenn die Datenbanken die Hauptsache sind.",

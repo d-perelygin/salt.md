@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createReactBlockSpec } from '@blocknote/react';
-import { Table2, Sparkles, RotateCw, Settings } from 'lucide-react';
+import { Table2, Sparkles, RotateCw, Settings, FileText } from 'lucide-react';
 import { useBlockCtx } from './blockContext';
 import { openPage, openPageAux } from './pageOpen';
 import { MERMAID_REV, renderMermaid } from './mermaidLoader';
@@ -697,6 +697,43 @@ export const aiBlockSpec = createReactBlockSpec(
         setEditing(false);
       };
 
+      const unwrap = async () => {
+        if (!editor.isEditable) return;
+        const current = editor.getBlock(block) || block;
+        const rawContent = (current as any).content;
+        try {
+          const text = Array.isArray(rawContent)
+            ? rawContent.map((c: any) => (typeof c === 'string' ? c : c.text || '')).join('')
+            : '';
+          if (text.trim() && typeof editor.tryParseMarkdownToBlocks === 'function') {
+            const parsed = await editor.tryParseMarkdownToBlocks(text);
+            if (parsed && parsed.length > 0) {
+              editor.replaceBlocks([block], parsed);
+              return;
+            }
+          }
+          editor.replaceBlocks(
+            [block],
+            [
+              {
+                type: 'paragraph',
+                content: rawContent && rawContent.length > 0 ? rawContent : undefined,
+              } as never,
+            ],
+          );
+        } catch {
+          editor.replaceBlocks(
+            [block],
+            [
+              {
+                type: 'paragraph',
+                content: rawContent && rawContent.length > 0 ? rawContent : undefined,
+              } as never,
+            ],
+          );
+        }
+      };
+
       return (
         <div className="bn-ai-block" data-editing={editing ? 'true' : 'false'}>
           {editing ? (
@@ -775,6 +812,16 @@ export const aiBlockSpec = createReactBlockSpec(
                   </button>
                 </div>
                 <div className="bn-ai-block-toolbar">
+                  <button
+                    type="button"
+                    className="btn-sm"
+                    onClick={() => void unwrap()}
+                    title={t('Turn into text')}
+                    disabled={busy}
+                    style={{ padding: '2px 6px', fontSize: 12 }}
+                  >
+                    <FileText size={12} />
+                  </button>
                   <button
                     type="button"
                     className="btn-sm"

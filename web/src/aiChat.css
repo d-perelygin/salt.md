@@ -733,9 +733,18 @@
 .bn-ai-block:hover {
   border-color: var(--border-hover, var(--border));
 }
-.bn-ai-block:hover .bn-ai-block-toolbar {
+.bn-ai-block:hover .bn-ai-block-toolbar,
+.bn-ai-block:focus-within .bn-ai-block-toolbar {
   opacity: 1;
   pointer-events: auto;
+}
+.bn-ai-block:hover .bn-ai-block-actions,
+.bn-ai-block:focus-within .bn-ai-block-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+.bn-ai-block-actions {
+  transition: opacity 0.15s ease;
 }
 .bn-ai-block-header {
   display: flex;
