@@ -1883,9 +1883,10 @@ function WorkspaceImageModal({
             <button className="btn primary" disabled={busy || !emoji.trim()} onClick={() => void saveEmoji()}>{t('Save')}</button>
             {pickerOpen && (
               <IconPicker
+                currentIcon={emoji}
                 anchor={pickerBtnRef}
-                onPick={(e) => {
-                  setPickerOpen(false);
+                onPick={(e, close = true) => {
+                  if (close) setPickerOpen(false);
                   setEmoji(e);
                   void saveEmoji(e);
                 }}

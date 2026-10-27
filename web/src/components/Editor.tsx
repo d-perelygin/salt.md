@@ -2255,10 +2255,11 @@ function PageHeader({
             )}
             {iconPickerOpen && (
               <IconPicker
+                currentIcon={icon}
                 pageId={pageId}
-                onPick={(e) => {
+                onPick={(e, close = true) => {
                   setIcon(e);
-                  setIconPickerOpen(false);
+                  if (close) setIconPickerOpen(false);
                   saveMeta({ icon: e });
                 }}
                 onRemove={() => {

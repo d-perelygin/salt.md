@@ -1362,6 +1362,10 @@ body:has(.icon-picker) .bn-side-menu {
 .icon-grid button:hover {
   background: var(--hover);
 }
+.icon-grid button.on {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
 .icon-empty {
   padding: 24px;
   text-align: center;

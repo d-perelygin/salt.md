@@ -5,7 +5,7 @@ import { EMOJI_GROUPS } from '../emojiData';
 import { LUCIDE_SET, LUCIDE_NAMES } from '../lucideSet';
 import { api } from '../api';
 import { toast } from '../toast';
-import { makeLucide, makeMdi } from '../pageIcon';
+import { isImageIcon, isLucideIcon, isMdiIcon, makeLucide, makeMdi, parseIconRef } from '../pageIcon';
 import { mdiNames, mdiPath, useMdi } from '../mdiLoader';
 import { t } from '../i18n';
 
@@ -24,7 +24,8 @@ const ICON_COLORS = [
 ];
 
 interface Props {
-  onPick: (icon: string) => void;
+  currentIcon?: string | null;
+  onPick: (icon: string, close?: boolean) => void;
   onRemove: () => void;
   onClose: () => void;
   pageId?: string;
@@ -37,8 +38,9 @@ interface Props {
   anchor?: React.RefObject<HTMLElement | null>;
 }
 
-export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }: Props) {
+export default function IconPicker({ currentIcon, onPick, onRemove, onClose, pageId, anchor }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   // Same shape as SelectCell's popover: clamp to the viewport, flip upward when
   // there is more room above, and never exceed the space actually available.
   const [pos, setPos] = useState<{
@@ -65,15 +67,59 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
       maxHeight: Math.max(240, below ? spaceBelow : spaceAbove),
     });
   }, [anchor]);
-  const [tab, setTab] = useState<'emoji' | 'icon' | 'upload'>('emoji');
+  const [tab, setTab] = useState<'emoji' | 'icon' | 'upload'>(() => {
+    if (isLucideIcon(currentIcon) || isMdiIcon(currentIcon)) return 'icon';
+    if (isImageIcon(currentIcon)) return 'upload';
+    return 'emoji';
+  });
   const [q, setQ] = useState('');
-  const [color, setColor] = useState('');
+  const [color, setColor] = useState<string>(() => {
+    if (isLucideIcon(currentIcon) || isMdiIcon(currentIcon)) {
+      return parseIconRef(currentIcon || '').color || '';
+    }
+    return '';
+  });
+  const [selected, setSelected] = useState<string>(currentIcon || '');
   // Two icon libraries: Lucide (outline, bundled) and the full Material Design
   // Icons set (~7.4k, lazily fetched the first time this tab is used).
-  const [lib, setLib] = useState<'lucide' | 'mdi'>('lucide');
+  const [lib, setLib] = useState<'lucide' | 'mdi'>(() => {
+    if (isMdiIcon(currentIcon)) return 'mdi';
+    return 'lucide';
+  });
   const mdiReady = useMdi(tab === 'icon' && lib === 'mdi');
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    if (currentIcon !== undefined) {
+      setSelected(currentIcon || '');
+      if (isLucideIcon(currentIcon) || isMdiIcon(currentIcon)) {
+        setColor(parseIconRef(currentIcon || '').color || '');
+      }
+    }
+  }, [currentIcon]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const activeBtn = bodyRef.current?.querySelector('.icon-grid button.on') as HTMLElement | null;
+      if (activeBtn) {
+        activeBtn.scrollIntoView({ block: 'nearest' });
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [tab, lib, mdiReady]);
+
+  const handleColorChange = (hex: string) => {
+    setColor(hex);
+    if (selected && (isLucideIcon(selected) || isMdiIcon(selected))) {
+      const { name } = parseIconRef(selected);
+      if (name) {
+        const next = isMdiIcon(selected) ? makeMdi(name, hex || undefined) : makeLucide(name, hex || undefined);
+        setSelected(next);
+        onPick(next, false);
+      }
+    }
+  };
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -112,6 +158,7 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
     setUploading(true);
     try {
       const url = await api.upload(file, pageId);
+      setSelected(url);
       onPick(url);
     } catch {
       toast(t('Upload failed'));
@@ -160,7 +207,7 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
                 type="button"
                 className={'icon-color' + (color === c.hex ? ' on' : '')}
                 title={c.name}
-                onClick={() => setColor(c.hex)}
+                onClick={() => handleColorChange(c.hex)}
               >
                 <span className="icon-color-dot" style={{ background: c.hex || 'var(--fg)' }} />
               </button>
@@ -177,17 +224,29 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
         </div>
       )}
 
-      <div className="icon-picker-body">
+      <div className="icon-picker-body" ref={bodyRef}>
         {tab === 'emoji' &&
           emojiResults.map((g) => (
             <div key={g.cat} className="icon-cat">
               <div className="icon-cat-label">{g.cat}</div>
               <div className="icon-grid emoji-grid">
-                {g.items.map(([e, n]) => (
-                  <button key={e} type="button" title={n} onClick={() => onPick(e)}>
-                    {e}
-                  </button>
-                ))}
+                {g.items.map(([e, n]) => {
+                  const isSelected = selected === e;
+                  return (
+                    <button
+                      key={e}
+                      type="button"
+                      className={isSelected ? 'on' : undefined}
+                      title={n}
+                      onClick={() => {
+                        setSelected(e);
+                        onPick(e);
+                      }}
+                    >
+                      {e}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -200,12 +259,18 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
               if (lib === 'mdi') {
                 const d = mdiPath(name);
                 if (!d) return null;
+                const isSelected = isMdiIcon(selected) && parseIconRef(selected).name === name;
                 return (
                   <button
                     key={name}
                     type="button"
+                    className={isSelected ? 'on' : undefined}
                     title={name}
-                    onClick={() => onPick(makeMdi(name, color || undefined))}
+                    onClick={() => {
+                      const val = makeMdi(name, color || undefined);
+                      setSelected(val);
+                      onPick(val);
+                    }}
                   >
                     <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden="true">
                       <path d={d} fill={c} />
@@ -214,12 +279,19 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
                 );
               }
               const Cmp = LUCIDE_SET[name];
+              if (!Cmp) return null;
+              const isSelected = isLucideIcon(selected) && parseIconRef(selected).name === name;
               return (
                 <button
                   key={name}
                   type="button"
+                  className={isSelected ? 'on' : undefined}
                   title={name}
-                  onClick={() => onPick(makeLucide(name, color || undefined))}
+                  onClick={() => {
+                    const val = makeLucide(name, color || undefined);
+                    setSelected(val);
+                    onPick(val);
+                  }}
                 >
                   <Cmp size={20} color={c} fill="none" strokeWidth={2} />
                 </button>
