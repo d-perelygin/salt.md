@@ -49,7 +49,7 @@ export const pageLinkSpec = createReactInlineContentSpec(
       } as PageMeta);
 
       return (
-        <PageHoverCard page={fallbackPage} side="bottom" tagColors={tagColors}>
+        <PageHoverCard page={fallbackPage} side="top" tagColors={tagColors}>
           <button
             type="button"
             className="page-link"

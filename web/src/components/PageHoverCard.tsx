@@ -169,7 +169,7 @@ export function PageHoverCard({
       } else if (side === 'top') {
         nextPos.left = Math.max(12, Math.min(rect.left, window.innerWidth - CARD_W - 12));
         const spaceAbove = rect.top;
-        if (spaceAbove < 180 && window.innerHeight - rect.bottom > 180) {
+        if (spaceAbove < 170 && window.innerHeight - rect.bottom > spaceAbove) {
           nextPos.top = rect.bottom + gap;
         } else {
           nextPos.bottom = window.innerHeight - rect.top + gap;
