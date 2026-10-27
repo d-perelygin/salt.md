@@ -9333,6 +9333,20 @@ a.btn {
   align-items: center;
   justify-content: center;
   line-height: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  opacity: 0.55;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.tl-corner:hover .tl-collapse,
+.tl-corner .tl-collapse:hover {
+  opacity: 1;
+  color: var(--fg);
+  background: var(--hover);
+  border-color: var(--border);
 }
 .tl-head-right {
   display: flex;
@@ -9379,7 +9393,20 @@ a.btn {
   align-items: center;
   justify-content: center;
   line-height: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  opacity: 0.55;
+  border-radius: 6px;
+  cursor: pointer;
   margin-right: 2px;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.tl-month-sticky .tl-collapse:hover {
+  opacity: 1;
+  color: var(--fg);
+  background: var(--hover);
+  border-color: var(--border);
 }
 .tl-month-name {
   white-space: nowrap;
