@@ -5148,26 +5148,74 @@ function TimelineView({
   // its own small SVG box from x1 to x2 so no global measuring is needed —
   // x is in track percent, y in row pixels (ROW_H per row, bar center at 20).
   const ROW_H = 40;
-  type Arrow = { key: string; from: number; to: number; pred: string; succ: string; x1: number; x2: number; bad: boolean };
-  // Arrow Y comes from the RENDERED order, not the data order: using data
-  // indices puts every arrow too low as soon as one dated row falls outside
-  // the window. Rendered means VISIBLE here: a row whose event does not touch
-  // the window gets no row at all — neither start nor end in it, no overlap,
-  // no slot. Undated rows already live in the tray; dated-but-elsewhere rows
-  // are noise, not information. Arrows stay consistent by construction: their
-  // Y comes from this same list, and an endpoint outside the window has no
-  // geometry to draw to, so its arrows are skipped below.
-  const rendered: { it: Item; geom: { left: string; width: string } | null; fx: { l: number; r: number } | null }[] =
-    liveItems
-      .map((it) => {
-        const g = barGeom(it);
-        return { it, geom: g, fx: g ? fracGeom(it) : null };
-      })
-      // barGeom is null exactly when the event and the window do not overlap
-      // (fracGeom clamps a partial overlap instead), and it already runs over
-      // the drag-live items — so a row mid-drag stays exactly while its bar,
-      // stored or carried, is on the diagram.
-      .filter((r) => r.geom);
+  type Arrow = {
+    key: string;
+    from: number;
+    to: number;
+    pred: string;
+    succ: string;
+    x1: number;
+    x2: number;
+    fromOffscreen?: 'past' | 'future';
+    toOffscreen?: 'past' | 'future';
+    bad: boolean;
+  };
+
+  const itemWindowPos = (it: Item): 'in' | 'past' | 'future' => {
+    if (isYear) {
+      const base = yearOf(cursor) * 12;
+      const startM = yearOf(it.start) * 12 + monthOf(it.start);
+      const endM = yearOf(it.end) * 12 + monthOf(it.end);
+      if (endM < base) return 'past';
+      if (startM > base + 11) return 'future';
+      return 'in';
+    }
+    const n = dayCols.length;
+    if (n === 0) return 'in';
+    if (it.end < dayCols[0]) return 'past';
+    if (it.start > dayCols[n - 1]) return 'future';
+    return 'in';
+  };
+
+  const inWindowIds = new Set<string>();
+  for (const it of liveItems) {
+    if (itemWindowPos(it) === 'in') inWindowIds.add(it.row.id);
+  }
+  const connectedIds = new Set<string>();
+  if (effDep) {
+    for (const id of inWindowIds) {
+      for (const sid of depIdsOf(id)) {
+        connectedIds.add(sid);
+      }
+      for (const pid of blockedBy.get(id) ?? []) {
+        connectedIds.add(pid);
+      }
+    }
+  }
+
+  type RenderedRow = {
+    it: Item;
+    geom: { left: string; width: string } | null;
+    fx: { l: number; r: number } | null;
+    offscreen?: 'past' | 'future';
+  };
+
+  const rendered: RenderedRow[] = [];
+  for (const it of liveItems) {
+    const pos = itemWindowPos(it);
+    if (pos === 'in') {
+      const g = barGeom(it);
+      rendered.push({ it, geom: g, fx: g ? fracGeom(it) : null });
+    } else if (connectedIds.has(it.row.id)) {
+      rendered.push({
+        it,
+        geom: null,
+        fx: pos === 'past' ? { l: 0.02, r: 0.08 } : { l: 0.92, r: 0.98 },
+        offscreen: pos,
+      });
+    }
+  }
+
   const renderIndex = new Map(rendered.map((r, k) => [r.it.row.id, k]));
   // Fractions of the track width here; pixels at render time (trackW), so
   // curves and heads never distort the way a stretched viewBox would.
@@ -5179,8 +5227,9 @@ function TimelineView({
         const succ = byId.get(sid);
         const si = renderIndex.get(sid);
         if (!succ || si === undefined) continue;
-        const pf = fracGeom(it);
-        const sf = fracGeom(succ);
+        const sr = rendered[si];
+        const pf = r.fx ?? fracGeom(it);
+        const sf = sr.fx ?? fracGeom(succ);
         if (!pf || !sf) continue;
         arrows.push({
           key: it.row.id + '→' + sid,
@@ -5190,6 +5239,8 @@ function TimelineView({
           succ: sid,
           x1: Math.min(0.99, Math.max(0, pf.r)),
           x2: Math.min(0.99, Math.max(0, sf.l)),
+          fromOffscreen: r.offscreen,
+          toOffscreen: sr.offscreen,
           bad: succ.start <= it.end,
         });
       }
@@ -5495,7 +5546,7 @@ function TimelineView({
             </div>
           </div>
           <div className="tl-body">
-            {rendered.map(({ it, geom: g0, fx }) => {
+            {rendered.map(({ it, geom: g0, fx, offscreen }) => {
               const { row } = it;
               const blocked = effDep ? violationsOf(row.id) : [];
               const label = (
@@ -5540,6 +5591,71 @@ function TimelineView({
                   )}
                 </div>
               );
+
+              const trackChrome = (
+                <>
+                  {weekends.map((w, k) => (
+                    <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
+                  ))}
+                  {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
+                </>
+              );
+
+              if (offscreen) {
+                const offDate = offscreen === 'past' ? it.end : it.start;
+                const offDateStr = formatDay(isoDay(offDate), 'dayMonth');
+                return (
+                  <div
+                    key={row.id}
+                    className={
+                      'tl-row tl-row-offscreen' +
+                      (linkFrom === row.id ? ' is-link-source' : '')
+                    }
+                    data-tl-row={row.id}
+                  >
+                    {!hideLabels && label}
+                    <div className="tl-track">
+                      {trackChrome}
+                      <div
+                        className={
+                          'tl-bar tl-bar-offscreen is-' + offscreen +
+                          (blocked.length > 0 ? ' is-blocked' : '') +
+                          (hovered === row.id ? ' is-hovered' : '')
+                        }
+                        onClick={(e) => {
+                          if (swallowClick()) return;
+                          setCursor(offDate);
+                        }}
+                        onMouseEnter={() => {
+                          if (!linkActiveRef.current) setHovered(row.id);
+                        }}
+                        onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
+                        title={tipFor(row, it) + ' — ' + t('Click to jump to date')}
+                      >
+                        {offscreen === 'past' && <span className="tl-offscreen-arrow">‹</span>}
+                        <span className="tl-offscreen-date">{offDateStr}</span>
+                        <span className="tl-bar-label">{row.title || 'Untitled'}</span>
+                        {offscreen === 'future' && <span className="tl-offscreen-arrow">›</span>}
+                        {blocked.length > 0 && (
+                          <button
+                            className="tl-warn on-bar"
+                            title={t('Show blockers and fixes')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                              setAddBlockerFor(null);
+                            }}
+                          >
+                            ⚠
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
               // While dragging, the bar follows the pointer; the dates persist
               // on release only.
               const dg =
@@ -5554,17 +5670,6 @@ function TimelineView({
               // Reachable only in theory: rendered holds nothing without
               // geometry, and the drag-live items above move with the pointer.
               if (!geom) return null;
-              // The track chrome belongs to the window, not to the row: the
-              // weekend bands and the today line stay even where a bar does
-              // not start, or the axis reads as holes cut out of it.
-              const trackChrome = (
-                <>
-                  {weekends.map((w, k) => (
-                    <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
-                  ))}
-                  {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
-                </>
-              );
               return (
                 <div
                   key={row.id}
@@ -5638,7 +5743,7 @@ function TimelineView({
                         pulls onto another bar for this row to block that one.
                         It lives on the track: inside the bar the overflow
                         would cut it off. */}
-                    {effDep && fx && (
+                    {effDep && fx && !offscreen && (
                       <span
                         className={
                           'tl-dep-handle' + (linkFrom === row.id ? ' is-active' : '')
@@ -5708,9 +5813,19 @@ function TimelineView({
                   {arrows.length > 0 &&
                     trackW > 0 &&
                     arrows.map((a) => {
-                    const x1 = a.x1 * trackW;
+                    let x1 = a.x1 * trackW;
                     // The head stops just before the bar instead of climbing it.
-                    const x2 = a.x2 * trackW - 5;
+                    let x2 = a.x2 * trackW - 5;
+                    if (a.fromOffscreen === 'past') {
+                      x1 = Math.min(150, trackW * 0.35);
+                    } else if (a.fromOffscreen === 'future') {
+                      x1 = Math.max(trackW - 25, trackW * 0.85);
+                    }
+                    if (a.toOffscreen === 'future') {
+                      x2 = Math.max(trackW - 150, trackW * 0.65);
+                    } else if (a.toOffscreen === 'past') {
+                      x2 = Math.min(25, trackW * 0.15);
+                    }
                     const y1 = a.from * ROW_H + 20;
                     const y2 = a.to * ROW_H + 20;
                     const d = arrowPathD(x1, y1, x2, y2);
@@ -5744,7 +5859,12 @@ function TimelineView({
                   trackW > 0 &&
                   arrows.map((a) => {
                     if (hoverArrow !== a.key) return null;
-                    const x2 = a.x2 * trackW - 5;
+                    let x2 = a.x2 * trackW - 5;
+                    if (a.toOffscreen === 'future') {
+                      x2 = Math.max(trackW - 150, trackW * 0.65);
+                    } else if (a.toOffscreen === 'past') {
+                      x2 = Math.min(25, trackW * 0.15);
+                    }
                     const y2 = a.to * ROW_H + 20;
                     return (
                       <button
