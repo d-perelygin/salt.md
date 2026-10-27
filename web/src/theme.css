@@ -1044,3 +1044,157 @@
 [data-theme='dark'] .bn-mermaid-view img {
   filter: invert(0.9) hue-rotate(180deg);
 }
+
+/* Page hover preview card */
+.page-hover-card {
+  z-index: 950;
+  width: 290px;
+  max-width: calc(100vw - 24px);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  pointer-events: auto;
+  animation: pageHoverCardFadeIn 140ms ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes pageHoverCardFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.page-hover-card-cover {
+  width: 100%;
+  height: 56px;
+  background-size: cover;
+  background-position: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-hover-card-body {
+  padding: 12px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.page-hover-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.page-hover-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.page-hover-card-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.page-hover-card-badge {
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.page-hover-card-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg);
+  opacity: 0.88;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.page-hover-card-snippet {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.page-hover-card-empty {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.page-hover-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding-top: 2px;
+}
+
+.page-hover-card-more {
+  font-size: 10.5px;
+  color: var(--muted);
+  padding: 0 4px;
+}
+
+.page-hover-card-footer {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-hover-card-time {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.page-hover-card-hints {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.page-hover-card-dot {
+  opacity: 0.5;
+}

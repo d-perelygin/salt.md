@@ -13,6 +13,7 @@ import Portal from './Portal';
 import AnchoredMenu from './AnchoredMenu';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
+import { PageHoverCard } from './PageHoverCard';
 import TrashSection from './TrashSection';
 import { compare } from '../format';
 import { plural, t } from '../i18n';
@@ -127,6 +128,7 @@ interface TreeCtx {
   onToggleFavorite: (id: string) => void;
   workspaces: Workspace[];
   onMoveToWorkspace: (pageId: string, wsId: string, wsName: string) => void;
+  tagColors: Record<string, string>;
   dragStart: (id: string, e: React.DragEvent) => void;
   dragOver: (p: PageMeta, e: React.DragEvent) => void;
   dragLeave: (id: string) => void;
@@ -376,29 +378,31 @@ function FlatRow({
   action?: React.ReactNode;
 }) {
   return (
-    <div
-      className={'tree-item sb-flat' + (active ? ' active' : '')}
-      onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
-      onAuxClick={(e) => openPageAux(e, p.id, { onNavigate, onOpenInNewTab })}
-    >
-      <span className="chevron spacer" />
-      <span className="tree-icon">
-        <PageIcon
-          icon={p.icon}
-          size={15}
-          fallback={p.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />}
-        />
-      </span>
-      <span className="sb-flat-text">
-        <span className="tree-title">{p.title || 'Untitled'}</span>
-        {parentLabel && <span className="sb-flat-parent">{parentLabel}</span>}
-      </span>
-      {action && (
-        <span className="tree-actions" onClick={(e) => e.stopPropagation()}>
-          {action}
+    <PageHoverCard page={p} side="right">
+      <div
+        className={'tree-item sb-flat' + (active ? ' active' : '')}
+        onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
+        onAuxClick={(e) => openPageAux(e, p.id, { onNavigate, onOpenInNewTab })}
+      >
+        <span className="chevron spacer" />
+        <span className="tree-icon">
+          <PageIcon
+            icon={p.icon}
+            size={15}
+            fallback={p.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />}
+          />
         </span>
-      )}
-    </div>
+        <span className="sb-flat-text">
+          <span className="tree-title">{p.title || 'Untitled'}</span>
+          {parentLabel && <span className="sb-flat-parent">{parentLabel}</span>}
+        </span>
+        {action && (
+          <span className="tree-actions" onClick={(e) => e.stopPropagation()}>
+            {action}
+          </span>
+        )}
+      </div>
+    </PageHoverCard>
   );
 }
 
@@ -645,85 +649,92 @@ function TreeItem({
   return (
     <div>
       {dt === 'before' && <div className="tree-drop-line" aria-hidden="true" />}
-      <div
-        className={
-          'tree-item' +
-          (p.id === ctx.currentId ? ' active' : '') +
-          (dt === 'inside' ? ' drop-inside' : '')
-        }
-        style={{ paddingLeft: 6 + depth * 14 }}
-        // A step for the arrow keys, and an element a keyboard can reach at
-        // all: these rows were divs with an onClick.
-        {...navItem(p.id)}
-        // Plain DOM state rather than aria-expanded: a real treeitem has to be
-        // owned by a role="tree" through a chain of role="group"s, and the
-        // sidebar's sections are not that chain. Claiming the role without the
-        // structure describes the tree wrongly, which is worse than not at all.
-        data-expanded={hasExpand ? (isExpanded ? 'true' : 'false') : undefined}
-        draggable
-        onDragStart={(e) => ctx.dragStart(p.id, e)}
-        onDragOver={(e) => ctx.dragOver(p, e)}
-        onDragLeave={() => ctx.dragLeave(p.id)}
-        onDrop={(e) => ctx.drop(p, e)}
-        onDragEnd={ctx.dragEnd}
-        onClick={(e) => openPage(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
-        // The whole row answers a right-click with the same menu the ⋯ offers.
-        // Hunting for a three-dot button that only appears on hover is the
-        // slowest way to reach an action everybody knows is there.
-        onContextMenu={(e) => {
-          e.preventDefault();
-          ctx.setAddFor(null);
-          ctx.setMenuFor(p.id);
-        }}
-        onAuxClick={(e) => openPageAux(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
+      <PageHoverCard
+        page={p}
+        side="right"
+        tagColors={ctx.tagColors}
+        disabled={ctx.dropTarget !== null || ctx.menuFor === p.id || ctx.addFor === p.id}
       >
-        {hasExpand ? (
-          <button
-            className="chevron"
-            aria-expanded={isExpanded}
-            aria-label={isExpanded ? t('Collapse') : t('Expand')}
-            onClick={(e) => {
-              e.stopPropagation();
-              ctx.toggleExpand(p.id);
-            }}
-          >
-            <ChevronRight size={14} />
-          </button>
-        ) : (
-          <span className="chevron spacer" />
-        )}
-        <span className="tree-icon"><PageIcon icon={p.icon} size={15} fallback={p.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />} /></span>
-        <span className="tree-title">{p.title || 'Untitled'}</span>
-        {p.shared && (
-          <span className="tree-shared" title={t('Shared')}>
-            <Globe size={12} />
-          </span>
-        )}
-        <span className="tree-actions" onClick={(e) => e.stopPropagation()} ref={actionsRef}>
-          <button
-            title={t('Add inside')}
-            onClick={() => {
-              ctx.setMenuFor(null);
-              ctx.setAddFor(ctx.addFor === p.id ? null : p.id);
-            }}
-          >
-            <Plus size={14} />
-          </button>
-          {ctx.addFor === p.id && <AddMenu id={p.id} ctx={ctx} />}
-          <button
-            title={t('More')}
-            onClick={() => {
-              ctx.setAddFor(null);
-              ctx.setMenuFor(ctx.menuFor === p.id ? null : p.id);
-            }}
-          >
-            <MoreHorizontal size={14} />
-          </button>
-          {ctx.menuFor === p.id && (
-            <PageMenu id={p.id} title={p.title} parentId={p.parentId} workspaceId={p.workspaceId} ctx={ctx} />
+        <div
+          className={
+            'tree-item' +
+            (p.id === ctx.currentId ? ' active' : '') +
+            (dt === 'inside' ? ' drop-inside' : '')
+          }
+          style={{ paddingLeft: 6 + depth * 14 }}
+          // A step for the arrow keys, and an element a keyboard can reach at
+          // all: these rows were divs with an onClick.
+          {...navItem(p.id)}
+          // Plain DOM state rather than aria-expanded: a real treeitem has to be
+          // owned by a role="tree" through a chain of role="group"s, and the
+          // sidebar's sections are not that chain. Claiming the role without the
+          // structure describes the tree wrongly, which is worse than not at all.
+          data-expanded={hasExpand ? (isExpanded ? 'true' : 'false') : undefined}
+          draggable
+          onDragStart={(e) => ctx.dragStart(p.id, e)}
+          onDragOver={(e) => ctx.dragOver(p, e)}
+          onDragLeave={() => ctx.dragLeave(p.id)}
+          onDrop={(e) => ctx.drop(p, e)}
+          onDragEnd={ctx.dragEnd}
+          onClick={(e) => openPage(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
+          // The whole row answers a right-click with the same menu the ⋯ offers.
+          // Hunting for a three-dot button that only appears on hover is the
+          // slowest way to reach an action everybody knows is there.
+          onContextMenu={(e) => {
+            e.preventDefault();
+            ctx.setAddFor(null);
+            ctx.setMenuFor(p.id);
+          }}
+          onAuxClick={(e) => openPageAux(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
+        >
+          {hasExpand ? (
+            <button
+              className="chevron"
+              aria-expanded={isExpanded}
+              aria-label={isExpanded ? t('Collapse') : t('Expand')}
+              onClick={(e) => {
+                e.stopPropagation();
+                ctx.toggleExpand(p.id);
+              }}
+            >
+              <ChevronRight size={14} />
+            </button>
+          ) : (
+            <span className="chevron spacer" />
           )}
-        </span>
-      </div>
+          <span className="tree-icon"><PageIcon icon={p.icon} size={15} fallback={p.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />} /></span>
+          <span className="tree-title">{p.title || 'Untitled'}</span>
+          {p.shared && (
+            <span className="tree-shared" title={t('Shared')}>
+              <Globe size={12} />
+            </span>
+          )}
+          <span className="tree-actions" onClick={(e) => e.stopPropagation()} ref={actionsRef}>
+            <button
+              title={t('Add inside')}
+              onClick={() => {
+                ctx.setMenuFor(null);
+                ctx.setAddFor(ctx.addFor === p.id ? null : p.id);
+              }}
+            >
+              <Plus size={14} />
+            </button>
+            {ctx.addFor === p.id && <AddMenu id={p.id} ctx={ctx} />}
+            <button
+              title={t('More')}
+              onClick={() => {
+                ctx.setAddFor(null);
+                ctx.setMenuFor(ctx.menuFor === p.id ? null : p.id);
+              }}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            {ctx.menuFor === p.id && (
+              <PageMenu id={p.id} title={p.title} parentId={p.parentId} workspaceId={p.workspaceId} ctx={ctx} />
+            )}
+          </span>
+        </div>
+      </PageHoverCard>
       {dt === 'after' && <div className="tree-drop-line" aria-hidden="true" />}
       {isExpanded && (
         <div className="tree-children" style={guideAt(depth)}>
@@ -1098,6 +1109,7 @@ export default function Sidebar({
     expanded,
     onOpenInNewTab,
     currentId,
+    tagColors,
     favorites: favSet,
     dropTarget,
     menuFor,

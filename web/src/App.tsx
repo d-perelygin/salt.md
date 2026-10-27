@@ -1905,6 +1905,7 @@ export default function App() {
               pinned={pinnedTabs}
               activeId={currentId}
               pagesById={pagesById}
+              tagColors={tagColors}
               onSelect={navigate}
               onClose={closeTab}
               onCloseOthers={closeOtherTabs}
