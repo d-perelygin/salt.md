@@ -201,7 +201,7 @@ export function PageHoverCard({
         // side === 'bottom'
         nextPos.left = Math.max(12, Math.min(rect.left, window.innerWidth - CARD_W - 12));
         const spaceBelow = window.innerHeight - rect.bottom;
-        if (spaceBelow < 180 && rect.top > 180) {
+        if (spaceBelow < 170 && rect.top > spaceBelow) {
           nextPos.bottom = window.innerHeight - rect.top + gap;
         } else {
           nextPos.top = rect.bottom + gap;
