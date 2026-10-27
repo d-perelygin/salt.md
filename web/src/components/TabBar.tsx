@@ -133,6 +133,7 @@ export default function TabBar({
               <PageHoverCard
                 page={p}
                 side="bottom"
+                offset={2}
                 tagColors={tagColors}
                 disabled={!!menu || !!dragId}
               >

@@ -37,26 +37,34 @@ function startWarmCooldown() {
   warmTimer = window.setTimeout(() => {
     isWarm = false;
     warmTimer = null;
-  }, 350);
+  }, 250);
 }
 
 export interface PageHoverCardProps {
   page?: PageMeta | null;
   side?: 'right' | 'bottom' | 'top';
+  offset?: number;
   tagColors?: Record<string, string>;
   disabled?: boolean;
   children: React.ReactElement;
 }
 
+type CardPos = {
+  left: number;
+  top?: number;
+  bottom?: number;
+};
+
 export function PageHoverCard({
   page,
   side = 'right',
+  offset: customOffset,
   tagColors,
   disabled,
   children,
 }: PageHoverCardProps) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [pos, setPos] = useState<CardPos | null>(null);
   const openTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -144,28 +152,36 @@ export function PageHoverCard({
       if (rect.width === 0 && rect.height === 0) return;
 
       const CARD_W = 290;
-      const CARD_H = 190;
-      let x = 0;
-      let y = 0;
+      const gap = customOffset ?? (side === 'right' ? 8 : 5);
+      const nextPos: CardPos = { left: 0 };
 
       if (side === 'right') {
-        x = rect.right + 10;
-        y = Math.min(rect.top, window.innerHeight - CARD_H - 12);
-        if (x + CARD_W > window.innerWidth - 12) {
-          x = Math.max(12, rect.left - CARD_W - 10);
+        let left = rect.right + gap;
+        if (left + CARD_W > window.innerWidth - 12) {
+          left = Math.max(12, rect.left - CARD_W - gap);
         }
-        y = Math.max(12, y);
+        nextPos.left = left;
+        if (rect.top + 220 > window.innerHeight - 12) {
+          nextPos.bottom = 12;
+        } else {
+          nextPos.top = Math.max(12, rect.top - 2);
+        }
       } else if (side === 'top') {
-        x = Math.max(12, Math.min(rect.left, window.innerWidth - CARD_W - 12));
-        y = rect.top - CARD_H - 10;
-        if (y < 12) {
-          y = Math.min(window.innerHeight - CARD_H - 12, rect.bottom + 10);
+        nextPos.left = Math.max(12, Math.min(rect.left, window.innerWidth - CARD_W - 12));
+        const spaceAbove = rect.top;
+        if (spaceAbove < 180 && window.innerHeight - rect.bottom > 180) {
+          nextPos.top = rect.bottom + gap;
+        } else {
+          nextPos.bottom = window.innerHeight - rect.top + gap;
         }
       } else {
-        x = Math.max(12, Math.min(rect.left, window.innerWidth - CARD_W - 12));
-        y = rect.bottom + 10;
-        if (y + CARD_H > window.innerHeight - 12) {
-          y = Math.max(12, rect.top - CARD_H - 10);
+        // side === 'bottom'
+        nextPos.left = Math.max(12, Math.min(rect.left, window.innerWidth - CARD_W - 12));
+        const spaceBelow = window.innerHeight - rect.bottom;
+        if (spaceBelow < 180 && rect.top > 180) {
+          nextPos.bottom = window.innerHeight - rect.top + gap;
+        } else {
+          nextPos.top = rect.bottom + gap;
         }
       }
 
@@ -175,7 +191,7 @@ export function PageHoverCard({
       }
       activeCloseFn = closeImmediately;
 
-      setPos({ x, y });
+      setPos(nextPos);
       setOpen(true);
       setWarmState(true);
       openTimer.current = null;
@@ -251,7 +267,12 @@ export function PageHoverCard({
         <Portal>
           <div
             className="page-hover-card"
-            style={{ position: 'fixed', left: pos.x, top: pos.y }}
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              top: pos.top,
+              bottom: pos.bottom,
+            }}
             onMouseEnter={handleCardMouseEnter}
             onMouseLeave={handleCardMouseLeave}
           >
