@@ -3,7 +3,9 @@ import {
   useCreateBlockNote,
   SuggestionMenuController,
   getDefaultReactSlashMenuItems,
+  SideMenuController,
 } from '@blocknote/react';
+import { CustomSideMenu } from './CustomDragHandleMenu';
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmentToHTML } from '@blocknote/core';
 import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
@@ -2156,20 +2158,20 @@ function PageHeader({
                 <button
                   className="menu-item"
                   onClick={() => {
-                    api.download(`/api/export/${pageId}?format=html`);
-                    setOverflowOpen(false);
-                  }}
-                >
-                  <FileCode size={15} /> {t('Web page (.html)')}
-                </button>
-                <button
-                  className="menu-item"
-                  onClick={() => {
                     api.download(`/api/export/${pageId}?format=txt`);
                     setOverflowOpen(false);
                   }}
                 >
                   <FileText size={15} /> {t('Plain text (.txt)')}
+                </button>
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    api.download(`/api/export/${pageId}?format=html`);
+                    setOverflowOpen(false);
+                  }}
+                >
+                  <FileCode size={15} /> {t('Web page (.html)')}
                 </button>
                 <button
                   className="menu-item"
@@ -3681,7 +3683,8 @@ function BlockContent({
         {/* The database block renders inside the editor and would otherwise
             not reach the page list, the tag colours or navigation. */}
         <BlockContext.Provider value={{ pagesById, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, pageId: provider.pageId }}>
-          <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false}>
+          <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false} sideMenu={false}>
+            <SideMenuController sideMenu={CustomSideMenu} />
             <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
             <SuggestionMenuController
               triggerCharacter="@"
