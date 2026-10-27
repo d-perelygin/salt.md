@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, FileText, Pin, Table2, X } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import { PageHoverCard } from './PageHoverCard';
@@ -53,6 +53,28 @@ export default function TabBar({
     touchStartPos.current = null;
   };
 
+  useEffect(() => {
+    const onCaptureClick = (e: MouseEvent) => {
+      if (didLongPress.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        didLongPress.current = false;
+      }
+    };
+    const onCaptureContextMenu = (e: MouseEvent) => {
+      if (didLongPress.current) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('click', onCaptureClick, true);
+    window.addEventListener('contextmenu', onCaptureContextMenu, true);
+    return () => {
+      window.removeEventListener('click', onCaptureClick, true);
+      window.removeEventListener('contextmenu', onCaptureContextMenu, true);
+    };
+  }, []);
+
   const onTouchStart = (id: string, e: React.TouchEvent) => {
     clearLongPress();
     const touch = e.touches[0];
@@ -85,7 +107,7 @@ export default function TabBar({
     if (didLongPress.current) {
       window.setTimeout(() => {
         didLongPress.current = false;
-      }, 100);
+      }, 400);
     }
   };
   if (tabs.length <= 1) return null; // a single doc needs no tab strip
@@ -226,9 +248,13 @@ export default function TabBar({
         <Portal>
           <div
             className="fs-backdrop"
-            onClick={closeMenu}
+            onClick={() => {
+              if (didLongPress.current) return;
+              closeMenu();
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
+              if (didLongPress.current) return;
               closeMenu();
             }}
           />

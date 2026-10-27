@@ -571,6 +571,81 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // A right-click on a view's tab opens the same actions the ⋯ holds, for THAT
   // view, at the pointer (#24). The ⋯ only ever acted on the view you are on.
   const [tabMenu, setTabMenu] = useState<{ view: ViewDef; style: React.CSSProperties } | null>(null);
+  const viewTabLongPressTimer = useRef<number | null>(null);
+  const viewTabTouchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const didViewTabLongPress = useRef(false);
+
+  const clearViewTabLongPress = () => {
+    if (viewTabLongPressTimer.current) {
+      window.clearTimeout(viewTabLongPressTimer.current);
+      viewTabLongPressTimer.current = null;
+    }
+    viewTabTouchStartPos.current = null;
+  };
+
+  useEffect(() => {
+    const onCaptureClick = (e: MouseEvent) => {
+      if (didViewTabLongPress.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        didViewTabLongPress.current = false;
+      }
+    };
+    const onCaptureContextMenu = (e: MouseEvent) => {
+      if (didViewTabLongPress.current) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('click', onCaptureClick, true);
+    window.addEventListener('contextmenu', onCaptureContextMenu, true);
+    return () => {
+      window.removeEventListener('click', onCaptureClick, true);
+      window.removeEventListener('contextmenu', onCaptureContextMenu, true);
+    };
+  }, []);
+
+  const onViewTabTouchStart = (v: ViewDef, e: React.TouchEvent) => {
+    if (embed) return;
+    clearViewTabLongPress();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const { clientX, clientY } = touch;
+    viewTabTouchStartPos.current = { x: clientX, y: clientY };
+    viewTabLongPressTimer.current = window.setTimeout(() => {
+      didViewTabLongPress.current = true;
+      setTabMenu({
+        view: v,
+        style: {
+          position: 'fixed',
+          left: Math.max(8, Math.min(clientX, window.innerWidth - 208)),
+          top: Math.max(8, Math.min(clientY, window.innerHeight - 180)),
+          right: 'auto',
+          zIndex: 320,
+        },
+      });
+      viewTabLongPressTimer.current = null;
+    }, 450);
+  };
+
+  const onViewTabTouchMove = (e: React.TouchEvent) => {
+    if (!viewTabTouchStartPos.current || !viewTabLongPressTimer.current) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const dist = Math.hypot(touch.clientX - viewTabTouchStartPos.current.x, touch.clientY - viewTabTouchStartPos.current.y);
+    if (dist > 8) {
+      clearViewTabLongPress();
+    }
+  };
+
+  const onViewTabTouchEnd = () => {
+    clearViewTabLongPress();
+    if (didViewTabLongPress.current) {
+      window.setTimeout(() => {
+        didViewTabLongPress.current = false;
+      }, 400);
+    }
+  };
   useLayoutEffect(() => {
     if (!addViewOpen || !addViewBtnRef.current) {
       setAddViewPos(null);
@@ -1644,16 +1719,27 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           <span key={v.id} className="view-tab-wrap">
             <button
               className={'view-tab view-tab--' + v.type + (v.id === view.id ? ' active' : '')}
-              onClick={() => pickView(v.id)}
+              onClick={() => {
+                if (didViewTabLongPress.current) return;
+                pickView(v.id);
+              }}
               onDoubleClick={() => {
                 if (!embed) void renameView(v);
               }}
+              onTouchStart={(e) => onViewTabTouchStart(v, e)}
+              onTouchMove={onViewTabTouchMove}
+              onTouchEnd={onViewTabTouchEnd}
+              onTouchCancel={clearViewTabLongPress}
               onContextMenu={(e) => {
                 // Inside a document the views are the collection's business,
                 // reached through "Open as page" — not something a reader of
                 // the document should rename or remove by accident.
                 if (embed) return;
                 e.preventDefault();
+                didViewTabLongPress.current = true;
+                window.setTimeout(() => {
+                  didViewTabLongPress.current = false;
+                }, 400);
                 setTabMenu({
                   view: v,
                   style: {
@@ -1684,7 +1770,18 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       </div>
       {tabMenu && (
         <Portal>
-          <div className="fs-backdrop" onClick={() => setTabMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTabMenu(null); }} />
+          <div
+            className="fs-backdrop"
+            onClick={() => {
+              if (didViewTabLongPress.current) return;
+              setTabMenu(null);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (didViewTabLongPress.current) return;
+              setTabMenu(null);
+            }}
+          />
           <div className="menu view-tab-menu" style={tabMenu.style}>
             <button onClick={() => { setTabMenu(null); void renameView(tabMenu.view); }}>
               <Pencil size={15} /> {t('Rename view')}
