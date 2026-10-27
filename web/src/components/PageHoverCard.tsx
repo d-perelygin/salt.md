@@ -6,6 +6,19 @@ import { formatRelative } from '../format';
 import { tagColorClass } from '../tags';
 import { t } from '../i18n';
 import Portal from './Portal';
+import { api } from '../api';
+import { peekPanel } from '../pageOpen';
+
+const pageDetailCache = new Map<string, Promise<PageMeta | null>>();
+
+export function fetchPageDetail(id: string): Promise<PageMeta | null> {
+  let p = pageDetailCache.get(id);
+  if (!p) {
+    p = api.getPage(id).catch(() => null);
+    pageDetailCache.set(id, p);
+  }
+  return p;
+}
 
 function coverStyle(cover: string): React.CSSProperties {
   if (!cover) return {};
@@ -65,7 +78,7 @@ function startWarmCooldown() {
 
 export interface PageHoverCardProps {
   page?: PageMeta | null;
-  side?: 'right' | 'bottom' | 'top';
+  side?: 'right' | 'bottom' | 'top' | 'cursor';
   offset?: number;
   tagColors?: Record<string, string>;
   disabled?: boolean;
@@ -88,9 +101,29 @@ export function PageHoverCard({
 }: PageHoverCardProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<CardPos | null>(null);
+  const [detail, setDetail] = useState<PageMeta | null>(null);
+  const prevId = useRef(page?.id);
+  if (prevId.current !== page?.id) {
+    prevId.current = page?.id;
+    setDetail(null);
+  }
   const openTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
+  const mouseRef = useRef<{ x: number; y: number } | null>(null);
+
+  const needsDetail = Boolean(page?.id && !page.description && !page.snippet);
+
+  useEffect(() => {
+    if (!open || !needsDetail || !page?.id) return;
+    let alive = true;
+    void fetchPageDetail(page.id).then((p) => {
+      if (alive && p) setDetail(p);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [open, needsDetail, page?.id]);
 
   const clearTimers = () => {
     if (openTimer.current) {
@@ -156,8 +189,14 @@ export function PageHoverCard({
   const handleMouseEnter = (e: React.MouseEvent) => {
     (child.props as any).onMouseEnter?.(e);
     if (disabled || !page) return;
+    mouseRef.current = { x: e.clientX, y: e.clientY };
     if (typeof window !== 'undefined' && window.matchMedia && !window.matchMedia('(pointer: fine)').matches) {
       return;
+    }
+    if (needsDetail && page?.id) {
+      void fetchPageDetail(page.id).then((p) => {
+        if (p) setDetail(p);
+      });
     }
     if (closeTimer.current) {
       window.clearTimeout(closeTimer.current);
@@ -178,7 +217,22 @@ export function PageHoverCard({
       const gap = customOffset ?? (side === 'right' ? 8 : 5);
       const nextPos: CardPos = { left: 0 };
 
-      if (side === 'right') {
+      if (side === 'cursor') {
+        const cx = mouseRef.current?.x ?? rect.right;
+        const cy = mouseRef.current?.y ?? rect.top;
+        const gapX = customOffset ?? 18;
+        let left = cx + gapX;
+        if (left + CARD_W > window.innerWidth - 12) {
+          left = Math.max(12, cx - gapX - CARD_W);
+        }
+        nextPos.left = left;
+        const top = cy + 4;
+        if (top + 220 > window.innerHeight - 12) {
+          nextPos.bottom = 12;
+        } else {
+          nextPos.top = Math.max(12, top);
+        }
+      } else if (side === 'right') {
         let left = rect.right + gap;
         if (left + CARD_W > window.innerWidth - 12) {
           left = Math.max(12, rect.left - CARD_W - gap);
@@ -219,6 +273,13 @@ export function PageHoverCard({
       setWarmState(true);
       openTimer.current = null;
     }, delay);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    (child.props as any).onMouseMove?.(e);
+    if (!open) {
+      mouseRef.current = { x: e.clientX, y: e.clientY };
+    }
   };
 
   const handleMouseLeave = (e: React.MouseEvent) => {
@@ -271,17 +332,19 @@ export function PageHoverCard({
     }, 150);
   };
 
-  const isDb = page.type === 'collection';
-  const title = page.title || t('Untitled');
-  const hasDesc = Boolean(page.description?.trim());
-  const hasSnippet = Boolean(page.snippet?.trim());
-  const tags = page.tags || [];
+  const effPage = detail ? { ...page, ...detail } : page;
+  const isDb = effPage.type === 'collection';
+  const title = effPage.title || t('Untitled');
+  const hasDesc = Boolean(effPage.description?.trim());
+  const hasSnippet = Boolean(effPage.snippet?.trim());
+  const tags = effPage.tags || [];
 
   return (
     <>
       {React.cloneElement(child, {
         ref: setRef,
         onMouseEnter: handleMouseEnter,
+        onMouseMove: handleMouseMove,
         onMouseLeave: handleMouseLeave,
         onClick: handleClick,
         onDragStart: handleDragStart,
@@ -299,14 +362,14 @@ export function PageHoverCard({
             onMouseEnter={handleCardMouseEnter}
             onMouseLeave={handleCardMouseLeave}
           >
-            {page.cover && (
-              <div className="page-hover-card-cover" style={coverStyle(page.cover)} />
+            {effPage.cover && (
+              <div className="page-hover-card-cover" style={coverStyle(effPage.cover)} />
             )}
             <div className="page-hover-card-body">
               <div className="page-hover-card-header">
                 <span className="page-hover-card-icon">
                   <PageIcon
-                    icon={page.icon}
+                    icon={effPage.icon}
                     size={17}
                     fallback={isDb ? <Table2 size={17} /> : <FileText size={17} />}
                   />
@@ -316,9 +379,9 @@ export function PageHoverCard({
               </div>
 
               {hasDesc ? (
-                <div className="page-hover-card-desc">{page.description}</div>
+                <div className="page-hover-card-desc">{effPage.description}</div>
               ) : hasSnippet ? (
-                <div className="page-hover-card-snippet">{page.snippet}</div>
+                <div className="page-hover-card-snippet">{effPage.snippet}</div>
               ) : (
                 <div className="page-hover-card-empty">{t('No content')}</div>
               )}
@@ -337,13 +400,43 @@ export function PageHoverCard({
               )}
 
               <div className="page-hover-card-footer">
-                <span className="page-hover-card-time">
-                  {t('Updated')} {formatRelative(page.updatedAt)}
-                </span>
+                {effPage.updatedAt && (
+                  <span className="page-hover-card-time">
+                    {t('Updated')} {formatRelative(effPage.updatedAt)}
+                  </span>
+                )}
                 <div className="page-hover-card-hints">
-                  <span>{peekMod}+Click {t('to peek')}</span>
+                  <button
+                    type="button"
+                    className="page-hover-card-action"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeImmediately();
+                      setWarmState(false);
+                      peekPanel(effPage.id);
+                    }}
+                    title={`${peekMod}+Click ${t('to peek')}`}
+                  >
+                    {peekMod}+Click {t('to peek')}
+                  </button>
                   <span className="page-hover-card-dot">•</span>
-                  <span>{newTabMod}+Click {t('new tab')}</span>
+                  <button
+                    type="button"
+                    className="page-hover-card-action"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeImmediately();
+                      setWarmState(false);
+                      window.dispatchEvent(
+                        new CustomEvent('salt:navigate', {
+                          detail: { id: effPage.id, newTab: true },
+                        }),
+                      );
+                    }}
+                    title={`${newTabMod}+Click ${t('new tab')}`}
+                  >
+                    {newTabMod}+Click {t('new tab')}
+                  </button>
                 </div>
               </div>
             </div>

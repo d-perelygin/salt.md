@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { confirm } from '../dialog';
-import type { ChecklistItem, PropDef, PropOption } from '../types';
+import type { ChecklistItem, PageMeta, PropDef, PropOption } from '../types';
 import Portal from './Portal';
+import { PageHoverCard } from './PageHoverCard';
 import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
 import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
 import { showActivityFor } from './ActivityLogHost';
@@ -1073,54 +1074,76 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
           if (openers) openCollectionRow(e, row.id, openers);
           else if (onOpen && !peekPage(e, row.id)) onOpen(row.id);
         };
+        const pageMeta: PageMeta = {
+          id: row.id,
+          parentId: null,
+          title: row.title || '',
+          icon: row.icon || '',
+          cover: '',
+          position: 0,
+          updatedAt: '',
+          trashed: false,
+          type: 'doc',
+          props: {},
+          workspaceId: '',
+          ownerId: '',
+          visibility: 'workspace',
+          isTemplate: false,
+          tags: [],
+          description: '',
+          snippet: '',
+          thumb: '',
+        };
         // No edit affordance here (a card, or a read-only spot): the chip
         // itself opens the row.
         if (!canEdit) {
           return (
-            <button
-              key={i}
-              type="button"
-              className={cls}
-              title={tip}
-              style={chipStyle}
-              onClick={openRow}
-              onAuxClick={(e) => {
-                e.preventDefault();
-                openRow(e);
-              }}
-            >
-              {inner}
-            </button>
+            <PageHoverCard key={i} page={pageMeta} side="bottom">
+              <button
+                type="button"
+                className={cls}
+                style={chipStyle}
+                onClick={openRow}
+                onAuxClick={(e) => {
+                  e.preventDefault();
+                  openRow(e);
+                }}
+              >
+                {inner}
+              </button>
+            </PageHoverCard>
           );
         }
         return (
-          <span key={i} className="relation-chip-wrap" title={tip}>
-            <button
-              type="button"
-              className={cls}
-              style={chipStyle}
-              aria-label={t('Edit') + ': ' + def.name}
-              onClick={(e) => {
-                e.stopPropagation();
-                openPicker();
-              }}
-            >
-              {inner}
-            </button>
-            <button
-              type="button"
-              className="relation-open-btn"
-              aria-label={t('Open row')}
-              title={t('Open row')}
-              onClick={openRow}
-              onAuxClick={(e) => {
-                e.preventDefault();
-                openRow(e);
-              }}
-            >
-              <ExternalLink size={12} />
-            </button>
-          </span>
+          <PageHoverCard key={i} page={pageMeta} side="bottom">
+            <span className="relation-chip-wrap">
+              <button
+                type="button"
+                className={cls}
+                style={chipStyle}
+                aria-label={t('Edit') + ': ' + def.name}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openPicker();
+                }}
+              >
+                {inner}
+              </button>
+              <button
+                type="button"
+                className="relation-open-btn"
+                aria-label={t('Open row')}
+                title={t('Open row')}
+                onClick={openRow}
+                onAuxClick={(e) => {
+                  e.preventDefault();
+                  openRow(e);
+                }}
+              >
+                <ExternalLink size={12} />
+              </button>
+            </span>
+          </PageHoverCard>
         );
       })}
       {hidden > 0 && (

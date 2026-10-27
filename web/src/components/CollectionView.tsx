@@ -48,6 +48,7 @@ import type {
 } from '../types';
 import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, isSystemRef } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
+import { PageHoverCard } from './PageHoverCard';
 import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, prevWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
 import { openCollectionRow, openPageAux, peekPanel, type PageOpeners } from '../pageOpen';
 import { hintSeen, markHintSeen, readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
@@ -169,6 +170,40 @@ interface Row {
    *  not columns (see SORT_CREATED). */
   createdAt?: string;
   updatedAt?: string;
+}
+
+export function rowToPageMeta(row: Row, pages?: Map<string, PageMeta>): PageMeta {
+  const existing = pages?.get(row.id);
+  if (existing) {
+    return {
+      ...existing,
+      title: row.title || existing.title,
+      icon: row.icon || existing.icon,
+      cover: row.cover || existing.cover,
+      tags: row.tags ?? existing.tags,
+      updatedAt: row.updatedAt || existing.updatedAt,
+    };
+  }
+  return {
+    id: row.id,
+    parentId: null,
+    title: row.title || '',
+    icon: row.icon || '',
+    cover: row.cover || '',
+    position: row.position ?? 0,
+    updatedAt: row.updatedAt || row.createdAt || '',
+    trashed: false,
+    type: 'doc',
+    props: row.props || {},
+    workspaceId: '',
+    ownerId: '',
+    visibility: 'workspace',
+    isTemplate: Boolean(row.isTemplate),
+    tags: row.tags || [],
+    description: '',
+    snippet: '',
+    thumb: '',
+  };
 }
 
 const UNSET = '__unset__';
@@ -322,7 +357,7 @@ type ServerRow = {
   isTemplate?: boolean;
   createdAt?: string;
   updatedAt?: string;
-};
+};;
 
 function mapCollectionRow(r: ServerRow): Row {
   return {
@@ -1859,6 +1894,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           dateProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
           endDateProp={view.endDateProp || ''}
           tagColors={tagColors}
+          pages={pages}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
           mode={view.calMode ?? (view.calRange === 2 ? '2months' : 'month')}
@@ -1890,6 +1926,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           endProp={view.endDateProp || ''}
           depProp={view.depProp && selfRelProps.some((p) => p.id === view.depProp) ? view.depProp : ''}
           tagColors={tagColors}
+          pages={pages}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
           mode={view.tlMode ?? 'month'}
@@ -1920,6 +1957,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           }
           emptyLabel={emptyLabel}
           tagColors={tagColors}
+          pages={pages}
           subItemProp={
             view.subItemProp && selfRelProps.some((p) => p.id === view.subItemProp) ? view.subItemProp : undefined
           }
@@ -3453,6 +3491,7 @@ function TableView({
   schema,
   emptyLabel,
   tagColors,
+  pages,
   subItemProp,
   colWidths,
   stuckCols,
@@ -3467,6 +3506,7 @@ function TableView({
   schema: PropDef[];
   emptyLabel: string;
   tagColors: Record<string, string>;
+  pages?: Map<string, PageMeta>;
   subItemProp?: string;
   colWidths?: Record<string, number>;
   stuckCols?: string[];
@@ -3738,18 +3778,20 @@ function TableView({
                       <span className="db-tree-spacer" />
                     )
                   ) : null}
-                  <button
-                    className={'db-title-link' + (r.id === openId ? ' is-open' : '')}
-                    onClick={(e) =>
-                      openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab }, {
-                        siblingIds: ordered.map((o) => o.row.id),
-                      })
-                    }
-                    onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
-                  >
-                    {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                    {r.title || 'Untitled'}
-                  </button>
+                  <PageHoverCard page={rowToPageMeta(r, pages)} side="cursor" tagColors={tagColors}>
+                    <button
+                      className={'db-title-link' + (r.id === openId ? ' is-open' : '')}
+                      onClick={(e) =>
+                        openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab }, {
+                          siblingIds: ordered.map((o) => o.row.id),
+                        })
+                      }
+                      onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+                    >
+                      {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+                      {r.title || 'Untitled'}
+                    </button>
+                  </PageHoverCard>
                   {/* Presence was drawn on the board card and nowhere else, so
                       anybody working in the table saw nothing at all — which is
                       most of the time. The mark belongs wherever a row is
@@ -3952,6 +3994,8 @@ function UnscheduledTray({
   onTrayMove,
   onTrayDrop,
   isDrop,
+  pages,
+  tagColors,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -3963,6 +4007,8 @@ function UnscheduledTray({
   onTrayDrop: (rowId: string, x: number, y: number) => void;
   /** A scheduled entry is carried over the island (drop unschedules). */
   isDrop?: boolean;
+  pages?: Map<string, PageMeta>;
+  tagColors?: Record<string, string>;
 }) {
   // The tray's own filters: set explicitly, or inherited from the view. The
   // editor always shows the effective set; writing it back equal to the
@@ -4126,28 +4172,28 @@ function UnscheduledTray({
             line.length > 0 && (
               <div key={li} className="unsched-strip-row">
                 {line.map((r) => (
-                  <button
-                    key={r.id}
-                    role="listitem"
-                    className={'unsched-card' + (carry?.id === r.id && carry.moved ? ' is-carry' : '')}
-                    onPointerDown={(e) => beginCarry(e, r)}
-                    onClick={(e) => {
-                      if (Date.now() - guard.current < 700) return;
-                      onOpen(e, r.id);
-                    }}
-                    onAuxClick={(e) => onAuxOpen(e, r.id)}
-                    onContextMenu={(e) => {
-                      if (carry) e.preventDefault();
-                    }}
-                    title={r.title || t('Untitled')}
-                  >
-                    {r.icon && (
-                      <span className="inline-icon">
-                        <PageIcon icon={r.icon} size={14} />{' '}
-                      </span>
-                    )}
-                    <span className="unsched-card-text">{r.title || t('Untitled')}</span>
-                  </button>
+                  <PageHoverCard key={r.id} page={rowToPageMeta(r, pages)} side="bottom" tagColors={tagColors} disabled={Boolean(carry)}>
+                    <button
+                      role="listitem"
+                      className={'unsched-card' + (carry?.id === r.id && carry.moved ? ' is-carry' : '')}
+                      onPointerDown={(e) => beginCarry(e, r)}
+                      onClick={(e) => {
+                        if (Date.now() - guard.current < 700) return;
+                        onOpen(e, r.id);
+                      }}
+                      onAuxClick={(e) => onAuxOpen(e, r.id)}
+                      onContextMenu={(e) => {
+                        if (carry) e.preventDefault();
+                      }}
+                    >
+                      {r.icon && (
+                        <span className="inline-icon">
+                          <PageIcon icon={r.icon} size={14} />{' '}
+                        </span>
+                      )}
+                      <span className="unsched-card-text">{r.title || t('Untitled')}</span>
+                    </button>
+                  </PageHoverCard>
                 ))}
               </div>
             ),
@@ -4175,6 +4221,8 @@ function TimelineView({
   startProp,
   endProp,
   depProp,
+  tagColors,
+  pages,
   onNavigate,
   onOpenInNewTab,
   mode,
@@ -4200,6 +4248,7 @@ function TimelineView({
   endProp: string;
   depProp: string;
   tagColors: Record<string, string>;
+  pages?: Map<string, PageMeta>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   mode: SpanMode;
@@ -5550,46 +5599,52 @@ function TimelineView({
               const { row } = it;
               const blocked = effDep ? violationsOf(row.id) : [];
               const label = (
-                <div
-                  className={'tl-label' + (hovered === row.id ? ' is-hovered' : '')}
-                  style={{ width: LABELW }}
-                  onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
-                  onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                  // The mirror of the bar's hover below: lighting the title
-                  // lights the bar, so the pair reads as one thing from either
-                  // end. Same link guard — a lasso sweeping the labels must not
-                  // re-render mid-gesture either.
-                  onMouseEnter={() => {
-                    if (!linkActiveRef.current) setHovered(row.id);
-                  }}
-                  onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
-                  title={tipFor(row, it)}
+                <PageHoverCard
+                  page={rowToPageMeta(row, pages)}
+                  side="bottom"
+                  tagColors={tagColors}
+                  disabled={Boolean(drag || linkFrom)}
                 >
-                  {row.icon && (
-                    <span className="inline-icon">
-                      <PageIcon icon={row.icon} size={14} />
-                    </span>
-                  )}
-                  <span className="tl-label-text">{row.title || 'Untitled'}</span>
-                  {blocked.length > 0 && (
-                    <button
-                      className="tl-warn"
-                      title={plural(
-                        blocked.length,
-                        'Blocked: starts before {n} blocker ends',
-                        'Blocked: starts before {n} blockers end',
-                      )}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
-                        setAddBlockerFor(null);
-                      }}
-                    >
-                      ⚠{blocked.length > 1 ? blocked.length : ''}
-                    </button>
-                  )}
-                </div>
+                  <div
+                    className={'tl-label' + (hovered === row.id ? ' is-hovered' : '')}
+                    style={{ width: LABELW }}
+                    onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
+                    onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
+                    // The mirror of the bar's hover below: lighting the title
+                    // lights the bar, so the pair reads as one thing from either
+                    // end. Same link guard — a lasso sweeping the labels must not
+                    // re-render mid-gesture either.
+                    onMouseEnter={() => {
+                      if (!linkActiveRef.current) setHovered(row.id);
+                    }}
+                    onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
+                  >
+                    {row.icon && (
+                      <span className="inline-icon">
+                        <PageIcon icon={row.icon} size={14} />
+                      </span>
+                    )}
+                    <span className="tl-label-text">{row.title || 'Untitled'}</span>
+                    {blocked.length > 0 && (
+                      <button
+                        className="tl-warn"
+                        title={plural(
+                          blocked.length,
+                          'Blocked: starts before {n} blocker ends',
+                          'Blocked: starts before {n} blockers end',
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                          setAddBlockerFor(null);
+                        }}
+                      >
+                        ⚠{blocked.length > 1 ? blocked.length : ''}
+                      </button>
+                    )}
+                  </div>
+                </PageHoverCard>
               );
 
               const trackChrome = (
@@ -5617,45 +5672,52 @@ function TimelineView({
                     {!hideLabels && label}
                     <div className="tl-track">
                       {trackChrome}
-                      <div
-                        className={
-                          'tl-bar tl-bar-offscreen is-' + offscreen +
-                          (blocked.length > 0 ? ' is-blocked' : '') +
-                          (hovered === row.id ? ' is-hovered' : '')
-                        }
-                        style={{
-                          [offscreen === 'past' ? 'left' : 'right']: 6,
-                          width: offW,
-                        }}
-                        onClick={(e) => {
-                          if (swallowClick()) return;
-                          setCursor(offDate);
-                        }}
-                        onMouseEnter={() => {
-                          if (!linkActiveRef.current) setHovered(row.id);
-                        }}
-                        onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
-                        title={tipFor(row, it) + ' — ' + t('Click to jump to date')}
+                      <PageHoverCard
+                        page={rowToPageMeta(row, pages)}
+                        side="bottom"
+                        tagColors={tagColors}
+                        disabled={Boolean(drag || linkFrom)}
                       >
-                        {offscreen === 'past' && <span className="tl-offscreen-arrow">‹</span>}
-                        <span className="tl-offscreen-date">{offDateStr}</span>
-                        <span className="tl-bar-label">{row.title || 'Untitled'}</span>
-                        {offscreen === 'future' && <span className="tl-offscreen-arrow">›</span>}
-                        {blocked.length > 0 && (
-                          <button
-                            className="tl-warn on-bar"
-                            title={t('Show blockers and fixes')}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
-                              setAddBlockerFor(null);
-                            }}
-                          >
-                            ⚠
-                          </button>
-                        )}
-                      </div>
+                        <div
+                          className={
+                            'tl-bar tl-bar-offscreen is-' + offscreen +
+                            (blocked.length > 0 ? ' is-blocked' : '') +
+                            (hovered === row.id ? ' is-hovered' : '')
+                          }
+                          style={{
+                            [offscreen === 'past' ? 'left' : 'right']: 6,
+                            width: offW,
+                          }}
+                          onClick={(e) => {
+                            if (swallowClick()) return;
+                            setCursor(offDate);
+                          }}
+                          aria-label={t('Click to jump to date')}
+                          onMouseEnter={() => {
+                            if (!linkActiveRef.current) setHovered(row.id);
+                          }}
+                          onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
+                        >
+                          {offscreen === 'past' && <span className="tl-offscreen-arrow">‹</span>}
+                          <span className="tl-offscreen-date">{offDateStr}</span>
+                          <span className="tl-bar-label">{row.title || 'Untitled'}</span>
+                          {offscreen === 'future' && <span className="tl-offscreen-arrow">›</span>}
+                          {blocked.length > 0 && (
+                            <button
+                              className="tl-warn on-bar"
+                              title={t('Show blockers and fixes')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                                setAddBlockerFor(null);
+                              }}
+                            >
+                              ⚠
+                            </button>
+                          )}
+                        </div>
+                      </PageHoverCard>
                     </div>
                   </div>
                 );
@@ -5687,8 +5749,14 @@ function TimelineView({
                   {!hideLabels && label}
                   <div className="tl-track">
                     {trackChrome}
-                    <div
-                      className={
+                    <PageHoverCard
+                      page={rowToPageMeta(row, pages)}
+                      side="bottom"
+                      tagColors={tagColors}
+                      disabled={Boolean(drag || linkFrom)}
+                    >
+                      <div
+                        className={
                         'tl-bar' +
                         (drag && drag.id === row.id ? ' is-dragging' : '') +
                         (blocked.length > 0 ? ' is-blocked' : '') +
@@ -5742,6 +5810,7 @@ function TimelineView({
                         </>
                       )}
                     </div>
+                  </PageHoverCard>
                     {/* Link handle just past the bar's right edge, Notion-style:
                         a short stub and a white dot with an accent ring. It
                         appears on bar hover (or while linking from here) and
@@ -6180,6 +6249,8 @@ function TimelineView({
           rows={unsched}
           schema={schema}
           view={view}
+          pages={pages}
+          tagColors={tagColors}
           onViewChange={onViewChange}
           onOpen={(e, rowId) => {
             if (swallowClick()) return;
@@ -6276,6 +6347,7 @@ function CalendarView({
   dateProp,
   endDateProp,
   tagColors,
+  pages,
   onNavigate,
   onOpenInNewTab,
   mode,
@@ -6292,6 +6364,7 @@ function CalendarView({
   dateProp: string;
   endDateProp: string;
   tagColors: Record<string, string>;
+  pages?: Map<string, PageMeta>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   mode: SpanMode;
@@ -6625,24 +6698,24 @@ function CalendarView({
               formatMonth(second.getFullYear(), second.getMonth(), 'long')
             : formatMonth(cursor.getFullYear(), cursor.getMonth(), 'long');
   const eventButton = (r: Row, d: Date | null) => (
-    <button
-      key={r.id}
-      className="calendar-event"
-      onPointerDown={(e) => beginEntryDrag(e, r.id)}
-      onClick={(e) => entryClick(e, r.id)}
-      onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
-      title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
-    >
-      {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-      {r.title || 'Untitled'}
-      {!!r.tags?.length && (
-        <span className="cal-event-tags">
-          {r.tags.map((t) => (
-            <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
-          ))}
-        </span>
-      )}
-    </button>
+    <PageHoverCard key={r.id} page={rowToPageMeta(r, pages)} side="bottom" tagColors={tagColors}>
+      <button
+        className="calendar-event"
+        onPointerDown={(e) => beginEntryDrag(e, r.id)}
+        onClick={(e) => entryClick(e, r.id)}
+        onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+      >
+        {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+        {r.title || 'Untitled'}
+        {!!r.tags?.length && (
+          <span className="cal-event-tags">
+            {r.tags.map((t) => (
+              <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
+            ))}
+          </span>
+        )}
+      </button>
+    </PageHoverCard>
   );
   const dayCell = (d: Date | null, i: number | string, lanes: Span[] = [], rowKeys: string[] = []) => {
     const key = d ? ymd(d) : '';
@@ -6676,30 +6749,30 @@ function CalendarView({
         endsHere = rowKeys.length === 0 || s.to <= rowKeys[rowKeys.length - 1];
       }
       return (
-        <button
-          key={'sp' + s.row.id}
-          className={
-            'cal-span' +
-            (isStart ? ' is-start' : '') +
-            (isEnd || (isStart && endsHere) ? ' is-end' : '')
-          }
-          style={isStart ? ({ '--span-cells': cells } as React.CSSProperties) : undefined}
-          onPointerDown={(e) => beginEntryDrag(e, s.row.id)}
-          onClick={(e) => entryClick(e, s.row.id)}
-          onAuxClick={(e) => openPageAux(e, s.row.id, { onNavigate, onOpenInNewTab })}
-          title={spanTitle(s)}
-        >
-          {isStart && (
-            <>
-              {s.row.icon && (
-                <span className="inline-icon">
-                  <PageIcon icon={s.row.icon} size={14} />{' '}
-                </span>
-              )}
-              {s.row.title || t('Untitled')}
-            </>
-          )}
-        </button>
+        <PageHoverCard key={'sp' + s.row.id} page={rowToPageMeta(s.row, pages)} side="bottom" tagColors={tagColors}>
+          <button
+            className={
+              'cal-span' +
+              (isStart ? ' is-start' : '') +
+              (isEnd || (isStart && endsHere) ? ' is-end' : '')
+            }
+            style={isStart ? ({ '--span-cells': cells } as React.CSSProperties) : undefined}
+            onPointerDown={(e) => beginEntryDrag(e, s.row.id)}
+            onClick={(e) => entryClick(e, s.row.id)}
+            onAuxClick={(e) => openPageAux(e, s.row.id, { onNavigate, onOpenInNewTab })}
+          >
+            {isStart && (
+              <>
+                {s.row.icon && (
+                  <span className="inline-icon">
+                    <PageIcon icon={s.row.icon} size={14} />{' '}
+                  </span>
+                )}
+                {s.row.title || t('Untitled')}
+              </>
+            )}
+          </button>
+        </PageHoverCard>
       );
     };
     return (
@@ -6955,6 +7028,8 @@ function CalendarView({
           rows={unsched}
           schema={schema}
           view={view}
+          pages={pages}
+          tagColors={tagColors}
           onViewChange={onViewChange}
           onOpen={(e, rowId) => entryClick(e, rowId)}
           onAuxOpen={(e, rowId) => openPageAux(e, rowId, { onNavigate, onOpenInNewTab })}

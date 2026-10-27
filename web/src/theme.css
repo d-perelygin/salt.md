@@ -1195,6 +1195,21 @@
   opacity: 0.8;
 }
 
+.page-hover-card-action {
+  all: unset;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin: -1px -3px;
+  transition: color 100ms ease, background 100ms ease;
+}
+
+.page-hover-card-action:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
 .page-hover-card-dot {
   opacity: 0.5;
 }

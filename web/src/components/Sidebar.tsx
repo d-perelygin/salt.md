@@ -213,48 +213,75 @@ function DbRows({
       {all.map((r) => {
         const kids = ctx.childrenMap.get(r.id) ?? [];
         const isOpen = ctx.expanded.has(r.id);
+        const rowPage: PageMeta = {
+          id: r.id,
+          title: r.title,
+          icon: r.icon,
+          parentId: collectionId,
+          workspaceId: workspaceId,
+          type: 'doc',
+          cover: '',
+          tags: [],
+          description: '',
+          snippet: '',
+          updatedAt: '',
+          position: 0,
+          trashed: false,
+          props: {},
+          ownerId: '',
+          visibility: 'workspace',
+          isTemplate: false,
+          thumb: '',
+        };
         return (
           <div key={r.id}>
-            <div
-              className={'tree-db-row' + (r.id === ctx.currentId ? ' active' : '')}
-              style={pad}
-              {...navItem(r.id)}
-              data-expanded={kids.length > 0 ? (isOpen ? 'true' : 'false') : undefined}
-              onClick={(e) => openPage(e, r.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
-              onAuxClick={(e) => openPageAux(e, r.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                ctx.setAddFor(null);
-                ctx.setMenuFor(r.id);
-              }}
+            <PageHoverCard
+              page={rowPage}
+              side="right"
+              tagColors={ctx.tagColors}
+              disabled={ctx.dropTarget !== null || ctx.menuFor === r.id || ctx.addFor === r.id}
             >
-              {kids.length > 0 ? (
-                <button
-                  className="chevron"
-                  aria-expanded={isOpen}
-                  aria-label={isOpen ? t('Collapse') : t('Expand')}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    ctx.toggleExpand(r.id);
-                  }}
-                >
-                  <ChevronRight size={14} />
-                </button>
-              ) : (
-                <span className="chevron spacer" />
-              )}
-              <span className="tree-icon"><PageIcon icon={r.icon} size={14} fallback={<FileText size={14} />} /></span>
-              <span className="tree-title">{r.title || 'Untitled'}</span>
-              <AgentDot pageId={r.id} />
-              {/* Until now a row could only get sub-pages through MCP — the
-                  interface offered no way at all, so the dossier under a deal
-                  was something an agent could build and a person could not. */}
-              {/* The same ＋ and the same ⋯ as a tree item. A row had only the
-                  ＋ until now, so a page filed under a database could not be
-                  duplicated, exported or thrown away from here at all — you had
-                  to open it first and hope its own menu had what you wanted. */}
-              <RowActions id={r.id} title={r.title} parentId={collectionId} workspaceId={workspaceId} ctx={ctx} />
-            </div>
+              <div
+                className={'tree-db-row' + (r.id === ctx.currentId ? ' active' : '')}
+                style={pad}
+                {...navItem(r.id)}
+                data-expanded={kids.length > 0 ? (isOpen ? 'true' : 'false') : undefined}
+                onClick={(e) => openPage(e, r.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
+                onAuxClick={(e) => openPageAux(e, r.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  ctx.setAddFor(null);
+                  ctx.setMenuFor(r.id);
+                }}
+              >
+                {kids.length > 0 ? (
+                  <button
+                    className="chevron"
+                    aria-expanded={isOpen}
+                    aria-label={isOpen ? t('Collapse') : t('Expand')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      ctx.toggleExpand(r.id);
+                    }}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                ) : (
+                  <span className="chevron spacer" />
+                )}
+                <span className="tree-icon"><PageIcon icon={r.icon} size={14} fallback={<FileText size={14} />} /></span>
+                <span className="tree-title">{r.title || 'Untitled'}</span>
+                <AgentDot pageId={r.id} />
+                {/* Until now a row could only get sub-pages through MCP — the
+                    interface offered no way at all, so the dossier under a deal
+                    was something an agent could build and a person could not. */}
+                {/* The same ＋ and the same ⋯ as a tree item. A row had only the
+                    ＋ until now, so a page filed under a database could not be
+                    duplicated, exported or thrown away from here at all — you had
+                    to open it first and hope its own menu had what you wanted. */}
+                <RowActions id={r.id} title={r.title} parentId={collectionId} workspaceId={workspaceId} ctx={ctx} />
+              </div>
+            </PageHoverCard>
             {isOpen && (
               <div className="tree-children" style={guideAt(depth)}>
                 {kids.map((k) => <TreeItem key={k.id} p={k} depth={depth + 1} ctx={ctx} section="dbs" />)}
