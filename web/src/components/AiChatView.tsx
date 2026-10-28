@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
@@ -418,6 +418,38 @@ export default function AiChatView(props: {
   const liveDuration = agentBusy && runStartedAt !== null ? runElapsed : null;
   const doneDuration = !agentBusy ? histDurationMs : null;
 
+  // The trace ("Worked for …") sits ABOVE the answer it produced; while a run
+  // streams there is no answer yet, so it stays below the question.
+  const traceEl = showTrace ? (
+            <div style={{ margin: '8px 0' }}>
+              <div className="ai-actions-bar">
+                <button className="ai-actions-toggle" onClick={() => setTraceOpen((v) => !v)} type="button">
+                  <span style={{ fontSize: 10 }}>{traceOpen ? '▼' : '▶'}</span>
+                  <span>
+                    {liveDuration !== null
+                      ? `${t('Working for')} ${formatDuration(liveDuration)} … (${steps.length})`
+                      : doneDuration !== null
+                        ? `${t('Worked for')} ${formatDuration(doneDuration)} (${steps.length > 0 ? steps.length : histSteps.length} ${t('steps')})`
+                        : `${t('Agent actions')} (${steps.length > 0 ? steps.length : histSteps.length})`}
+                  </span>
+                </button>
+              </div>
+              {traceOpen && (
+                <div className="ai-actions-list">
+                  {(steps.length > 0 ? steps : histSteps).map((s) => <AiAgentStep key={s.id} step={s} />)}
+                </div>
+              )}
+              {runStatus && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{runStatus}</div>}
+              {waitingApproval && runId && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button className="btn-sm primary" onClick={() => void decide(true)}>{t('Approve')}</button>
+                  <button className="btn-sm" onClick={() => void decide(false)}>{t('Reject')}</button>
+                </div>
+              )}
+            </div>
+  ) : null;
+  const traceAt = !agentBusy && messages.length > 0 && messages[messages.length - 1].role !== 'user' ? messages.length - 1 : messages.length;
+
   return (
     <div className="ai-chat-root">
       <div className="ai-chat-main">
@@ -429,7 +461,9 @@ export default function AiChatView(props: {
         </div>
         <div className="ai-chat-body">
           {messages.map((m, i) => (
-            <div key={i} className={m.role === 'user' ? 'ai-msg user' : 'ai-msg assistant'}>
+            <Fragment key={i}>
+            {i === traceAt && traceEl}
+            <div className={m.role === 'user' ? 'ai-msg user' : 'ai-msg assistant'}>
               {m.role === 'user' ? (
                 <div className="ai-bubble-user">{m.content}</div>
               ) : (
@@ -458,35 +492,9 @@ export default function AiChatView(props: {
                 </div>
               )}
             </div>
+            </Fragment>
           ))}
-          {showTrace && (
-            <div style={{ margin: '8px 0' }}>
-              <div className="ai-actions-bar">
-                <button className="ai-actions-toggle" onClick={() => setTraceOpen((v) => !v)} type="button">
-                  <span style={{ fontSize: 10 }}>{traceOpen ? '▼' : '▶'}</span>
-                  <span>
-                    {liveDuration !== null
-                      ? `${t('Working for')} ${formatDuration(liveDuration)} … (${steps.length})`
-                      : doneDuration !== null
-                        ? `${t('Worked for')} ${formatDuration(doneDuration)} (${steps.length > 0 ? steps.length : histSteps.length} ${t('steps')})`
-                        : `${t('Agent actions')} (${steps.length > 0 ? steps.length : histSteps.length})`}
-                  </span>
-                </button>
-              </div>
-              {traceOpen && (
-                <div className="ai-actions-list">
-                  {(steps.length > 0 ? steps : histSteps).map((s) => <AiAgentStep key={s.id} step={s} />)}
-                </div>
-              )}
-              {runStatus && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{runStatus}</div>}
-              {waitingApproval && runId && (
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <button className="btn-sm primary" onClick={() => void decide(true)}>{t('Approve')}</button>
-                  <button className="btn-sm" onClick={() => void decide(false)}>{t('Reject')}</button>
-                </div>
-              )}
-            </div>
-          )}
+          {traceAt >= messages.length && traceEl}
           {lastError && (
             <AiErrorCard
               error={lastError}
