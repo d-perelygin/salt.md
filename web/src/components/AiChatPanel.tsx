@@ -276,12 +276,19 @@ export default function AiChatPanel(props: {
     }
   }
 
-  // Keyboard navigation for numbered options 1..9
+  // Keyboard navigation for numbered options 1..9 and Enter to submit
   useEffect(() => {
     if (!pendingQuestion) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === 'textarea' || tag === 'input') return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName?.toLowerCase();
+      if (tag === 'textarea' || tag === 'input' || el?.isContentEditable) return;
+      if (e.key === 'Enter' && !e.shiftKey && picked.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        void submitAnswer();
+        return;
+      }
       const num = parseInt(e.key, 10);
       if (!isNaN(num) && num >= 1 && num <= pendingQuestion.options.length) {
         e.preventDefault();
@@ -295,9 +302,9 @@ export default function AiChatPanel(props: {
         }
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [pendingQuestion]);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [pendingQuestion, picked, freeText]);
 
   const [lastRun, setLastRun] = useState<{ id: string; task: string; status: string; error: string } | null>(null);
   const inputBoxRef = useRef<HTMLTextAreaElement | null>(null);

@@ -158,8 +158,15 @@ export default function AiChatView(props: {
   useEffect(() => {
     if (!pendingQuestion) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === 'textarea' || tag === 'input') return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName?.toLowerCase();
+      if (tag === 'textarea' || tag === 'input' || el?.isContentEditable) return;
+      if (e.key === 'Enter' && !e.shiftKey && picked.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        void submitAnswer();
+        return;
+      }
       const num = parseInt(e.key, 10);
       if (!isNaN(num) && num >= 1 && num <= pendingQuestion.options.length) {
         e.preventDefault();
@@ -173,9 +180,9 @@ export default function AiChatView(props: {
         }
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [pendingQuestion]);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [pendingQuestion, picked, freeText]);
 
   function onInputChange(v: string) {
     setInput(v);
