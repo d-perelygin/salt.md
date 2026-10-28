@@ -51,8 +51,6 @@ export default function AiChatPanel(props: {
   const threadMenuRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(threadMenuOpen, threadMenuRef, () => setThreadMenuOpen(false));
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
-  const [workspaceModalOpen, setWorkspaceModalOpen] = useState(false);
-  const [workspaceFilter, setWorkspaceFilter] = useState('');
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [collectionTemplates, setCollectionTemplates] = useState<PageMeta[]>([]);
   const attachMenuRef = useRef<HTMLDivElement>(null);
@@ -888,15 +886,6 @@ export default function AiChatPanel(props: {
                   >
                     💻 {t('File from computer')}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachMenuOpen(false);
-                      setWorkspaceModalOpen(true);
-                    }}
-                  >
-                    🗂️ {t('File from workspace')}
-                  </button>
                 </div>
               )}
             </div>
@@ -912,73 +901,6 @@ export default function AiChatPanel(props: {
           <AiApprovalSelect value={approval} onChange={setApproval} />
         </div>
       </div>
-      {workspaceModalOpen && props.pagesById && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 1200,
-            background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-          onClick={() => setWorkspaceModalOpen(false)}
-        >
-          <div
-            style={{
-              background: 'var(--card)', color: 'var(--card-foreground)',
-              border: '1px solid var(--border)', borderRadius: 12,
-              boxShadow: '0 16px 48px rgba(0,0,0,0.3)', width: 440, maxWidth: 'calc(100vw - 32px)',
-              maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <strong style={{ fontSize: 14 }}>{t('Attach from workspace')}</strong>
-              <button className="ai-iconbtn" onClick={() => setWorkspaceModalOpen(false)} type="button">✕</button>
-            </div>
-            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
-              <input
-                autoFocus
-                placeholder={t('Search workspace pages…')}
-                value={workspaceFilter}
-                onChange={(e) => setWorkspaceFilter(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'inherit', fontSize: 13 }}
-              />
-            </div>
-            <div style={{ overflowY: 'auto', padding: '6px 8px', flex: 1, maxHeight: 320 }}>
-              {[...props.pagesById.values()]
-                .filter((p) => !p.trashed && (p.title || t('Untitled')).toLowerCase().includes(workspaceFilter.toLowerCase()))
-                .slice(0, 30)
-                .map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={async () => {
-                      setWorkspaceModalOpen(false);
-                      setWorkspaceFilter('');
-                      try {
-                        const text = await api.exportText(p.id);
-                        setFiles((prev) => [...prev, { name: p.title || t('Untitled page'), text: text || '' }]);
-                      } catch {
-                        setFiles((prev) => [...prev, { name: p.title || t('Untitled page'), text: '' }]);
-                      }
-                    }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                      padding: '8px 12px', border: 'none', background: 'transparent',
-                      borderRadius: 6, color: 'inherit', textAlign: 'left', cursor: 'pointer', fontSize: 13,
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--hover)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <span>📄</span>
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.title || t('Untitled page')}
-                    </span>
-                  </button>
-                ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

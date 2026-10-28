@@ -1158,11 +1158,11 @@
 
 /* Zero-state launcher inside the center AiChatView. */
 .ai-view-zero {
-  max-width: 640px;
+  max-width: 440px;
   margin: 28px auto 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .ai-view-zero-hero {
   display: flex;
@@ -1186,15 +1186,4 @@
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-}
-.ai-view-zero-cols {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
-}
-.ai-view-zero-col {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
 }
