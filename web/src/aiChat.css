@@ -999,3 +999,120 @@
 }
 .ai-empty-stop:hover { background: var(--hover); }
 .ai-empty-error { flex-basis: 100%; font-size: 12px; color: var(--danger, #d14343); padding: 0 4px 2px 26px; }
+
+/* Zero-state launcher inside AiChatPanel when no messages exist yet. */
+.ai-panel-zero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 6px;
+}
+.ai-zero-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  margin-bottom: 4px;
+  border-radius: 10px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  min-width: 0;
+}
+.ai-zero-context-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  flex: none;
+}
+.ai-zero-context-title {
+  flex: 1;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.ai-zero-context-badge {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  flex: none;
+}
+.ai-zero-section {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 8px 6px 2px;
+}
+.ai-zero-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ai-zero-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.ai-zero-item:hover {
+  background: var(--hover);
+}
+.ai-zero-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex: none;
+}
+.ai-zero-badge[data-tone="green"] {
+  background: rgba(34, 197, 94, 0.16);
+  border-color: rgba(34, 197, 94, 0.32);
+  color: #22c55e;
+}
+.ai-zero-badge[data-tone="blue"] {
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(59, 130, 246, 0.32);
+  color: #3b82f6;
+}
+.ai-zero-badge[data-tone="purple"] {
+  background: rgba(168, 85, 247, 0.16);
+  border-color: rgba(168, 85, 247, 0.32);
+  color: #a855f7;
+}
+.ai-zero-badge[data-tone="plain"] {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.ai-zero-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-zero-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 4px;
+}

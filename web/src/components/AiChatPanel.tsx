@@ -6,6 +6,8 @@ import AiAgentStep, { type AiStep } from './AiAgentStep';
 import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
+import { PageIcon } from '../pageIcon';
+import { FileText, Table2 } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
 
@@ -213,15 +215,16 @@ export default function AiChatPanel(props: {
   }, [pendingQuestion]);
 
   const [lastRun, setLastRun] = useState<{ id: string; task: string; status: string; error: string } | null>(null);
+  const inputBoxRef = useRef<HTMLTextAreaElement | null>(null);
 
-  async function runAsAgent(reuseTask?: string) {
+  async function runAsAgent(reuseTask?: string, isRetry = false) {
     if (agentBusy) return;
     const text = (reuseTask ?? input).trim();
     if (!text) return;
-    if (!reuseTask) setInput('');
+    if (!isRetry) setInput('');
     const id = await ensureThread(text);
     if (!id) return;
-    if (!reuseTask) setMessages((m) => [...m, { role: 'user', content: text }]);
+    if (!isRetry) setMessages((m) => [...m, { role: 'user', content: text }]);
     setLastRun(null);
     setLastError(null);
     setPendingQuestion(null);
@@ -240,12 +243,12 @@ export default function AiChatPanel(props: {
       const filesBlock = files.length
         ? 'Attached files:\n' + files.filter((f) => f.text).slice(0, 3).map((f) => `--- ${f.name} ---\n${f.text.slice(0, 4000)}`).join('\n') + '\n\n'
         : '';
-      const fullTask = reuseTask ? reuseTask : (quoteBlock + filesBlock + text);
+      const fullTask = isRetry && reuseTask ? reuseTask : (quoteBlock + filesBlock + text);
       const r = await api.createAIRun({
         threadId: id,
         task: fullTask,
-        prompt: reuseTask ? undefined : text,
-        retry: !!reuseTask,
+        prompt: isRetry ? undefined : text,
+        retry: isRetry,
         pageId: props.pageId,
       });
       setRunId(r.id);
@@ -358,6 +361,9 @@ export default function AiChatPanel(props: {
   }
 
   const activeThread = (props.threads || []).find((t) => t.id === threadId);
+  const currentPage = props.pageId && props.pagesById ? props.pagesById.get(props.pageId) : undefined;
+  const isCollectionPage = currentPage?.type === 'collection';
+  const showZeroState = messages.length === 0 && !agentBusy && steps.length === 0 && histSteps.length === 0 && !lastError;
 
   // The trace ("Worked for …") sits ABOVE the answer it produced; while a run
   // streams there is no answer yet, so it stays below the question.
@@ -450,6 +456,114 @@ export default function AiChatPanel(props: {
         </div>
       </div>
       <div className="ai-panel-body">
+        {showZeroState && (
+          <div className="ai-panel-zero">
+            {currentPage && (
+              <div className="ai-zero-context">
+                <span className="ai-zero-context-icon">
+                  <PageIcon
+                    icon={currentPage.icon}
+                    size={15}
+                    fallback={isCollectionPage ? <Table2 size={15} /> : <FileText size={15} />}
+                  />
+                </span>
+                <span className="ai-zero-context-title">{currentPage.title || t('Untitled')}</span>
+                <span className="ai-zero-context-badge">{isCollectionPage ? t('Collection') : t('Note')}</span>
+              </div>
+            )}
+
+            <div className="ai-zero-section">{t('Actions')}</div>
+            <div className="ai-zero-list">
+              {isCollectionPage ? (
+                <>
+                  <button
+                    type="button"
+                    className="ai-zero-item"
+                    onClick={() => void runAsAgent(t('Summarize the current collection: group items by status and highlight anything overdue or blocked.'))}
+                  >
+                    <span className="ai-zero-badge">📊</span>
+                    <span className="ai-zero-label">{t('Summarize collection')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ai-zero-item"
+                    onClick={() => void runAsAgent(t('Add 3 realistic sample rows to this collection that match its schema.'))}
+                  >
+                    <span className="ai-zero-badge">➕</span>
+                    <span className="ai-zero-label">{t('Add sample rows')}</span>
+                  </button>
+                </>
+              ) : currentPage ? (
+                <>
+                  <button
+                    type="button"
+                    className="ai-zero-item"
+                    onClick={() => void runAsAgent(t('Summarize this page concisely with key takeaways.'))}
+                  >
+                    <span className="ai-zero-badge">📝</span>
+                    <span className="ai-zero-label">{t('Summarize this page')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ai-zero-item"
+                    onClick={() => void runAsAgent(t('Extract action items and next steps from this page as a checklist.'))}
+                  >
+                    <span className="ai-zero-badge">✅</span>
+                    <span className="ai-zero-label">{t('Extract action items')}</span>
+                  </button>
+                </>
+              ) : null}
+              <button
+                type="button"
+                className="ai-zero-item"
+                onClick={() => fileRef.current?.click()}
+              >
+                <span className="ai-zero-badge">↓</span>
+                <span className="ai-zero-label">{t('Attach file or CSV')}</span>
+              </button>
+            </div>
+
+            <div className="ai-zero-section">{t('Suggested')}</div>
+            <div className="ai-zero-list">
+              <button
+                type="button"
+                className="ai-zero-item"
+                onClick={() => void runAsAgent(t('Create a Tasks Tracker database with Status (Todo, In progress, Done), Priority, Assignee, and Due date, plus 3 sample tasks.'))}
+              >
+                <span className="ai-zero-badge" data-tone="green">✓</span>
+                <span className="ai-zero-label">{t('Tasks Tracker')}</span>
+              </button>
+              <button
+                type="button"
+                className="ai-zero-item"
+                onClick={() => void runAsAgent(t('Create a Projects database with Status, Owner, Start date, End date, and Summary, plus 3 sample projects.'))}
+              >
+                <span className="ai-zero-badge" data-tone="blue">◎</span>
+                <span className="ai-zero-label">{t('Projects')}</span>
+              </button>
+              <button
+                type="button"
+                className="ai-zero-item"
+                onClick={() => void runAsAgent(t('Create a Knowledge Base collection with Category, Tags, Summary, and Status, plus 3 starter entries.'))}
+              >
+                <span className="ai-zero-badge" data-tone="purple">✦</span>
+                <span className="ai-zero-label">{t('Knowledge Base')}</span>
+              </button>
+            </div>
+
+            <div className="ai-zero-divider" />
+            <div className="ai-zero-list">
+              <button
+                type="button"
+                className="ai-zero-item"
+                onClick={() => setWorkspaceModalOpen(true)}
+              >
+                <span className="ai-zero-badge" data-tone="plain">↗</span>
+                <span className="ai-zero-label">{t('Link workspace page or collection')}</span>
+              </button>
+            </div>
+          </div>
+        )}
         {messages.map((m, i) => (
           <Fragment key={i}>
           {i === traceAt && traceEl}
@@ -467,7 +581,7 @@ export default function AiChatPanel(props: {
                     {i === messages.length - 1 && (
                       <button className="ai-iconbtn" onClick={() => {
                         const lu = [...messages].reverse().find((x) => x.role === 'user');
-                        if (lu) void runAsAgent(lu.content);
+                        if (lu) void runAsAgent(lu.content, true);
                       }} disabled={agentBusy} title={t('Regenerate')}>
                         ↻
                       </button>
@@ -488,7 +602,7 @@ export default function AiChatPanel(props: {
         {lastError && (
           <AiErrorCard
             error={lastError}
-            onRetry={lastRun?.task ? () => void runAsAgent(lastRun.task) : undefined}
+            onRetry={lastRun?.task ? () => void runAsAgent(lastRun.task, true) : undefined}
             onDismiss={() => setLastError(null)}
           />
         )}
@@ -572,6 +686,7 @@ export default function AiChatPanel(props: {
       <div className="ai-panel-foot">
         <div className="ai-composer">
           <textarea
+            ref={inputBoxRef}
             value={input}
             rows={2}
             onChange={(e) => {
@@ -580,7 +695,7 @@ export default function AiChatPanel(props: {
               e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
             }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void runAsAgent(); } }}
-            placeholder={t('Ask AI')}
+            placeholder={showZeroState ? t('Describe what you want to build or ask…') : t('Ask AI')}
             disabled={agentBusy}
           />
           <div className="ai-composer-bar">
