@@ -74,13 +74,12 @@ export default function AiChatPanel(props: {
   useEffect(() => {
     const onSelection = (e: Event) => {
       const text = ((e as CustomEvent<{ text?: string }>).detail?.text || '').trim();
-      if (!text) {
-        // Focusing the chat input moves the selection out of the document;
-        // that must not drop the quote the user is about to write about.
-        if (document.activeElement?.closest('.ai-panel')) return;
-        setAutoQuote('');
-        return;
-      }
+      // An empty selection is what the document reports whenever focus leaves
+      // it or a click lands back in it. The quote must outlive that: it goes
+      // only when the user removes the chip or sends the message.
+      if (!text) return;
+      // A fresh selection shows natively again; the mirrored highlight is stale.
+      (window as any).CSS?.highlights?.delete('ai-doc-selection');
       if (text !== dismissedQuoteRef.current) {
         setAutoQuote(text);
       }
@@ -97,10 +96,7 @@ export default function AiChatPanel(props: {
     const HL = (window as any).Highlight;
     if (!css?.highlights || !HL) return;
     const onDown = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement | null)?.closest?.('.ai-panel')) {
-        css.highlights.delete('ai-doc-selection');
-        return;
-      }
+      if (!(e.target as HTMLElement | null)?.closest?.('.ai-panel')) return;
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) return;
       const r = sel.getRangeAt(0);
@@ -108,11 +104,16 @@ export default function AiChatPanel(props: {
       if (host?.closest('.bn-editor')) css.highlights.set('ai-doc-selection', new HL(r.cloneRange()));
     };
     document.addEventListener('mousedown', onDown, true);
+    // The mirror lives exactly as long as the quote it belongs to.
     return () => {
       document.removeEventListener('mousedown', onDown, true);
       css.highlights.delete('ai-doc-selection');
     };
   }, []);
+
+  useEffect(() => {
+    if (!quote && !autoQuote) (window as any).CSS?.highlights?.delete('ai-doc-selection');
+  }, [quote, autoQuote]);
 
   const [histSteps, setHistSteps] = useState<AiStep[]>([]);
   const [histDuration, setHistDuration] = useState<number | null>(null);

@@ -1567,7 +1567,8 @@ func aiAgentSystemPrompt(today string) string {
 		"2. EXPLORE before acting: never guess ids, titles or structure — search, list and read first (list, search, get_page, query_rows). One read to confirm beats one wrong write.\n" +
 		"3. ACT with the smallest sufficient change. Prefer creating over deleting; never delete, trash, share or move anything unless the task explicitly says so.\n" +
 		"4. VERIFY what you changed: read it back (get_page / query_rows) before reporting success.\n" +
-		"5. REPORT: what changed (reference every created page as a Markdown link [title](/p/id)), what you verified, and what is still open.\n" +
+		"5. REPORT: what changed (reference every created page as a Markdown link [title](/p/id)), what you verified, and what is still open. " +
+		"ALWAYS end with a short message to the user, even when there is nothing to report (for example the task was only to put text into a document): say what you did in a few words, like 'Done, inserted'. Never finish with an empty reply.\n" +
 		"If the task is ambiguous or a critical detail is missing (which page? which database? which rows?), do NOT guess and do NOT stall: " +
 		"ask through the ask_user tool instead \u2014 one question per call, 2-4 concrete options (the user can always add free text, so never add an \u2018other\u2019 option). " +
 		"Plain-text questions stall the run; ask_user pauses it and resumes with the answer. Only put questions in your final summary when no safe step exists at all.\n" +
