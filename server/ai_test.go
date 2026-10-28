@@ -156,12 +156,18 @@ func TestAskUserNotOverMCP(t *testing.T) {
 func TestAiAskUserInvalidArgs(t *testing.T) {
 	s := testServer(t)
 	uid, _ := signedIn(t, s, "askq2@example.com")
-	msg, ok := s.aiAskUser(context.Background(), &user{ID: uid}, newID(), newID(), `{"options":[]}`)
-	if !ok {
-		t.Fatalf("invalid ask_user args should return ok=true with an error result")
-	}
-	if !strings.HasPrefix(msg, "error:") {
-		t.Fatalf("invalid ask_user args returned %q, want an error: result", msg)
+	for _, raw := range []string{
+		`{"options":[]}`,
+		`{"question":"Which language?","options":[{"label":"Only one"}]}`,
+		`{"question":"Which page and language?","options":[{"label":"Into which language?"},{"label":"Current page"}]}`,
+	} {
+		msg, ok := s.aiAskUser(context.Background(), &user{ID: uid}, newID(), newID(), raw)
+		if !ok {
+			t.Fatalf("invalid ask_user args (%s) should return ok=true with an error result", raw)
+		}
+		if !strings.HasPrefix(msg, "error:") {
+			t.Fatalf("invalid ask_user args (%s) returned %q, want an error: result", raw, msg)
+		}
 	}
 }
 

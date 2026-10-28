@@ -557,15 +557,15 @@ var mcpTools = []map[string]any{
 var aiAgentExtraTools = []map[string]any{
 	{
 		"name":        "ask_user",
-		"description": "Ask the user a clarifying question and wait for their answer. Use this INSTEAD of guessing whenever a task is ambiguous or a critical detail is missing (which page? which database? which option?). Ask one question per call with 2-4 concrete options; the user can always also type a free-text answer, so 'other' needs no option of its own. Prefer asking through this tool over asking in plain text — plain-text questions stall the run, this tool pauses it and resumes with the answer.",
+		"description": "Ask the user ONE single clarifying question and wait for their answer. Rules: (1) Ask only ONE question per call — never combine two questions like 'Which page and which language?'. (2) Every item in 'options' MUST be a concrete, clickable answer to that single question (e.g. if asking 'Which language?', options must be languages like 'Russian', 'English', 'German', 'Spanish'). NEVER put a question or prompt as an option label, and NEVER mix answers to different questions in the same options list. (3) If a page is already open in context ('Currently open page in the editor'), 'this page' / 'current page' / 'this collection' refers to that page — do NOT ask which page. (4) Do not add an 'Other' option (the UI always shows a free-text input).",
 		"inputSchema": map[string]any{"type": "object",
 			"properties": map[string]any{
-				"question": map[string]any{"type": "string", "description": "The single question to ask."},
-				"options": map[string]any{"type": "array", "description": "2-4 concrete answer options.",
+				"question": map[string]any{"type": "string", "description": "A single, focused question about one decision (never combine two questions)."},
+				"options": map[string]any{"type": "array", "description": "2-4 concrete, direct answer choices to 'question'. Each option must be an answer value (never a sub-question).",
 					"items": map[string]any{"type": "object",
 						"properties": map[string]any{
-							"label":       map[string]any{"type": "string", "description": "Short option label shown as a button."},
-							"description": map[string]any{"type": "string", "description": "One-line explanation of this option."},
+							"label":       map[string]any{"type": "string", "description": "Concrete answer choice shown on the option button (never a question ending with '?')."},
+							"description": map[string]any{"type": "string", "description": "Optional one-line explanation of this choice."},
 						},
 						"required": []string{"label"}}},
 				"multiple": map[string]any{"type": "boolean", "description": "Allow picking several options at once (default false)."},

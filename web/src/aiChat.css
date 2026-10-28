@@ -437,6 +437,8 @@
   border-radius: 12px;
   background: var(--card);
   border: 1px solid var(--accent);
+  width: 100%;
+  box-sizing: border-box;
 }
 .ai-question-title {
   display: flex;
@@ -448,15 +450,21 @@
 }
 .ai-question-options {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 8px;
   margin: 10px 0;
+  width: 100%;
 }
 .ai-question-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--border);
   background: var(--hover);
   border-radius: 10px;
-  padding: 7px 10px;
+  padding: 9px 12px;
   font-size: 13px;
   cursor: pointer;
   color: inherit;

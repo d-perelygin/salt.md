@@ -1158,8 +1158,14 @@ func (s *Server) aiAskUser(ctx context.Context, u *user, runID, threadID, argsSt
 		} `json:"options"`
 		Multiple bool `json:"multiple"`
 	}
-	if err := json.Unmarshal([]byte(argsStr), &q); err != nil || strings.TrimSpace(q.Question) == "" || len(q.Options) == 0 {
-		return "error: ask_user needs a question and 2-4 options", true
+	if err := json.Unmarshal([]byte(argsStr), &q); err != nil || strings.TrimSpace(q.Question) == "" || len(q.Options) < 2 {
+		return "error: ask_user needs a single question and 2-4 concrete answer options", true
+	}
+	for _, opt := range q.Options {
+		lbl := strings.TrimSpace(opt.Label)
+		if lbl == "" || strings.HasSuffix(lbl, "?") {
+			return "error: invalid ask_user options: each option.label must be a concrete selectable answer to the question (e.g. 'Russian', 'German', 'English'), NEVER a sub-question ending with '?'. Ask one single question in 'question' and provide 2-4 concrete answer choices in 'options'.", true
+		}
 	}
 	s.aiAddStep(runID, threadID, u.ID, "question_request", "Question", q.Question, "pending")
 	s.db.Exec(`UPDATE ai_runs SET status='waiting_user', pending_tool='ask_user', pending_args=?, approved=0, progress=? WHERE id=?`,
@@ -1569,8 +1575,9 @@ func aiAgentSystemPrompt(today string) string {
 		"4. VERIFY what you changed: read it back (get_page / query_rows) before reporting success.\n" +
 		"5. REPORT: what changed (reference every created page as a Markdown link [title](/p/id)), what you verified, and what is still open. " +
 		"ALWAYS end with a short message to the user, even when there is nothing to report (for example the task was only to put text into a document): say what you did in a few words, like 'Done, inserted'. Never finish with an empty reply.\n" +
-		"If the task is ambiguous or a critical detail is missing (which page? which database? which rows?), do NOT guess and do NOT stall: " +
-		"ask through the ask_user tool instead \u2014 one question per call, 2-4 concrete options (the user can always add free text, so never add an \u2018other\u2019 option). " +
+		"If the task is ambiguous or a critical detail is missing (e.g. target language, which database, which rows), do NOT guess and do NOT stall: " +
+		"ask through the ask_user tool instead — strictly ONE single question per call, with 2-4 concrete selectable answers in 'options' (never put a question as an option label, never combine two questions in one call, and never add an 'other' option since the UI always provides a free-text input). " +
+		"When 'Currently open page in the editor' is present below, phrases like 'this page', 'current page', or 'this collection' ALREADY refer to that page id — read it directly with get_page / query_rows and NEVER ask which page.\n" +
 		"Plain-text questions stall the run; ask_user pauses it and resumes with the answer. Only put questions in your final summary when no safe step exists at all.\n" +
 		"Resolve relative dates (today, next week) against today yourself, in ISO format.\n" +
 		"Keep tool arguments small: prefer limit 20 or less and narrow queries."
@@ -1728,7 +1735,7 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 	sys := aiAgentSystemPrompt(today)
 	if pageID != "" {
 		if p, err := s.getPage(pageID); err == nil {
-			sys += "\nCurrent page title: " + p.Title
+			sys += fmt.Sprintf("\nCurrently open page in the editor (when the user says 'this page', 'current page', or 'this collection', it always refers to this page — do NOT ask which page): id=%s, type=%s, title=%q", p.ID, p.Type, p.Title)
 		}
 	}
 	var threadWS string
