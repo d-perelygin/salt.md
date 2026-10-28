@@ -456,6 +456,16 @@ export default function AiChatPanel(props: {
     setFreeText('');
   }
 
+  async function cancelQuestion() {
+    if (!pendingQuestion) return;
+    try {
+      await api.cancelAIRun(pendingQuestion.runId);
+    } catch { /* the run may have timed out or been cancelled */ }
+    setPendingQuestion(null);
+    setPicked([]);
+    setFreeText('');
+  }
+
   const activeThread = (props.threads || []).find((t) => t.id === threadId);
   const currentPage = props.pageId && props.pagesById ? props.pagesById.get(props.pageId) : undefined;
   const isCollectionPage = currentPage?.type === 'collection';
@@ -748,9 +758,12 @@ export default function AiChatPanel(props: {
               onChange={(e) => setFreeText(e.target.value)}
               placeholder={t('Type your own answer…')}
             />
-            <div>
-              <button className="btn-sm primary" onClick={() => void submitAnswer()} disabled={picked.length === 0 && !freeText.trim()}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="btn-sm primary" type="button" onClick={() => void submitAnswer()} disabled={picked.length === 0 && !freeText.trim()}>
                 {t('Submit answer')}
+              </button>
+              <button className="btn-sm" type="button" onClick={() => void cancelQuestion()}>
+                {t('Cancel')}
               </button>
             </div>
           </div>
