@@ -5,61 +5,69 @@ import { toast } from '../toast';
 import type { CollectionConfig, PageMeta } from '../types';
 
 export interface CollectionTemplatePreset {
-  id: 'tasks' | 'projects' | 'kb';
+  id: 'sales' | 'content' | 'requests';
   badge: string;
   tone: 'green' | 'blue' | 'purple';
   label: () => string;
   title: () => string;
+  description: () => string;
   icon: string;
   config: () => Partial<CollectionConfig>;
 }
 
 export const COLLECTION_PRESETS: CollectionTemplatePreset[] = [
   {
-    id: 'tasks',
-    badge: '✓',
+    id: 'sales',
+    badge: '🤝',
     tone: 'green',
-    label: () => t('Tasks Tracker'),
-    title: () => t('Tasks Tracker'),
-    icon: '✅',
+    label: () => t('Sales pipeline'),
+    title: () => t('Deals'),
+    description: () => t('One row per opportunity. Drag the board, do not edit a status field.'),
+    icon: '💶',
     config: () => ({
       schema: [
         {
-          id: 'status',
-          name: t('Status'),
+          id: 'stage',
+          name: t('Stage'),
           type: 'select',
           options: [
-            { id: 'todo', name: t('Todo'), color: 'gray' },
-            { id: 'doing', name: t('In progress'), color: 'blue' },
-            { id: 'done', name: t('Done'), color: 'green' },
+            { id: 'qualifying', name: t('Qualifying'), color: '#787774' },
+            { id: 'proposal', name: t('Proposal out'), color: '#337ea9' },
+            { id: 'negotiation', name: t('Negotiation'), color: '#cb912f' },
+            { id: 'won', name: t('Won'), color: '#448361' },
+            { id: 'lost', name: t('Lost'), color: '#d44c47' },
           ],
         },
+        { id: 'value', name: t('Value'), type: 'number' },
+        { id: 'close', name: t('Expected close'), type: 'date' },
+        { id: 'owner', name: t('Owner'), type: 'person' },
         {
-          id: 'priority',
-          name: t('Priority'),
+          id: 'source',
+          name: t('Came from'),
           type: 'select',
           options: [
-            { id: 'low', name: t('Low'), color: 'gray' },
-            { id: 'med', name: t('Medium'), color: 'amber' },
-            { id: 'high', name: t('High'), color: 'red' },
+            { id: 'referral', name: t('Referral'), color: '#448361' },
+            { id: 'inbound', name: t('Inbound'), color: '#337ea9' },
+            { id: 'outbound', name: t('Outbound'), color: '#cb912f' },
+            { id: 'event', name: t('Event'), color: '#9065b0' },
           ],
         },
-        { id: 'assignee', name: t('Assignee'), type: 'person' },
-        { id: 'due', name: t('Due'), type: 'date' },
       ],
       views: [
-        { id: 'v_table', name: t('Table'), type: 'table', filters: [], sort: null },
-        { id: 'v_board', name: t('Board'), type: 'board', groupBy: 'status', filters: [], sort: null },
+        { id: 'board', name: t('Board'), type: 'board', groupBy: 'stage', filters: [], sort: null },
+        { id: 'table', name: t('Table'), type: 'table', filters: [], sort: null },
+        { id: 'closing', name: t('Closing'), type: 'calendar', dateProp: 'close', filters: [], sort: null },
       ],
     }),
   },
   {
-    id: 'projects',
-    badge: '◎',
+    id: 'content',
+    badge: '🗓️',
     tone: 'blue',
-    label: () => t('Projects'),
-    title: () => t('Projects'),
-    icon: '🚀',
+    label: () => t('Content calendar'),
+    title: () => t('Content calendar'),
+    description: () => t('One row per thing you publish. The draft lives in the page.'),
+    icon: '🗓️',
     config: () => ({
       schema: [
         {
@@ -67,55 +75,90 @@ export const COLLECTION_PRESETS: CollectionTemplatePreset[] = [
           name: t('Status'),
           type: 'select',
           options: [
-            { id: 'planned', name: t('Planned'), color: 'gray' },
-            { id: 'active', name: t('Active'), color: 'blue' },
-            { id: 'completed', name: t('Completed'), color: 'green' },
+            { id: 'idea', name: t('Idea'), color: '#787774' },
+            { id: 'drafting', name: t('Drafting'), color: '#cb912f' },
+            { id: 'review', name: t('In review'), color: '#337ea9' },
+            { id: 'scheduled', name: t('Scheduled'), color: '#9065b0' },
+            { id: 'published', name: t('Published'), color: '#448361' },
+            { id: 'dropped', name: t('Dropped'), color: '#9f6b53' },
+          ],
+        },
+        {
+          id: 'channel',
+          name: t('Channel'),
+          type: 'select',
+          options: [
+            { id: 'blog', name: t('Blog'), color: '#337ea9' },
+            { id: 'newsletter', name: t('Newsletter'), color: '#cb912f' },
+            { id: 'social', name: t('Social'), color: '#9065b0' },
+            { id: 'video', name: t('Video'), color: '#d44c47' },
+            { id: 'podcast', name: t('Podcast'), color: '#448361' },
+          ],
+        },
+        { id: 'publish', name: t('Goes out'), type: 'date' },
+        { id: 'owner', name: t('Owner'), type: 'person' },
+        { id: 'topic', name: t('Topic'), type: 'text' },
+        { id: 'url', name: t('Published at'), type: 'url' },
+      ],
+      views: [
+        { id: 'calendar', name: t('Calendar'), type: 'calendar', dateProp: 'publish', filters: [], sort: null },
+        { id: 'board', name: t('Board'), type: 'board', groupBy: 'status', filters: [], sort: null },
+        { id: 'table', name: t('Table'), type: 'table', filters: [], sort: null },
+      ],
+    }),
+  },
+  {
+    id: 'requests',
+    badge: '📥',
+    tone: 'purple',
+    label: () => t('Request tracker'),
+    title: () => t('Requests'),
+    description: () =>
+      t('One row per request. Done needs a finished checklist — the board refuses the move otherwise.'),
+    icon: '📥',
+    config: () => ({
+      schema: [
+        {
+          id: 'status',
+          name: t('Status'),
+          type: 'select',
+          options: [
+            { id: 'new', name: t('New'), color: '#787774' },
+            { id: 'triage', name: t('Triage'), color: '#337ea9' },
+            { id: 'in_progress', name: t('In progress'), color: '#cb912f' },
+            { id: 'done', name: t('Done'), color: '#448361' },
           ],
         },
         { id: 'owner', name: t('Owner'), type: 'person' },
-        { id: 'start', name: t('Start date'), type: 'date' },
-        { id: 'end', name: t('End date'), type: 'date' },
+        { id: 'acceptance', name: t('Acceptance'), type: 'checklist' },
+        { id: 'closed', name: t('Closed on'), type: 'date' },
       ],
       views: [
-        { id: 'v_table', name: t('Table'), type: 'table', filters: [], sort: null },
-        { id: 'v_board', name: t('Board'), type: 'board', groupBy: 'status', filters: [], sort: null },
+        { id: 'board', name: t('Board'), type: 'board', groupBy: 'status', filters: [], sort: null },
+        { id: 'table', name: t('Table'), type: 'table', filters: [], sort: null },
       ],
-    }),
-  },
-  {
-    id: 'kb',
-    badge: '✦',
-    tone: 'purple',
-    label: () => t('Knowledge Base'),
-    title: () => t('Knowledge Base'),
-    icon: '📚',
-    config: () => ({
-      schema: [
-        {
-          id: 'category',
-          name: t('Category'),
-          type: 'select',
-          options: [
-            { id: 'guide', name: t('Guide'), color: 'blue' },
-            { id: 'reference', name: t('Reference'), color: 'purple' },
-            { id: 'faq', name: t('FAQ'), color: 'green' },
-          ],
-        },
-        {
-          id: 'status',
-          name: t('Status'),
-          type: 'select',
-          options: [
-            { id: 'draft', name: t('Draft'), color: 'gray' },
-            { id: 'published', name: t('Published'), color: 'green' },
-          ],
-        },
-        { id: 'summary', name: t('Summary'), type: 'text' },
-      ],
-      views: [
-        { id: 'v_table', name: t('Table'), type: 'table', filters: [], sort: null },
-        { id: 'v_board', name: t('Board'), type: 'board', groupBy: 'category', filters: [], sort: null },
-      ],
+      workflow: {
+        statusPropId: 'status',
+        rules: [
+          {
+            id: 'r0',
+            when: { type: 'created' },
+            do: [{ type: 'assign_me', prop: 'owner' }],
+          },
+          {
+            id: 'r_triage',
+            when: { type: 'status_to', to: 'triage' },
+            do: [{ type: 'assign_me', prop: 'owner' }],
+          },
+          {
+            id: 'r_done',
+            when: { type: 'status_to', to: 'done' },
+            allowFrom: ['in_progress'],
+            precondition: { checklistProp: 'acceptance' },
+            do: [{ type: 'set_today', prop: 'closed' }],
+          },
+        ],
+      },
     }),
   },
 ];
@@ -127,13 +170,21 @@ export async function applyCollectionPreset(
   try {
     let targetId = currentCollectionId;
     if (targetId) {
-      await api.updatePage(targetId, { title: preset.title(), icon: preset.icon });
+      await api.updatePage(targetId, {
+        title: preset.title(),
+        icon: preset.icon,
+        description: preset.description(),
+      });
       await api.putCollection(targetId, preset.config());
       window.dispatchEvent(new CustomEvent('salt:rows', { detail: targetId }));
+      window.dispatchEvent(new CustomEvent('salt:page-reload', { detail: targetId }));
     } else {
       const created = await api.createPage(null, preset.title(), 'collection');
       targetId = created.id;
-      await api.updatePage(targetId, { icon: preset.icon });
+      await api.updatePage(targetId, {
+        icon: preset.icon,
+        description: preset.description(),
+      });
       await api.putCollection(targetId, preset.config());
       window.dispatchEvent(new CustomEvent('salt:navigate', { detail: targetId }));
     }

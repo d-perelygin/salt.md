@@ -186,6 +186,7 @@ export default function App() {
   // Refs mirror the latest values so the stable useCallback handlers below can
   // read them without being re-created on every navigation.
   const activeRef = useRef<string | null>(currentId);
+  const [pageNonce, setPageNonce] = useState(0);
   const tabsRef = useRef<string[]>(openTabs);
   useEffect(() => {
     activeRef.current = currentId;
@@ -715,11 +716,17 @@ export default function App() {
       setPeekId(id);
     };
     window.addEventListener('salt:peek', onPeek);
+    const onPageReload = () => {
+      setPageNonce((n) => n + 1);
+      void loadPages();
+    };
+    window.addEventListener('salt:page-reload', onPageReload);
     return () => {
       window.removeEventListener('salt:unauthorized', onUnauthorized);
       window.removeEventListener('popstate', onPop);
       window.removeEventListener('salt:navigate', onLinkNav);
       window.removeEventListener('salt:peek', onPeek);
+      window.removeEventListener('salt:page-reload', onPageReload);
     };
   }, []);
 
@@ -2131,7 +2138,7 @@ export default function App() {
               onMoveTo={moveTabTo}
             />
             <Editor
-              key={currentId}
+              key={`${currentId}:${pageNonce}`}
               pageId={currentId}
               pagesById={pagesById}
               user={me.user}
