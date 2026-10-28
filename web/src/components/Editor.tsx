@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   useCreateBlockNote,
   SuggestionMenuController,
@@ -12,10 +12,13 @@ import {
   NestBlockButton,
   UnnestBlockButton,
   CreateLinkButton,
+  SideMenuController,
 } from '@blocknote/react';
-import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from '@blocknote/core';
+import { CustomSideMenu } from './CustomDragHandleMenu';
+import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmentToHTML } from '@blocknote/core';
 import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
+import { TextSelection } from 'prosemirror-state';
 import { api, ApiError, materializeQuery } from '../api';
 import * as Y from 'yjs';
 import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
@@ -30,11 +33,11 @@ import {
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
-import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User } from '../types';
+import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User, Workspace } from '../types';
 import { SaltProvider } from '../collab';
 import { plural, t } from '../i18n';
 import { formatDay } from '../format';
-import { blockedByMap, dayNum, depListOf, isoDay, shiftTarget, type DepNode } from '../depUtils';
+import { blockedByMap, dayNum, depListOf, isoDay, nextWorkday, prevWorkday, shiftTarget, type DepNode } from '../depUtils';
 import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import AnchoredMenu from './AnchoredMenu';
@@ -42,7 +45,7 @@ import AiEmptyLine from './AiEmptyLine';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
-import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, navItem, nothingBefore, useNavRegion } from '../nav';
+import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, focusRegion, navItem, nothingBefore, useNavRegion } from '../nav';
 import { openPage, openPageAux, type PageOpeners } from '../pageOpen';
 import { readPageScroll, writePageScroll } from '../pageUiState';
 import { useShortcut } from '../keys';
@@ -58,6 +61,7 @@ import CommentsPanel, {
 import NoteTrail from './NoteTrail';
 import { FilePreview, isPreviewable } from './FilePreview';
 import StructurePanel, { structurePanelOpen, setStructurePanelOpen } from './StructurePanel';
+import { PageHoverCard } from './PageHoverCard';
 import { AgentPresence } from './AgentBadge';
 import AiFormattingDropdown from './AiFormattingDropdown';
 import { useAiEnabled } from '../aiState';
@@ -65,7 +69,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon , Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Sparkles} from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles } from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 
 export interface EditorProps {
@@ -90,7 +94,11 @@ export interface EditorProps {
   // ⋯ only moves between columns, and this menu had no entry. The page menu is
   // the one menu every page has, so it is the honest place for it.
   onTrash: (id: string) => void;
+  onDuplicate?: (id: string) => void | Promise<void>;
   onPagesChanged: () => void;
+  currentWs?: string;
+  workspaces?: Workspace[];
+  onSelectWorkspace?: (id: string) => void;
   // Side peek chrome (see PeekPanel): when present, the panel controls sit
   // inline at the head of this topbar instead of on a bar of their own, and
   // the structure and favorite buttons move into the ⋯ menu — a narrow panel
@@ -485,6 +493,7 @@ function BlockedBanner({
   config,
   canEdit,
   onShift,
+  onPagesChanged,
 }: {
   pageId: string;
   parentId: string;
@@ -492,8 +501,18 @@ function BlockedBanner({
   config: CollectionConfig;
   canEdit: boolean;
   onShift: (startProp: string, endProp: string, startIso: string, endIso: string | null) => void;
+  onPagesChanged?: () => void;
 }) {
   const [rows, setRows] = useState<{ id: string; title: string; props: Record<string, unknown> }[] | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [skipWeekendsOverride, setSkipWeekendsOverride] = useState<boolean | null>(null);
+  const loadRows = useCallback(() => {
+    api
+      .collectionRows(parentId, { limit: 500 })
+      .then((r) => setRows(r.rows))
+      .catch(() => setRows([]));
+  }, [parentId]);
+
   useEffect(() => {
     let alive = true;
     setRows(null);
@@ -565,8 +584,27 @@ function BlockedBanner({
     .map((id) => byId.get(id)!)
     .filter((p) => p && self.start <= p.end);
   if (!blockers.length) return null;
+  const skipWeekends = skipWeekendsOverride ?? (tlView?.tlSkipWeekends ?? false);
+  const shiftDay = (d: number) => (skipWeekends ? nextWorkday(d) : d);
   const latest = Math.max(...blockers.map((p) => p.end));
-  const target = shiftTarget(self, blockers);
+  const rawTarget = shiftTarget(self, blockers);
+  const target = rawTarget !== null ? shiftDay(rawTarget) : null;
+
+  const onToggleSkipWeekends = async (checked: boolean) => {
+    setSkipWeekendsOverride(checked);
+    if (!config) return;
+    const views = config.views.map((v) => {
+      if (tlView && v.id === tlView.id) {
+        return { ...v, tlSkipWeekends: checked };
+      }
+      return v;
+    });
+    try {
+      await api.putCollection(parentId, { views });
+    } catch {
+      toast(t('Could not save settings'));
+    }
+  };
 
   return (
     <div className="dep-banner" role="status">
@@ -578,14 +616,140 @@ function BlockedBanner({
         })}
       </div>
       {target !== null && canEdit && (
-        <button
-          className="btn-sm primary"
-          onClick={() =>
-            onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null)
-          }
-        >
-          {t('Shift to {d}, keep duration', { d: formatDay(isoDay(target), 'dayMonth') })}
-        </button>
+        <div className="dep-banner-actions">
+          <button
+            className="btn-sm primary"
+            onClick={() =>
+              onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null)
+            }
+          >
+            {t('Shift to {d}, keep duration', { d: formatDay(isoDay(target), 'dayMonth') })}
+          </button>
+          <div className="tl-conflict-more-wrap">
+            <button
+              className="btn-sm"
+              aria-label={t('More actions')}
+              title={t('More actions')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMoreOpen((o) => !o);
+              }}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            {moreOpen && (
+              <>
+                <div
+                  className="fs-backdrop tl-conflict-sub-backdrop"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMoreOpen(false);
+                  }}
+                />
+                <AnchoredMenu className="menu tl-conflict-sub-menu">
+                  {blockers.map((b) => {
+                    const dur = b.end - b.start;
+                    const predTargetEnd = skipWeekends ? prevWorkday(self.start - 1) : self.start - 1;
+                    const predTargetStart = predTargetEnd - dur;
+                    return (
+                      <button
+                        key={'pred-' + b.id}
+                        className="menu-item"
+                        onClick={async () => {
+                          setMoreOpen(false);
+                          const patch: Record<string, string> = {
+                            [startProp]: isoDay(predTargetStart),
+                            ...(endProp ? { [endProp]: isoDay(predTargetEnd) } : {}),
+                          };
+                          await api.updatePage(b.id, { propsPatch: patch });
+                          loadRows();
+                          onPagesChanged?.();
+                        }}
+                      >
+                        {blockers.length === 1
+                          ? t('Shift blocker to finish on {d}', {
+                              d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                            })
+                          : t('Shift “{title}” to finish on {d}', {
+                              title: titles.get(b.id) || t('Untitled'),
+                              d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                            })}
+                      </button>
+                    );
+                  })}
+                  <button
+                    className="menu-item"
+                    onClick={async () => {
+                      setMoreOpen(false);
+                      const delta = target - self.start;
+                      if (delta <= 0) return;
+                      onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null);
+                      const chain = new Set<string>();
+                      const queue = [pageId];
+                      while (queue.length) {
+                        const cur = queue.shift()!;
+                        const it = byId.get(cur);
+                        for (const next of it?.deps ?? []) {
+                          if (!chain.has(next)) {
+                            chain.add(next);
+                            queue.push(next);
+                          }
+                        }
+                      }
+                      for (const succId of chain) {
+                        const it = byId.get(succId);
+                        if (!it) continue;
+                        const itDur = it.end - it.start;
+                        const newStart = it.start + delta;
+                        const patch: Record<string, string> = {
+                          [startProp]: isoDay(newStart),
+                          ...(endProp ? { [endProp]: isoDay(newStart + itDur) } : {}),
+                        };
+                        await api.updatePage(succId, { propsPatch: patch });
+                      }
+                      loadRows();
+                      onPagesChanged?.();
+                    }}
+                  >
+                    {t('Shift task and chain forward')}
+                  </button>
+                  <div className="menu-sep" />
+                  {blockers.map((b) => (
+                    <button
+                      key={'unlink-' + b.id}
+                      className="menu-item danger"
+                      onClick={async () => {
+                        setMoreOpen(false);
+                        const cur = b.deps.filter((id) => id !== pageId);
+                        await api.updatePage(b.id, { propsPatch: { [effDep]: cur } });
+                        loadRows();
+                        onPagesChanged?.();
+                      }}
+                    >
+                      {blockers.length === 1
+                        ? t('Remove dependency')
+                        : t('Remove dependency with “{title}”', {
+                            title: titles.get(b.id) || t('Untitled'),
+                          })}
+                    </button>
+                  ))}
+                  <div className="menu-sep" />
+                  <label className="tl-settings-row tl-checkbox-row">
+                    <span>{t('Skip weekends')}</span>
+                    <input
+                      type="checkbox"
+                      checked={!!skipWeekends}
+                      onChange={(e) => void onToggleSkipWeekends(e.target.checked)}
+                    />
+                  </label>
+                  <div className="tl-menu-hint">
+                    {t("Shifting a task out of its blockers' way lands on a working day.")}
+                  </div>
+                </AnchoredMenu>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -600,6 +764,7 @@ function RowProperties({
   canEdit,
   onOpen,
   openers,
+  onPagesChanged,
 }: {
   pageId: string;
   parentId: string;
@@ -607,6 +772,7 @@ function RowProperties({
   canEdit: boolean;
   onOpen?: (id: string) => void;
   openers?: PageOpeners;
+  onPagesChanged?: () => void;
 }) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [props, setProps] = useState<Record<string, unknown>>(initialProps ?? {});
@@ -620,7 +786,7 @@ function RowProperties({
     api
       .getCollection(parentId)
       .then((c) => alive && setConfig(c))
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       alive = false;
     };
@@ -679,30 +845,31 @@ function RowProperties({
         liveProps={props}
         config={config}
         canEdit={canEdit}
+        onPagesChanged={onPagesChanged}
         onShift={(sp, ep, sIso, eIso) => {
           void setProp(sp, sIso);
           if (ep && eIso) void setProp(ep, eIso);
         }}
       />
       <div className="row-props">
-      {config.schema.map((p) => (
-        <div key={p.id} className="row-prop">
-          <div className="row-prop-label" title={p.name}>
-            {p.name}
+        {config.schema.map((p) => (
+          <div key={p.id} className="row-prop">
+            <div className="row-prop-label" title={p.name}>
+              {p.name}
+            </div>
+            <div className="row-prop-value">
+              <PropertyValue
+                def={p}
+                value={props[p.id]}
+                onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
+                onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
+                readOnly={!canEdit}
+                onOpen={onOpen}
+                openers={openers}
+              />
+            </div>
           </div>
-          <div className="row-prop-value">
-            <PropertyValue
-              def={p}
-              value={props[p.id]}
-              onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
-              onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
-              readOnly={!canEdit}
-              onOpen={onOpen}
-              openers={openers}
-            />
-          </div>
-        </div>
-      ))}
+        ))}
       </div>
     </>
   );
@@ -728,6 +895,15 @@ function expiryToDays(expiresAt?: string): number {
   return best;
 }
 
+interface PageTitleContextType {
+  title: string;
+  setTitleAndSave: (newTitle: string) => void;
+  titleRef: React.RefObject<HTMLTextAreaElement | null>;
+  registerFocusBodyStart: (fn: () => void) => void;
+  registerSplitTitle: (fn: (afterText: string) => void) => void;
+}
+const PageTitleContext = createContext<PageTitleContextType | null>(null);
+
 function PageHeader({
   page,
   pageId,
@@ -742,6 +918,7 @@ function PageHeader({
   onNavigate,
   onOpenInNewTab,
   onTrash,
+  onDuplicate,
   onLocalMeta,
   onPagesChanged,
   pagesById,
@@ -755,6 +932,9 @@ function PageHeader({
   onToggleStructure,
   commentsOpen,
   onToggleComments,
+  currentWs,
+  workspaces,
+  onSelectWorkspace,
   children,
 }: EditorProps & {
   page: Page;
@@ -772,6 +952,18 @@ function PageHeader({
   children?: React.ReactNode;
 }) {
   const [title, setTitle] = useState(page.title);
+  const focusBodyStartRef = useRef<(() => void) | null>(null);
+  const registerFocusBodyStart = useCallback((fn: () => void) => {
+    focusBodyStartRef.current = fn;
+  }, []);
+  const splitTitleRef = useRef<((afterText: string) => void) | null>(null);
+  const registerSplitTitle = useCallback((fn: (afterText: string) => void) => {
+    splitTitleRef.current = fn;
+  }, []);
+  const focusBodyStart = () => {
+    focusKey(regionId, 'body');
+    focusBodyStartRef.current?.();
+  };
   const [tags, setTags] = useState<string[]>(page.tags ?? []);
   const [tagDraft, setTagDraft] = useState('');
   const [tagSuggestOpen, setTagSuggestOpen] = useState(false);
@@ -899,7 +1091,7 @@ function PageHeader({
       api
         .listComments(pageId)
         .then((l) => alive && setOpenComments(l.filter((c) => !c.resolvedAt).length))
-        .catch(() => {});
+        .catch(() => { });
     void count();
     // The panel says when it changed something. An event rather than a prop:
     // the count has to be right whether the panel is open or not, so the header
@@ -945,10 +1137,45 @@ function PageHeader({
       }
       if (el.dataset.navKey === 'body') {
         const surface = el.querySelector('[contenteditable="true"]');
-        // Up and left leave by the same edge, the top of the text. Asking the
-        // selection rather than the block model keeps this true inside tables,
-        // columns and nested lists.
-        return !!surface && (dir === 'up' || dir === 'left') && nothingBefore(surface);
+        // Up leaves by the top of the text to the title. Left is handled by onCollapse.
+        return !!surface && dir === 'up' && nothingBefore(surface);
+      }
+      return false;
+    },
+    onCollapse: (el, key) => {
+      if (key === 'body') {
+        const surface = el.querySelector('[contenteditable="true"]');
+        if (surface && nothingBefore(surface)) {
+          focusKey(regionId, 'title');
+          const ta = titleRef.current;
+          if (ta) {
+            ta.focus();
+            const len = ta.value.length;
+            ta.setSelectionRange(len, len);
+          }
+          requestAnimationFrame(() => {
+            const ta = titleRef.current;
+            if (ta) {
+              ta.focus();
+              const len = ta.value.length;
+              ta.setSelectionRange(len, len);
+            }
+          });
+          return true;
+        }
+      }
+      return false;
+    },
+    onExpand: (el, key) => {
+      if (key === 'title') {
+        const ta = titleRef.current;
+        if (ta) {
+          const s = { start: ta.selectionStart, end: ta.selectionEnd, length: ta.value.length };
+          if (s.start === s.end && s.start === s.length) {
+            focusBodyStart();
+            return true;
+          }
+        }
       }
       return false;
     },
@@ -1334,7 +1561,7 @@ function PageHeader({
   };
 
   const stopShare = async () => {
-    await api.unsharePage(pageId).catch(() => {});
+    await api.unsharePage(pageId).catch(() => { });
     setShareUrl(null);
     forgetUrl();
     setShareOff(true);
@@ -1368,6 +1595,11 @@ function PageHeader({
       });
     }, 500);
   };
+
+  const setTitleAndSave = useCallback((newTitle: string) => {
+    setTitle(newTitle);
+    saveMeta({ title: newTitle });
+  }, [pageId]);
 
   // Tags: client-side clean (strip '#', dedupe) is cosmetic — the server
   // re-normalizes authoritatively on save.
@@ -1422,7 +1654,7 @@ function PageHeader({
         const r = await api.importZip(file);
         toast.success(
           t('Imported {pages}', { pages: plural(r.created, '{n} page', '{n} pages') }) +
-            (r.skipped ? ', ' + t('{n} skipped', { n: r.skipped }) : ''),
+          (r.skipped ? ', ' + t('{n} skipped', { n: r.skipped }) : ''),
         );
         onPagesChanged();
       } else {
@@ -1451,6 +1683,12 @@ function PageHeader({
     setCoverValue(url);
   };
 
+  const pageWsId = page.workspaceId ?? pagesById.get(pageId)?.workspaceId;
+  const foreignWorkspace =
+    pageWsId && currentWs && pageWsId !== currentWs
+      ? workspaces?.find((w) => w.id === pageWsId)
+      : undefined;
+
   const breadcrumbs = useMemo(() => {
     const chain: PageMeta[] = [];
     // Database rows are excluded from the tree map, so seed the chain from the
@@ -1464,6 +1702,17 @@ function PageHeader({
     }
     return chain;
   }, [pagesById, pageId, page]);
+
+  const inheritedAccess = useMemo(() => {
+    for (let i = 0; i < breadcrumbs.length - 1; i++) {
+      const a = breadcrumbs[i];
+      if (a.visibility === 'private' || a.visibility === 'restricted') {
+        return { title: a.title, visibility: a.visibility };
+      }
+    }
+    return null;
+  }, [breadcrumbs]);
+  const isAccessRestricted = visibility !== 'workspace' || !!inheritedAccess;
 
   return (
     <>
@@ -1517,29 +1766,46 @@ function PageHeader({
           </button>
         )}
         <nav className="breadcrumbs">
+          {foreignWorkspace && (
+            <span className="crumb-wrap">
+              <button
+                className="crumb crumb-ws-badge"
+                onClick={() => onSelectWorkspace?.(foreignWorkspace.id)}
+                title={foreignWorkspace.name}
+              >
+                {foreignWorkspace.icon && (
+                  <PageIcon icon={foreignWorkspace.icon} size={13} />
+                )}
+                <span>{foreignWorkspace.name}</span>
+              </button>
+              <span className="crumb-sep">/</span>
+            </span>
+          )}
           {breadcrumbs.map((b, i) => (
             <span key={b.id} className="crumb-wrap">
               {i > 0 && <span className="crumb-sep">/</span>}
-              <button
-                className="crumb"
-                onClick={(e) => openPage(e, b.id, { onNavigate, onOpenInNewTab })}
-                onAuxClick={(e) => openPageAux(e, b.id, { onNavigate, onOpenInNewTab })}
-              >
-                {(() => {
-                  const ic = b.id === pageId ? icon : b.icon;
-                  const tt = (b.id === pageId ? title : b.title) || 'Untitled';
-                  return (
-                    <>
-                      {ic && (
-                        <>
-                          <PageIcon icon={ic} size={13} />{' '}
-                        </>
-                      )}
-                      {tt}
-                    </>
-                  );
-                })()}
-              </button>
+              <PageHoverCard page={b} side="bottom" tagColors={tagColors} disabled={b.id === pageId}>
+                <button
+                  className="crumb"
+                  onClick={(e) => openPage(e, b.id, { onNavigate, onOpenInNewTab })}
+                  onAuxClick={(e) => openPageAux(e, b.id, { onNavigate, onOpenInNewTab })}
+                >
+                  {(() => {
+                    const ic = b.id === pageId ? icon : b.icon;
+                    const tt = (b.id === pageId ? title : b.title) || 'Untitled';
+                    return (
+                      <>
+                        {ic && (
+                          <>
+                            <PageIcon icon={ic} size={13} />{' '}
+                          </>
+                        )}
+                        {tt}
+                      </>
+                    );
+                  })()}
+                </button>
+              </PageHoverCard>
             </span>
           ))}
         </nav>
@@ -1565,42 +1831,42 @@ function PageHeader({
               "comments are off" rather than "the panel is closed", which is a
               different and alarming thing to say about a page. */}
           {canComment && (
-          <button
-            className={'icon-btn topbar-wide-only' + (commentsOpen ? ' is-on' : '')}
-            title={commentsOpen ? t('Hide comments') : t('Show comments')}
-            onClick={() => onToggleComments(!commentsOpen)}
-          >
-            <MessageSquare size={17} />
-            {openComments > 0 && <span className="badge-count">{openComments}</span>}
-          </button>
+            <button
+              className={'icon-btn topbar-wide-only' + (commentsOpen ? ' is-on' : '')}
+              title={commentsOpen ? t('Hide comments') : t('Show comments')}
+              onClick={() => onToggleComments(!commentsOpen)}
+            >
+              <MessageSquare size={17} />
+              {openComments > 0 && <span className="badge-count">{openComments}</span>}
+            </button>
           )}
           {/* In the side peek these two move into the ⋯ menu below — a narrow
               panel has no room for a full desktop topbar. */}
           {!onPeekClose && (
-          <>
-          <button
-            className={'icon-btn' + (structureOpen ? ' is-on' : '')}
-            title={structureOpen ? t('Hide structure') : t('Show structure')}
-            onClick={onToggleStructure}
-          >
-            <PanelRight size={17} />
-          </button>
-          <button
-            className={'icon-btn' + (favorite ? ' active-star' : '')}
-            title={favorite ? t('Remove from favorites') : t('Add to favorites')}
-            onClick={() => onToggleFavorite(pageId)}
-          >
-            <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
-          </button>
-          </>
+            <>
+              <button
+                className={'icon-btn' + (structureOpen ? ' is-on' : '')}
+                title={structureOpen ? t('Hide structure') : t('Show structure')}
+                onClick={onToggleStructure}
+              >
+                <PanelRight size={17} />
+              </button>
+              <button
+                className={'icon-btn' + (favorite ? ' active-star' : '')}
+                title={favorite ? t('Remove from favorites') : t('Add to favorites')}
+                onClick={() => onToggleFavorite(pageId)}
+              >
+                <Star size={17} fill={favorite ? 'currentColor' : 'none'} />
+              </button>
+            </>
           )}
           <div className="access-wrap" ref={accessWrapRef}>
             <button
-              className={'icon-btn topbar-wide-only' + (visibility !== 'workspace' ? ' active-star' : '')}
-              title={t('Page access…')}
+              className={'icon-btn topbar-wide-only' + (isAccessRestricted ? ' active-star' : '')}
+              title={inheritedAccess ? t('Page access… (inherited)') : t('Page access…')}
               onClick={() => setSharesOpen((o) => !o)}
             >
-              {visibility === 'workspace' ? <LockOpen size={17} /> : <Lock size={17} />}
+              {isAccessRestricted ? <Lock size={17} /> : <LockOpen size={17} />}
             </button>
             {sharesOpen && (
               <PageShares
@@ -1608,6 +1874,7 @@ function PageHeader({
                 workspaceId={page.workspaceId}
                 myUserId={user.id}
                 visibility={visibility}
+                inheritedFrom={inheritedAccess}
                 onClose={() => setSharesOpen(false)}
                 onVisibilityChange={setVisibility}
               />
@@ -1805,17 +2072,17 @@ function PageHeader({
                   </button>
                 )}
                 {canComment && (
-                <button
-                  className="menu-item"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    // Always OPENS them — an entry that toggles would be a
-                    // no-op half the time somebody reaches for it.
-                    onToggleComments(true);
-                  }}
-                >
-                  <MessageSquare size={15} /> {t('To the comments')}
-                </button>
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      // Always OPENS them — an entry that toggles would be a
+                      // no-op half the time somebody reaches for it.
+                      onToggleComments(true);
+                    }}
+                  >
+                    <MessageSquare size={15} /> {t('To the comments')}
+                  </button>
                 )}
                 <button
                   className="menu-item"
@@ -1832,16 +2099,16 @@ function PageHeader({
                     here, so nothing becomes unreachable. */}
                 <div className="menu-sep narrow-only" />
                 {canComment && (
-                <button
-                  className="menu-item narrow-only"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    onToggleComments(!commentsOpen);
-                  }}
-                >
-                  <MessageSquare size={15} />{' '}
-                  {commentsOpen ? t('Hide comments') : t('Show comments')}
-                </button>
+                  <button
+                    className="menu-item narrow-only"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      onToggleComments(!commentsOpen);
+                    }}
+                  >
+                    <MessageSquare size={15} />{' '}
+                    {commentsOpen ? t('Hide comments') : t('Show comments')}
+                  </button>
                 )}
                 <button
                   className="menu-item narrow-only"
@@ -1871,6 +2138,17 @@ function PageHeader({
                 >
                   <Globe size={15} /> {t('Share to web (read-only link)')}
                 </button>
+                {onDuplicate && (
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      void onDuplicate(pageId);
+                    }}
+                  >
+                    <Copy size={15} /> {t('Duplicate')}
+                  </button>
+                )}
                 {canEdit && (
                   <button
                     className="menu-item"
@@ -1892,6 +2170,15 @@ function PageHeader({
                   }}
                 >
                   <FileText size={15} /> Markdown (.md)
+                </button>
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    api.download(`/api/export/${pageId}?format=txt`);
+                    setOverflowOpen(false);
+                  }}
+                >
+                  <FileText size={15} /> {t('Plain text (.txt)')}
                 </button>
                 <button
                   className="menu-item"
@@ -1938,258 +2225,290 @@ function PageHeader({
           only the slim topbar stays. Crucial on mobile, where a static header
           left just a tiny scrolling window. */}
       <div className={'page-body' + (cover ? ' has-cover' : '')} ref={bodyRef} data-page-id={pageId}>
-      {/* Cover, icon row and head share a wrapper so all three can hold the
+        {/* Cover, icon row and head share a wrapper so all three can hold the
           viewport's left edge on table pages, where the page scrolls sideways
           under them (see .page-head-wrap in styles.css). display: contents by
           default, so this changes no layout until that class lands. */}
-      <div className="page-head-wrap">
-      {cover && (
-        <div className="page-cover" style={coverStyle(cover)}>
-          <div className="page-cover-actions">
-            <input
-              ref={coverInput}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={onCoverFile}
-            />
-            <button className="cover-btn" onClick={() => setCoverMenuOpen((o) => !o)}>
-              {t('Change cover')}
-            </button>
-            <button className="cover-btn" onClick={() => setCoverValue('')}>
-              {t('Remove')}
-            </button>
-            {coverMenuOpen && (
-              <CoverMenu
-                onGradient={setCoverValue}
-                onUpload={() => coverInput.current?.click()}
-                onClose={() => setCoverMenuOpen(false)}
+        <div className="page-head-wrap">
+          {cover && (
+            <div className="page-cover" style={coverStyle(cover)}>
+              <div className="page-cover-actions">
+                <input
+                  ref={coverInput}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={onCoverFile}
+                />
+                <button className="cover-btn" onClick={() => setCoverMenuOpen((o) => !o)}>
+                  {t('Change cover')}
+                </button>
+                <button className="cover-btn" onClick={() => setCoverValue('')}>
+                  {t('Remove')}
+                </button>
+                {coverMenuOpen && (
+                  <CoverMenu
+                    onGradient={setCoverValue}
+                    onUpload={() => coverInput.current?.click()}
+                    onClose={() => setCoverMenuOpen(false)}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+          {/* The icon row lives OUTSIDE .page-head so it can dock (sticky) on the
+          collapsed cover strip while scrolling — the big emoji stays fully
+          visible instead of sliding half-hidden under the banner. */}
+          <div className={'page-icon-row' + (page.type === 'collection' ? ' page-icon-row--db' : '')}>
+            {icon && (
+              <button className="page-icon icon-trigger" onClick={() => setIconPickerOpen((o) => !o)}>
+                <PageIcon icon={icon} size={54} />
+              </button>
+            )}
+            {iconPickerOpen && (
+              <IconPicker
+                currentIcon={icon}
+                pageId={pageId}
+                onPick={(e, close = true) => {
+                  setIcon(e);
+                  if (close) setIconPickerOpen(false);
+                  saveMeta({ icon: e });
+                }}
+                onRemove={() => {
+                  setIcon('');
+                  setIconPickerOpen(false);
+                  saveMeta({ icon: '' });
+                }}
+                onClose={() => setIconPickerOpen(false)}
+              />
+            )}
+            {historyOpen && (
+              <HistoryModal
+                pageId={pageId}
+                onClose={() => setHistoryOpen(false)}
+                onRestored={onPagesChanged}
               />
             )}
           </div>
-        </div>
-      )}
-      {/* The icon row lives OUTSIDE .page-head so it can dock (sticky) on the
-          collapsed cover strip while scrolling — the big emoji stays fully
-          visible instead of sliding half-hidden under the banner. */}
-      <div className={'page-icon-row' + (page.type === 'collection' ? ' page-icon-row--db' : '')}>
-        {icon && (
-          <button className="page-icon icon-trigger" onClick={() => setIconPickerOpen((o) => !o)}>
-            <PageIcon icon={icon} size={54} />
-          </button>
-        )}
-        {iconPickerOpen && (
-          <IconPicker
-            pageId={pageId}
-            onPick={(e) => {
-              setIcon(e);
-              setIconPickerOpen(false);
-              saveMeta({ icon: e });
-            }}
-            onRemove={() => {
-              setIcon('');
-              setIconPickerOpen(false);
-              saveMeta({ icon: '' });
-            }}
-            onClose={() => setIconPickerOpen(false)}
-          />
-        )}
-        {historyOpen && (
-          <HistoryModal
-            pageId={pageId}
-            onClose={() => setHistoryOpen(false)}
-            onRestored={onPagesChanged}
-          />
-        )}
-      </div>
-      <div className={'page-head' + (cover ? ' with-cover' : '') + (page.type === 'collection' ? ' page-head--db' : '')}>
-        <textarea
-          ref={titleRef}
-          {...navItem('title', { keepTabOrder: true })}
-          className="page-title"
-          value={title}
-          placeholder={t('Untitled')}
-          rows={1}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            saveMeta({ title: e.target.value });
-          }}
-          onKeyDown={(e) => {
-            // A title is a single line of text: Enter never inserts a newline
-            // (it jumps into the body instead of breaking the title).
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              // The region knows how to focus its own items, including the one
-              // that wraps a ProseMirror rather than being an input.
-              focusKey(regionId, 'body');
-            }
-          }}
-        />
-        {/* A permanently visible add row BELOW the title (rather than buttons
+          <div className={'page-head' + (cover ? ' with-cover' : '') + (page.type === 'collection' ? ' page-head--db' : '')}>
+            <textarea
+              ref={titleRef}
+              {...navItem('title', { keepTabOrder: true })}
+              className="page-title"
+              value={title}
+              placeholder={t('Untitled')}
+              rows={1}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                saveMeta({ title: e.target.value });
+              }}
+              onKeyDown={(e) => {
+                // A title is a single line of text: Enter never inserts a newline.
+                // If cursor is in the title, part after cursor is split into the start of body.
+                if (e.key === 'Enter' && !e.altKey && !e.metaKey && !e.ctrlKey) {
+                  e.preventDefault();
+                  const ta = titleRef.current;
+                  if (!ta) {
+                    focusBodyStart();
+                    return;
+                  }
+                  const selStart = ta.selectionStart;
+                  const selEnd = ta.selectionEnd;
+                  const fullVal = ta.value;
+                  let before = fullVal.slice(0, selStart);
+                  let after = fullVal.slice(selEnd);
+
+                  if (!before.endsWith(' ') && after.startsWith(' ')) {
+                    before += ' ';
+                    after = after.slice(1);
+                  }
+
+                  if (after.length > 0) {
+                    setTitle(before);
+                    saveMeta({ title: before });
+                    ta.value = before;
+                    splitTitleRef.current?.(after);
+                    focusKey(regionId, 'body');
+                  } else {
+                    focusBodyStart();
+                  }
+                } else if (e.key === 'ArrowRight' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+                  const ta = titleRef.current;
+                  if (ta && ta.selectionStart === ta.selectionEnd && ta.selectionStart === ta.value.length) {
+                    e.preventDefault();
+                    focusBodyStart();
+                  }
+                }
+              }}
+            />
+            {/* A permanently visible add row BELOW the title (rather than buttons
             hidden behind hover — unreachable on touch devices as soon as there
             was a cover). Shows only what is still missing: emoji, cover,
             description. */}
-        {canEdit && (!icon || !cover || (!showDesc && !description)) && (
-          <div className="head-adders">
-            <input
-              ref={coverInput}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={onCoverFile}
-            />
-            {!icon && (
-              <button className="add-btn" onClick={() => setIconPickerOpen((o) => !o)}>
-                <Smile size={14} /> {t('Emoji')}
-              </button>
-            )}
-            {!cover && (
-              <button className="add-btn cover-trigger" onClick={() => setCoverMenuOpen((o) => !o)}>
-                <ImageIcon size={14} /> {t('Cover')}
-              </button>
-            )}
-            {!showDesc && !description && (
-              <button className="add-btn" onClick={() => setShowDesc(true)}>
-                <AlignLeft size={14} /> {t('Description')}
-              </button>
-            )}
-            {/* Cover menu only here while NO cover exists — with one, the
+            {canEdit && (!icon || !cover || (!showDesc && !description)) && (
+              <div className="head-adders">
+                <input
+                  ref={coverInput}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={onCoverFile}
+                />
+                {!icon && (
+                  <button className="add-btn" onClick={() => setIconPickerOpen((o) => !o)}>
+                    <Smile size={14} /> {t('Emoji')}
+                  </button>
+                )}
+                {!cover && (
+                  <button className="add-btn cover-trigger" onClick={() => setCoverMenuOpen((o) => !o)}>
+                    <ImageIcon size={14} /> {t('Cover')}
+                  </button>
+                )}
+                {!showDesc && !description && (
+                  <button className="add-btn" onClick={() => setShowDesc(true)}>
+                    <AlignLeft size={14} /> {t('Description')}
+                  </button>
+                )}
+                {/* Cover menu only here while NO cover exists — with one, the
                 "Change cover" button top right renders it (W32c: two instances
                 on the same state eat each other's clicks). */}
-            {!cover && coverMenuOpen && (
-              <CoverMenu
-                onGradient={setCoverValue}
-                onUpload={() => coverInput.current?.click()}
-                onClose={() => setCoverMenuOpen(false)}
-              />
-            )}
-          </div>
-        )}
-        {(showDesc || description) && (
-          <div className="page-description">
-            {canEdit ? (
-              <textarea
-                value={description}
-                placeholder={t('Add a description…')}
-                rows={1}
-                autoFocus={showDesc && !description}
-                onChange={(e) => {
-                  changeDescription(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = e.target.scrollHeight + 'px';
-                }}
-                onBlur={(e) => {
-                  if (!e.target.value.trim()) setShowDesc(false);
-                }}
-                ref={(el) => {
-                  if (el) {
-                    el.style.height = 'auto';
-                    el.style.height = el.scrollHeight + 'px';
-                  }
-                }}
-              />
-            ) : (
-              <div>{description}</div>
-            )}
-          </div>
-        )}
-        {(canEdit || tags.length > 0) && (
-          <div className="page-tags">
-            {tags.map((t) => (
-              <TagChip
-                key={t}
-                tag={t}
-                colors={tagColors}
-                canEdit={canEdit}
-                onRemove={() => removeTag(t)}
-                onSetColor={(c) => onSetTagColor(t, c)}
-              />
-            ))}
-            {canEdit && (
-              <span className="tag-input-wrap">
-                <input
-                  className="page-tag-input"
-                  value={tagDraft}
-                  placeholder={tags.length ? t('+ Tag') : t('+ Add a tag')}
-                  onChange={(e) => {
-                    setTagDraft(e.target.value);
-                    setTagSuggestOpen(true);
-                    setTagSel(0);
-                  }}
-                  onFocus={() => setTagSuggestOpen(true)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                      if (!tagHits.length) return;
-                      e.preventDefault();
-                      const d = e.key === 'ArrowDown' ? 1 : -1;
-                      setTagSel((i) => (i + d + tagHits.length) % tagHits.length);
-                    } else if (e.key === 'Enter' || e.key === ',' || e.key === 'Tab') {
-                      // A highlighted suggestion beats the raw text — otherwise
-                      // Enter creates a duplicate after all.
-                      const pick = tagSuggestOpen ? tagHits[tagSel] : undefined;
-                      if (!pick && !tagDraft.trim()) return; // Tab darf normal weiterspringen
-                      e.preventDefault();
-                      addTag(pick?.tag);
-                    } else if (e.key === 'Escape') {
-                      setTagSuggestOpen(false);
-                    } else if (e.key === 'Backspace' && !tagDraft && tags.length) {
-                      removeTag(tags[tags.length - 1]);
-                    }
-                  }}
-                  onBlur={() => {
-                    // Clicks on a suggestion only fire after the blur.
-                    setTimeout(() => {
-                      setTagSuggestOpen(false);
-                      addTag();
-                    }, 120);
-                  }}
-                />
-                {tagSuggestOpen && tagHits.length > 0 && (
-                  <div className="tag-suggest">
-                    {tagHits.map((s, i) => (
-                      <button
-                        key={s.tag}
-                        type="button"
-                        className={'tag-suggest-item' + (i === tagSel ? ' on' : '')}
-                        onMouseDown={(e) => e.preventDefault()} // Blur zuvorkommen
-                        onClick={() => addTag(s.tag)}
-                      >
-                        <span className={'tag-chip ' + tagColorClass(s.tag, tagColors)}>#{s.tag}</span>
-                        <span className="tag-suggest-count">{s.count}</span>
-                        {s.similar && <span className="tag-suggest-hint">{t('similar')}</span>}
-                      </button>
-                    ))}
-                  </div>
+                {!cover && coverMenuOpen && (
+                  <CoverMenu
+                    onGradient={setCoverValue}
+                    onUpload={() => coverInput.current?.click()}
+                    onClose={() => setCoverMenuOpen(false)}
+                  />
                 )}
-              </span>
+              </div>
+            )}
+            {(showDesc || description) && (
+              <div className="page-description">
+                {canEdit ? (
+                  <textarea
+                    value={description}
+                    placeholder={t('Add a description…')}
+                    rows={1}
+                    autoFocus={showDesc && !description}
+                    onChange={(e) => {
+                      changeDescription(e.target.value);
+                      e.target.style.height = 'auto';
+                      e.target.style.height = e.target.scrollHeight + 'px';
+                    }}
+                    onBlur={(e) => {
+                      if (!e.target.value.trim()) setShowDesc(false);
+                    }}
+                    ref={(el) => {
+                      if (el) {
+                        el.style.height = 'auto';
+                        el.style.height = el.scrollHeight + 'px';
+                      }
+                    }}
+                  />
+                ) : (
+                  <div>{description}</div>
+                )}
+              </div>
+            )}
+            {(canEdit || tags.length > 0) && (
+              <div className="page-tags">
+                {tags.map((t) => (
+                  <TagChip
+                    key={t}
+                    tag={t}
+                    colors={tagColors}
+                    canEdit={canEdit}
+                    onRemove={() => removeTag(t)}
+                    onSetColor={(c) => onSetTagColor(t, c)}
+                  />
+                ))}
+                {canEdit && (
+                  <span className="tag-input-wrap">
+                    <input
+                      className="page-tag-input"
+                      value={tagDraft}
+                      placeholder={tags.length ? t('+ Tag') : t('+ Add a tag')}
+                      onChange={(e) => {
+                        setTagDraft(e.target.value);
+                        setTagSuggestOpen(true);
+                        setTagSel(0);
+                      }}
+                      onFocus={() => setTagSuggestOpen(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                          if (!tagHits.length) return;
+                          e.preventDefault();
+                          const d = e.key === 'ArrowDown' ? 1 : -1;
+                          setTagSel((i) => (i + d + tagHits.length) % tagHits.length);
+                        } else if (e.key === 'Enter' || e.key === ',' || e.key === 'Tab') {
+                          // A highlighted suggestion beats the raw text — otherwise
+                          // Enter creates a duplicate after all.
+                          const pick = tagSuggestOpen ? tagHits[tagSel] : undefined;
+                          if (!pick && !tagDraft.trim()) return; // Tab darf normal weiterspringen
+                          e.preventDefault();
+                          addTag(pick?.tag);
+                        } else if (e.key === 'Escape') {
+                          setTagSuggestOpen(false);
+                        } else if (e.key === 'Backspace' && !tagDraft && tags.length) {
+                          removeTag(tags[tags.length - 1]);
+                        }
+                      }}
+                      onBlur={() => {
+                        // Clicks on a suggestion only fire after the blur.
+                        setTimeout(() => {
+                          setTagSuggestOpen(false);
+                          addTag();
+                        }, 120);
+                      }}
+                    />
+                    {tagSuggestOpen && tagHits.length > 0 && (
+                      <div className="tag-suggest">
+                        {tagHits.map((s, i) => (
+                          <button
+                            key={s.tag}
+                            type="button"
+                            className={'tag-suggest-item' + (i === tagSel ? ' on' : '')}
+                            onMouseDown={(e) => e.preventDefault()} // Blur zuvorkommen
+                            onClick={() => addTag(s.tag)}
+                          >
+                            <span className={'tag-chip ' + tagColorClass(s.tag, tagColors)}>#{s.tag}</span>
+                            <span className="tag-suggest-count">{s.count}</span>
+                            {s.similar && <span className="tag-suggest-hint">{t('similar')}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+            {page.parentId && pagesById.get(page.parentId)?.type === 'collection' && (
+              <RowProperties
+                pageId={pageId}
+                parentId={page.parentId}
+                initialProps={page.props}
+                canEdit={canEdit}
+                onOpen={onOpenInNewTab ?? onNavigate}
+                openers={{ onNavigate, onOpenInNewTab }}
+                onPagesChanged={onPagesChanged}
+              />
             )}
           </div>
-        )}
-        {page.parentId && pagesById.get(page.parentId)?.type === 'collection' && (
-          <RowProperties
-            pageId={pageId}
-            parentId={page.parentId}
-            initialProps={page.props}
-            canEdit={canEdit}
-            onOpen={onOpenInNewTab ?? onNavigate}
-            openers={{ onNavigate, onOpenInNewTab }}
-          />
-        )}
-      </div>
-      {children}
-      </div>
-      {/* The raw trail stays at the foot of the document. Comments moved to a
+          <PageTitleContext.Provider value={{ title, setTitleAndSave, titleRef, registerFocusBodyStart, registerSplitTitle }}>
+            {children}
+          </PageTitleContext.Provider>
+        </div>
+        {/* The raw trail stays at the foot of the document. Comments moved to a
           panel beside it (CommentsPanel) because people WORK in them; the trail
           is read, rarely, when somebody doubts the written-up version — and
           under the account it supports is exactly where it belongs.
 
           Only for documents and rows: a database page carries its table down
           here, and anything below that is lost. */}
-      {page.type !== 'collection' && (
-        <div className="trail-wrap">
-          <NoteTrail pageId={pageId} canWrite={canEdit} />
-        </div>
-      )}
+        {page.type !== 'collection' && (
+          <div className="trail-wrap">
+            <NoteTrail pageId={pageId} canWrite={canEdit} />
+          </div>
+        )}
       </div>
     </>
   );
@@ -2398,6 +2717,19 @@ function isEffectivelyEmpty(doc: unknown[]): boolean {
   return b?.type === 'paragraph' && (!b.content || b.content.length === 0);
 }
 
+function inlineContentToText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((item: any) => {
+      if (typeof item === 'string') return item;
+      if (typeof item?.text === 'string') return item.text;
+      if (Array.isArray(item?.content)) return inlineContentToText(item.content);
+      return '';
+    })
+    .join('');
+}
+
 function BlockContent({
   provider,
   pageId,
@@ -2459,6 +2791,103 @@ function BlockContent({
           : {}),
       },
     },
+    pasteHandler: ({ event, editor: ed, defaultPasteHandler }) => {
+      const types = event.clipboardData?.types || [];
+      if (types.includes('blocknote/html') || types.includes('vscode-editor-data')) {
+        return defaultPasteHandler();
+      }
+      if (event.clipboardData?.files && event.clipboardData.files.length > 0) {
+        return defaultPasteHandler();
+      }
+
+      const plain = event.clipboardData?.getData('text/plain') ?? '';
+      const html = event.clipboardData?.getData('text/html') ?? '';
+
+      // Complex structural elements (tables, code blocks, quotes) belong to HTML parser
+      const hasComplexHtml = /<(?:table|thead|tbody|tr|td|th|pre|code|blockquote)\b/i.test(html);
+      if (hasComplexHtml) {
+        return defaultPasteHandler();
+      }
+
+      const lines = plain.split(/\r?\n/).map((l) => l.trimEnd());
+      const nonEmptyLines = lines.filter((l) => l.trim().length > 0);
+
+      if (nonEmptyLines.length > 1) {
+        let currentBlock: any;
+        try {
+          currentBlock = ed.getTextCursorPosition()?.block;
+        } catch {
+          // cursor outside or unknown
+        }
+
+        const currentType = currentBlock?.type;
+        let blocksToInsert: any[] = [];
+
+        if (currentType === 'checkListItem') {
+          const md = nonEmptyLines.map((l) => `- [ ] ${l.replace(/^[-*•]\s*(\[[ xX]\]\s*)?/, '')}`).join('\n');
+          blocksToInsert = ed.tryParseMarkdownToBlocks(md);
+        } else if (currentType === 'bulletListItem') {
+          const md = nonEmptyLines.map((l) => `- ${l.replace(/^[-*•]\s*/, '')}`).join('\n');
+          blocksToInsert = ed.tryParseMarkdownToBlocks(md);
+        } else if (currentType === 'numberedListItem') {
+          const md = nonEmptyLines.map((l, i) => `${i + 1}. ${l.replace(/^\d+[.)]\s*/, '')}`).join('\n');
+          blocksToInsert = ed.tryParseMarkdownToBlocks(md);
+        } else {
+          const md = plain.includes('\n\n') ? plain : nonEmptyLines.join('\n\n');
+          blocksToInsert = ed.tryParseMarkdownToBlocks(md);
+          if (blocksToInsert.length <= 1) {
+            blocksToInsert = nonEmptyLines.map((l) => ({
+              type: 'paragraph',
+              content: [l],
+            }));
+          }
+        }
+
+        if (blocksToInsert.length > 0) {
+          if (currentBlock) {
+            const isCurrentEmpty =
+              !currentBlock.content ||
+              currentBlock.content.length === 0 ||
+              (currentBlock.content.length === 1 &&
+                currentBlock.content[0].type === 'text' &&
+                !currentBlock.content[0].text);
+
+            if (isCurrentEmpty) {
+              const res = ed.replaceBlocks([currentBlock.id], blocksToInsert);
+              const last = res.insertedBlocks[res.insertedBlocks.length - 1];
+              if (last) ed.setTextCursorPosition(last, 'end');
+              return true;
+            } else {
+              const inserted = ed.insertBlocks(blocksToInsert, currentBlock.id, 'after');
+              const last = inserted[inserted.length - 1];
+              if (last) ed.setTextCursorPosition(last, 'end');
+              return true;
+            }
+          } else {
+            const doc = ed.document;
+            const ref = doc[doc.length - 1];
+            if (ref) {
+              const inserted = ed.insertBlocks(blocksToInsert, ref.id, 'after');
+              const last = inserted[inserted.length - 1];
+              if (last) ed.setTextCursorPosition(last, 'end');
+              return true;
+            }
+          }
+        }
+      }
+
+      // If HTML from mobile has no block tags (<p>), tryParseHTMLToBlocks returns 0 blocks.
+      // Fall back to plain text so the paste is never silently dropped.
+      if (html) {
+        const parsedHtmlBlocks = ed.tryParseHTMLToBlocks(html);
+        if (parsedHtmlBlocks.length === 0 && plain) {
+          ed.pasteText(plain);
+          return true;
+        }
+      }
+
+      return defaultPasteHandler();
+    },
   });
 
   // Doc undo for the ⋯ menu: BlockNote's own history, announced so the
@@ -2510,7 +2939,7 @@ function BlockContent({
   // falls through untouched everywhere else.
   useShortcut({
     id: 'checkbox.toggle',
-    keys: ['ctrl+enter'],
+    keys: ['mod+enter', 'ctrl+enter'],
     scope: 'editor',
     whileTyping: true,
     when: () => canEdit && focusedKey(regionId) === 'body',
@@ -2552,6 +2981,77 @@ function BlockContent({
     label: () => t('Move block down'),
     group: () => t('Page'),
     run: () => editor.moveBlocksDown(),
+  });
+
+  // Mod+Shift+↑/↓: extend text selection to start/end of document (macOS standard).
+  // Overrides BlockNote's default moveBlocksUp/Down hijacking.
+  useShortcut({
+    id: 'block.selectToStart',
+    keys: ['mod+shift+arrowup'],
+    scope: 'editor',
+    whileTyping: true,
+    when: () => focusedKey(regionId) === 'body',
+    run: () => {
+      const tiptap = (editor as any)._tiptapEditor;
+      if (!tiptap) return false;
+      const { state, view } = tiptap;
+      const { selection, doc } = state;
+      try {
+        const sel = TextSelection.create(doc, selection.anchor, 0);
+        view.dispatch(state.tr.setSelection(sel).scrollIntoView());
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+  useShortcut({
+    id: 'block.selectToEnd',
+    keys: ['mod+shift+arrowdown'],
+    scope: 'editor',
+    whileTyping: true,
+    when: () => focusedKey(regionId) === 'body',
+    run: () => {
+      const tiptap = (editor as any)._tiptapEditor;
+      if (!tiptap) return false;
+      const { state, view } = tiptap;
+      const { selection, doc } = state;
+      try {
+        const sel = TextSelection.create(doc, selection.anchor, doc.content.size);
+        view.dispatch(state.tr.setSelection(sel).scrollIntoView());
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+
+  // Alt+Shift+↓ duplicates the block downward (VS Code style).
+  useShortcut({
+    id: 'block.duplicate',
+    keys: ['alt+shift+arrowdown'],
+    scope: 'editor',
+    whileTyping: true,
+    when: () => canEdit && focusedKey(regionId) === 'body',
+    label: () => t('Duplicate'),
+    group: () => t('Page'),
+    run: () => {
+      const selection = editor.getSelection();
+      const blocks = selection ? selection.blocks : [editor.getTextCursorPosition()?.block].filter(Boolean);
+      if (!blocks || blocks.length === 0) return false;
+      const last = blocks[blocks.length - 1];
+      if (!last) return false;
+      editor.insertBlocks(
+        blocks.map((b) => ({
+          type: b.type,
+          props: { ...b.props },
+          content: b.content,
+          children: b.children,
+        })) as any,
+        last.id,
+        'after',
+      );
+    },
   });
 
   const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
@@ -3074,6 +3574,56 @@ function BlockContent({
   const [dropping, setDropping] = useState(false);
   const dragDepth = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const titleCtx = useContext(PageTitleContext);
+
+  useEffect(() => {
+    titleCtx?.registerFocusBodyStart(() => {
+      try {
+        const first = editor.document?.[0];
+        if (first) {
+          editor.setTextCursorPosition(first, 'start');
+        }
+      } catch {
+        // ignore
+      }
+    });
+  }, [editor, titleCtx]);
+
+  useEffect(() => {
+    titleCtx?.registerSplitTitle((afterText: string) => {
+      try {
+        const doc = editor.document;
+        const first = doc?.[0];
+        const newBlock = {
+          type: 'paragraph' as const,
+          content: [{ type: 'text' as const, text: afterText, styles: {} }],
+        };
+        if (!first) {
+          editor.insertBlocks([newBlock as any], null as any, 'after');
+        } else if (isEffectivelyEmpty(doc)) {
+          editor.replaceBlocks([first.id], [newBlock as any]);
+        } else {
+          editor.insertBlocks([newBlock as any], first.id, 'before');
+        }
+        const targetBlock = editor.document?.[0];
+        if (targetBlock) {
+          editor.setTextCursorPosition(targetBlock, 'start');
+        }
+        requestAnimationFrame(() => {
+          try {
+            const firstBlock = editor.document?.[0];
+            if (firstBlock) {
+              editor.setTextCursorPosition(firstBlock, 'start');
+            }
+          } catch {
+            // ignore
+          }
+        });
+      } catch (e) {
+        console.error('Failed to split title into body', e);
+      }
+    });
+  }, [editor, titleCtx]);
 
   const onDragEnter = (e: React.DragEvent) => {
     if (!canEdit || !carriesExternalFiles(e.dataTransfer)) return;
@@ -3170,6 +3720,62 @@ function BlockContent({
     scrollRef.current?.closest('.page-body')?.classList.toggle('is-dropping', dropping);
   }, [dropping]);
 
+  // Copy and cut handling:
+  // Inline selection (within a single block): clean plain text without Markdown symbols in text/plain.
+  // Block selection (spanning multiple blocks): keep Markdown in text/plain so structure is preserved.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleCopyOrCut = (e: ClipboardEvent) => {
+      const view = (editor as any)?._tiptapEditor?.view;
+      if (!view || view.state.selection.empty || !e.clipboardData) return;
+      if (!view.dom.contains(e.target as Node)) return;
+
+      const sel = view.state.selection;
+      if (sel.constructor.name === 'CellSelection') return;
+
+      const { from, to } = sel;
+      const fragment = view.state.doc.slice(from, to, false).content;
+      let hasBlocks = false;
+      for (let i = 0; i < fragment.childCount; i++) {
+        const child = fragment.child(i);
+        if (
+          (child.type as any).isInGroup?.('bnBlock') ||
+          child.type.name === 'blockGroup' ||
+          child.type.spec?.group === 'blockContent'
+        ) {
+          hasBlocks = true;
+          break;
+        }
+      }
+
+      if (!hasBlocks) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        e.clipboardData.clearData();
+
+        const { clipboardHTML, externalHTML } = selectedFragmentToHTML(view, editor as any);
+        const plainText = view.state.doc.textBetween(from, to, '\n', (node: any) => (node.type.name === 'hardBreak' ? '\n' : ''));
+
+        e.clipboardData.setData('blocknote/html', clipboardHTML);
+        e.clipboardData.setData('text/html', externalHTML);
+        e.clipboardData.setData('text/plain', plainText);
+
+        if (e.type === 'cut' && view.editable) {
+          view.dispatch(view.state.tr.deleteSelection());
+        }
+      }
+    };
+
+    el.addEventListener('copy', handleCopyOrCut, true);
+    el.addEventListener('cut', handleCopyOrCut, true);
+    return () => {
+      el.removeEventListener('copy', handleCopyOrCut, true);
+      el.removeEventListener('cut', handleCopyOrCut, true);
+    };
+  }, [editor]);
+
   return (
     <div className="editor-scroll" ref={scrollRef} {...navItem('body', { keepTabOrder: true })}>
       {dropping && (
@@ -3178,45 +3784,167 @@ function BlockContent({
           {t('Drop to add to this page')}
         </div>
       )}
-      <div className="editor-inner" onClickCapture={onFileClick}>
+      <div
+        className="editor-inner"
+        onClickCapture={onFileClick}
+        onKeyDownCapture={(e) => {
+          if (e.key === 'Backspace' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+            if (surface && nothingBefore(surface)) {
+              let curBlock: any = null;
+              try {
+                curBlock = editor.getTextCursorPosition()?.block;
+              } catch {
+                // ignore
+              }
+              const curType = curBlock?.type ?? '';
+              // If it's a list item, heading, etc., let BlockNote revert it to paragraph first
+              if (curType && curType !== 'paragraph') {
+                return;
+              }
+
+              const content = curBlock?.content;
+              const isEmpty =
+                !curBlock ||
+                !content ||
+                (Array.isArray(content) &&
+                  (content.length === 0 ||
+                    content.every((c: any) => c.type === 'text' && (!c.text || c.text.length === 0))));
+
+              e.preventDefault();
+              e.stopPropagation();
+
+              if (isEmpty) {
+                try {
+                  const doc = editor.document;
+                  if (doc && doc.length > 1 && curBlock) {
+                    editor.removeBlocks([curBlock]);
+                  }
+                } catch {
+                  // ignore
+                }
+
+                focusKey(regionId, 'title');
+                const ta = titleCtx?.titleRef?.current;
+                if (ta) {
+                  ta.focus();
+                  const len = ta.value.length;
+                  ta.setSelectionRange(len, len);
+                }
+                requestAnimationFrame(() => {
+                  const ta = titleCtx?.titleRef?.current;
+                  if (ta) {
+                    ta.focus();
+                    const len = ta.value.length;
+                    ta.setSelectionRange(len, len);
+                  }
+                });
+              } else {
+                const blockText = inlineContentToText(content);
+                const oldTitle = titleCtx?.titleRef?.current?.value ?? titleCtx?.title ?? '';
+                const oldLen = oldTitle.length;
+                const newTitle = oldTitle + blockText;
+
+                titleCtx?.setTitleAndSave(newTitle);
+
+                try {
+                  const doc = editor.document;
+                  if (doc && doc.length > 1 && curBlock) {
+                    editor.removeBlocks([curBlock]);
+                  } else if (doc && curBlock) {
+                    editor.replaceBlocks([curBlock.id], [{ type: 'paragraph' }]);
+                  }
+                } catch {
+                  // ignore
+                }
+
+                focusKey(regionId, 'title');
+                const ta = titleCtx?.titleRef?.current;
+                if (ta) {
+                  ta.focus();
+                  ta.setSelectionRange(oldLen, oldLen);
+                }
+                requestAnimationFrame(() => {
+                  const ta = titleCtx?.titleRef?.current;
+                  if (ta) {
+                    ta.focus();
+                    ta.setSelectionRange(oldLen, oldLen);
+                  }
+                });
+              }
+            }
+          } else if (e.key === 'ArrowLeft' && e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+            if (surface && nothingBefore(surface)) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (regionId === 'content') {
+                focusRegion('sidebar.tree', 0);
+              }
+            }
+          } else if (e.key === 'ArrowLeft' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+            if (surface && nothingBefore(surface)) {
+              e.preventDefault();
+              e.stopPropagation();
+              focusKey(regionId, 'title');
+              const ta = titleCtx?.titleRef?.current;
+              if (ta) {
+                ta.focus();
+                const len = ta.value.length;
+                ta.setSelectionRange(len, len);
+              }
+              requestAnimationFrame(() => {
+                const ta = titleCtx?.titleRef?.current;
+                if (ta) {
+                  ta.focus();
+                  const len = ta.value.length;
+                  ta.setSelectionRange(len, len);
+                }
+              });
+            }
+          }
+        }}
+      >
         {/* The database block renders inside the editor and would otherwise
             not reach the page list, the tag colours or navigation. */}
         <BlockContext.Provider value={{ pagesById, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, pageId: provider.pageId }}>
-        <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false} formattingToolbar={false}>
-          <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
-          <SuggestionMenuController
-            triggerCharacter="@"
-            getItems={getMentionItems}
-          />
-          <SuggestionMenuController
-            triggerCharacter="["
-            getItems={getWikiItems}
-          />
-          <FormattingToolbarController
-            formattingToolbar={() => (
-              <FormattingToolbar>
-                <BlockTypeSelect key="blockTypeSelect" />
-                <AiFormattingDropdown key="aiDropdown" editor={editor} pageId={provider.pageId} />
-                <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
-                <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
-                <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
-                <BasicTextStyleButton basicTextStyle="strike" key="strikeStyleButton" />
-                <BasicTextStyleButton basicTextStyle="code" key="codeStyleButton" />
-                <TextAlignButton textAlignment="left" key="textAlignLeftButton" />
-                <TextAlignButton textAlignment="center" key="textAlignCenterButton" />
-                <TextAlignButton textAlignment="right" key="textAlignRightButton" />
-                <ColorStyleButton key="colorStyleButton" />
-                <NestBlockButton key="nestBlockButton" />
-                <UnnestBlockButton key="unnestBlockButton" />
-                <CreateLinkButton key="createLinkButton" />
-              </FormattingToolbar>
-            )}
-          />
-        </BlockNoteView>
+          <BlockNoteView editor={editor} theme={theme} editable={canEdit} slashMenu={false} sideMenu={false} formattingToolbar={false}>
+            <SideMenuController sideMenu={CustomSideMenu} />
+            <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
+            <SuggestionMenuController
+              triggerCharacter="@"
+              getItems={getMentionItems}
+            />
+            <SuggestionMenuController
+              triggerCharacter="["
+              getItems={getWikiItems}
+            />
+            <FormattingToolbarController
+              formattingToolbar={() => (
+                <FormattingToolbar>
+                  <BlockTypeSelect key="blockTypeSelect" />
+                  <AiFormattingDropdown key="aiDropdown" editor={editor} pageId={provider.pageId} />
+                  <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
+                  <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
+                  <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
+                  <BasicTextStyleButton basicTextStyle="strike" key="strikeStyleButton" />
+                  <BasicTextStyleButton basicTextStyle="code" key="codeStyleButton" />
+                  <TextAlignButton textAlignment="left" key="textAlignLeftButton" />
+                  <TextAlignButton textAlignment="center" key="textAlignCenterButton" />
+                  <TextAlignButton textAlignment="right" key="textAlignRightButton" />
+                  <ColorStyleButton key="colorStyleButton" />
+                  <NestBlockButton key="nestBlockButton" />
+                  <UnnestBlockButton key="unnestBlockButton" />
+                  <CreateLinkButton key="createLinkButton" />
+                </FormattingToolbar>
+              )}
+            />
+          </BlockNoteView>
         </BlockContext.Provider>
         <AiEmptyLine editor={editor} pageId={pageId} canEdit={canEdit} />
         {!structureOpen && (
-          <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
+          <Backlinks pageId={provider.pageId} pagesById={pagesById} tagColors={tagColors} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}
       </div>
       {preview && (
@@ -3230,11 +3958,13 @@ function BlockContent({
 function Backlinks({
   pageId,
   pagesById,
+  tagColors,
   onNavigate,
   onOpenInNewTab,
 }: {
   pageId: string;
   pagesById: Map<string, PageMeta>;
+  tagColors?: Record<string, string>;
   onNavigate: (id: string | null) => void;
   onOpenInNewTab?: (id: string) => void;
 }) {
@@ -3247,7 +3977,7 @@ function Backlinks({
     api
       .backlinks(pageId)
       .then((l) => alive && setLinks(l))
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       alive = false;
     };
@@ -3262,17 +3992,40 @@ function Backlinks({
       <div className="backlinks-head">
         <Link2 size={14} /> {t('Linked from')} · {links.length}
       </div>
-      {links.map((l) => (
-        <button
-          key={l.id}
-          className="backlink-item"
-          onClick={(e) => openPage(e, l.id, { onNavigate, onOpenInNewTab })}
-          onAuxClick={(e) => openPageAux(e, l.id, { onNavigate, onOpenInNewTab })}
-        >
-          <span className="tree-icon"><PageIcon icon={l.icon} size={14} fallback={<FileText size={14} />} /></span>
-          {l.title || 'Untitled'}
-        </button>
-      ))}
+      {links.map((l) => {
+        const linkPage: PageMeta = pagesById.get(l.id) ?? {
+          id: l.id,
+          title: l.title,
+          icon: l.icon,
+          type: 'doc',
+          cover: '',
+          parentId: null,
+          workspaceId: '',
+          tags: [],
+          description: '',
+          snippet: '',
+          updatedAt: '',
+          position: 0,
+          trashed: false,
+          props: {},
+          ownerId: '',
+          visibility: 'workspace',
+          isTemplate: false,
+          thumb: '',
+        };
+        return (
+          <PageHoverCard key={l.id} page={linkPage} side="top" tagColors={tagColors}>
+            <button
+              className="backlink-item"
+              onClick={(e) => openPage(e, l.id, { onNavigate, onOpenInNewTab })}
+              onAuxClick={(e) => openPageAux(e, l.id, { onNavigate, onOpenInNewTab })}
+            >
+              <span className="tree-icon"><PageIcon icon={l.icon} size={14} fallback={<FileText size={14} />} /></span>
+              {l.title || 'Untitled'}
+            </button>
+          </PageHoverCard>
+        );
+      })}
     </div>
   );
 }

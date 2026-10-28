@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { confirm } from '../dialog';
-import type { ChecklistItem, PropDef, PropOption } from '../types';
+import type { ChecklistItem, PageMeta, PropDef, PropOption } from '../types';
 import Portal from './Portal';
+import { PageHoverCard } from './PageHoverCard';
 import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
 import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
 import { showActivityFor } from './ActivityLogHost';
 import { useChecklistFrac } from '../pageUiState';
 import { initials, nameColor } from './CommentsPanel';
-import { Check, ExternalLink, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
@@ -404,7 +405,47 @@ function ChecklistSummary({ items, compact }: { items: ChecklistItem[]; compact?
 function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
   const items = checklistItems(value);
   const [open, setOpen] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const focusIdRef = useRef<string | null>(null);
+  const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
   const ro = readOnly || !onChange;
+
+  const write = (next: ChecklistItem[]) => onChange!(next.length ? next : null);
+
+  const close = () => {
+    // Closing is where empty rows go — they exist so you can type in
+    // them, not so they end up in the data.
+    const named = items.filter((i) => i.text.trim() !== '');
+    if (named.length !== items.length) write(named);
+    setOpen(false);
+    setDragId(null);
+    setDropTarget(null);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) {
+        close();
+      }
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open, items]);
+
+  useEffect(() => {
+    if (focusIdRef.current) {
+      const el = inputRefs.current.get(focusIdRef.current);
+      if (el) {
+        el.focus();
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      }
+      focusIdRef.current = null;
+    }
+  }, [items, open]);
 
   // Read-only cells and the collapsed state show the summary; the list itself
   // only appears once someone opens it, so a table row stays one line high.
@@ -412,56 +453,210 @@ function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
     const summary = <ChecklistSummary items={items} compact={compact} />;
     if (ro) return summary;
     return (
-      <span className="prop-checklist-toggle" onClick={() => setOpen(true)}>
+      <span
+        className="prop-checklist-toggle"
+        onClick={() => {
+          if (items.length === 0) {
+            const firstId = 'i' + Date.now().toString(36) + '0';
+            focusIdRef.current = firstId;
+            write([{ id: firstId, text: '', done: false }]);
+          }
+          setOpen(true);
+        }}
+      >
         {items.length ? summary : <span className="prop-empty">{t('+ Sub-task')}</span>}
       </span>
     );
   }
 
-  const write = (next: ChecklistItem[]) => onChange!(next.length ? next : null);
   const toggle = (id: string) => write(items.map((i) => (i.id === id ? { ...i, done: !i.done } : i)));
   const setText = (id: string, text: string) => write(items.map((i) => (i.id === id ? { ...i, text } : i)));
   const remove = (id: string) => write(items.filter((i) => i.id !== id));
-  const add = () =>
-    write([...items, { id: 'i' + Date.now().toString(36) + items.length, text: '', done: false }]);
+
+  const add = (afterIndex?: number) => {
+    const newId = 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    focusIdRef.current = newId;
+    if (afterIndex !== undefined && afterIndex >= 0 && afterIndex < items.length) {
+      const next = [...items];
+      next.splice(afterIndex + 1, 0, { id: newId, text: '', done: false });
+      write(next);
+    } else {
+      write([...items, { id: newId, text: '', done: false }]);
+    }
+  };
+
+  const moveItem = (id: string, targetId: string, after: boolean) => {
+    const source = items.findIndex((i) => i.id === id);
+    const target = items.findIndex((i) => i.id === targetId);
+    if (source < 0 || target < 0 || source === target) return;
+    const next = [...items];
+    const [item] = next.splice(source, 1);
+    next.splice(target - (source < target ? 1 : 0) + Number(after), 0, item);
+    write(next);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, it: ChecklistItem, index: number) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      toggle(it.id);
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!it.text.trim()) {
+        close();
+      } else {
+        add(index);
+      }
+    } else if (e.key === 'Backspace' && it.text === '') {
+      e.preventDefault();
+      if (items.length > 1) {
+        const targetIndex = index > 0 ? index - 1 : index + 1;
+        focusIdRef.current = items[targetIndex]?.id ?? null;
+      }
+      remove(it.id);
+    } else if (e.altKey && e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (index > 0) {
+        focusIdRef.current = it.id;
+        moveItem(it.id, items[index - 1].id, false);
+      }
+    } else if (e.altKey && e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (index < items.length - 1) {
+        focusIdRef.current = it.id;
+        moveItem(it.id, items[index + 1].id, true);
+      }
+    } else if (e.key === 'ArrowUp') {
+      if (index > 0) {
+        const prevEl = inputRefs.current.get(items[index - 1].id);
+        if (prevEl) {
+          e.preventDefault();
+          prevEl.focus();
+        }
+      }
+    } else if (e.key === 'ArrowDown') {
+      if (index < items.length - 1) {
+        const nextEl = inputRefs.current.get(items[index + 1].id);
+        if (nextEl) {
+          e.preventDefault();
+          nextEl.focus();
+        }
+      }
+    }
+  };
+
+  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>, it: ChecklistItem, index: number) => {
+    const text = e.clipboardData.getData('text/plain');
+    if (!text || (!text.includes('\n') && !text.includes('\r'))) return;
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim().replace(/^[-*•]\s*(\[[ xX]\]\s*)?/, ''))
+      .filter((l) => l !== '');
+    if (lines.length <= 1) return;
+    e.preventDefault();
+    const input = e.currentTarget;
+    const selStart = input.selectionStart ?? it.text.length;
+    const selEnd = input.selectionEnd ?? it.text.length;
+    const before = it.text.slice(0, selStart);
+    const after = it.text.slice(selEnd);
+    const firstText = (before + lines[0]).trim();
+    const nextItems: ChecklistItem[] = [...items];
+    nextItems[index] = { ...it, text: firstText };
+    const newItems: ChecklistItem[] = lines.slice(1).map((l, i) => {
+      const isLast = i === lines.length - 2;
+      return {
+        id: 'i' + (Date.now() + i + 1).toString(36) + Math.random().toString(36).slice(2, 6),
+        text: isLast ? (l + after).trim() : l,
+        done: false,
+      };
+    });
+    nextItems.splice(index + 1, 0, ...newItems);
+    focusIdRef.current = newItems[newItems.length - 1].id;
+    write(nextItems);
+  };
 
   return (
-    <div className="prop-checklist">
+    <div className="prop-checklist" ref={boxRef}>
       <ChecklistSummary items={items} />
-      {items.map((it) => (
-        <div key={it.id} className={'pcl-item' + (it.done ? ' is-done' : '')}>
+      {items.map((it, idx) => (
+        <div
+          key={it.id}
+          className={
+            'pcl-item' +
+            (it.done ? ' is-done' : '') +
+            (dragId === it.id ? ' pcl-dragging' : '') +
+            (dropTarget?.id === it.id ? (dropTarget.after ? ' pcl-drop-after' : ' pcl-drop-before') : '')
+          }
+          onDragOver={(e) => {
+            if (!dragId || dragId === it.id) return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'move';
+            const bounds = e.currentTarget.getBoundingClientRect();
+            setDropTarget({
+              id: it.id,
+              after: e.clientY > bounds.top + bounds.height / 2,
+            });
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+              if (dropTarget?.id === it.id) setDropTarget(null);
+            }
+          }}
+          onDrop={(e) => {
+            if (!dragId || dragId === it.id) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const bounds = e.currentTarget.getBoundingClientRect();
+            moveItem(dragId, it.id, e.clientY > bounds.top + bounds.height / 2);
+            setDragId(null);
+            setDropTarget(null);
+          }}
+        >
+          <span
+            className="pcl-drag-handle"
+            draggable
+            title={t('Drag to reorder')}
+            onDragStart={(e) => {
+              e.stopPropagation();
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', it.id);
+              setDragId(it.id);
+            }}
+            onDragEnd={() => {
+              setDragId(null);
+              setDropTarget(null);
+            }}
+          >
+            <GripVertical size={13} />
+          </span>
           <input type="checkbox" checked={it.done} onChange={() => toggle(it.id)} />
           <input
+            ref={(el) => {
+              if (el) inputRefs.current.set(it.id, el);
+              else inputRefs.current.delete(it.id);
+            }}
             className="pcl-text"
             value={it.text}
             placeholder={t('Sub-task')}
             onChange={(e) => setText(it.id, e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                add();
-              }
-            }}
+            onKeyDown={(e) => onKeyDown(e, it, idx)}
+            onPaste={(e) => onPaste(e, it, idx)}
           />
-          <button className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
+          <button type="button" className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
             <Trash2 size={12} />
           </button>
         </div>
       ))}
       <div className="pcl-actions">
-        <button className="pcl-add" onClick={add}>
+        <button type="button" className="pcl-add" onClick={() => add()}>
           <Plus size={12} /> {t('Sub-task')}
         </button>
-        <button
-          className="pcl-add"
-          onClick={() => {
-            // Closing is where empty rows go — they exist so you can type in
-            // them, not so they end up in the data.
-            const named = items.filter((i) => i.text.trim() !== '');
-            if (named.length !== items.length) write(named);
-            setOpen(false);
-          }}
-        >
+        <button type="button" className="pcl-add" onClick={close}>
           {t('Done')}
         </button>
       </div>
@@ -879,54 +1074,76 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
           if (openers) openCollectionRow(e, row.id, openers);
           else if (onOpen && !peekPage(e, row.id)) onOpen(row.id);
         };
+        const pageMeta: PageMeta = {
+          id: row.id,
+          parentId: null,
+          title: row.title || '',
+          icon: row.icon || '',
+          cover: '',
+          position: 0,
+          updatedAt: '',
+          trashed: false,
+          type: 'doc',
+          props: {},
+          workspaceId: '',
+          ownerId: '',
+          visibility: 'workspace',
+          isTemplate: false,
+          tags: [],
+          description: '',
+          snippet: '',
+          thumb: '',
+        };
         // No edit affordance here (a card, or a read-only spot): the chip
         // itself opens the row.
         if (!canEdit) {
           return (
-            <button
-              key={i}
-              type="button"
-              className={cls}
-              title={tip}
-              style={chipStyle}
-              onClick={openRow}
-              onAuxClick={(e) => {
-                e.preventDefault();
-                openRow(e);
-              }}
-            >
-              {inner}
-            </button>
+            <PageHoverCard key={i} page={pageMeta} side="bottom">
+              <button
+                type="button"
+                className={cls}
+                style={chipStyle}
+                onClick={openRow}
+                onAuxClick={(e) => {
+                  e.preventDefault();
+                  openRow(e);
+                }}
+              >
+                {inner}
+              </button>
+            </PageHoverCard>
           );
         }
         return (
-          <span key={i} className="relation-chip-wrap" title={tip}>
-            <button
-              type="button"
-              className={cls}
-              style={chipStyle}
-              aria-label={t('Edit') + ': ' + def.name}
-              onClick={(e) => {
-                e.stopPropagation();
-                openPicker();
-              }}
-            >
-              {inner}
-            </button>
-            <button
-              type="button"
-              className="relation-open-btn"
-              aria-label={t('Open row')}
-              title={t('Open row')}
-              onClick={openRow}
-              onAuxClick={(e) => {
-                e.preventDefault();
-                openRow(e);
-              }}
-            >
-              <ExternalLink size={12} />
-            </button>
-          </span>
+          <PageHoverCard key={i} page={pageMeta} side="bottom">
+            <span className="relation-chip-wrap">
+              <button
+                type="button"
+                className={cls}
+                style={chipStyle}
+                aria-label={t('Edit') + ': ' + def.name}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openPicker();
+                }}
+              >
+                {inner}
+              </button>
+              <button
+                type="button"
+                className="relation-open-btn"
+                aria-label={t('Open row')}
+                title={t('Open row')}
+                onClick={openRow}
+                onAuxClick={(e) => {
+                  e.preventDefault();
+                  openRow(e);
+                }}
+              >
+                <ExternalLink size={12} />
+              </button>
+            </span>
+          </PageHoverCard>
         );
       })}
       {hidden > 0 && (

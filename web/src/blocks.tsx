@@ -6,6 +6,7 @@ import { openPage, openPageAux } from './pageOpen';
 import { MERMAID_REV, renderMermaid } from './mermaidLoader';
 import { PageIcon } from './pageIcon';
 import CollectionView, { type EmbedState } from './components/CollectionView';
+import { PageHoverCard } from './components/PageHoverCard';
 import { plural, t } from './i18n';
 import { api } from './api';
 import AiErrorCard from './components/AiErrorCard';
@@ -163,7 +164,7 @@ export const subpagesSpec = createReactBlockSpec(
   } as const,
   {
     render: () => {
-      const { pagesById, pageId, onNavigate, onOpenInNewTab } = useBlockCtx();
+      const { pagesById, tagColors, pageId, onNavigate, onOpenInNewTab } = useBlockCtx();
       if (!pageId) return null;
       const kids = [...pagesById.values()]
         .filter((p) => p.parentId === pageId && !p.trashed)
@@ -173,16 +174,17 @@ export const subpagesSpec = createReactBlockSpec(
           <div className="bn-toc-title">{t('Sub-pages')}</div>
           {kids.length === 0 && <div className="bn-toc-empty">{t('No sub-pages')}</div>}
           {kids.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className="bn-toc-entry"
-              onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
-              onAuxClick={(e) => openPageAux(e, p.id, { onNavigate, onOpenInNewTab })}
-              title={p.title || t('Untitled')}
-            >
-              <PageIcon icon={p.icon} size={14} /> {p.title || t('Untitled')}
-            </button>
+            <PageHoverCard key={p.id} page={p} side="bottom" tagColors={tagColors}>
+              <button
+                type="button"
+                className="bn-toc-entry"
+                onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
+                onAuxClick={(e) => openPageAux(e, p.id, { onNavigate, onOpenInNewTab })}
+                title={p.title || t('Untitled')}
+              >
+                <PageIcon icon={p.icon} size={14} /> {p.title || t('Untitled')}
+              </button>
+            </PageHoverCard>
           ))}
         </div>
       );

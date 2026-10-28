@@ -39,7 +39,7 @@ import PullToRefresh from './components/PullToRefresh';
 import Logo from './Logo';
 import ThemeSwitch, { type ThemePref } from './ThemeSwitch';
 import { applyPrefs, plural, t } from './i18n';
-import { useShortcut } from './keys';
+import { isTypingTarget, useShortcut } from './keys';
 import { focusKey, useNavEntry } from './nav';
 import {
   forgetPageScroll,
@@ -783,7 +783,7 @@ export default function App() {
     run: () => setHelpOpen((v) => !v),
   });
 
-  // ⌥N = new note (⌘N is reserved by browsers and can't be intercepted).
+  // ⌥⌘N or ⌥N = new note (⌘N is reserved by browsers and can't be intercepted).
   //
   // whileTyping, because the moment you want a new note is almost always
   // mid-sentence in the one you are writing. What makes that safe is testing
@@ -793,7 +793,7 @@ export default function App() {
   // not the letter itself catches the layouts that compose something else.
   useShortcut({
     id: 'page.new',
-    keys: ['alt+n'],
+    keys: ['mod+alt+n', 'alt+n'],
     whileTyping: true,
     label: () => t('New note'),
     group: () => t('General'),
@@ -803,15 +803,20 @@ export default function App() {
     },
   });
 
-  // '[', to match the bracket printed on the sidebar's own collapse/pin
-  // button. Not whileTyping: '[' is an ordinary character (and the first half
-  // of a wiki-link), so this only fires when the caret isn't in a text field.
+  // ⌥S / ⌥⌘S (under the left hand) or '[' to toggle sidebar.
   useShortcut({
     id: 'sidebar.toggle',
-    keys: ['['],
+    keys: ['mod+alt+s', 'alt+s', '['],
+    whileTyping: true,
     label: () => t('Toggle sidebar'),
     group: () => t('General'),
-    run: () => (sidebarCollapsed ? expandSidebar() : collapseSidebar()),
+    run: (e) => {
+      if (isTypingTarget(document.activeElement)) {
+        if (!e.metaKey && !e.ctrlKey) return false;
+      }
+      if (sidebarCollapsed) expandSidebar();
+      else collapseSidebar();
+    },
   });
 
   // Single letters, the way Linear does it (#3, #23). They act only while the
@@ -1294,7 +1299,7 @@ export default function App() {
 
   useShortcut({
     id: 'tabs.next',
-    keys: ['ctrl+alt+arrowright'],
+    keys: ['alt+]', 'ctrl+alt+arrowright'],
     label: () => t('Next tab'),
     group: () => t('Tabs'),
     run: () => cycleTab(1),
@@ -1302,10 +1307,29 @@ export default function App() {
 
   useShortcut({
     id: 'tabs.prev',
-    keys: ['ctrl+alt+arrowleft'],
+    keys: ['alt+[', 'ctrl+alt+arrowleft'],
     label: () => t('Previous tab'),
     group: () => t('Tabs'),
     run: () => cycleTab(-1),
+  });
+
+  // Alt+1 .. Alt+9 (or ⌥⌘1..9) jumps directly to tab 1 through 9.
+  useShortcut({
+    id: 'tabs.jump',
+    keys: [
+      'alt+1', 'alt+2', 'alt+3', 'alt+4', 'alt+5', 'alt+6', 'alt+7', 'alt+8', 'alt+9',
+      'mod+alt+1', 'mod+alt+2', 'mod+alt+3', 'mod+alt+4', 'mod+alt+5', 'mod+alt+6', 'mod+alt+7', 'mod+alt+8', 'mod+alt+9',
+    ],
+    group: () => t('Tabs'),
+    run: (e) => {
+      if (modalOpen()) return false;
+      const num = parseInt(e.key, 10);
+      if (isNaN(num)) return false;
+      const tabs = tabsRef.current;
+      if (tabs[num - 1]) {
+        navigate(tabs[num - 1]);
+      }
+    },
   });
 
   // Ctrl+Alt+Shift+←/→ moves the active tab along the strip rather than
@@ -1333,7 +1357,7 @@ export default function App() {
     },
   });
 
-  // Ctrl+Alt+P pins the active tab (or unpins it). Ctrl+Alt+W closes it —
+  // Ctrl+Alt+P pins the active tab (or unpins it). ⌥W / ⌥⌘W / Ctrl+Alt+W closes it —
   // plain ⌘W/Ctrl+W stays the browser's.
   useShortcut({
     id: 'tabs.pin',
@@ -1349,12 +1373,16 @@ export default function App() {
 
   useShortcut({
     id: 'tabs.close',
-    keys: ['ctrl+alt+w'],
+    keys: ['mod+alt+w', 'alt+w', 'ctrl+alt+w'],
+    whileTyping: true,
     when: () => activeRef.current !== null,
     label: () => t('Close tab'),
     group: () => t('Tabs'),
-    run: () => {
+    run: (e) => {
       if (modalOpen() || !activeRef.current) return false;
+      if (isTypingTarget(document.activeElement)) {
+        if (!e.metaKey && !e.ctrlKey) return false;
+      }
       closeTab(activeRef.current);
     },
   });
@@ -2148,6 +2176,7 @@ export default function App() {
               pinned={pinnedTabs}
               activeId={currentId}
               pagesById={pagesById}
+              tagColors={tagColors}
               onSelect={navigate}
               onClose={closeTab}
               onCloseOthers={closeOtherTabs}
@@ -2174,7 +2203,11 @@ export default function App() {
               onOpenInNewTab={openInNewTab}
               onCreatePage={createPage}
               onTrash={trashPage}
+              onDuplicate={duplicatePage}
               onPagesChanged={loadPages}
+              currentWs={currentWs}
+              workspaces={workspaces}
+              onSelectWorkspace={switchWorkspace}
             />
           </>
         ) : workspaces.length === 0 ? (
@@ -2272,7 +2305,11 @@ export default function App() {
             if (id === peekId) closePeek();
             trashPage(id);
           }}
+          onDuplicate={duplicatePage}
           onPagesChanged={loadPages}
+          currentWs={currentWs}
+          workspaces={workspaces}
+          onSelectWorkspace={switchWorkspace}
           onClose={closePeek}
           onPrev={peekHasPrev ? () => stepPeek(-1) : undefined}
           onNext={peekHasNext ? () => stepPeek(1) : undefined}

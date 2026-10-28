@@ -5,7 +5,7 @@ import { EMOJI_GROUPS } from '../emojiData';
 import { LUCIDE_SET, LUCIDE_NAMES } from '../lucideSet';
 import { api } from '../api';
 import { toast } from '../toast';
-import { makeLucide, makeMdi } from '../pageIcon';
+import { isImageIcon, isLucideIcon, isMdiIcon, makeLucide, makeMdi, parseIconRef } from '../pageIcon';
 import { mdiNames, mdiPath, useMdi } from '../mdiLoader';
 import { t } from '../i18n';
 
@@ -23,8 +23,45 @@ const ICON_COLORS = [
   { name: 'Pink', hex: '#c2255c' },
 ];
 
+const LAST_TAB_KEY = 'salt-last-icon-tab';
+const LAST_LIB_KEY = 'salt-last-icon-lib';
+
+let memLastTab: 'emoji' | 'icon' | 'upload' = 'emoji';
+let memLastLib: 'lucide' | 'mdi' = 'lucide';
+
+function getLastTab(): 'emoji' | 'icon' | 'upload' {
+  try {
+    const v = localStorage.getItem(LAST_TAB_KEY);
+    if (v === 'emoji' || v === 'icon' || v === 'upload') return v;
+  } catch {}
+  return memLastTab;
+}
+
+function setLastTab(tab: 'emoji' | 'icon' | 'upload') {
+  memLastTab = tab;
+  try {
+    localStorage.setItem(LAST_TAB_KEY, tab);
+  } catch {}
+}
+
+function getLastLib(): 'lucide' | 'mdi' {
+  try {
+    const v = localStorage.getItem(LAST_LIB_KEY);
+    if (v === 'lucide' || v === 'mdi') return v;
+  } catch {}
+  return memLastLib;
+}
+
+function setLastLib(lib: 'lucide' | 'mdi') {
+  memLastLib = lib;
+  try {
+    localStorage.setItem(LAST_LIB_KEY, lib);
+  } catch {}
+}
+
 interface Props {
-  onPick: (icon: string) => void;
+  currentIcon?: string | null;
+  onPick: (icon: string, close?: boolean) => void;
   onRemove: () => void;
   onClose: () => void;
   pageId?: string;
@@ -37,8 +74,9 @@ interface Props {
   anchor?: React.RefObject<HTMLElement | null>;
 }
 
-export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }: Props) {
+export default function IconPicker({ currentIcon, onPick, onRemove, onClose, pageId, anchor }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   // Same shape as SelectCell's popover: clamp to the viewport, flip upward when
   // there is more room above, and never exceed the space actually available.
   const [pos, setPos] = useState<{
@@ -65,15 +103,72 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
       maxHeight: Math.max(240, below ? spaceBelow : spaceAbove),
     });
   }, [anchor]);
-  const [tab, setTab] = useState<'emoji' | 'icon' | 'upload'>('emoji');
+  const [tab, setTab] = useState<'emoji' | 'icon' | 'upload'>(() => {
+    if (isLucideIcon(currentIcon) || isMdiIcon(currentIcon)) return 'icon';
+    if (isImageIcon(currentIcon)) return 'upload';
+    if (currentIcon) return 'emoji';
+    return getLastTab();
+  });
   const [q, setQ] = useState('');
-  const [color, setColor] = useState('');
+  const [color, setColor] = useState<string>(() => {
+    if (isLucideIcon(currentIcon) || isMdiIcon(currentIcon)) {
+      return parseIconRef(currentIcon || '').color || '';
+    }
+    return '';
+  });
+  const [selected, setSelected] = useState<string>(currentIcon || '');
   // Two icon libraries: Lucide (outline, bundled) and the full Material Design
   // Icons set (~7.4k, lazily fetched the first time this tab is used).
-  const [lib, setLib] = useState<'lucide' | 'mdi'>('lucide');
+  const [lib, setLib] = useState<'lucide' | 'mdi'>(() => {
+    if (isMdiIcon(currentIcon)) return 'mdi';
+    if (isLucideIcon(currentIcon)) return 'lucide';
+    return getLastLib();
+  });
   const mdiReady = useMdi(tab === 'icon' && lib === 'mdi');
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+
+  const switchTab = (nextTab: 'emoji' | 'icon' | 'upload') => {
+    setTab(nextTab);
+    setQ('');
+    setLastTab(nextTab);
+  };
+
+  const switchLib = (nextLib: 'lucide' | 'mdi') => {
+    setLib(nextLib);
+    setLastLib(nextLib);
+  };
+
+  useEffect(() => {
+    if (currentIcon !== undefined) {
+      setSelected(currentIcon || '');
+      if (isLucideIcon(currentIcon) || isMdiIcon(currentIcon)) {
+        setColor(parseIconRef(currentIcon || '').color || '');
+      }
+    }
+  }, [currentIcon]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const activeBtn = bodyRef.current?.querySelector('.icon-grid button.on') as HTMLElement | null;
+      if (activeBtn) {
+        activeBtn.scrollIntoView({ block: 'nearest' });
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [tab, lib, mdiReady]);
+
+  const handleColorChange = (hex: string) => {
+    setColor(hex);
+    if (selected && (isLucideIcon(selected) || isMdiIcon(selected))) {
+      const { name } = parseIconRef(selected);
+      if (name) {
+        const next = isMdiIcon(selected) ? makeMdi(name, hex || undefined) : makeLucide(name, hex || undefined);
+        setSelected(next);
+        onPick(next, false);
+      }
+    }
+  };
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -112,6 +207,8 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
     setUploading(true);
     try {
       const url = await api.upload(file, pageId);
+      setLastTab('upload');
+      setSelected(url);
       onPick(url);
     } catch {
       toast(t('Upload failed'));
@@ -127,13 +224,13 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
       style={anchor && pos ? { left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight } : undefined}
     >
       <div className="icon-picker-tabs">
-        <button type="button" className={tab === 'emoji' ? 'on' : ''} onClick={() => { setTab('emoji'); setQ(''); }}>
+        <button type="button" className={tab === 'emoji' ? 'on' : ''} onClick={() => switchTab('emoji')}>
           {t('Emoji')}
         </button>
-        <button type="button" className={tab === 'icon' ? 'on' : ''} onClick={() => { setTab('icon'); setQ(''); }}>
+        <button type="button" className={tab === 'icon' ? 'on' : ''} onClick={() => switchTab('icon')}>
           {t('Icons')}
         </button>
-        <button type="button" className={tab === 'upload' ? 'on' : ''} onClick={() => { setTab('upload'); setQ(''); }}>
+        <button type="button" className={tab === 'upload' ? 'on' : ''} onClick={() => switchTab('upload')}>
           {t('Upload')}
         </button>
         <button type="button" className="icon-picker-remove" onClick={onRemove} title={t('Remove icon')}>
@@ -160,34 +257,47 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
                 type="button"
                 className={'icon-color' + (color === c.hex ? ' on' : '')}
                 title={c.name}
-                onClick={() => setColor(c.hex)}
+                onClick={() => handleColorChange(c.hex)}
               >
                 <span className="icon-color-dot" style={{ background: c.hex || 'var(--fg)' }} />
               </button>
             ))}
           </div>
           <div className="icon-style-toggle">
-            <button type="button" className={lib === 'lucide' ? 'on' : ''} onClick={() => setLib('lucide')}>
+            <button type="button" className={lib === 'lucide' ? 'on' : ''} onClick={() => switchLib('lucide')}>
               {t('Lucide')}
             </button>
-            <button type="button" className={lib === 'mdi' ? 'on' : ''} onClick={() => setLib('mdi')}>
+            <button type="button" className={lib === 'mdi' ? 'on' : ''} onClick={() => switchLib('mdi')}>
               {t('Material')}
             </button>
           </div>
         </div>
       )}
 
-      <div className="icon-picker-body">
+      <div className="icon-picker-body" ref={bodyRef}>
         {tab === 'emoji' &&
           emojiResults.map((g) => (
             <div key={g.cat} className="icon-cat">
               <div className="icon-cat-label">{g.cat}</div>
               <div className="icon-grid emoji-grid">
-                {g.items.map(([e, n]) => (
-                  <button key={e} type="button" title={n} onClick={() => onPick(e)}>
-                    {e}
-                  </button>
-                ))}
+                {g.items.map(([e, n]) => {
+                  const isSelected = selected === e;
+                  return (
+                    <button
+                      key={e}
+                      type="button"
+                      className={isSelected ? 'on' : undefined}
+                      title={n}
+                      onClick={() => {
+                        setLastTab('emoji');
+                        setSelected(e);
+                        onPick(e);
+                      }}
+                    >
+                      {e}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -200,12 +310,20 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
               if (lib === 'mdi') {
                 const d = mdiPath(name);
                 if (!d) return null;
+                const isSelected = isMdiIcon(selected) && parseIconRef(selected).name === name;
                 return (
                   <button
                     key={name}
                     type="button"
+                    className={isSelected ? 'on' : undefined}
                     title={name}
-                    onClick={() => onPick(makeMdi(name, color || undefined))}
+                    onClick={() => {
+                      setLastTab('icon');
+                      setLastLib('mdi');
+                      const val = makeMdi(name, color || undefined);
+                      setSelected(val);
+                      onPick(val);
+                    }}
                   >
                     <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden="true">
                       <path d={d} fill={c} />
@@ -214,12 +332,21 @@ export default function IconPicker({ onPick, onRemove, onClose, pageId, anchor }
                 );
               }
               const Cmp = LUCIDE_SET[name];
+              if (!Cmp) return null;
+              const isSelected = isLucideIcon(selected) && parseIconRef(selected).name === name;
               return (
                 <button
                   key={name}
                   type="button"
+                  className={isSelected ? 'on' : undefined}
                   title={name}
-                  onClick={() => onPick(makeLucide(name, color || undefined))}
+                  onClick={() => {
+                    setLastTab('icon');
+                    setLastLib('lucide');
+                    const val = makeLucide(name, color || undefined);
+                    setSelected(val);
+                    onPick(val);
+                  }}
                 >
                   <Cmp size={20} color={c} fill="none" strokeWidth={2} />
                 </button>

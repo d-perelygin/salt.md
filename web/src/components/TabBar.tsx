@@ -1,6 +1,7 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, FileText, Pin, Table2, X } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
+import { PageHoverCard } from './PageHoverCard';
 import type { PageMeta } from '../types';
 import { t } from '../i18n';
 import { hint } from '../keys';
@@ -22,11 +23,13 @@ export default function TabBar({
   onTogglePin,
   onMove,
   onMoveTo,
+  tagColors,
 }: {
   tabs: string[];
   pinned: string[];
   activeId: string | null;
   pagesById: Map<string, PageMeta>;
+  tagColors?: Record<string, string>;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onCloseOthers: (id: string) => void;
@@ -38,6 +41,75 @@ export default function TabBar({
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
+  const longPressTimer = useRef<number | null>(null);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const didLongPress = useRef(false);
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    touchStartPos.current = null;
+  };
+
+  useEffect(() => {
+    const onCaptureClick = (e: MouseEvent) => {
+      if (didLongPress.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        didLongPress.current = false;
+      }
+    };
+    const onCaptureContextMenu = (e: MouseEvent) => {
+      if (didLongPress.current) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('click', onCaptureClick, true);
+    window.addEventListener('contextmenu', onCaptureContextMenu, true);
+    return () => {
+      window.removeEventListener('click', onCaptureClick, true);
+      window.removeEventListener('contextmenu', onCaptureContextMenu, true);
+    };
+  }, []);
+
+  const onTouchStart = (id: string, e: React.TouchEvent) => {
+    clearLongPress();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const { clientX, clientY } = touch;
+    touchStartPos.current = { x: clientX, y: clientY };
+    longPressTimer.current = window.setTimeout(() => {
+      didLongPress.current = true;
+      setMenu({
+        id,
+        x: Math.max(8, Math.min(clientX, window.innerWidth - 240)),
+        y: Math.max(8, Math.min(clientY, window.innerHeight - 260)),
+      });
+      longPressTimer.current = null;
+    }, 450);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPos.current || !longPressTimer.current) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const dist = Math.hypot(touch.clientX - touchStartPos.current.x, touch.clientY - touchStartPos.current.y);
+    if (dist > 8) {
+      clearLongPress();
+    }
+  };
+
+  const onTouchEnd = () => {
+    clearLongPress();
+    if (didLongPress.current) {
+      window.setTimeout(() => {
+        didLongPress.current = false;
+      }, 400);
+    }
+  };
   if (tabs.length <= 1) return null; // a single doc needs no tab strip
   const isPinned = (id: string) => pinned.includes(id);
   const pinnedCount = tabs.filter(isPinned).length;
@@ -80,79 +152,93 @@ export default function TabBar({
           return (
             <Fragment key={id}>
               {dropAt === index && <div className="tab-drop-line" aria-hidden="true" />}
-              <div
-              role="tab"
-              aria-selected={id === activeId}
-              className={
-                'tab' + (id === activeId ? ' active' : '') + (pinnedTab ? ' pinned' : '')
-              }
-              title={title}
-              draggable
-              onClick={() => onSelect(id)}
-              onAuxClick={(e) => {
-                if (e.button === 1) {
-                  e.preventDefault();
-                  onClose(id);
-                }
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setMenu({
-                  id,
-                  x: Math.max(8, Math.min(e.clientX, window.innerWidth - 240)),
-                  y: Math.max(8, Math.min(e.clientY, window.innerHeight - 260)),
-                });
-              }}
-              onDragStart={(e) => {
-                setDragId(id);
-                setDropAt(null);
-                e.dataTransfer.effectAllowed = 'move';
-                try {
-                  e.dataTransfer.setData('text/plain', id);
-                } catch {
-                  /* some browsers need the setData call to start dragging */
-                }
-              }}
-              onDragOver={(e) => {
-                if (!dragId || dragId === id) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                setDropAt(e.clientX > rect.left + rect.width / 2 ? index + 1 : index);
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (dragId && dragId !== id && dropAt !== null) onMoveTo(dragId, dropAt);
-                setDragId(null);
-                setDropAt(null);
-              }}
-              onDragEnd={() => {
-                setDragId(null);
-                setDropAt(null);
-              }}
-            >
-              <span className="tab-icon">
-                <PageIcon icon={p?.icon} size={13} fallback={p?.type === 'collection' ? <Table2 size={13} /> : <FileText size={13} />} />
-              </span>
-              {pinnedTab && (
-                <span className="tab-pin" aria-hidden="true">
-                  <Pin size={11} />
-                </span>
-              )}
-              <span className="tab-title">{title}</span>
-              {!pinnedTab && (
-                <button
-                  className="tab-close"
-                  aria-label={t('Close tab {title}', { title })}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClose(id);
+              <PageHoverCard
+                page={p}
+                side="bottom"
+                offset={6}
+                tagColors={tagColors}
+                disabled={!!menu || !!dragId}
+              >
+                <div
+                  role="tab"
+                  aria-selected={id === activeId}
+                  className={
+                    'tab' + (id === activeId ? ' active' : '') + (pinnedTab ? ' pinned' : '')
+                  }
+                  draggable
+                  onTouchStart={(e) => onTouchStart(id, e)}
+                  onTouchMove={onTouchMove}
+                  onTouchEnd={onTouchEnd}
+                  onTouchCancel={clearLongPress}
+                  onClick={() => {
+                    if (didLongPress.current) return;
+                    onSelect(id);
+                  }}
+                  onAuxClick={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault();
+                      onClose(id);
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({
+                      id,
+                      x: Math.max(8, Math.min(e.clientX, window.innerWidth - 240)),
+                      y: Math.max(8, Math.min(e.clientY, window.innerHeight - 260)),
+                    });
+                  }}
+                  onDragStart={(e) => {
+                    setDragId(id);
+                    setDropAt(null);
+                    e.dataTransfer.effectAllowed = 'move';
+                    try {
+                      e.dataTransfer.setData('text/plain', id);
+                    } catch {
+                      /* some browsers need the setData call to start dragging */
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    if (!dragId || dragId === id) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setDropAt(e.clientX > rect.left + rect.width / 2 ? index + 1 : index);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragId && dragId !== id && dropAt !== null) onMoveTo(dragId, dropAt);
+                    setDragId(null);
+                    setDropAt(null);
+                  }}
+                  onDragEnd={() => {
+                    setDragId(null);
+                    setDropAt(null);
                   }}
                 >
-                  <X size={13} />
-                </button>
-              )}
-            </div>
+                  <span className="tab-icon">
+                    <PageIcon icon={p?.icon} size={13} fallback={p?.type === 'collection' ? <Table2 size={13} /> : <FileText size={13} />} />
+                  </span>
+                  {pinnedTab && (
+                    <span className="tab-pin" aria-hidden="true">
+                      <Pin size={11} />
+                    </span>
+                  )}
+                  <span className="tab-title">{title}</span>
+                  {!pinnedTab && (
+                    <button
+                      className="tab-close"
+                      aria-label={t('Close tab {title}', { title })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onClose(id);
+                      }}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </PageHoverCard>
             </Fragment>
           );
         })}
@@ -162,9 +248,13 @@ export default function TabBar({
         <Portal>
           <div
             className="fs-backdrop"
-            onClick={closeMenu}
+            onClick={() => {
+              if (didLongPress.current) return;
+              closeMenu();
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
+              if (didLongPress.current) return;
               closeMenu();
             }}
           />

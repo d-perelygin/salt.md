@@ -1041,7 +1041,7 @@ function PublicTimeline({
       </div>
       <div className="tl-scroll">
         <div className="tl-inner" style={{ minWidth: labelW + gridMin }}>
-          <div className="tl-header">
+          <div className="tl-header" style={{ '--tl-sticky-left': `${labelW}px` } as React.CSSProperties}>
             <div className="tl-corner" style={{ width: labelW }} />
             <div className="tl-head-right">
               <div className="tl-months">
@@ -1051,7 +1051,9 @@ function PublicTimeline({
                     className="tl-month"
                     style={{ left: m.left, width: m.width }}
                   >
-                    {m.label}
+                    <div className="tl-month-sticky">
+                      <span className="tl-month-name">{m.label}</span>
+                    </div>
                   </div>
                 ))}
                 {todayLeft && <div className="tl-today-tick" style={{ left: todayLeft }} title={t('Today')} />}

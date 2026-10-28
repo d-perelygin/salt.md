@@ -48,7 +48,8 @@ import type {
 } from '../types';
 import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, isSystemRef } from '../types';
 import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
-import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
+import { PageHoverCard } from './PageHoverCard';
+import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, prevWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
 import { openCollectionRow, openPageAux, peekPanel, type PageOpeners } from '../pageOpen';
 import { hintSeen, markHintSeen, readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
 import { useMenuDismiss } from '../modal';
@@ -169,6 +170,40 @@ interface Row {
    *  not columns (see SORT_CREATED). */
   createdAt?: string;
   updatedAt?: string;
+}
+
+export function rowToPageMeta(row: Row, pages?: Map<string, PageMeta>): PageMeta {
+  const existing = pages?.get(row.id);
+  if (existing) {
+    return {
+      ...existing,
+      title: row.title || existing.title,
+      icon: row.icon || existing.icon,
+      cover: row.cover || existing.cover,
+      tags: row.tags ?? existing.tags,
+      updatedAt: row.updatedAt || existing.updatedAt,
+    };
+  }
+  return {
+    id: row.id,
+    parentId: null,
+    title: row.title || '',
+    icon: row.icon || '',
+    cover: row.cover || '',
+    position: row.position ?? 0,
+    updatedAt: row.updatedAt || row.createdAt || '',
+    trashed: false,
+    type: 'doc',
+    props: row.props || {},
+    workspaceId: '',
+    ownerId: '',
+    visibility: 'workspace',
+    isTemplate: Boolean(row.isTemplate),
+    tags: row.tags || [],
+    description: '',
+    snippet: '',
+    thumb: '',
+  };
 }
 
 const UNSET = '__unset__';
@@ -322,7 +357,7 @@ type ServerRow = {
   isTemplate?: boolean;
   createdAt?: string;
   updatedAt?: string;
-};
+};;
 
 function mapCollectionRow(r: ServerRow): Row {
   return {
@@ -536,6 +571,81 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // A right-click on a view's tab opens the same actions the ⋯ holds, for THAT
   // view, at the pointer (#24). The ⋯ only ever acted on the view you are on.
   const [tabMenu, setTabMenu] = useState<{ view: ViewDef; style: React.CSSProperties } | null>(null);
+  const viewTabLongPressTimer = useRef<number | null>(null);
+  const viewTabTouchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const didViewTabLongPress = useRef(false);
+
+  const clearViewTabLongPress = () => {
+    if (viewTabLongPressTimer.current) {
+      window.clearTimeout(viewTabLongPressTimer.current);
+      viewTabLongPressTimer.current = null;
+    }
+    viewTabTouchStartPos.current = null;
+  };
+
+  useEffect(() => {
+    const onCaptureClick = (e: MouseEvent) => {
+      if (didViewTabLongPress.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        didViewTabLongPress.current = false;
+      }
+    };
+    const onCaptureContextMenu = (e: MouseEvent) => {
+      if (didViewTabLongPress.current) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('click', onCaptureClick, true);
+    window.addEventListener('contextmenu', onCaptureContextMenu, true);
+    return () => {
+      window.removeEventListener('click', onCaptureClick, true);
+      window.removeEventListener('contextmenu', onCaptureContextMenu, true);
+    };
+  }, []);
+
+  const onViewTabTouchStart = (v: ViewDef, e: React.TouchEvent) => {
+    if (embed) return;
+    clearViewTabLongPress();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const { clientX, clientY } = touch;
+    viewTabTouchStartPos.current = { x: clientX, y: clientY };
+    viewTabLongPressTimer.current = window.setTimeout(() => {
+      didViewTabLongPress.current = true;
+      setTabMenu({
+        view: v,
+        style: {
+          position: 'fixed',
+          left: Math.max(8, Math.min(clientX, window.innerWidth - 208)),
+          top: Math.max(8, Math.min(clientY, window.innerHeight - 180)),
+          right: 'auto',
+          zIndex: 320,
+        },
+      });
+      viewTabLongPressTimer.current = null;
+    }, 450);
+  };
+
+  const onViewTabTouchMove = (e: React.TouchEvent) => {
+    if (!viewTabTouchStartPos.current || !viewTabLongPressTimer.current) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const dist = Math.hypot(touch.clientX - viewTabTouchStartPos.current.x, touch.clientY - viewTabTouchStartPos.current.y);
+    if (dist > 8) {
+      clearViewTabLongPress();
+    }
+  };
+
+  const onViewTabTouchEnd = () => {
+    clearViewTabLongPress();
+    if (didViewTabLongPress.current) {
+      window.setTimeout(() => {
+        didViewTabLongPress.current = false;
+      }, 400);
+    }
+  };
   useLayoutEffect(() => {
     if (!addViewOpen || !addViewBtnRef.current) {
       setAddViewPos(null);
@@ -1609,16 +1719,27 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           <span key={v.id} className="view-tab-wrap">
             <button
               className={'view-tab view-tab--' + v.type + (v.id === view.id ? ' active' : '')}
-              onClick={() => pickView(v.id)}
+              onClick={() => {
+                if (didViewTabLongPress.current) return;
+                pickView(v.id);
+              }}
               onDoubleClick={() => {
                 if (!embed) void renameView(v);
               }}
+              onTouchStart={(e) => onViewTabTouchStart(v, e)}
+              onTouchMove={onViewTabTouchMove}
+              onTouchEnd={onViewTabTouchEnd}
+              onTouchCancel={clearViewTabLongPress}
               onContextMenu={(e) => {
                 // Inside a document the views are the collection's business,
                 // reached through "Open as page" — not something a reader of
                 // the document should rename or remove by accident.
                 if (embed) return;
                 e.preventDefault();
+                didViewTabLongPress.current = true;
+                window.setTimeout(() => {
+                  didViewTabLongPress.current = false;
+                }, 400);
                 setTabMenu({
                   view: v,
                   style: {
@@ -1649,7 +1770,18 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       </div>
       {tabMenu && (
         <Portal>
-          <div className="fs-backdrop" onClick={() => setTabMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTabMenu(null); }} />
+          <div
+            className="fs-backdrop"
+            onClick={() => {
+              if (didViewTabLongPress.current) return;
+              setTabMenu(null);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (didViewTabLongPress.current) return;
+              setTabMenu(null);
+            }}
+          />
           <div className="menu view-tab-menu" style={tabMenu.style}>
             <button onClick={() => { setTabMenu(null); void renameView(tabMenu.view); }}>
               <Pencil size={15} /> {t('Rename view')}
@@ -1859,6 +1991,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           dateProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
           endDateProp={view.endDateProp || ''}
           tagColors={tagColors}
+          pages={pages}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
           mode={view.calMode ?? (view.calRange === 2 ? '2months' : 'month')}
@@ -1884,12 +2017,13 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           rows={viewRows}
           trayBase={trayBase}
           view={view}
-          schema={visibleSchema}
+          schema={schema}
           collectionId={collectionId}
           startProp={view.dateProp || schema.find((p) => p.type === 'date')?.id || ''}
           endProp={view.endDateProp || ''}
           depProp={view.depProp && selfRelProps.some((p) => p.id === view.depProp) ? view.depProp : ''}
           tagColors={tagColors}
+          pages={pages}
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
           mode={view.tlMode ?? 'month'}
@@ -1900,6 +2034,8 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onSetDate={(rowId, propId, iso) => void setRowProp(rowId, propId, iso)}
           onSetDates={(rowId, patch) => void setRowProps(rowId, patch)}
           onSetDep={(rowId, propId, ids) => void setRowProp(rowId, propId, ids)}
+          onSetProp={setRowProp}
+          onSetOptions={setPropOptions}
           hideLabels={view.tlHideLabels ?? false}
           onToggleLabels={() => updateView({ tlHideLabels: !view.tlHideLabels })}
           skipWeekends={view.tlSkipWeekends ?? false}
@@ -1920,6 +2056,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           }
           emptyLabel={emptyLabel}
           tagColors={tagColors}
+          pages={pages}
           subItemProp={
             view.subItemProp && selfRelProps.some((p) => p.id === view.subItemProp) ? view.subItemProp : undefined
           }
@@ -3453,6 +3590,7 @@ function TableView({
   schema,
   emptyLabel,
   tagColors,
+  pages,
   subItemProp,
   colWidths,
   stuckCols,
@@ -3467,6 +3605,7 @@ function TableView({
   schema: PropDef[];
   emptyLabel: string;
   tagColors: Record<string, string>;
+  pages?: Map<string, PageMeta>;
   subItemProp?: string;
   colWidths?: Record<string, number>;
   stuckCols?: string[];
@@ -3738,18 +3877,20 @@ function TableView({
                       <span className="db-tree-spacer" />
                     )
                   ) : null}
-                  <button
-                    className={'db-title-link' + (r.id === openId ? ' is-open' : '')}
-                    onClick={(e) =>
-                      openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab }, {
-                        siblingIds: ordered.map((o) => o.row.id),
-                      })
-                    }
-                    onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
-                  >
-                    {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                    {r.title || 'Untitled'}
-                  </button>
+                  <PageHoverCard page={rowToPageMeta(r, pages)} side="cursor" tagColors={tagColors}>
+                    <button
+                      className={'db-title-link' + (r.id === openId ? ' is-open' : '')}
+                      onClick={(e) =>
+                        openCollectionRow(e, r.id, { onNavigate, onOpenInNewTab }, {
+                          siblingIds: ordered.map((o) => o.row.id),
+                        })
+                      }
+                      onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+                    >
+                      {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+                      {r.title || 'Untitled'}
+                    </button>
+                  </PageHoverCard>
                   {/* Presence was drawn on the board card and nowhere else, so
                       anybody working in the table saw nothing at all — which is
                       most of the time. The mark belongs wherever a row is
@@ -3857,9 +3998,20 @@ function ColumnsControl({
     }
   }, [open]);
 
-  const hidden = new Set(view.hidden ?? []);
+  const isTimeline = view.type === 'timeline';
+  const hidden = new Set(
+    view.hidden !== undefined
+      ? view.hidden
+      : isTimeline
+        ? schema.map((p) => p.id)
+        : []
+  );
   const shown = schema.filter((p) => !hidden.has(p.id));
   const hiddenProps = schema.filter((p) => hidden.has(p.id));
+  const isActive = isTimeline ? shown.length > 0 : hidden.size > 0;
+  const countBadge = isTimeline
+    ? (shown.length > 0 ? ` (${shown.length})` : '')
+    : (hidden.size > 0 ? ` (${shown.length}/${schema.length})` : '');
   const toggle = (id: string) => {
     const next = new Set(hidden);
     if (next.has(id)) next.delete(id);
@@ -3876,9 +4028,9 @@ function ColumnsControl({
 
   return (
     <div className="fs-controls">
-      <button ref={btnRef} className={'btn-sm' + (hidden.size ? ' active' : '')} onClick={() => setOpen((o) => !o)}>
+      <button ref={btnRef} className={'btn-sm' + (isActive ? ' active' : '')} onClick={() => setOpen((o) => !o)}>
         <Eye size={14} /> {t('Columns')}
-        {hidden.size ? ` (${shown.length}/${schema.length})` : ''}
+        {countBadge}
       </button>
       {open && pos && (
         <Portal>
@@ -3952,6 +4104,8 @@ function UnscheduledTray({
   onTrayMove,
   onTrayDrop,
   isDrop,
+  pages,
+  tagColors,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -3963,6 +4117,8 @@ function UnscheduledTray({
   onTrayDrop: (rowId: string, x: number, y: number) => void;
   /** A scheduled entry is carried over the island (drop unschedules). */
   isDrop?: boolean;
+  pages?: Map<string, PageMeta>;
+  tagColors?: Record<string, string>;
 }) {
   // The tray's own filters: set explicitly, or inherited from the view. The
   // editor always shows the effective set; writing it back equal to the
@@ -4126,28 +4282,28 @@ function UnscheduledTray({
             line.length > 0 && (
               <div key={li} className="unsched-strip-row">
                 {line.map((r) => (
-                  <button
-                    key={r.id}
-                    role="listitem"
-                    className={'unsched-card' + (carry?.id === r.id && carry.moved ? ' is-carry' : '')}
-                    onPointerDown={(e) => beginCarry(e, r)}
-                    onClick={(e) => {
-                      if (Date.now() - guard.current < 700) return;
-                      onOpen(e, r.id);
-                    }}
-                    onAuxClick={(e) => onAuxOpen(e, r.id)}
-                    onContextMenu={(e) => {
-                      if (carry) e.preventDefault();
-                    }}
-                    title={r.title || t('Untitled')}
-                  >
-                    {r.icon && (
-                      <span className="inline-icon">
-                        <PageIcon icon={r.icon} size={14} />{' '}
-                      </span>
-                    )}
-                    <span className="unsched-card-text">{r.title || t('Untitled')}</span>
-                  </button>
+                  <PageHoverCard key={r.id} page={rowToPageMeta(r, pages)} side="bottom" tagColors={tagColors} disabled={Boolean(carry)}>
+                    <button
+                      role="listitem"
+                      className={'unsched-card' + (carry?.id === r.id && carry.moved ? ' is-carry' : '')}
+                      onPointerDown={(e) => beginCarry(e, r)}
+                      onClick={(e) => {
+                        if (Date.now() - guard.current < 700) return;
+                        onOpen(e, r.id);
+                      }}
+                      onAuxClick={(e) => onAuxOpen(e, r.id)}
+                      onContextMenu={(e) => {
+                        if (carry) e.preventDefault();
+                      }}
+                    >
+                      {r.icon && (
+                        <span className="inline-icon">
+                          <PageIcon icon={r.icon} size={14} />{' '}
+                        </span>
+                      )}
+                      <span className="unsched-card-text">{r.title || t('Untitled')}</span>
+                    </button>
+                  </PageHoverCard>
                 ))}
               </div>
             ),
@@ -4175,6 +4331,8 @@ function TimelineView({
   startProp,
   endProp,
   depProp,
+  tagColors,
+  pages,
   onNavigate,
   onOpenInNewTab,
   mode,
@@ -4185,6 +4343,8 @@ function TimelineView({
   onSetDate,
   onSetDates,
   onSetDep,
+  onSetProp,
+  onSetOptions,
   hideLabels,
   onToggleLabels,
   skipWeekends,
@@ -4200,6 +4360,7 @@ function TimelineView({
   endProp: string;
   depProp: string;
   tagColors: Record<string, string>;
+  pages?: Map<string, PageMeta>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   mode: SpanMode;
@@ -4212,6 +4373,8 @@ function TimelineView({
   // drag moves the start and the end together.
   onSetDates: (rowId: string, patch: Record<string, string>) => void;
   onSetDep: (rowId: string, propId: string, ids: string[]) => void;
+  onSetProp?: (rowId: string, propId: string, value: unknown) => void;
+  onSetOptions?: (propId: string, options: PropOption[]) => void;
   hideLabels?: boolean;
   onToggleLabels?: () => void;
   skipWeekends?: boolean;
@@ -4220,12 +4383,63 @@ function TimelineView({
 }) {
   const DAY = 26; // px per day
   const YEARW = 140; // px per month in year mode
-  const LABELW = 190; // sticky title column width
-  // Collapsed, the title column takes no room at all and the grid keeps the
-  // width: the bars carry their own titles, so the axis is what is left to look
-  // at. `onToggleLabels` is absent where nothing may be collapsed (a public
-  // link shows the owner's choice).
-  const labelW = hideLabels ? 0 : LABELW;
+
+  const hidden = new Set(
+    view.hidden !== undefined
+      ? view.hidden
+      : schema.map((p) => p.id)
+  );
+  const visibleProps = schema.filter((p) => !hidden.has(p.id));
+
+  const colWidths = view.colWidths;
+  const [colDrag, setColDrag] = useState<{ key: string; px: number } | null>(null);
+
+  const widthOf = (key: string) => {
+    if (colDrag?.key === key) return colDrag.px;
+    if (colWidths?.[key]) return colWidths[key];
+    return key === TITLE_COL ? 190 : 120;
+  };
+
+  const colStyle = (key: string): React.CSSProperties => {
+    const px = widthOf(key);
+    return { width: px, minWidth: px, maxWidth: px, boxSizing: 'border-box' };
+  };
+
+  const startColResize = (key: string) => (e: React.PointerEvent<HTMLSpanElement>) => {
+    e.stopPropagation();
+    const th = e.currentTarget.closest('.tl-col-th') as HTMLElement | null;
+    const from = th ? th.getBoundingClientRect().width : widthOf(key);
+    const x0 = e.clientX;
+    const widthAt = (clientX: number) => Math.max(64, Math.round(from + clientX - x0));
+    document.body.classList.add('is-col-resizing');
+    const move = (ev: PointerEvent) => setColDrag({ key, px: widthAt(ev.clientX) });
+    const end = (ev: PointerEvent) => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', end);
+      document.removeEventListener('pointercancel', end);
+      document.body.classList.remove('is-col-resizing');
+      const px = widthAt(ev.clientX);
+      setColDrag(null);
+      if (px !== colWidths?.[key] && !(px === Math.round(from) && !colWidths?.[key])) {
+        onViewChange({ colWidths: { ...(colWidths ?? {}), [key]: px } });
+      }
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+  };
+
+  const resetCol = (key: string) => () => {
+    if (!colWidths?.[key]) return;
+    const next = { ...colWidths };
+    delete next[key];
+    onViewChange({ colWidths: next });
+  };
+
+  const tableWidth = widthOf(TITLE_COL) + visibleProps.reduce((sum, p) => sum + widthOf(p.id), 0);
+  // Collapsed, the title and property columns take no room at all and the grid
+  // keeps the full width.
+  const labelW = hideLabels ? 0 : tableWidth;
   const dayNum = (iso: string) => {
     const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
     return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
@@ -4321,8 +4535,10 @@ function TimelineView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startWithSettings]);
   const [conflictsOpen, setConflictsOpen] = useState(false);
+  const [conflictMenuKey, setConflictMenuKey] = useState<string | null>(null);
   // Row whose blocker popover is open, with the click point for positioning.
   const [depPop, setDepPop] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [depMoreOpen, setDepMoreOpen] = useState(false);
   const [addBlockerFor, setAddBlockerFor] = useState<string | null>(null);
   // Drag-to-link: which row the handle was pulled from. The lasso line and
   // the target highlight are driven imperatively (refs + classList) during
@@ -4477,6 +4693,62 @@ function TimelineView({
       [startProp]: isoDay(after),
       ...(endProp ? { [endProp]: isoDay(after + dur) } : {}),
     });
+  };
+
+  const shiftBlockerEarlier = (predId: string, selfId: string) => {
+    const pred = byId.get(predId);
+    const self = byId.get(selfId);
+    if (!pred || !self) return;
+    const dur = pred.end - pred.start;
+    const targetEnd = skipWeekends ? prevWorkday(self.start - 1) : self.start - 1;
+    const targetStart = targetEnd - dur;
+    void onSetDates(predId, {
+      [startProp]: isoDay(targetStart),
+      ...(endProp ? { [endProp]: isoDay(targetEnd) } : {}),
+    });
+  };
+
+  const shiftWithChain = (rowId: string) => {
+    const self = byId.get(rowId);
+    if (!self) return;
+    const preds = (blockedBy.get(rowId) ?? []).map((id) => byId.get(id)!).filter(Boolean);
+    if (!preds.length) return;
+    const node = nodeById.get(rowId)!;
+    const predNodes = preds.map((p) => nodeById.get(p.row.id)!).filter(Boolean);
+    const target = shiftTarget(node, predNodes);
+    if (target === null) return;
+    const after = shiftDay(target);
+    const delta = after - self.start;
+    if (delta <= 0) return;
+
+    const chain = new Set<string>();
+    const queue = [rowId];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const next of depIdsOf(cur)) {
+        if (!chain.has(next)) {
+          chain.add(next);
+          queue.push(next);
+        }
+      }
+    }
+
+    const dur = self.end - self.start;
+    void onSetDates(rowId, {
+      [startProp]: isoDay(after),
+      ...(endProp ? { [endProp]: isoDay(after + dur) } : {}),
+    });
+
+    for (const succId of chain) {
+      const it = byId.get(succId);
+      if (!it) continue;
+      const itDur = it.end - it.start;
+      const newStart = it.start + delta;
+      void onSetDates(succId, {
+        [startProp]: isoDay(newStart),
+        ...(endProp ? { [endProp]: isoDay(newStart + itDur) } : {}),
+      });
+    }
   };
 
   if (!startProp || !schema.some((p) => p.id === startProp && p.type === 'date')) {
@@ -5090,26 +5362,74 @@ function TimelineView({
   // its own small SVG box from x1 to x2 so no global measuring is needed —
   // x is in track percent, y in row pixels (ROW_H per row, bar center at 20).
   const ROW_H = 40;
-  type Arrow = { key: string; from: number; to: number; pred: string; succ: string; x1: number; x2: number; bad: boolean };
-  // Arrow Y comes from the RENDERED order, not the data order: using data
-  // indices puts every arrow too low as soon as one dated row falls outside
-  // the window. Rendered means VISIBLE here: a row whose event does not touch
-  // the window gets no row at all — neither start nor end in it, no overlap,
-  // no slot. Undated rows already live in the tray; dated-but-elsewhere rows
-  // are noise, not information. Arrows stay consistent by construction: their
-  // Y comes from this same list, and an endpoint outside the window has no
-  // geometry to draw to, so its arrows are skipped below.
-  const rendered: { it: Item; geom: { left: string; width: string } | null; fx: { l: number; r: number } | null }[] =
-    liveItems
-      .map((it) => {
-        const g = barGeom(it);
-        return { it, geom: g, fx: g ? fracGeom(it) : null };
-      })
-      // barGeom is null exactly when the event and the window do not overlap
-      // (fracGeom clamps a partial overlap instead), and it already runs over
-      // the drag-live items — so a row mid-drag stays exactly while its bar,
-      // stored or carried, is on the diagram.
-      .filter((r) => r.geom);
+  type Arrow = {
+    key: string;
+    from: number;
+    to: number;
+    pred: string;
+    succ: string;
+    x1: number;
+    x2: number;
+    fromOffscreen?: 'past' | 'future';
+    toOffscreen?: 'past' | 'future';
+    bad: boolean;
+  };
+
+  const itemWindowPos = (it: Item): 'in' | 'past' | 'future' => {
+    if (isYear) {
+      const base = yearOf(cursor) * 12;
+      const startM = yearOf(it.start) * 12 + monthOf(it.start);
+      const endM = yearOf(it.end) * 12 + monthOf(it.end);
+      if (endM < base) return 'past';
+      if (startM > base + 11) return 'future';
+      return 'in';
+    }
+    const n = dayCols.length;
+    if (n === 0) return 'in';
+    if (it.end < dayCols[0]) return 'past';
+    if (it.start > dayCols[n - 1]) return 'future';
+    return 'in';
+  };
+
+  const inWindowIds = new Set<string>();
+  for (const it of liveItems) {
+    if (itemWindowPos(it) === 'in') inWindowIds.add(it.row.id);
+  }
+  const connectedIds = new Set<string>();
+  if (effDep) {
+    for (const id of inWindowIds) {
+      for (const sid of depIdsOf(id)) {
+        connectedIds.add(sid);
+      }
+      for (const pid of blockedBy.get(id) ?? []) {
+        connectedIds.add(pid);
+      }
+    }
+  }
+
+  type RenderedRow = {
+    it: Item;
+    geom: { left: string; width: string } | null;
+    fx: { l: number; r: number } | null;
+    offscreen?: 'past' | 'future';
+  };
+
+  const rendered: RenderedRow[] = [];
+  for (const it of liveItems) {
+    const pos = itemWindowPos(it);
+    if (pos === 'in') {
+      const g = barGeom(it);
+      rendered.push({ it, geom: g, fx: g ? fracGeom(it) : null });
+    } else if (connectedIds.has(it.row.id)) {
+      rendered.push({
+        it,
+        geom: null,
+        fx: pos === 'past' ? { l: 0.02, r: 0.08 } : { l: 0.92, r: 0.98 },
+        offscreen: pos,
+      });
+    }
+  }
+
   const renderIndex = new Map(rendered.map((r, k) => [r.it.row.id, k]));
   // Fractions of the track width here; pixels at render time (trackW), so
   // curves and heads never distort the way a stretched viewBox would.
@@ -5121,8 +5441,9 @@ function TimelineView({
         const succ = byId.get(sid);
         const si = renderIndex.get(sid);
         if (!succ || si === undefined) continue;
-        const pf = fracGeom(it);
-        const sf = fracGeom(succ);
+        const sr = rendered[si];
+        const pf = r.fx ?? fracGeom(it);
+        const sf = sr.fx ?? fracGeom(succ);
         if (!pf || !sf) continue;
         arrows.push({
           key: it.row.id + '→' + sid,
@@ -5132,6 +5453,8 @@ function TimelineView({
           succ: sid,
           x1: Math.min(0.99, Math.max(0, pf.r)),
           x2: Math.min(0.99, Math.max(0, sf.l)),
+          fromOffscreen: r.offscreen,
+          toOffscreen: sr.offscreen,
           bad: succ.start <= it.end,
         });
       }
@@ -5143,16 +5466,6 @@ function TimelineView({
   return (
     <div className="timeline">
       <div className="tl-controls">
-        {onToggleLabels && (
-          <button
-            className="btn-sm tl-collapse"
-            onClick={onToggleLabels}
-            aria-label={hideLabels ? t('Show the title column') : t('Hide the title column')}
-            title={hideLabels ? t('Show the title column') : t('Hide the title column')}
-          >
-            {hideLabels ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
-          </button>
-        )}
         <button className="btn-sm" onClick={() => step(-1)} aria-label={t('Previous month')}>‹</button>
         <span className="tl-title">{title}</span>
         <button className="btn-sm" onClick={() => step(1)} aria-label={t('Next month')}>›</button>
@@ -5182,44 +5495,110 @@ function TimelineView({
                 />
                 <div className="menu tl-conflicts-menu" role="listbox">
                   <div className="tl-menu-head">{t('Blocked tasks overlap their blockers')}</div>
-                  {allViolations.slice(0, 20).map((v) => (
-                    <div key={v.self.row.id + v.pred.row.id} className="tl-conflict-row">
-                      <button
-                        className="tl-conflict-name"
-                        onClick={() => {
-                          setConflictsOpen(false);
-                          openCollectionRow(
-                            { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
-                            v.self.row.id,
-                            { onNavigate, onOpenInNewTab },
-                          );
-                        }}
-                      >
-                        {v.self.row.title || t('Untitled')}
-                        <span className="tl-conflict-sub">
-                          {t('starts {a}, blocked by {b} until {c}', {
-                            a: formatDay(isoDay(v.self.start), 'dayMonth'),
-                            b: v.pred.row.title || t('Untitled'),
-                            c: formatDay(isoDay(v.pred.end), 'dayMonth'),
-                          })}
-                        </span>
-                      </button>
-                      <button
-                        className="btn-sm primary"
-                        onClick={() => {
-                          shiftAfterBlockers(v.self.row.id);
-                          setConflictsOpen(false);
-                        }}
-                      >
-                        {t('Shift to {d}', { d: formatDay(isoDay(shiftDay(v.pred.end + 1)), 'dayMonth') })}
-                      </button>
-                    </div>
-                  ))}
+                  {allViolations.slice(0, 20).map((v) => {
+                    const key = v.self.row.id + ':' + v.pred.row.id;
+                    const predTargetEnd = skipWeekends ? prevWorkday(v.self.start - 1) : v.self.start - 1;
+                    return (
+                      <div key={key} className="tl-conflict-row">
+                        <button
+                          className="tl-conflict-name"
+                          onClick={() => {
+                            setConflictsOpen(false);
+                            setConflictMenuKey(null);
+                            openCollectionRow(
+                              { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0, preventDefault: () => {} } as unknown as React.MouseEvent,
+                              v.self.row.id,
+                              { onNavigate, onOpenInNewTab },
+                            );
+                          }}
+                        >
+                          {v.self.row.title || t('Untitled')}
+                          <span className="tl-conflict-sub">
+                            {t('starts {a}, blocked by {b} until {c}', {
+                              a: formatDay(isoDay(v.self.start), 'dayMonth'),
+                              b: v.pred.row.title || t('Untitled'),
+                              c: formatDay(isoDay(v.pred.end), 'dayMonth'),
+                            })}
+                          </span>
+                        </button>
+                        <div className="tl-conflict-actions">
+                          <button
+                            className="btn-sm primary"
+                            onClick={() => {
+                              shiftAfterBlockers(v.self.row.id);
+                              setConflictMenuKey(null);
+                              setConflictsOpen(false);
+                            }}
+                          >
+                            {t('Shift to {d}', { d: formatDay(isoDay(shiftDay(v.pred.end + 1)), 'dayMonth') })}
+                          </button>
+                          <div className="tl-conflict-more-wrap">
+                            <button
+                              className="btn-sm"
+                              aria-label={t('More actions')}
+                              title={t('More actions')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConflictMenuKey((cur) => (cur === key ? null : key));
+                              }}
+                            >
+                              <MoreHorizontal size={14} />
+                            </button>
+                            {conflictMenuKey === key && (
+                              <>
+                                <div
+                                  className="fs-backdrop tl-conflict-sub-backdrop"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConflictMenuKey(null);
+                                  }}
+                                />
+                                <AnchoredMenu className="menu tl-conflict-sub-menu">
+                                  <button
+                                    className="menu-item"
+                                    onClick={() => {
+                                      shiftBlockerEarlier(v.pred.row.id, v.self.row.id);
+                                      setConflictMenuKey(null);
+                                      setConflictsOpen(false);
+                                    }}
+                                  >
+                                    {t('Shift blocker to finish on {d}', {
+                                      d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                                    })}
+                                  </button>
+                                  <button
+                                    className="menu-item"
+                                    onClick={() => {
+                                      shiftWithChain(v.self.row.id);
+                                      setConflictMenuKey(null);
+                                      setConflictsOpen(false);
+                                    }}
+                                  >
+                                    {t('Shift task and chain forward')}
+                                  </button>
+                                  <div className="menu-sep" />
+                                  <button
+                                    className="menu-item danger"
+                                    onClick={() => {
+                                      unlink(v.pred.row.id, v.self.row.id);
+                                      setConflictMenuKey(null);
+                                    }}
+                                  >
+                                    {t('Remove dependency')}
+                                  </button>
+                                </AnchoredMenu>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                   {/* The toggle lives here, under the list, rather than in the
                       view settings: it changes nothing but what these Shift
                       buttons land on — a Saturday target becomes the Monday. */}
                   <div className="menu-sep" />
-                  <label className="tl-settings-row">
+                  <label className="tl-settings-row tl-checkbox-row">
                     <span>{t('Skip weekends')}</span>
                     <input
                       type="checkbox"
@@ -5330,17 +5709,76 @@ function TimelineView({
       </div>
       <div className="tl-scroll">
         <div className="tl-inner" style={{ minWidth: labelW + gridMin }}>
-          <div className="tl-header">
-            <div className="tl-corner" style={{ width: labelW }} />
+          <div
+            className="tl-header"
+            style={{
+              '--tl-sticky-left': `${labelW}px`,
+              '--tl-month-left': `${labelW + (hideLabels ? 32 : 0)}px`,
+            } as React.CSSProperties}
+          >
+            <div className="tl-corner" style={{ width: labelW }}>
+              {!hideLabels && (
+                <>
+                  <div className="tl-col-th tl-title-th" style={colStyle(TITLE_COL)}>
+                    <div className="tl-th-content">
+                      {visibleProps.length > 0 && <span className="tl-th-label">{t('Task')}</span>}
+                      {onToggleLabels && (
+                        <button
+                          className="btn-sm tl-collapse"
+                          onClick={onToggleLabels}
+                          aria-label={t('Hide the title column')}
+                          title={t('Hide the title column')}
+                        >
+                          <PanelLeftClose size={15} />
+                        </button>
+                      )}
+                    </div>
+                    <span
+                      className="tl-col-resize"
+                      title={t('Drag to resize, double-click to fit the content')}
+                      onPointerDown={startColResize(TITLE_COL)}
+                      onDoubleClick={resetCol(TITLE_COL)}
+                    />
+                  </div>
+                  {visibleProps.map((p) => (
+                    <div key={p.id} className="tl-col-th" style={colStyle(p.id)}>
+                      <div className="tl-th-content">
+                        <span className="tl-th-label">{p.name}</span>
+                      </div>
+                      <span
+                        className="tl-col-resize"
+                        title={t('Drag to resize, double-click to fit the content')}
+                        onPointerDown={startColResize(p.id)}
+                        onDoubleClick={resetCol(p.id)}
+                      />
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
             <div className="tl-head-right">
               <div className="tl-months">
+                {onToggleLabels && hideLabels && (
+                  <div className="tl-expand-pin">
+                    <button
+                      className="btn-sm tl-collapse"
+                      onClick={onToggleLabels}
+                      aria-label={t('Show the title column')}
+                      title={t('Show the title column')}
+                    >
+                      <PanelLeftOpen size={15} />
+                    </button>
+                  </div>
+                )}
                 {months.map((m, i) => (
                   <div
                     key={i}
                     className="tl-month"
                     style={{ left: m.left, width: m.width }}
                   >
-                    {m.label}
+                    <div className="tl-month-sticky">
+                      <span className="tl-month-name">{m.label}</span>
+                    </div>
                   </div>
                 ))}
                 {todayLeft && <div className="tl-today-tick" style={{ left: todayLeft }} title={t('Today')} />}
@@ -5371,51 +5809,148 @@ function TimelineView({
             </div>
           </div>
           <div className="tl-body">
-            {rendered.map(({ it, geom: g0, fx }) => {
+            {rendered.map(({ it, geom: g0, fx, offscreen }) => {
               const { row } = it;
               const blocked = effDep ? violationsOf(row.id) : [];
               const label = (
                 <div
-                  className={'tl-label' + (hovered === row.id ? ' is-hovered' : '')}
-                  style={{ width: LABELW }}
-                  onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
-                  onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
-                  // The mirror of the bar's hover below: lighting the title
-                  // lights the bar, so the pair reads as one thing from either
-                  // end. Same link guard — a lasso sweeping the labels must not
-                  // re-render mid-gesture either.
+                  className={'tl-row-table' + (hovered === row.id ? ' is-hovered' : '')}
+                  style={{ width: labelW }}
                   onMouseEnter={() => {
                     if (!linkActiveRef.current) setHovered(row.id);
                   }}
                   onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
-                  title={tipFor(row, it)}
                 >
-                  {row.icon && (
-                    <span className="inline-icon">
-                      <PageIcon icon={row.icon} size={14} />
-                    </span>
-                  )}
-                  <span className="tl-label-text">{row.title || 'Untitled'}</span>
-                  {blocked.length > 0 && (
-                    <button
-                      className="tl-warn"
-                      title={plural(
-                        blocked.length,
-                        'Blocked: starts before {n} blocker ends',
-                        'Blocked: starts before {n} blockers end',
-                      )}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
-                        setAddBlockerFor(null);
-                      }}
+                  <PageHoverCard
+                    page={rowToPageMeta(row, pages)}
+                    side="bottom"
+                    tagColors={tagColors}
+                    disabled={Boolean(drag || linkFrom)}
+                  >
+                    <div
+                      className="tl-cell tl-title-cell tl-label"
+                      style={colStyle(TITLE_COL)}
+                      onClick={(e) => openCollectionRow(e, row.id, { onNavigate, onOpenInNewTab })}
+                      onAuxClick={(e) => openPageAux(e, row.id, { onNavigate, onOpenInNewTab })}
                     >
-                      ⚠{blocked.length > 1 ? blocked.length : ''}
-                    </button>
-                  )}
+                      {row.icon && (
+                        <span className="inline-icon">
+                          <PageIcon icon={row.icon} size={14} />
+                        </span>
+                      )}
+                      <span className="tl-label-text">{row.title || 'Untitled'}</span>
+                      {blocked.length > 0 && (
+                        <button
+                          className="tl-warn"
+                          title={plural(
+                            blocked.length,
+                            'Blocked: starts before {n} blocker ends',
+                            'Blocked: starts before {n} blockers end',
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                            setAddBlockerFor(null);
+                          }}
+                        >
+                          ⚠{blocked.length > 1 ? blocked.length : ''}
+                        </button>
+                      )}
+                    </div>
+                  </PageHoverCard>
+                  {visibleProps.map((p) => (
+                    <div key={p.id} className="tl-cell tl-prop-cell" style={colStyle(p.id)}>
+                      <PropertyValue
+                        def={p}
+                        value={row.props[p.id]}
+                        onChange={onSetProp ? (v) => onSetProp(row.id, p.id, v) : undefined}
+                        onOptionsChange={onSetOptions ? (opts) => onSetOptions(p.id, opts) : undefined}
+                        maxChips={1}
+                        onOpen={onOpenInNewTab ?? onNavigate}
+                        openers={{ onNavigate, onOpenInNewTab }}
+                      />
+                    </div>
+                  ))}
                 </div>
               );
+
+              const trackChrome = (
+                <>
+                  {weekends.map((w, k) => (
+                    <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
+                  ))}
+                  {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
+                </>
+              );
+
+              if (offscreen) {
+                const offDate = offscreen === 'past' ? it.end : it.start;
+                const offDateStr = formatDay(isoDay(offDate), 'dayMonth');
+                const offW = trackW > 0 ? Math.min(136, Math.max(90, Math.floor(trackW * 0.35))) : 136;
+                return (
+                  <div
+                    key={row.id}
+                    className={
+                      'tl-row tl-row-offscreen' +
+                      (linkFrom === row.id ? ' is-link-source' : '')
+                    }
+                    data-tl-row={row.id}
+                  >
+                    {!hideLabels && label}
+                    <div className="tl-track">
+                      {trackChrome}
+                      <PageHoverCard
+                        page={rowToPageMeta(row, pages)}
+                        side="bottom"
+                        tagColors={tagColors}
+                        disabled={Boolean(drag || linkFrom)}
+                      >
+                        <div
+                          className={
+                            'tl-bar tl-bar-offscreen is-' + offscreen +
+                            (blocked.length > 0 ? ' is-blocked' : '') +
+                            (hovered === row.id ? ' is-hovered' : '')
+                          }
+                          style={{
+                            [offscreen === 'past' ? 'left' : 'right']: 6,
+                            width: offW,
+                          }}
+                          onClick={(e) => {
+                            if (swallowClick()) return;
+                            setCursor(offDate);
+                          }}
+                          aria-label={t('Click to jump to date')}
+                          onMouseEnter={() => {
+                            if (!linkActiveRef.current) setHovered(row.id);
+                          }}
+                          onMouseLeave={() => setHovered((h) => (h === row.id ? null : h))}
+                        >
+                          {offscreen === 'past' && <span className="tl-offscreen-arrow">‹</span>}
+                          <span className="tl-offscreen-date">{offDateStr}</span>
+                          <span className="tl-bar-label">{row.title || 'Untitled'}</span>
+                          {offscreen === 'future' && <span className="tl-offscreen-arrow">›</span>}
+                          {blocked.length > 0 && (
+                            <button
+                              className="tl-warn on-bar"
+                              title={t('Show blockers and fixes')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                setDepPop({ id: row.id, x: r.left, y: r.bottom + 4 });
+                                setAddBlockerFor(null);
+                              }}
+                            >
+                              ⚠
+                            </button>
+                          )}
+                        </div>
+                      </PageHoverCard>
+                    </div>
+                  </div>
+                );
+              }
+
               // While dragging, the bar follows the pointer; the dates persist
               // on release only.
               const dg =
@@ -5430,17 +5965,6 @@ function TimelineView({
               // Reachable only in theory: rendered holds nothing without
               // geometry, and the drag-live items above move with the pointer.
               if (!geom) return null;
-              // The track chrome belongs to the window, not to the row: the
-              // weekend bands and the today line stay even where a bar does
-              // not start, or the axis reads as holes cut out of it.
-              const trackChrome = (
-                <>
-                  {weekends.map((w, k) => (
-                    <div key={k} className="tl-weekend" style={{ left: w.left, width: w.width }} />
-                  ))}
-                  {todayLeft && !isYear && <div className="tl-today-line" style={{ left: todayLeft }} />}
-                </>
-              );
               return (
                 <div
                   key={row.id}
@@ -5453,8 +5977,14 @@ function TimelineView({
                   {!hideLabels && label}
                   <div className="tl-track">
                     {trackChrome}
-                    <div
-                      className={
+                    <PageHoverCard
+                      page={rowToPageMeta(row, pages)}
+                      side="bottom"
+                      tagColors={tagColors}
+                      disabled={Boolean(drag || linkFrom)}
+                    >
+                      <div
+                        className={
                         'tl-bar' +
                         (drag && drag.id === row.id ? ' is-dragging' : '') +
                         (blocked.length > 0 ? ' is-blocked' : '') +
@@ -5508,13 +6038,14 @@ function TimelineView({
                         </>
                       )}
                     </div>
+                  </PageHoverCard>
                     {/* Link handle just past the bar's right edge, Notion-style:
                         a short stub and a white dot with an accent ring. It
                         appears on bar hover (or while linking from here) and
                         pulls onto another bar for this row to block that one.
                         It lives on the track: inside the bar the overflow
                         would cut it off. */}
-                    {effDep && fx && (
+                    {effDep && fx && !offscreen && (
                       <span
                         className={
                           'tl-dep-handle' + (linkFrom === row.id ? ' is-active' : '')
@@ -5584,14 +6115,35 @@ function TimelineView({
                   {arrows.length > 0 &&
                     trackW > 0 &&
                     arrows.map((a) => {
-                    const x1 = a.x1 * trackW;
+                    const offW = Math.min(136, Math.max(90, Math.floor(trackW * 0.35)));
+                    const pastEdge = 6 + offW;
+                    const futureEdge = trackW - 6 - offW;
+
+                    let x1 = a.x1 * trackW;
                     // The head stops just before the bar instead of climbing it.
-                    const x2 = a.x2 * trackW - 5;
+                    let x2 = a.x2 * trackW - 5;
+                    if (a.fromOffscreen === 'past') {
+                      x1 = pastEdge;
+                    } else if (a.fromOffscreen === 'future') {
+                      x1 = futureEdge;
+                    }
+                    if (a.toOffscreen === 'future') {
+                      x2 = futureEdge - 2;
+                    } else if (a.toOffscreen === 'past') {
+                      x2 = pastEdge + 2;
+                    }
                     const y1 = a.from * ROW_H + 20;
                     const y2 = a.to * ROW_H + 20;
                     const d = arrowPathD(x1, y1, x2, y2);
+                    const isConn = hovered ? a.pred === hovered || a.succ === hovered : false;
+                    const isDim = hovered ? !isConn : false;
+                    const gCls = [
+                      a.bad ? 'is-bad' : '',
+                      isConn ? 'is-active' : '',
+                      isDim ? 'is-dimmed' : '',
+                    ].filter(Boolean).join(' ');
                     return (
-                      <g key={a.key} className={a.bad ? 'is-bad' : undefined}>
+                      <g key={a.key} className={gCls || undefined}>
                         <path d={d} className="tl-dep-path" />
                         <polyline points={arrowHeadPoints(x2, y2)} className="tl-dep-head" />
                         <path
@@ -5613,7 +6165,16 @@ function TimelineView({
                   trackW > 0 &&
                   arrows.map((a) => {
                     if (hoverArrow !== a.key) return null;
-                    const x2 = a.x2 * trackW - 5;
+                    const offW = Math.min(136, Math.max(90, Math.floor(trackW * 0.35)));
+                    const pastEdge = 6 + offW;
+                    const futureEdge = trackW - 6 - offW;
+
+                    let x2 = a.x2 * trackW - 5;
+                    if (a.toOffscreen === 'future') {
+                      x2 = futureEdge - 2;
+                    } else if (a.toOffscreen === 'past') {
+                      x2 = pastEdge + 2;
+                    }
                     const y2 = a.to * ROW_H + 20;
                     return (
                       <button
@@ -5636,10 +6197,15 @@ function TimelineView({
             )}
             {!hideLabels && (
               <div className="tl-row">
-                <div className="tl-label tl-add" style={{ width: LABELW }}>
-                  <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
-                    <Plus size={14} /> {t('New')}
-                  </button>
+                <div className="tl-row-table" style={{ width: labelW }}>
+                  <div className="tl-cell tl-title-cell tl-add" style={colStyle(TITLE_COL)}>
+                    <button className="btn-sm" onClick={() => void onAddRow({ [startProp]: isoDay(cursor) })}>
+                      <Plus size={14} /> {t('New')}
+                    </button>
+                  </div>
+                  {visibleProps.map((p) => (
+                    <div key={p.id} className="tl-cell tl-prop-cell" style={colStyle(p.id)} />
+                  ))}
                 </div>
                 <div className="tl-track" />
               </div>
@@ -5731,20 +6297,113 @@ function TimelineView({
               );
             })}
             {depPopViolations.length > 0 && (
-              <button
-                className="btn-sm primary tl-dep-fix"
-                onClick={() => {
-                  shiftAfterBlockers(depPop.id);
-                  setDepPop(null);
-                }}
-              >
-                {t('Shift to {d}, keep duration', {
-                  d: formatDay(
-                    isoDay(shiftDay(Math.max(...depPopViolations.map((v) => v.pred.end)) + 1)),
-                    'dayMonth',
-                  ),
-                })}
-              </button>
+              <div className="tl-dep-actions">
+                <button
+                  className="btn-sm primary tl-dep-fix"
+                  onClick={() => {
+                    shiftAfterBlockers(depPop.id);
+                    setDepMoreOpen(false);
+                    setDepPop(null);
+                  }}
+                >
+                  {t('Shift to {d}, keep duration', {
+                    d: formatDay(
+                      isoDay(shiftDay(Math.max(...depPopViolations.map((v) => v.pred.end)) + 1)),
+                      'dayMonth',
+                    ),
+                  })}
+                </button>
+                <div className="tl-conflict-more-wrap">
+                  <button
+                    className="btn-sm"
+                    aria-label={t('More actions')}
+                    title={t('More actions')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDepMoreOpen((o) => !o);
+                    }}
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                  {depMoreOpen && (
+                    <>
+                      <div
+                        className="fs-backdrop tl-conflict-sub-backdrop"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDepMoreOpen(false);
+                        }}
+                      />
+                      <AnchoredMenu className="menu tl-conflict-sub-menu">
+                        {depPopViolations.map((v) => {
+                          const predTargetEnd = skipWeekends
+                            ? prevWorkday(v.self.start - 1)
+                            : v.self.start - 1;
+                          return (
+                            <button
+                              key={'dep-shift-pred-' + v.pred.row.id}
+                              className="menu-item"
+                              onClick={() => {
+                                shiftBlockerEarlier(v.pred.row.id, v.self.row.id);
+                                setDepMoreOpen(false);
+                                setDepPop(null);
+                              }}
+                            >
+                              {depPopViolations.length === 1
+                                ? t('Shift blocker to finish on {d}', {
+                                    d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                                  })
+                                : t('Shift “{title}” to finish on {d}', {
+                                    title: v.pred.row.title || t('Untitled'),
+                                    d: formatDay(isoDay(predTargetEnd), 'dayMonth'),
+                                  })}
+                            </button>
+                          );
+                        })}
+                        <button
+                          className="menu-item"
+                          onClick={() => {
+                            shiftWithChain(depPop.id);
+                            setDepMoreOpen(false);
+                            setDepPop(null);
+                          }}
+                        >
+                          {t('Shift task and chain forward')}
+                        </button>
+                        <div className="menu-sep" />
+                        {depPopViolations.map((v) => (
+                          <button
+                            key={'dep-unlink-' + v.pred.row.id}
+                            className="menu-item danger"
+                            onClick={() => {
+                              unlink(v.pred.row.id, v.self.row.id);
+                              setDepMoreOpen(false);
+                            }}
+                          >
+                            {depPopViolations.length === 1
+                              ? t('Remove dependency')
+                              : t('Remove dependency with “{title}”', {
+                                  title: v.pred.row.title || t('Untitled'),
+                                })}
+                          </button>
+                        ))}
+                        <div className="menu-sep" />
+                        <label className="tl-settings-row tl-checkbox-row">
+                          <span>{t('Skip weekends')}</span>
+                          <input
+                            type="checkbox"
+                            checked={!!skipWeekends}
+                            onChange={(e) => onViewChange({ tlSkipWeekends: e.target.checked })}
+                          />
+                        </label>
+                        <div className="tl-menu-hint">
+                          {t("Shifting a task out of its blockers' way lands on a working day.")}
+                        </div>
+                      </AnchoredMenu>
+                    </>
+                  )}
+                </div>
+              </div>
             )}
             <div className="tl-dep-section">{t('Blocks')}</div>
             {depIdsOf(depPop.id).length === 0 && (blockedBy.get(depPop.id) ?? []).length === 0 && (
@@ -5823,6 +6482,8 @@ function TimelineView({
           rows={unsched}
           schema={schema}
           view={view}
+          pages={pages}
+          tagColors={tagColors}
           onViewChange={onViewChange}
           onOpen={(e, rowId) => {
             if (swallowClick()) return;
@@ -5919,6 +6580,7 @@ function CalendarView({
   dateProp,
   endDateProp,
   tagColors,
+  pages,
   onNavigate,
   onOpenInNewTab,
   mode,
@@ -5935,6 +6597,7 @@ function CalendarView({
   dateProp: string;
   endDateProp: string;
   tagColors: Record<string, string>;
+  pages?: Map<string, PageMeta>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   mode: SpanMode;
@@ -6268,24 +6931,24 @@ function CalendarView({
               formatMonth(second.getFullYear(), second.getMonth(), 'long')
             : formatMonth(cursor.getFullYear(), cursor.getMonth(), 'long');
   const eventButton = (r: Row, d: Date | null) => (
-    <button
-      key={r.id}
-      className="calendar-event"
-      onPointerDown={(e) => beginEntryDrag(e, r.id)}
-      onClick={(e) => entryClick(e, r.id)}
-      onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
-      title={(r.title || t('Untitled')) + (d ? ' — ' + formatDay(toDayString(d)) : '')}
-    >
-      {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-      {r.title || 'Untitled'}
-      {!!r.tags?.length && (
-        <span className="cal-event-tags">
-          {r.tags.map((t) => (
-            <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
-          ))}
-        </span>
-      )}
-    </button>
+    <PageHoverCard key={r.id} page={rowToPageMeta(r, pages)} side="bottom" tagColors={tagColors}>
+      <button
+        className="calendar-event"
+        onPointerDown={(e) => beginEntryDrag(e, r.id)}
+        onClick={(e) => entryClick(e, r.id)}
+        onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+      >
+        {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
+        {r.title || 'Untitled'}
+        {!!r.tags?.length && (
+          <span className="cal-event-tags">
+            {r.tags.map((t) => (
+              <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>#{t}</span>
+            ))}
+          </span>
+        )}
+      </button>
+    </PageHoverCard>
   );
   const dayCell = (d: Date | null, i: number | string, lanes: Span[] = [], rowKeys: string[] = []) => {
     const key = d ? ymd(d) : '';
@@ -6319,30 +6982,30 @@ function CalendarView({
         endsHere = rowKeys.length === 0 || s.to <= rowKeys[rowKeys.length - 1];
       }
       return (
-        <button
-          key={'sp' + s.row.id}
-          className={
-            'cal-span' +
-            (isStart ? ' is-start' : '') +
-            (isEnd || (isStart && endsHere) ? ' is-end' : '')
-          }
-          style={isStart ? ({ '--span-cells': cells } as React.CSSProperties) : undefined}
-          onPointerDown={(e) => beginEntryDrag(e, s.row.id)}
-          onClick={(e) => entryClick(e, s.row.id)}
-          onAuxClick={(e) => openPageAux(e, s.row.id, { onNavigate, onOpenInNewTab })}
-          title={spanTitle(s)}
-        >
-          {isStart && (
-            <>
-              {s.row.icon && (
-                <span className="inline-icon">
-                  <PageIcon icon={s.row.icon} size={14} />{' '}
-                </span>
-              )}
-              {s.row.title || t('Untitled')}
-            </>
-          )}
-        </button>
+        <PageHoverCard key={'sp' + s.row.id} page={rowToPageMeta(s.row, pages)} side="bottom" tagColors={tagColors}>
+          <button
+            className={
+              'cal-span' +
+              (isStart ? ' is-start' : '') +
+              (isEnd || (isStart && endsHere) ? ' is-end' : '')
+            }
+            style={isStart ? ({ '--span-cells': cells } as React.CSSProperties) : undefined}
+            onPointerDown={(e) => beginEntryDrag(e, s.row.id)}
+            onClick={(e) => entryClick(e, s.row.id)}
+            onAuxClick={(e) => openPageAux(e, s.row.id, { onNavigate, onOpenInNewTab })}
+          >
+            {isStart && (
+              <>
+                {s.row.icon && (
+                  <span className="inline-icon">
+                    <PageIcon icon={s.row.icon} size={14} />{' '}
+                  </span>
+                )}
+                {s.row.title || t('Untitled')}
+              </>
+            )}
+          </button>
+        </PageHoverCard>
       );
     };
     return (
@@ -6598,6 +7261,8 @@ function CalendarView({
           rows={unsched}
           schema={schema}
           view={view}
+          pages={pages}
+          tagColors={tagColors}
           onViewChange={onViewChange}
           onOpen={(e, rowId) => entryClick(e, rowId)}
           onAuxOpen={(e, rowId) => openPageAux(e, rowId, { onNavigate, onOpenInNewTab })}

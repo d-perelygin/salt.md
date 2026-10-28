@@ -634,6 +634,7 @@ button {
   border: 1px solid transparent;
   border-bottom: none;
   user-select: none;
+  -webkit-touch-callout: none;
 }
 .tab:hover {
   background: var(--hover);
@@ -1081,6 +1082,27 @@ button {
   background: var(--hover);
 }
 
+.crumb.crumb-ws-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  margin-right: 6px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.crumb.crumb-ws-badge:hover {
+  background: var(--active);
+  color: var(--fg);
+  border-color: var(--border-hover, var(--border));
+}
+
 .crumb-sep {
   color: var(--muted);
   margin: 0 2px;
@@ -1365,6 +1387,10 @@ body:has(.icon-picker) .bn-side-menu {
 }
 .icon-grid button:hover {
   background: var(--hover);
+}
+.icon-grid button.on {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .icon-empty {
   padding: 24px;
@@ -2698,7 +2724,7 @@ body:has(.icon-picker) .bn-side-menu {
   position: sticky;
   top: 0;
   background: var(--bg);
-  z-index: 5;
+  z-index: 10;
   /* Tabs plus Filter/Sort/Columns can outgrow the row (image-3); the bar
      scrolls horizontally instead of cutting them off. Same treatment the
      narrow layout already had — children must not shrink. */
@@ -4067,6 +4093,7 @@ body.is-col-resizing {
   stroke: currentColor;
   stroke-width: 1.5;
   fill: none;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
 }
 /* Roads no rule guards: allowed by default, drawn dashed so the map shows
  *  the open roads apart from the guarded ones. */
@@ -4079,6 +4106,7 @@ body.is-col-resizing {
 }
 .workflow-scheme-svg polygon {
   fill: currentColor;
+  transition: fill 0.15s ease, opacity 0.15s ease;
 }
 .workflow-scheme-svg text {
   fill: var(--fg);
@@ -4091,6 +4119,43 @@ body.is-col-resizing {
 .workflow-scheme-node {
   fill: var(--sidebar-bg);
   stroke: var(--border);
+  transition: stroke 0.15s ease, fill 0.15s ease;
+}
+.workflow-scheme-node.is-hovered {
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: var(--hover);
+}
+.workflow-scheme-svg g.is-dimmed {
+  opacity: 0.15;
+  transition: opacity 0.15s ease;
+}
+.workflow-scheme-svg g.is-active path {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  opacity: 1;
+}
+.workflow-scheme-svg g.is-active polygon {
+  fill: var(--accent);
+  opacity: 1;
+}
+.workflow-scheme-svg g.is-active.is-incoming path {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+}
+.workflow-scheme-svg g.is-active.is-incoming polygon {
+  fill: var(--accent);
+}
+.workflow-scheme-svg g.is-active .workflow-scheme-count {
+  fill: var(--accent);
+  font-weight: 600;
+}
+.workflow-scheme-hit {
+  fill: none !important;
+  stroke: transparent !important;
+  stroke-width: 14 !important;
+  pointer-events: stroke;
+  cursor: pointer;
 }
 .workflow-scheme-flag {
   fill: #b58a3b;
@@ -4660,6 +4725,18 @@ button.relation-chip:hover {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .tl-corner,
+  .tl-row-table {
+    position: relative;
+    left: auto;
+  }
+  .tl-col-th.tl-title-th,
+  .tl-cell.tl-title-cell {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    background: var(--bg);
+  }
 }
 
 .calendar-title {
@@ -5185,11 +5262,13 @@ body.is-unsched-carry .unsched-card {
   50% { background-color: var(--hover); }
 }
 .tl-row.is-flash .tl-label,
+.tl-row.is-flash .tl-cell,
 .tl-row.is-flash .tl-track {
   animation: tl-flash 0.9s ease-in-out 2;
 }
 @media (prefers-reduced-motion: reduce) {
   .tl-row.is-flash .tl-label,
+  .tl-row.is-flash .tl-cell,
   .tl-row.is-flash .tl-track {
     animation: none;
   }
@@ -6973,6 +7052,25 @@ body.is-unsched-carry .tl-end-space {
   font-size: 15px;
   margin: 0;
   padding: 2px 8px;
+}
+
+.access-inherited-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.access-inherited-hint svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--fg);
 }
 
 /* The dialog this replaces had room to spare; the menu does not. Explanatory
@@ -9117,6 +9215,35 @@ a.btn {
   display: flex;
   align-items: center;
   gap: 6px;
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 4px;
+}
+.pcl-item.pcl-dragging {
+  opacity: 0.35;
+}
+.pcl-item.pcl-drop-before {
+  border-top-color: var(--accent);
+}
+.pcl-item.pcl-drop-after {
+  border-bottom-color: var(--accent);
+}
+.pcl-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  cursor: grab;
+  opacity: 0.4;
+  user-select: none;
+  flex: none;
+}
+.pcl-drag-handle:hover {
+  opacity: 1;
+  color: var(--fg);
+}
+.pcl-drag-handle:active {
+  cursor: grabbing;
 }
 .pcl-item.is-done .pcl-text {
   text-decoration: line-through;
@@ -9210,7 +9337,7 @@ a.btn {
 .timeline .tl-header {
   position: sticky;
   top: 46px;
-  z-index: 3;
+  z-index: 6;
   background: var(--bg);
 }
 /* With a cover the toolbar itself docks below the compact strip, so the
@@ -9227,7 +9354,88 @@ a.btn {
   min-height: 32px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: stretch;
+  box-sizing: border-box;
+}
+.tl-corner[style*="width: 0"],
+.tl-corner:empty {
+  border-right: none;
+  padding: 0;
+  overflow: hidden;
+}
+.tl-col-th {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
   border-right: 1px solid var(--border);
+  box-sizing: border-box;
+  user-select: none;
+  min-height: 32px;
+}
+.tl-title-th .tl-th-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 6px;
+}
+.tl-th-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.tl-th-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tl-col-th .tl-col-resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 2;
+}
+.tl-col-th .tl-col-resize:hover,
+.tl-col-th .tl-col-resize:active {
+  background: var(--accent, #3b6fb5);
+  opacity: 0.5;
+}
+.tl-corner .tl-collapse {
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  opacity: 0.55;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  flex: none;
+  margin-left: auto;
+}
+.tl-col-th:hover .tl-collapse,
+.tl-corner:hover .tl-collapse,
+.tl-corner .tl-collapse:hover {
+  opacity: 1;
+  color: var(--fg);
+  background: var(--hover);
+  border-color: var(--border);
 }
 .tl-head-right {
   display: flex;
@@ -9247,7 +9455,7 @@ a.btn {
   height: 32px;
   display: flex;
   align-items: center;
-  padding-left: 8px;
+  padding: 0;
   font-size: 12px;
   font-weight: 500;
   color: var(--muted);
@@ -9255,6 +9463,55 @@ a.btn {
   box-sizing: border-box;
   white-space: nowrap;
   text-transform: capitalize;
+}
+.tl-month-sticky {
+  position: sticky;
+  left: var(--tl-month-left, var(--tl-sticky-left, 0px));
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  z-index: 2;
+}
+.tl-expand-pin {
+  position: sticky;
+  left: var(--tl-sticky-left, 0px);
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  box-sizing: border-box;
+  background: var(--bg);
+  flex: none;
+}
+.tl-expand-pin .tl-collapse {
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  opacity: 0.55;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.tl-expand-pin .tl-collapse:hover {
+  opacity: 1;
+  color: var(--fg);
+  background: var(--hover);
+  border-color: var(--border);
+}
+.tl-month-name {
+  white-space: nowrap;
 }
 .tl-today-tick { position: absolute; top: 0; width: 2px; height: 32px; background: var(--danger); }
 .tl-days {
@@ -9312,6 +9569,67 @@ a.btn {
   padding: 8px 12px 24px;
 }
 .tl-row { display: flex; align-items: stretch; height: 40px; }
+.tl-row-table {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg);
+  box-sizing: border-box;
+}
+.tl-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  box-sizing: border-box;
+  font-size: 13.5px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.tl-title-cell {
+  cursor: pointer;
+  gap: 6px;
+}
+.tl-cell.tl-add {
+  cursor: default;
+}
+.tl-cell.tl-add:hover {
+  background: none;
+}
+.tl-cell.tl-add .btn-sm {
+  width: 100%;
+  justify-content: center;
+}
+.tl-row-table:hover .tl-cell,
+.tl-row-table.is-hovered .tl-cell {
+  background:
+    linear-gradient(var(--hover), var(--hover)),
+    var(--bg);
+}
+.tl-row-table.is-hovered .tl-title-cell {
+  box-shadow: inset 2px 0 0 var(--border);
+}
+.tl-prop-cell .prop-multi {
+  flex-wrap: nowrap;
+  overflow: hidden;
+  max-width: 100%;
+}
+.tl-prop-cell .prop-text {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-prop-cell .relation-open {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+}
 .tl-label {
   position: sticky;
   left: 0;
@@ -9486,6 +9804,55 @@ body.is-tl-resizing {
   outline: 2px solid var(--danger);
   outline-offset: -1px;
 }
+.tl-bar-offscreen {
+  background: var(--card);
+  border: 1px dashed var(--border-strong);
+  color: var(--fg);
+  font-size: 11px;
+  gap: 5px;
+  z-index: 2;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+}
+.tl-bar-offscreen:hover {
+  background: var(--active);
+  border-color: var(--accent);
+  color: var(--fg);
+  filter: brightness(1.05);
+}
+.tl-bar-offscreen.is-past {
+  left: 6px;
+}
+.tl-bar-offscreen.is-future {
+  right: 6px;
+}
+.tl-bar-offscreen .tl-offscreen-arrow {
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.tl-bar-offscreen .tl-offscreen-date {
+  font-weight: 500;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tl-bar-offscreen .tl-bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg);
+  flex: 1;
+  min-width: 0;
+}
+.tl-bar-offscreen.is-blocked {
+  border-color: var(--danger);
+}
 .tl-warn {
   flex: none;
   border: none;
@@ -9599,6 +9966,15 @@ g.is-bad > .tl-dep-path { stroke: var(--danger); }
   pointer-events: none;
 }
 g.is-bad > .tl-dep-head { stroke: var(--danger); }
+g.is-active > .tl-dep-path,
+g.is-active > .tl-dep-head {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.tl-arrows g.is-dimmed {
+  opacity: 0.2;
+  transition: opacity 0.15s ease;
+}
 .tl-dep-hit {
   fill: none;
   stroke: transparent;
@@ -9665,7 +10041,7 @@ g.is-bad > .tl-dep-head { stroke: var(--danger); }
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  width: 360px;
+  width: 380px;
   max-width: calc(100vw - 16px);
   /* No z-index here on purpose: it must clear .fs-backdrop, and a value set
      here would win over the one in the "menus behind the backdrop" block
@@ -9674,7 +10050,7 @@ g.is-bad > .tl-dep-head { stroke: var(--danger); }
 }
 .tl-menu-head { font-weight: 600; font-size: 13px; padding: 4px 6px 8px; }
 .tl-menu-sub { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
-.tl-menu-hint { font-size: 12px; color: var(--muted); padding: 4px 6px; }
+.tl-menu-hint { font-size: 12px; color: var(--muted); padding: 4px 6px; line-height: 1.4; }
 .tl-conflict-row {
   display: flex;
   flex-direction: column;
@@ -9684,7 +10060,27 @@ g.is-bad > .tl-dep-head { stroke: var(--danger); }
   border-radius: 8px;
 }
 .tl-conflict-row:hover { background: var(--hover); }
-.tl-conflict-row .btn-sm { align-self: flex-start; }
+.tl-conflict-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tl-conflict-more-wrap {
+  position: relative;
+  flex: none;
+}
+.tl-conflict-sub-backdrop {
+  z-index: 325;
+}
+.tl-conflict-sub-menu {
+  z-index: 330;
+  min-width: 240px;
+  max-width: 280px;
+  white-space: nowrap;
+}
+.tl-conflict-sub-menu .tl-menu-hint {
+  white-space: normal;
+}
 .tl-conflict-name {
   flex: 1 1 auto;
   min-width: 0;
@@ -9719,6 +10115,27 @@ g.is-bad > .tl-dep-head { stroke: var(--danger); }
 }
 .tl-settings-row > span { flex: none; width: 64px; color: var(--muted); }
 .tl-settings-row .subitems-select { flex: 1 1 auto; min-width: 0; }
+.tl-settings-row.tl-checkbox-row,
+.tl-conflicts-menu .tl-settings-row {
+  justify-content: space-between;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.tl-settings-row.tl-checkbox-row:hover,
+.tl-conflicts-menu .tl-settings-row:hover {
+  background: var(--hover);
+}
+.tl-settings-row.tl-checkbox-row > span,
+.tl-conflicts-menu .tl-settings-row > span {
+  flex: 1 1 auto;
+  width: auto;
+  color: var(--fg);
+}
+.tl-settings-row.tl-checkbox-row input[type="checkbox"],
+.tl-conflicts-menu .tl-settings-row input[type="checkbox"] {
+  cursor: pointer;
+  margin: 0;
+}
 .tl-dep-menu { padding: 8px; }
 .tl-dep-section {
   font-size: 11px;
@@ -9750,6 +10167,16 @@ g.is-bad > .tl-dep-head { stroke: var(--danger); }
   padding: 0;
 }
 .tl-dep-fix { width: 100%; justify-content: center; margin: 8px 0; }
+.tl-dep-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+.tl-dep-actions .tl-dep-fix {
+  margin: 0;
+  flex: 1 1 auto;
+}
 .tl-dep-add { width: 100%; margin-top: 4px; }
 
 /* ---- Blocked-row banner in the record editor ---- */
@@ -9765,6 +10192,12 @@ g.is-bad > .tl-dep-head { stroke: var(--danger); }
 }
 .dep-banner-ic { color: var(--danger); font-size: 15px; flex: none; }
 .dep-banner-text { flex: 1 1 auto; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.dep-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
 .dep-banner .btn-sm { flex: none; }
 
 /* ---- Sub-task tree (table hierarchy) ---- */

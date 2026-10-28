@@ -340,3 +340,73 @@ func TestPageShareEndpoints(t *testing.T) {
 		t.Errorf("%d grants survived unrestricting", n)
 	}
 }
+
+func TestCreatePageInheritsVisibility(t *testing.T) {
+	s := testServer(t)
+	ws, open, ids, cookies := accessFixture(t, s)
+	aliceCookie := cookies["alice-pa@example.test"]
+
+	// Create child under open page -> visibility: 'workspace'
+	rec := requestAs(t, s, aliceCookie, "POST", "/api/pages", `{"parentId":"`+open+`","title":"Open Child"}`)
+	if rec.Code != 200 {
+		t.Fatalf("create open child: %d %s", rec.Code, rec.Body.String())
+	}
+	var openChild struct {
+		ID         string `json:"id"`
+		Visibility string `json:"visibility"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &openChild)
+	if openChild.Visibility != "workspace" {
+		t.Errorf("open child visibility = %s, want workspace", openChild.Visibility)
+	}
+
+	// Create private page
+	priv := s.makePage(t, ws, ids["alice-pa@example.test"], "", "Secret", "{}")
+	s.db.Exec(`UPDATE pages SET visibility = 'private' WHERE id = ?`, priv)
+
+	// Create child under private page -> visibility: 'private'
+	rec = requestAs(t, s, aliceCookie, "POST", "/api/pages", `{"parentId":"`+priv+`","title":"Private Child"}`)
+	if rec.Code != 200 {
+		t.Fatalf("create private child: %d %s", rec.Code, rec.Body.String())
+	}
+	var privChild struct {
+		ID         string `json:"id"`
+		Visibility string `json:"visibility"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &privChild)
+	if privChild.Visibility != "private" {
+		t.Errorf("private child visibility = %s, want private", privChild.Visibility)
+	}
+
+	// Create grandchild under private child -> visibility: 'private'
+	rec = requestAs(t, s, aliceCookie, "POST", "/api/pages", `{"parentId":"`+privChild.ID+`","title":"Private Grandchild"}`)
+	if rec.Code != 200 {
+		t.Fatalf("create private grandchild: %d %s", rec.Code, rec.Body.String())
+	}
+	var privGrandchild struct {
+		ID         string `json:"id"`
+		Visibility string `json:"visibility"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &privGrandchild)
+	if privGrandchild.Visibility != "private" {
+		t.Errorf("private grandchild visibility = %s, want private", privGrandchild.Visibility)
+	}
+
+	// Create restricted page
+	restr := s.makePage(t, ws, ids["alice-pa@example.test"], "", "Restricted", "{}")
+	s.db.Exec(`UPDATE pages SET visibility = 'restricted' WHERE id = ?`, restr)
+
+	// Create child under restricted page -> visibility: 'restricted'
+	rec = requestAs(t, s, aliceCookie, "POST", "/api/pages", `{"parentId":"`+restr+`","title":"Restricted Child"}`)
+	if rec.Code != 200 {
+		t.Fatalf("create restricted child: %d %s", rec.Code, rec.Body.String())
+	}
+	var restrChild struct {
+		ID         string `json:"id"`
+		Visibility string `json:"visibility"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &restrChild)
+	if restrChild.Visibility != "restricted" {
+		t.Errorf("restricted child visibility = %s, want restricted", restrChild.Visibility)
+	}
+}

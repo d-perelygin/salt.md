@@ -8,8 +8,8 @@ import (
 
 // Markdown → BlockNote block JSON, for API/MCP writers. Covers the common
 // subset: headings, lists (incl. nesting by indentation), checklists,
-// quotes, fenced code, images, tables, paragraphs, and the inline styles
-// bold/italic/strike/code/links.
+// quotes, fenced code, images, tables, horizontal rules, paragraphs, and the
+// inline styles bold/italic/strike/code/links.
 
 type mBlock struct {
 	Type     string         `json:"type"`
@@ -172,6 +172,10 @@ var (
 	fenceCloseRe = regexp.MustCompile("^`{3,}\\s*$")
 	tableRowRe   = regexp.MustCompile(`^\|(.+)\|\s*$`)
 	tableSepRe   = regexp.MustCompile(`^\|?[\s:|-]+\|?\s*$`)
+	// A thematic break: three or more of the same marker, spaces allowed
+	// between them, nothing else on the line. All the spellings Markdown
+	// accepts, because an agent picks whichever it was trained on.
+	hrRe = regexp.MustCompile(`^(?:-[ \t]*){3,}$|^(?:\*[ \t]*){3,}$|^(?:_[ \t]*){3,}$`)
 )
 
 func mdToBlocks(md string) []*mBlock {
@@ -260,6 +264,17 @@ func mdToBlocks(md string) []*mBlock {
 		}
 		if m := imageRe.FindStringSubmatch(trimmed); m != nil {
 			appendBlock(&mBlock{Type: "image", Props: map[string]any{"url": m[2], "name": m[1]}}, 0)
+			continue
+		}
+		// A rule is a block of its own, not the three hyphens an agent typed.
+		// Without this it fell through to the paragraph case and the page showed
+		// a literal "---" — the one block in the set the export already wrote
+		// but the import could not read back.
+		//
+		// It has to come BEFORE the list cases: "- - -" is a rule in Markdown,
+		// while the bullet pattern would happily read it as an item saying "--".
+		if hrRe.MatchString(strings.TrimRight(trimmed, " \t")) {
+			appendBlock(&mBlock{Type: "divider"}, 0)
 			continue
 		}
 		if m := checkRe.FindStringSubmatch(trimmed); m != nil {
