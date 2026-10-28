@@ -860,8 +860,8 @@ export const api = {
     req<{ ok: boolean }>(`/api/ai/runs/${id}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
   getAIRunSteps: (id: string) => req<any[]>(`/api/ai/runs/${id}/steps`),
   getAIThreadRuns: (id: string) => req<any[]>(`/api/ai/threads/${id}/runs`),
-  generateAI: (body: { prompt: string; selection?: string; pageId?: string; includePage?: boolean; model?: string; mentions?: string[] }) =>
-    fetch('/api/ai/generate', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  generateAI: (body: { prompt: string; selection?: string; pageId?: string; includePage?: boolean; model?: string; mentions?: string[] }, signal?: AbortSignal) =>
+    fetch('/api/ai/generate', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal }),
   uploadAIAttachment: (file: File, threadId?: string) => {
     const fd = new FormData();
     fd.append('file', file);

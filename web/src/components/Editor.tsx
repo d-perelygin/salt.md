@@ -38,6 +38,7 @@ import { blockedByMap, dayNum, depListOf, isoDay, shiftTarget, type DepNode } fr
 import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import AnchoredMenu from './AnchoredMenu';
+import AiEmptyLine from './AiEmptyLine';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
@@ -2441,7 +2442,15 @@ function BlockContent({
     // always passed a page id.
     uploadFile: (file: File) => api.upload(file, pageId),
     // Column layout: edge-drop cursor + its dictionary entries.
-    dictionary: coreEn,
+    dictionary: {
+      ...coreEn,
+      // The empty line advertises the one-shot AI panel (AiEmptyLine).
+      placeholders: {
+        ...coreEn.placeholders,
+        default: t("Press 'space' for AI or '/' for commands"),
+        emptyDocument: t("Press 'space' for AI or '/' for commands"),
+      },
+    },
   });
 
   // Doc undo for the ⋯ menu: BlockNote's own history, announced so the
@@ -3191,6 +3200,7 @@ function BlockContent({
           />
         </BlockNoteView>
         </BlockContext.Provider>
+        <AiEmptyLine editor={editor} pageId={pageId} canEdit={canEdit} />
         {!structureOpen && (
           <Backlinks pageId={provider.pageId} pagesById={pagesById} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}
