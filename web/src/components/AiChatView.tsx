@@ -7,7 +7,15 @@ import AiAgentStep, { type AiStep } from './AiAgentStep';
 import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
+import { PageIcon } from '../pageIcon';
+import { FileText, Table2 } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
+import {
+  COLLECTION_PRESETS,
+  applyCollectionPreset,
+  instantiateCollectionTemplate,
+  renderTextWithMentions,
+} from './aiChatHelpers';
 
 interface Msg { role: string; content: string }
 interface AttachedFile { name: string; text: string }
@@ -62,16 +70,24 @@ export default function AiChatView(props: {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [workspaceModalOpen, setWorkspaceModalOpen] = useState(false);
   const [workspaceFilter, setWorkspaceFilter] = useState('');
+  const [collectionTemplates, setCollectionTemplates] = useState<PageMeta[]>([]);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(attachMenuOpen, attachMenuRef, () => setAttachMenuOpen(false));
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const inputBoxRef = useRef<HTMLTextAreaElement>(null);
 
   const tid = props.threadId;
 
   useEffect(() => {
     api.listAIThreads().then((r) => setThreads(r as AiThread[])).catch(() => {});
   }, [tid]);
+
+  useEffect(() => {
+    api.templates()
+      .then((list) => setCollectionTemplates(list.filter((p) => p.type === 'collection' && !p.trashed)))
+      .catch(() => {});
+  }, []);
 
   // History: messages, past runs (for the Worked-for row), and artifacts.
   // History fetches never overwrite live streaming state (see streamingRef).
@@ -193,6 +209,19 @@ export default function AiChatView(props: {
     const title = p.title || 'Untitled';
     setInput((cur) => cur.replace(/@[^@]{0,60}$/, '@' + title + ' '));
     setMentionQuery(null);
+    window.setTimeout(() => inputBoxRef.current?.focus(), 0);
+  }
+
+  function triggerMentionInInput() {
+    const next = input ? (input.endsWith(' ') ? input + '@' : input + ' @') : '@';
+    onInputChange(next);
+    window.setTimeout(() => {
+      const el = inputBoxRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(next.length, next.length);
+      }
+    }, 0);
   }
 
   function contextTexts(): { name: string; text: string }[] {
@@ -415,6 +444,7 @@ export default function AiChatView(props: {
   // view they would promise something the chat cannot see.
   const chipPageId = props.pageId || active?.pageId || '';
   const showTrace = steps.length > 0 || histSteps.length > 0;
+  const showZeroState = messages.length === 0 && !agentBusy && steps.length === 0 && histSteps.length === 0 && !lastError;
   const liveDuration = agentBusy && runStartedAt !== null ? runElapsed : null;
   const doneDuration = !agentBusy ? histDurationMs : null;
 
@@ -460,12 +490,142 @@ export default function AiChatView(props: {
           <span className="ai-title">{active?.title || t('New chat')}{pageTitle ? ` · 📄 ${pageTitle}` : ''}</span>
         </div>
         <div className="ai-chat-body">
+          {showZeroState && (
+            <div className="ai-view-zero">
+              <div className="ai-view-zero-hero">
+                <span className="ai-view-zero-spark">✨</span>
+                <h2>{t('How can I help you today?')}</h2>
+              </div>
+
+              <div className="ai-view-zero-cols">
+                <div className="ai-view-zero-col">
+                  <div className="ai-zero-section">{t('Actions')}</div>
+                  <div className="ai-zero-list">
+                    <button
+                      type="button"
+                      className="ai-zero-item"
+                      onClick={() => {
+                        if (chipPageId) {
+                          void runAsAgent(t('Summarize this page concisely with key takeaways.'));
+                        } else {
+                          const next = t('Summarize') + ' @';
+                          onInputChange(next);
+                          window.setTimeout(() => inputBoxRef.current?.focus(), 0);
+                        }
+                      }}
+                    >
+                      <span className="ai-zero-badge">📝</span>
+                      <span className="ai-zero-label">{t('Summarize this page')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="ai-zero-item"
+                      onClick={() => {
+                        if (chipPageId) {
+                          void runAsAgent(t('Translate this page'));
+                        } else {
+                          const next = t('Translate') + ' @';
+                          onInputChange(next);
+                          window.setTimeout(() => inputBoxRef.current?.focus(), 0);
+                        }
+                      }}
+                    >
+                      <span className="ai-zero-badge">🌐</span>
+                      <span className="ai-zero-label">{t('Translate this page')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="ai-zero-item"
+                      onClick={() => {
+                        if (chipPageId) {
+                          void runAsAgent(t('Analyze for insights'));
+                        } else {
+                          const next = t('Analyze for insights') + ' @';
+                          onInputChange(next);
+                          window.setTimeout(() => inputBoxRef.current?.focus(), 0);
+                        }
+                      }}
+                    >
+                      <span className="ai-zero-badge">📊</span>
+                      <span className="ai-zero-label">{t('Analyze for insights')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="ai-zero-item"
+                      onClick={() => {
+                        if (chipPageId) {
+                          void runAsAgent(t('Extract action items and next steps from this page as a checklist.'));
+                        } else {
+                          const next = t('Extract action items') + ' @';
+                          onInputChange(next);
+                          window.setTimeout(() => inputBoxRef.current?.focus(), 0);
+                        }
+                      }}
+                    >
+                      <span className="ai-zero-badge">✅</span>
+                      <span className="ai-zero-label">{t('Extract action items')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="ai-zero-item"
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      <span className="ai-zero-badge">↓</span>
+                      <span className="ai-zero-label">{t('Attach file or CSV')}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="ai-view-zero-col">
+                  <div className="ai-zero-section">{t('Suggested')}</div>
+                  <div className="ai-zero-list">
+                    {COLLECTION_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className="ai-zero-item"
+                        onClick={() => void applyCollectionPreset(preset)}
+                      >
+                        <span className="ai-zero-badge" data-tone={preset.tone}>{preset.badge}</span>
+                        <span className="ai-zero-label">{preset.label()}</span>
+                      </button>
+                    ))}
+                    {collectionTemplates.map((tpl) => (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        className="ai-zero-item"
+                        onClick={() => void instantiateCollectionTemplate(tpl.id)}
+                      >
+                        <span className="ai-zero-badge">
+                          <PageIcon icon={tpl.icon} size={14} fallback={<Table2 size={14} />} />
+                        </span>
+                        <span className="ai-zero-label">{tpl.title || t('Untitled')}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="ai-zero-divider" />
+              <div className="ai-zero-list">
+                <button
+                  type="button"
+                  className="ai-zero-item"
+                  onClick={triggerMentionInInput}
+                >
+                  <span className="ai-zero-badge" data-tone="plain">↗</span>
+                  <span className="ai-zero-label">{t('Link workspace page or collection')}</span>
+                </button>
+              </div>
+            </div>
+          )}
           {messages.map((m, i) => (
             <Fragment key={i}>
             {i === traceAt && traceEl}
             <div className={m.role === 'user' ? 'ai-msg user' : 'ai-msg assistant'}>
               {m.role === 'user' ? (
-                <div className="ai-bubble-user">{m.content}</div>
+                <div className="ai-bubble-user">{renderTextWithMentions(m.content, props.pagesById, true)}</div>
               ) : (
                 <div className="ai-bubble-ai">
                   <AiMarkdown text={m.content} />
@@ -580,34 +740,65 @@ export default function AiChatView(props: {
         <div style={{ position: 'relative' }}>
           {mentionQuery !== null && mentionMatches().length > 0 && (
             <div style={{
-              position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, zIndex: 50,
+              position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, zIndex: 400,
               background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10,
               boxShadow: '0 8px 24px rgba(0,0,0,.25)', maxHeight: 220, overflow: 'auto', minWidth: 260,
             }}>
               {mentionMatches().map((p) => (
                 <button
                   key={p.id}
+                  type="button"
                   onClick={() => pickMention(p)}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '8px 12px', fontSize: 14 }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '8px 12px', fontSize: 14 }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--hover)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
-                  📄 {p.title || t('Untitled')}
+                  <PageIcon
+                    icon={p.icon}
+                    size={14}
+                    fallback={p.type === 'collection' ? <Table2 size={14} /> : <FileText size={14} />}
+                  />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.title || t('Untitled')}
+                  </span>
                 </button>
               ))}
             </div>
           )}
           <div className="ai-composer">
-            <textarea
-              value={input}
-              rows={2}
-              onChange={(e) => {
-                onInputChange(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
-              }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void runAsAgent(); } }}
-              placeholder={t('Ask, search, or make anything…')}
-              disabled={agentBusy}
-            />
+            <div className="ai-input-wrap">
+              {input && (
+                <div className="ai-input-backdrop" aria-hidden="true">
+                  {renderTextWithMentions(input, props.pagesById, false)}
+                  {input.endsWith('\n') ? '\n ' : ''}
+                </div>
+              )}
+              <textarea
+                ref={inputBoxRef}
+                className={input ? 'ai-input-mirrored' : undefined}
+                value={input}
+                rows={2}
+                onChange={(e) => {
+                  onInputChange(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && mentionQuery !== null) {
+                    e.preventDefault();
+                    setMentionQuery(null);
+                    return;
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    setMentionQuery(null);
+                    void runAsAgent();
+                  }
+                }}
+                placeholder={t('Ask, search, or make anything…')}
+                disabled={agentBusy}
+              />
+            </div>
             <div className="ai-composer-bar">
               <div style={{ position: 'relative', display: 'inline-flex' }} ref={attachMenuRef}>
                 <button
@@ -624,9 +815,11 @@ export default function AiChatView(props: {
                     className="menu"
                     style={{
                       position: 'absolute',
+                      top: 'auto',
+                      right: 'auto',
                       bottom: 'calc(100% + 6px)',
                       left: 0,
-                      zIndex: 60,
+                      zIndex: 400,
                       minWidth: 200,
                     }}
                   >
@@ -634,9 +827,7 @@ export default function AiChatView(props: {
                       type="button"
                       onClick={() => {
                         setAttachMenuOpen(false);
-                        const next = input ? (input.endsWith(' ') ? input + '@' : input + ' @') : '@';
-                        setInput(next);
-                        onInputChange(next);
+                        triggerMentionInInput();
                       }}
                     >
                       📄 {t('Mention note (@)')}

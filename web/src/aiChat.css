@@ -145,9 +145,48 @@
   background: transparent;
   color: inherit;
   font-size: 15px;
+  line-height: 1.5;
   font-family: inherit;
   resize: none;
   padding: 2px 2px 6px;
+}
+.ai-input-wrap {
+  position: relative;
+  width: 100%;
+}
+.ai-input-backdrop {
+  position: absolute;
+  inset: 0;
+  padding: 2px 2px 6px;
+  font-size: 15px;
+  line-height: 1.5;
+  font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  pointer-events: none;
+  overflow: hidden;
+  color: var(--fg);
+}
+.ai-composer textarea.ai-input-mirrored {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  caret-color: var(--fg);
+}
+.ai-mention-mark {
+  font-weight: inherit;
+  padding: 1px 0;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ai-mention-link {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
 }
 .ai-composer-bar {
   display: flex;
@@ -1115,4 +1154,47 @@
   height: 1px;
   background: var(--border);
   margin: 6px 4px;
+}
+
+/* Zero-state launcher inside the center AiChatView. */
+.ai-view-zero {
+  max-width: 640px;
+  margin: 28px auto 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ai-view-zero-hero {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 8px;
+}
+.ai-view-zero-spark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  flex: none;
+}
+.ai-view-zero-hero h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.ai-view-zero-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.ai-view-zero-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }

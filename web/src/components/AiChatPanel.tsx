@@ -10,6 +10,12 @@ import { PageIcon } from '../pageIcon';
 import { FileText, Table2 } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
+import {
+  COLLECTION_PRESETS,
+  applyCollectionPreset,
+  instantiateCollectionTemplate,
+  renderTextWithMentions,
+} from './aiChatHelpers';
 
 interface Msg { role: string; content: string }
 
@@ -47,6 +53,8 @@ export default function AiChatPanel(props: {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [workspaceModalOpen, setWorkspaceModalOpen] = useState(false);
   const [workspaceFilter, setWorkspaceFilter] = useState('');
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [collectionTemplates, setCollectionTemplates] = useState<PageMeta[]>([]);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(attachMenuOpen, attachMenuRef, () => setAttachMenuOpen(false));
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -71,6 +79,60 @@ export default function AiChatPanel(props: {
 
   useEffect(() => { setThreadId(props.threadId ?? null); }, [props.threadId]);
   useEffect(() => { if (props.quote) setQuote(props.quote); }, [props.quote]);
+  useEffect(() => {
+    api.templates()
+      .then((list) => setCollectionTemplates(list.filter((p) => p.type === 'collection' && !p.trashed)))
+      .catch(() => {});
+  }, [props.pageId]);
+
+  function onInputChange(v: string) {
+    setInput(v);
+    const m = v.match(/@([^@]{0,60})$/);
+    setMentionQuery(m ? m[1] : null);
+  }
+
+  function mentionMatches(): PageMeta[] {
+    if (!props.pagesById) return [];
+    const q = (mentionQuery ?? '').toLowerCase();
+    const all = [...props.pagesById.values()].filter((p) => !p.trashed);
+    return all
+      .filter((p) => (p.title || t('Untitled')).toLowerCase().includes(q))
+      .slice(0, 8);
+  }
+
+  function pickMention(p: PageMeta) {
+    const title = p.title || t('Untitled');
+    const next = input.replace(/@[^@]{0,60}$/, '@' + title + ' ');
+    setInput(next);
+    setMentionQuery(null);
+    window.setTimeout(() => inputBoxRef.current?.focus(), 0);
+  }
+
+  function triggerMentionInInput() {
+    const next = input ? (input.endsWith(' ') ? input + '@' : input + ' @') : '@';
+    onInputChange(next);
+    window.setTimeout(() => {
+      const el = inputBoxRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(next.length, next.length);
+      }
+    }, 0);
+  }
+
+  function resolveMentions(text: string): { id: string; title: string }[] {
+    const out: { id: string; title: string }[] = [];
+    if (!props.pagesById) return out;
+    const seen = new Set<string>();
+    for (const p of props.pagesById.values()) {
+      if (p.trashed || seen.has(p.id)) continue;
+      if (text.includes('@' + (p.title || 'Untitled'))) {
+        seen.add(p.id);
+        out.push({ id: p.id, title: p.title || 'Untitled' });
+      }
+    }
+    return out.slice(0, 8);
+  }
 
   // Document selection sync: attach selection as a chip over chat input
   useEffect(() => {
@@ -238,12 +300,16 @@ export default function AiChatPanel(props: {
     setSteps([]);
     setTraceOpen(true);
     try {
+      const refs = resolveMentions(text);
+      const refBlock = refs.length
+        ? 'Referenced pages (read them with get_page first):\n' + refs.map((m) => `- ${m.title} (id: ${m.id})`).join('\n') + '\n\n'
+        : '';
       const activeQ = quote || autoQuote;
       const quoteBlock = activeQ ? `Context quote:\n${activeQ}\n\n` : '';
       const filesBlock = files.length
         ? 'Attached files:\n' + files.filter((f) => f.text).slice(0, 3).map((f) => `--- ${f.name} ---\n${f.text.slice(0, 4000)}`).join('\n') + '\n\n'
         : '';
-      const fullTask = isRetry && reuseTask ? reuseTask : (quoteBlock + filesBlock + text);
+      const fullTask = isRetry && reuseTask ? reuseTask : (refBlock + quoteBlock + filesBlock + text);
       const r = await api.createAIRun({
         threadId: id,
         task: fullTask,
@@ -487,10 +553,10 @@ export default function AiChatPanel(props: {
                   <button
                     type="button"
                     className="ai-zero-item"
-                    onClick={() => void runAsAgent(t('Add 3 realistic sample rows to this collection that match its schema.'))}
+                    onClick={() => void runAsAgent(t('Analyze this collection for patterns, bottlenecks, and actionable insights.'))}
                   >
-                    <span className="ai-zero-badge">➕</span>
-                    <span className="ai-zero-label">{t('Add sample rows')}</span>
+                    <span className="ai-zero-badge">🔍</span>
+                    <span className="ai-zero-label">{t('Analyze for insights')}</span>
                   </button>
                 </>
               ) : currentPage ? (
@@ -502,6 +568,14 @@ export default function AiChatPanel(props: {
                   >
                     <span className="ai-zero-badge">📝</span>
                     <span className="ai-zero-label">{t('Summarize this page')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ai-zero-item"
+                    onClick={() => void runAsAgent(t('Translate this page'))}
+                  >
+                    <span className="ai-zero-badge">🌐</span>
+                    <span className="ai-zero-label">{t('Translate this page')}</span>
                   </button>
                   <button
                     type="button"
@@ -523,40 +597,44 @@ export default function AiChatPanel(props: {
               </button>
             </div>
 
-            <div className="ai-zero-section">{t('Suggested')}</div>
-            <div className="ai-zero-list">
-              <button
-                type="button"
-                className="ai-zero-item"
-                onClick={() => void runAsAgent(t('Create a Tasks Tracker database with Status (Todo, In progress, Done), Priority, Assignee, and Due date, plus 3 sample tasks.'))}
-              >
-                <span className="ai-zero-badge" data-tone="green">✓</span>
-                <span className="ai-zero-label">{t('Tasks Tracker')}</span>
-              </button>
-              <button
-                type="button"
-                className="ai-zero-item"
-                onClick={() => void runAsAgent(t('Create a Projects database with Status, Owner, Start date, End date, and Summary, plus 3 sample projects.'))}
-              >
-                <span className="ai-zero-badge" data-tone="blue">◎</span>
-                <span className="ai-zero-label">{t('Projects')}</span>
-              </button>
-              <button
-                type="button"
-                className="ai-zero-item"
-                onClick={() => void runAsAgent(t('Create a Knowledge Base collection with Category, Tags, Summary, and Status, plus 3 starter entries.'))}
-              >
-                <span className="ai-zero-badge" data-tone="purple">✦</span>
-                <span className="ai-zero-label">{t('Knowledge Base')}</span>
-              </button>
-            </div>
+            {isCollectionPage && (
+              <>
+                <div className="ai-zero-section">{t('Suggested')}</div>
+                <div className="ai-zero-list">
+                  {COLLECTION_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className="ai-zero-item"
+                      onClick={() => void applyCollectionPreset(preset, props.pageId)}
+                    >
+                      <span className="ai-zero-badge" data-tone={preset.tone}>{preset.badge}</span>
+                      <span className="ai-zero-label">{preset.label()}</span>
+                    </button>
+                  ))}
+                  {collectionTemplates.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      className="ai-zero-item"
+                      onClick={() => void instantiateCollectionTemplate(tpl.id)}
+                    >
+                      <span className="ai-zero-badge">
+                        <PageIcon icon={tpl.icon} size={14} fallback={<Table2 size={14} />} />
+                      </span>
+                      <span className="ai-zero-label">{tpl.title || t('Untitled')}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
 
             <div className="ai-zero-divider" />
             <div className="ai-zero-list">
               <button
                 type="button"
                 className="ai-zero-item"
-                onClick={() => setWorkspaceModalOpen(true)}
+                onClick={triggerMentionInInput}
               >
                 <span className="ai-zero-badge" data-tone="plain">↗</span>
                 <span className="ai-zero-label">{t('Link workspace page or collection')}</span>
@@ -569,7 +647,7 @@ export default function AiChatPanel(props: {
           {i === traceAt && traceEl}
           <div className={m.role === 'user' ? 'ai-msg user' : 'ai-msg assistant'}>
             {m.role === 'user' ? (
-              <div className="ai-bubble-user">{m.content}</div>
+              <div className="ai-bubble-user">{renderTextWithMentions(m.content, props.pagesById, true)}</div>
             ) : (
               <div className="ai-bubble-ai">
                 <AiMarkdown text={m.content} />
@@ -683,21 +761,91 @@ export default function AiChatPanel(props: {
           ))}
         </div>
       )}
-      <div className="ai-panel-foot">
-        <div className="ai-composer">
-          <textarea
-            ref={inputBoxRef}
-            value={input}
-            rows={2}
-            onChange={(e) => {
-              setInput(e.target.value);
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
+      <div className="ai-panel-foot" style={{ position: 'relative' }}>
+        {mentionQuery !== null && mentionMatches().length > 0 && (
+          <div
+            className="ai-mention-menu"
+            style={{
+              position: 'absolute',
+              bottom: 'calc(100% - 4px)',
+              left: 12,
+              right: 12,
+              zIndex: 400,
+              background: 'var(--card)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+              maxHeight: 220,
+              overflow: 'auto',
             }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void runAsAgent(); } }}
-            placeholder={showZeroState ? t('Describe what you want to build or ask…') : t('Ask AI')}
-            disabled={agentBusy}
-          />
+          >
+            {mentionMatches().map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => pickMention(p)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  padding: '8px 12px',
+                  fontSize: 13,
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--hover)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                <PageIcon
+                  icon={p.icon}
+                  size={14}
+                  fallback={p.type === 'collection' ? <Table2 size={14} /> : <FileText size={14} />}
+                />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.title || t('Untitled')}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="ai-composer">
+          <div className="ai-input-wrap">
+            {input && (
+              <div className="ai-input-backdrop" aria-hidden="true">
+                {renderTextWithMentions(input, props.pagesById, false)}
+                {input.endsWith('\n') ? '\n ' : ''}
+              </div>
+            )}
+            <textarea
+              ref={inputBoxRef}
+              className={input ? 'ai-input-mirrored' : undefined}
+              value={input}
+              rows={2}
+              onChange={(e) => {
+                onInputChange(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && mentionQuery !== null) {
+                  e.preventDefault();
+                  setMentionQuery(null);
+                  return;
+                }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  setMentionQuery(null);
+                  void runAsAgent();
+                }
+              }}
+              placeholder={showZeroState ? t('Describe what you want to build or ask…') : t('Ask AI')}
+              disabled={agentBusy}
+            />
+          </div>
           <div className="ai-composer-bar">
             <div style={{ position: 'relative', display: 'inline-flex' }} ref={attachMenuRef}>
               <button
@@ -714,17 +862,19 @@ export default function AiChatPanel(props: {
                   className="menu"
                   style={{
                     position: 'absolute',
+                    top: 'auto',
+                    right: 'auto',
                     bottom: 'calc(100% + 6px)',
                     left: 0,
-                    zIndex: 60,
-                    minWidth: 180,
+                    zIndex: 400,
+                    minWidth: 190,
                   }}
                 >
                   <button
                     type="button"
                     onClick={() => {
                       setAttachMenuOpen(false);
-                      setInput((prev) => (prev ? (prev.endsWith(' ') ? prev + '@' : prev + ' @') : '@'));
+                      triggerMentionInInput();
                     }}
                   >
                     📄 {t('Mention note (@)')}
