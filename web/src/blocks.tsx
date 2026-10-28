@@ -9,6 +9,7 @@ import CollectionView, { type EmbedState } from './components/CollectionView';
 import { plural, t } from './i18n';
 import { api } from './api';
 import AiErrorCard from './components/AiErrorCard';
+import { useAiEnabled } from './aiState';
 
 // Custom salt.md block types (Welle 17): callout, table of contents, bookmark.
 // Columns are ours (columnsSpec, at the end of this file) and wired in pageLink.tsx.
@@ -632,6 +633,7 @@ export const aiBlockSpec = createReactBlockSpec(
   {
     render: (props) => {
       const { block, editor, contentRef } = props;
+      const aiEnabled = useAiEnabled();
       const { pageId } = useBlockCtx();
       const title = String((block.props as { title?: string }).title ?? '');
       const prompt = String((block.props as { prompt?: string }).prompt ?? '');
@@ -733,6 +735,10 @@ export const aiBlockSpec = createReactBlockSpec(
           );
         }
       };
+
+      if (!aiEnabled) {
+        return <div className="bn-ai-block-content" ref={contentRef} />;
+      }
 
       return (
         <div className="bn-ai-block" data-editing={editing ? 'true' : 'false'}>
@@ -843,11 +849,6 @@ export const aiBlockSpec = createReactBlockSpec(
                   </button>
                 </div>
               </div>
-              {title && prompt && (
-                <div className="bn-ai-block-prompt-preview" contentEditable={false}>
-                  {prompt}
-                </div>
-              )}
             </>
           )}
           <div className="bn-ai-block-content" ref={contentRef} />

@@ -775,6 +775,10 @@
 }
 
 /* Inline AI Document Block */
+.bn-ai-block,
+.bn-block-content[data-content-type="ai"] {
+  width: 100%;
+}
 .bn-ai-block {
   margin: 12px 0;
   border: 1px solid var(--border);

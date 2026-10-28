@@ -323,7 +323,7 @@ export const api = {
     req<{ ok: boolean }>(`/api/workspaces/${workspaceId}/break-glass/${grantId}`, { method: 'DELETE' }),
   createUser: (u: { name: string; email: string; password: string; isAdmin: boolean; workspaces?: { id: string; role: string }[] }) =>
     req<User>('/api/users', { method: 'POST', body: JSON.stringify(u) }),
-  updateUser: (id: string, patch: Partial<{ name: string; email: string; color: string; avatar: string; password: string; currentPassword: string; isAdmin: boolean }>) =>
+  updateUser: (id: string, patch: Partial<{ name: string; email: string; color: string; avatar: string; password: string; currentPassword: string; isAdmin: boolean; aiDisabled: boolean }>) =>
     req<User>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteUser: (id: string) => req<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
   // Lifecycle (W105): consequences before deletion, deactivation as the normal

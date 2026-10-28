@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { t } from '../i18n';
+import { useAiEnabled } from '../aiState';
 
 interface Anchor {
   blockId: string;
@@ -14,6 +15,7 @@ interface Anchor {
 // stored as a chat. Editing the result afterwards is the side chat's job.
 export default function AiEmptyLine(props: { editor: any; pageId: string; canEdit: boolean }) {
   const { editor, pageId, canEdit } = props;
+  const aiEnabled = useAiEnabled();
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [prompt, setPrompt] = useState('');
   const [sent, setSent] = useState('');
@@ -46,7 +48,7 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
 
   // Space on an empty paragraph opens the panel instead of typing a blank.
   useEffect(() => {
-    if (!canEdit) return;
+    if (!canEdit || !aiEnabled) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== ' ' || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       const dom: HTMLElement | undefined = editor.prosemirrorView?.dom;
@@ -69,7 +71,7 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, canEdit]);
+  }, [editor, canEdit, aiEnabled]);
 
   // The panel is fixed-positioned over its line, so it follows scroll/resize.
   useEffect(() => {

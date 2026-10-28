@@ -19,6 +19,7 @@ import { plural, t } from '../i18n';
 import { openPage, openPageAux, peekPanel } from '../pageOpen';
 import AgentConnectModal from './AgentConnect';
 import AiThreadList, { type AiThread } from './AiThreadList';
+import { useAiEnabled } from '../aiState';
 import BreakGlassLog from './BreakGlassLog';
 import TemplateGallery from './TemplateGallery';
 import BlueprintLibrary from './BlueprintLibrary';
@@ -1189,6 +1190,7 @@ export default function Sidebar({
   };
 
   const activeWs = workspaces.find((w) => w.id === currentWs);
+  const aiEnabled = useAiEnabled();
   // A viewer may only read the workspace; the server refuses anything new at
   // its top level, so the sidebar offers nothing that would fail.
   const canCreateTop = activeWs?.role !== 'viewer';
@@ -1437,20 +1439,22 @@ export default function Sidebar({
           )}
         </div>
       </div>
-      <button className="ai-search" onClick={onOpenSearch} title={t('Search or ask')}>
+      <button className="ai-search" onClick={onOpenSearch} title={aiEnabled ? t('Search or ask') : t('Search')}>
         <Search size={15} />
-        <span style={{ flex: 1, textAlign: 'left' }}>{t('Search or ask')}</span>
+        <span style={{ flex: 1, textAlign: 'left' }}>{aiEnabled ? t('Search or ask') : t('Search')}</span>
         <span className="kbd">{chordFor('search.open')}</span>
       </button>
-      <div className="ai-side-tabs" role="tablist" aria-label={t('Sidebar mode')}>
-        <button className={'ai-side-tab' + (sidebarMode === 'docs' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'docs'} onClick={() => onSidebarModeChange?.('docs')}>
-          <Home size={15} /> {t('Home')}
-        </button>
-        <button className={'ai-side-tab' + (sidebarMode === 'chats' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'chats'} onClick={() => onSidebarModeChange?.('chats')}>
-          <MessageCircle size={15} /> {t('Chat')}
-        </button>
-      </div>
-      {sidebarMode === 'chats' && (
+      {aiEnabled && (
+        <div className="ai-side-tabs" role="tablist" aria-label={t('Sidebar mode')}>
+          <button className={'ai-side-tab' + (sidebarMode === 'docs' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'docs'} onClick={() => onSidebarModeChange?.('docs')}>
+            <Home size={15} /> {t('Home')}
+          </button>
+          <button className={'ai-side-tab' + (sidebarMode === 'chats' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'chats'} onClick={() => onSidebarModeChange?.('chats')}>
+            <MessageCircle size={15} /> {t('Chat')}
+          </button>
+        </div>
+      )}
+      {aiEnabled && sidebarMode === 'chats' && (
         <div className="tree">
           <button className="ai-newchat" onClick={() => onNewChat?.()}>
             <Plus size={15} /> {t('New chat')}

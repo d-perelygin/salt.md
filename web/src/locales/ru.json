@@ -1640,5 +1640,6 @@
   "Your IP (as the server sees it)": "Ваш IP (как его видит сервер)",
   "Your name": "Ваше имя",
   "your password right now": "ваш пароль прямо сейчас",
-  "Your receiver uses it to check that a message really came from us. We send it as a signature in the X-Salt-Signature header.": "Ваш получатель использует его, чтобы проверить, что сообщение действительно пришло от нас. Мы отправляем его как подпись в заголовке X-Salt-Signature."
+  "Your receiver uses it to check that a message really came from us. We send it as a signature in the X-Salt-Signature header.": "Ваш получатель использует его, чтобы проверить, что сообщение действительно пришло от нас. Мы отправляем его как подпись в заголовке X-Salt-Signature.",
+  "Disable AI": "Отключить ИИ"
 }

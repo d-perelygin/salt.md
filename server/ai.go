@@ -27,6 +27,11 @@ func (s *Server) aiEnabled() bool {
 	return s.setting("ai_enabled", "1") == "1"
 }
 
+// aiEnabledForUser reports whether AI is enabled both globally and for the user.
+func (s *Server) aiEnabledForUser(u *user) bool {
+	return u != nil && !u.AIDisabled && s.aiEnabled()
+}
+
 // aiWorkspaceEnabled lets a workspace opt out. Empty means on.
 func (s *Server) aiWorkspaceEnabled(wsID string) bool {
 	if wsID == "" {
@@ -124,6 +129,10 @@ type aiUserSettings struct {
 
 func (s *Server) handleGetAISettings(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
+	if !s.aiEnabledForUser(u) {
+		httpError(w, 403, "AI is disabled")
+		return
+	}
 	row := s.db.QueryRow(`SELECT base_url, model, format, temperature, api_key_enc, approval FROM user_ai_settings WHERE user_id = ?`, u.ID)
 	var bs, model, format, enc, approval string
 	var temp float64
@@ -145,6 +154,10 @@ func (s *Server) handleGetAISettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePutAISettings(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
+	if !s.aiEnabledForUser(u) {
+		httpError(w, 403, "AI is disabled")
+		return
+	}
 	var body struct {
 		BaseURL     *string  `json:"baseUrl"`
 		Model       *string  `json:"model"`
@@ -224,7 +237,7 @@ func normalizeAIBaseURL(raw string) string {
 
 // resolveAIConfig returns base_url, model, format, temperature, apiKey, approval for a user.
 func (s *Server) resolveAIConfig(u *user) (string, string, string, float64, string, string, error) {
-	if !s.aiEnabled() {
+	if !s.aiEnabledForUser(u) {
 		return "", "", "", 0, "", "", fmt.Errorf("AI is disabled")
 	}
 	var bs, model, format, enc, approval string
@@ -274,6 +287,10 @@ func (s *Server) resolveAIConfig(u *user) (string, string, string, float64, stri
 
 func (s *Server) handleListAIThreads(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
+	if !s.aiEnabledForUser(u) {
+		writeJSON(w, []any{})
+		return
+	}
 	pageID := r.URL.Query().Get("page_id")
 	wsID := r.URL.Query().Get("workspace_id")
 	q := `SELECT t.id, t.user_id, t.workspace_id, t.page_id, t.title, t.created_at, t.updated_at, t.last_read_at,
@@ -369,6 +386,10 @@ func (s *Server) handleListAIThreadRuns(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleCreateAIThread(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
+	if !s.aiEnabledForUser(u) {
+		httpError(w, 403, "AI is disabled")
+		return
+	}
 	var body struct {
 		WorkspaceID string `json:"workspaceId"`
 		PageID      string `json:"pageId"`
@@ -542,7 +563,7 @@ func (s *Server) aiMentionContext(r *http.Request, pageID string, mentions []str
 
 func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
-	if !s.aiEnabled() {
+	if !s.aiEnabledForUser(u) {
 		httpError(w, 403, "AI is disabled")
 		return
 	}
@@ -1329,7 +1350,7 @@ type aiGenerateRequest struct {
 // Document interactions (AI Block, inline rewrite) stay out of the chat list.
 func (s *Server) handleAIGenerate(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
-	if !s.aiEnabled() {
+	if !s.aiEnabledForUser(u) {
 		httpError(w, 403, "AI is disabled")
 		return
 	}
@@ -1636,7 +1657,7 @@ var runCancel = map[string]context.CancelFunc{}
 
 func (s *Server) handleCreateAIRun(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
-	if !s.aiEnabled() {
+	if !s.aiEnabledForUser(u) {
 		httpError(w, 403, "AI disabled")
 		return
 	}
@@ -1910,6 +1931,10 @@ func (s *Server) handleCancelAIRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUploadAIAttachment(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
+	if !s.aiEnabledForUser(u) {
+		httpError(w, 403, "AI is disabled")
+		return
+	}
 	// reuse multipart file
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		httpError(w, 400, err.Error())

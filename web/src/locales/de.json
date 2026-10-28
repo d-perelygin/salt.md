@@ -1561,5 +1561,6 @@
   "Your IP (as the server sees it)": "Deine IP (Server-Sicht)",
   "Your name": "Dein Name",
   "your password right now": "dein jetziges Passwort",
-  "Your receiver uses it to check that a message really came from us. We send it as a signature in the X-Salt-Signature header.": "Deine Gegenstelle prüft damit, ob eine Nachricht wirklich von uns kam. Wir schicken es als Signatur im Kopffeld X-Salt-Signature."
+  "Your receiver uses it to check that a message really came from us. We send it as a signature in the X-Salt-Signature header.": "Deine Gegenstelle prüft damit, ob eine Nachricht wirklich von uns kam. Wir schicken es als Signatur im Kopffeld X-Salt-Signature.",
+  "Disable AI": "KI deaktivieren"
 }

@@ -48,7 +48,7 @@ function ConfBlock({ title, text }: { title: string; text: string }) {
 // beside it, so an admin who needs 45 days is not told to pick 30 or 60.
 const AUDIT_PRESETS = ['0', '30', '60', '180', '365'];
 
-export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
+export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => void; aiDisabled?: boolean }) {
   useExclusiveModal(onClose);
   const [s, setS] = useState<Record<string, string>>({});
   const [trustProxy, setTrustProxy] = useState(false);
@@ -265,6 +265,7 @@ export function AdminSettingsModal({ onClose }: { onClose: () => void }) {
         oidcName: s.oidcName,
       });
       toast.success(t('Settings saved'));
+      window.dispatchEvent(new CustomEvent('salt:me-reload'));
       onClose();
     } catch (e) {
       toast((e as Error).message || t('Saving failed'));
@@ -365,29 +366,33 @@ ingress:
                     <label>{t('Sign-in session length (days)')}</label>
                     <input className="prop-input" type="number" min={1} max={365} value={s.sessionDays} onChange={(e) => set('sessionDays', e.target.value)} />
 
-                    <h3 style={{ marginTop: 16 }}>{t('AI agent')}</h3>
-                    <label className="check-label">
-                      <input type="checkbox" checked={aiEnabled} onChange={(e) => setAiEnabled(e.target.checked)} />
-                      {t('Enable AI')}
-                    </label>
-                    <label>{t('Default base URL')}</label>
-                    <input className="prop-input" value={aiDefaultBaseUrl} onChange={(e) => setAiDefaultBaseUrl(e.target.value)} />
-                    <label>{t('Default model')}</label>
-                    <input className="prop-input" value={aiDefaultModel} onChange={(e) => setAiDefaultModel(e.target.value)} />
-                    <label className="check-label">
-                      <input type="checkbox" checked={aiAllowInstanceKey} onChange={(e) => setAiAllowInstanceKey(e.target.checked)} />
-                      {t('Allow shared instance key')}
-                    </label>
-                    <label>{t('Instance API key (leave blank to keep)')}</label>
-                    <input
-                      className="prop-input"
-                      type="password"
-                      value={aiInstanceKey}
-                      onChange={(e) => {
-                        setAiInstanceKey(e.target.value);
-                        if (e.target.value.trim()) setAiAllowInstanceKey(true);
-                      }}
-                    />
+                    {!aiDisabled && (
+                      <>
+                        <h3 style={{ marginTop: 16 }}>{t('AI agent')}</h3>
+                        <label className="check-label">
+                          <input type="checkbox" checked={aiEnabled} onChange={(e) => setAiEnabled(e.target.checked)} />
+                          {t('Enable AI')}
+                        </label>
+                        <label>{t('Default base URL')}</label>
+                        <input className="prop-input" value={aiDefaultBaseUrl} onChange={(e) => setAiDefaultBaseUrl(e.target.value)} />
+                        <label>{t('Default model')}</label>
+                        <input className="prop-input" value={aiDefaultModel} onChange={(e) => setAiDefaultModel(e.target.value)} />
+                        <label className="check-label">
+                          <input type="checkbox" checked={aiAllowInstanceKey} onChange={(e) => setAiAllowInstanceKey(e.target.checked)} />
+                          {t('Allow shared instance key')}
+                        </label>
+                        <label>{t('Instance API key (leave blank to keep)')}</label>
+                        <input
+                          className="prop-input"
+                          type="password"
+                          value={aiInstanceKey}
+                          onChange={(e) => {
+                            setAiInstanceKey(e.target.value);
+                            if (e.target.value.trim()) setAiAllowInstanceKey(true);
+                          }}
+                        />
+                      </>
+                    )}
                   </>
                 )}
 

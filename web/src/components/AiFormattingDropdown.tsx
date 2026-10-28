@@ -4,11 +4,13 @@ import { Sparkles, ChevronDown, Check, X, ArrowUp, RefreshCw } from 'lucide-reac
 import { api } from '../api';
 import { t } from '../i18n';
 import AiErrorCard from './AiErrorCard';
+import { useAiEnabled } from '../aiState';
 
 export default function AiFormattingDropdown(props: {
   editor: any;
   pageId: string;
 }) {
+  const aiEnabled = useAiEnabled();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [prompt, setPrompt] = useState('');
@@ -123,6 +125,8 @@ export default function AiFormattingDropdown(props: {
     void run(prompt.trim());
     setPrompt('');
   };
+
+  if (!aiEnabled) return null;
 
   return (
     <div className="ai-fmt-wrap" style={{ position: 'relative' }}>

@@ -60,6 +60,7 @@ import { FilePreview, isPreviewable } from './FilePreview';
 import StructurePanel, { structurePanelOpen, setStructurePanelOpen } from './StructurePanel';
 import { AgentPresence } from './AgentBadge';
 import AiFormattingDropdown from './AiFormattingDropdown';
+import { useAiEnabled } from '../aiState';
 import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
@@ -2372,9 +2373,11 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page.id]);
 
+  const aiEnabled = useAiEnabled();
   if (!provider || !ready) return <div className="editor-loading" />;
   return (
     <BlockContent
+      key={aiEnabled ? 'ai-on' : 'ai-off'}
       provider={provider}
       pageId={page.id}
       seed={seedRef.current}
@@ -2428,6 +2431,7 @@ function BlockContent({
   onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
   onPagesChanged: () => void;
 }) {
+  const aiEnabled = useAiEnabled();
   const editor = useCreateBlockNote({
     schema: saltSchema,
     collaboration: {
@@ -2447,8 +2451,12 @@ function BlockContent({
       // The empty line advertises the one-shot AI panel (AiEmptyLine).
       placeholders: {
         ...coreEn.placeholders,
-        default: t("Press 'space' for AI or '/' for commands"),
-        emptyDocument: t("Press 'space' for AI or '/' for commands"),
+        ...(aiEnabled
+          ? {
+              default: t("Press 'space' for AI or '/' for commands"),
+              emptyDocument: t("Press 'space' for AI or '/' for commands"),
+            }
+          : {}),
       },
     },
   });
@@ -2636,10 +2644,11 @@ function BlockContent({
     id: 'ai.ask',
     keys: ['mod+j'],
     whileTyping: true,
+    when: () => aiEnabled,
     label: () => t('Ask AI'),
     group: () => t('AI'),
     run: () => {
-      if (modalOpen()) return false;
+      if (!aiEnabled || modalOpen()) return false;
       askAi();
       return true;
     },
@@ -2676,33 +2685,38 @@ function BlockContent({
   }, [editor, pageId]);
 
   const getSlashItems = async (query: string) => {
-    const custom = [
-      {
-        title: t('AI Block'),
-        subtext: t('Generate content from any instruction'),
-        aliases: ['ai', 'ии', 'generate', 'сгенерировать', 'написать', 'aiblock', 'ки', 'искусственный интеллект'], // i18n-ok: search aliases, deliberately trilingual
-        group: 'AI',
-        icon: <Sparkles size={18} />,
-        onItemClick: () => {
-          insertOrUpdateBlockForSlashMenu(editor, {
-            type: 'ai',
-            props: {
-              prompt: selectedNow(),
-              title: '',
-              status: 'draft',
+    const aiItems = aiEnabled
+      ? [
+          {
+            title: t('AI Block'),
+            subtext: t('Generate content from any instruction'),
+            aliases: ['ai', 'ии', 'generate', 'сгенерировать', 'написать', 'aiblock', 'ки', 'искусственный интеллект'], // i18n-ok: search aliases, deliberately trilingual
+            group: 'AI',
+            icon: <Sparkles size={18} />,
+            onItemClick: () => {
+              insertOrUpdateBlockForSlashMenu(editor, {
+                type: 'ai',
+                props: {
+                  prompt: selectedNow(),
+                  title: '',
+                  status: 'draft',
+                },
+              } as never);
             },
-          } as never);
-        },
-      },
-      {
-        title: t('Ask AI'),
-        subtext: t('Ask about the page or selection'),
-        aliases: ['ask', 'ai', 'спросить', 'вопрос', 'ии', 'askai'], // i18n-ok: search aliases, deliberately trilingual
-        group: 'AI',
-        icon: <Sparkles size={18} />,
-        badge: '⌘J',
-        onItemClick: askAi,
-      },
+          },
+          {
+            title: t('Ask AI'),
+            subtext: t('Ask about the page or selection'),
+            aliases: ['ask', 'ai', 'спросить', 'вопрос', 'ии', 'askai'], // i18n-ok: search aliases, deliberately trilingual
+            group: 'AI',
+            icon: <Sparkles size={18} />,
+            badge: '⌘J',
+            onItemClick: askAi,
+          },
+        ]
+      : [];
+    const custom = [
+      ...aiItems,
       {
         title: t('Diagram'),
         subtext: t('A flow chart written as text'),

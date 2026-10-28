@@ -336,4 +336,48 @@ func TestDeleteAIThreadCleansRuns(t *testing.T) {
 	}
 }
 
+func TestAIDisabledForUser(t *testing.T) {
+	s := testServer(t)
+	_, adminCookie := signedIn(t, s, "admin@example.com")
+	memberID, memberCookie := signedIn(t, s, "member@example.com")
+
+	call := func(cookie, method, url, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, url, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Cookie", cookie)
+		s.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Admin disables AI for member.
+	rec := call(adminCookie, "PATCH", "/api/users/"+memberID, `{"aiDisabled":true}`)
+	if rec.Code != 200 {
+		t.Fatalf("admin disable AI for member: got %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+
+	// Member checks /api/me -> aiEnabled is false.
+	meRec := call(memberCookie, "GET", "/api/me", "")
+	var me map[string]any
+	json.Unmarshal(meRec.Body.Bytes(), &me)
+	if me["aiEnabled"] != false {
+		t.Fatalf("expected aiEnabled=false for member, got %v", me["aiEnabled"])
+	}
+
+	// Member cannot re-enable AI for themselves via PATCH /api/users/{id}.
+	call(memberCookie, "PATCH", "/api/users/"+memberID, `{"aiDisabled":false}`)
+	if u := s.userByID(memberID); u == nil || !u.AIDisabled {
+		t.Fatalf("member should not be able to re-enable AI for themselves")
+	}
+
+	// Member cannot use AI endpoints.
+	if r := call(memberCookie, "POST", "/api/ai/runs", `{"task":"test"}`); r.Code != 403 {
+		t.Fatalf("expected 403 on /api/ai/runs for aiDisabled user, got %d", r.Code)
+	}
+	if r := call(memberCookie, "GET", "/api/ai/settings", ""); r.Code != 403 {
+		t.Fatalf("expected 403 on /api/ai/settings for aiDisabled user, got %d", r.Code)
+	}
+}
+
+
 

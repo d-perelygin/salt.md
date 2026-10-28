@@ -54,6 +54,7 @@ import {
 import { pageIdFromPathname, pagePath, pageSlugTitle } from './pageUrl';
 import ShortcutSheet from './components/ShortcutSheet';
 import { guardDrops } from './dropFiles';
+import { setAiEnabledState } from './aiState';
 
 /** Injected by the build; false everywhere except the website's framed demo. */
 declare const __SALT_DEMO__: boolean;
@@ -132,6 +133,8 @@ type Theme = 'light' | 'dark';
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
+  const aiEnabled = me?.aiEnabled !== false && !me?.user?.aiDisabled;
+  setAiEnabledState(aiEnabled);
   const [pages, setPages] = useState<PageMeta[] | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -295,6 +298,7 @@ export default function App() {
   const [aiQuote, setAiQuote] = useState<string | null>(null);
   useEffect(() => {
     const onAsk = (e: Event) => {
+      if (!aiEnabled) return;
       const d = (e as CustomEvent<{ selection?: string }>).detail;
       if (d?.selection) setAiQuote(d.selection);
       else setAiQuote(null);
@@ -302,7 +306,7 @@ export default function App() {
     };
     window.addEventListener('salt:ai-ask', onAsk);
     return () => window.removeEventListener('salt:ai-ask', onAsk);
-  }, []);
+  }, [aiEnabled]);
   // Sidebar mode: document tree vs unified AI chat list (global + per-doc).
   const [sidebarMode, setSidebarMode] = useState<'docs' | 'chats'>(() => {
     try {
@@ -353,16 +357,23 @@ export default function App() {
     sidebarModeRef.current = sidebarMode;
     activeChatRef.current = activeChatId;
   }, [sidebarMode, activeChatId]);
+  useEffect(() => {
+    if (!aiEnabled) {
+      if (sidebarMode === 'chats') setSidebarMode('docs');
+      if (aiChatOpen) setAiChatOpen(false);
+    }
+  }, [aiEnabled, sidebarMode, aiChatOpen]);
   const loadAiThreads = useCallback(async () => {
+    if (!aiEnabled) return;
     try {
       setAiThreads((await api.listAIThreads()) as AiThread[]);
     } catch {
       /* keep current */
     }
-  }, []);
+  }, [aiEnabled]);
   useEffect(() => {
-    if (me?.authenticated) void loadAiThreads();
-  }, [me?.authenticated, loadAiThreads]);
+    if (me?.authenticated && aiEnabled) void loadAiThreads();
+  }, [me?.authenticated, aiEnabled, loadAiThreads]);
   // Deep links to a chat (?chat=<id>, from "Copy link" / "Open in new tab"):
   // land straight in the Chats view with that thread selected.
   useEffect(() => {
@@ -600,6 +611,14 @@ export default function App() {
       })
       .catch(() => setLoadError(true));
   }, [loadAll]);
+
+  useEffect(() => {
+    const onMeReload = () => {
+      void api.me().then(setMe).catch(() => {});
+    };
+    window.addEventListener('salt:me-reload', onMeReload);
+    return () => window.removeEventListener('salt:me-reload', onMeReload);
+  }, []);
 
   useEffect(() => {
     const onUnauthorized = () => {
@@ -2095,7 +2114,7 @@ export default function App() {
         />
       )}
       <main className="main">
-        {sidebarMode === 'chats' ? (
+        {aiEnabled && sidebarMode === 'chats' ? (
           <AiChatView
             threadId={activeChatId}
             pagesById={pagesById}
@@ -2266,14 +2285,14 @@ export default function App() {
         />
       )}
       {helpOpen && <ShortcutSheet onClose={() => setHelpOpen(false)} />}
-      {sidebarMode !== 'chats' && (
+      {aiEnabled && sidebarMode !== 'chats' && (
         <button onMouseDown={(e) => e.preventDefault()} onClick={() => {
           const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
           if (sel) setAiQuote(sel);
           setAiChatOpen(true);
         }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 999, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}>✨</button>
       )}
-      {aiChatOpen && sidebarMode === 'docs' && (
+      {aiEnabled && aiChatOpen && sidebarMode === 'docs' && (
         <AiChatPanel
           pageId={currentId ?? undefined}
           threadId={activeChatId}

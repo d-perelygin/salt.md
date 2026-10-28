@@ -113,6 +113,8 @@ export interface User {
   orgRole?: 'owner' | 'admin' | 'member';
   /** Deactivated: no sign-in, but everything stays attributable. */
   disabled?: boolean;
+  /** AI features turned off specifically for this account by an admin. */
+  aiDisabled?: boolean;
 }
 
 export interface Me {
@@ -122,6 +124,8 @@ export interface Me {
   version: string;
   // May non-admins create workspaces of their own? (instance setting, W97)
   allowUserWorkspaces?: boolean;
+  /** Whether AI features are active for the current session (instance + user). */
+  aiEnabled?: boolean;
   /** Language and time preferences of this account (W112). Empty fields mean
    *  automatic — see server/prefs.go. */
   prefs?: Prefs;

@@ -762,6 +762,9 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "ai_threads", "last_read_at", `last_read_at TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate ai_threads.last_read_at: %w", err)
 	}
+	if err := ensureColumn(db, "users", "ai_disabled", `ai_disabled INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return nil, fmt.Errorf("migrate users.ai_disabled: %w", err)
+	}
 	db.Exec(`INSERT INTO schema_meta (key, value) VALUES ('version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, Version)
 	return db, nil

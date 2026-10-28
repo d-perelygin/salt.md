@@ -335,7 +335,7 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
       {modal === 'twofa' && <TwoFAModal onClose={() => setModal(null)} />}
       {modal === 'calendar' && <CalendarSubModal onClose={() => setModal(null)} />}
       {modal === 'langtime' && <LanguageTimeModal onClose={() => setModal(null)} />}
-      {modal === 'settings' && <AdminSettingsModal onClose={() => setModal(null)} />}
+      {modal === 'settings' && <AdminSettingsModal onClose={() => setModal(null)} aiDisabled={user.aiDisabled} />}
     </div>
   );
 }
@@ -574,6 +574,17 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
     }
   };
 
+  const toggleAiDisabled = async (u: User) => {
+    setError(null);
+    try {
+      await api.updateUser(u.id, { aiDisabled: !u.aiDisabled });
+      window.dispatchEvent(new CustomEvent('salt:me-reload'));
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   // Deactivating is the normal case when someone leaves: sign-in closed,
   // sessions ended — but everything stays attributable and nothing is orphaned.
   const toggleDisabled = async (u: User) => {
@@ -728,6 +739,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
                       <span className="users-li-name">
                         {u.name}
                         {u.disabled && <span className="badge">{t('deactivated')}</span>}
+                        {u.aiDisabled && <span className="badge">{t('AI disabled')}</span>}
                         {u.orgRole === 'owner'
                           ? <span className="badge">{t('owner')}</span>
                           : u.isAdmin && <span className="badge">{t('admin')}</span>}
@@ -774,6 +786,11 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
                     {sel.id !== me.id && sel.orgRole !== 'owner' && (
                       <button className="btn-sm" onClick={() => void toggleDisabled(sel)}>
                         {sel.disabled ? t('Reactivate') : t('Deactivate account')}
+                      </button>
+                    )}
+                    {!me.aiDisabled && sel.orgRole !== 'owner' && (
+                      <button className="btn-sm" onClick={() => void toggleAiDisabled(sel)}>
+                        {sel.aiDisabled ? t('Enable AI') : t('Disable AI')}
                       </button>
                     )}
                     {/* Deleting destroys the account's personal space. That is

@@ -36,6 +36,8 @@ type user struct {
 	// attributable. The normal case when somebody leaves (see
 	// lifecycle_account.go).
 	Disabled bool `json:"disabled"`
+	// AIDisabled: AI features turned off specifically for this account by an admin.
+	AIDisabled bool `json:"aiDisabled,omitempty"`
 	// OrgRole is the instance role: owner | admin | member. It comes from
 	// org_members and is loaded alongside so the interface can show owner
 	// actions without needing a second query for it.
@@ -139,15 +141,16 @@ func (s *Server) createSession(userID string) (string, error) {
 
 func (s *Server) userByID(id string) *user {
 	var u user
-	var isAdmin, disabled int
-	err := s.db.QueryRow(`SELECT u.id, u.email, u.name, u.color, u.avatar, u.is_admin, u.disabled, COALESCE(m.role, '')
+	var isAdmin, disabled, aiDisabled int
+	err := s.db.QueryRow(`SELECT u.id, u.email, u.name, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
 		FROM users u LEFT JOIN org_members m ON m.user_id = u.id WHERE u.id = ?`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.Color, &u.Avatar, &isAdmin, &disabled, &u.OrgRole)
+		Scan(&u.ID, &u.Email, &u.Name, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole)
 	if err != nil {
 		return nil
 	}
 	u.IsAdmin = isAdmin != 0
 	u.Disabled = disabled != 0
+	u.AIDisabled = aiDisabled != 0
 	if u.OrgRole == "" {
 		// Account with no organisation row (legacy): the old column decides.
 		u.OrgRole = roleMember
@@ -324,6 +327,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"prefs":               prefs,
 		"version":             Version,
 		"allowUserWorkspaces": s.loadSettings().AllowUserWorkspaces,
+		"aiEnabled":           s.aiEnabledForUser(u),
 	})
 }
 
@@ -515,7 +519,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.Query(`SELECT u.id, u.email, u.name, u.color, u.avatar, u.is_admin, u.disabled, COALESCE(m.role, '')
+	rows, err := s.db.Query(`SELECT u.id, u.email, u.name, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
 		FROM users u LEFT JOIN org_members m ON m.user_id = u.id ORDER BY u.created_at`)
 	if err != nil {
 		httpError(w, 500, err.Error())
@@ -525,13 +529,14 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	users := []user{}
 	for rows.Next() {
 		var u user
-		var isAdmin, disabled int
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Color, &u.Avatar, &isAdmin, &disabled, &u.OrgRole); err != nil {
+		var isAdmin, disabled, aiDisabled int
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole); err != nil {
 			httpError(w, 500, err.Error())
 			return
 		}
 		u.IsAdmin = isAdmin != 0
 		u.Disabled = disabled != 0
+		u.AIDisabled = aiDisabled != 0
 		if u.OrgRole == "" {
 			u.OrgRole = roleMember
 			if u.IsAdmin {
@@ -621,6 +626,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		Password        *string `json:"password"`
 		CurrentPassword *string `json:"currentPassword"`
 		IsAdmin         *bool   `json:"isAdmin"`
+		AIDisabled      *bool   `json:"aiDisabled"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
@@ -714,6 +720,13 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		if org := s.defaultOrg(); org != "" {
 			s.db.Exec(`UPDATE org_members SET role = ? WHERE org_id = ? AND user_id = ? AND role != ?`, role, org, id, roleOwner)
 		}
+	}
+	if body.AIDisabled != nil && me.IsAdmin && !me.AIDisabled {
+		v := 0
+		if *body.AIDisabled {
+			v = 1
+		}
+		s.db.Exec(`UPDATE users SET ai_disabled = ? WHERE id = ?`, v, id)
 	}
 	if body.Email != nil {
 		s.db.Exec(`UPDATE users SET email = ?, email_verified = 0 WHERE id = ?`, newEmail, id)
