@@ -944,3 +944,7 @@
 }
 
 
+
+::highlight(ai-doc-selection) {
+  background-color: color-mix(in srgb, var(--accent, #2f7d4f) 30%, transparent);
+}

@@ -75,6 +75,9 @@ export default function AiChatPanel(props: {
     const onSelection = (e: Event) => {
       const text = ((e as CustomEvent<{ text?: string }>).detail?.text || '').trim();
       if (!text) {
+        // Focusing the chat input moves the selection out of the document;
+        // that must not drop the quote the user is about to write about.
+        if (document.activeElement?.closest('.ai-panel')) return;
         setAutoQuote('');
         return;
       }
@@ -84,6 +87,31 @@ export default function AiChatPanel(props: {
     };
     window.addEventListener('salt:editor-selection', onSelection);
     return () => window.removeEventListener('salt:editor-selection', onSelection);
+  }, []);
+
+  // Keep the document selection visible while the chat input has focus: the
+  // native highlight vanishes once focus leaves the editor, so mirror it with
+  // the CSS Custom Highlight API (no-op where unsupported).
+  useEffect(() => {
+    const css = (window as any).CSS;
+    const HL = (window as any).Highlight;
+    if (!css?.highlights || !HL) return;
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement | null)?.closest?.('.ai-panel')) {
+        css.highlights.delete('ai-doc-selection');
+        return;
+      }
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+      const r = sel.getRangeAt(0);
+      const host = r.commonAncestorContainer instanceof Element ? r.commonAncestorContainer : r.commonAncestorContainer.parentElement;
+      if (host?.closest('.bn-editor')) css.highlights.set('ai-doc-selection', new HL(r.cloneRange()));
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      css.highlights.delete('ai-doc-selection');
+    };
   }, []);
 
   const [histSteps, setHistSteps] = useState<AiStep[]>([]);

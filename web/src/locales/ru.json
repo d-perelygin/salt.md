@@ -1177,6 +1177,7 @@
   "Tunnel error": "Ошибка туннеля",
   "Tunnel starting…": "Туннель запускается…",
   "Turn into text": "Превратить в обычный текст",
+  "Done, inserted": "Готово, вставил",
   "Two blocks side by side": "Два блока рядом",
   "Two rules write to “{prop}” on the way into “{to}” — the last one wins.": "Два правила пишут в «{prop}» на входе в «{to}» — победит последнее.",
   "Two sections. Good when the databases are the point.": "Два раздела. Подходит, когда базы данных — главное.",

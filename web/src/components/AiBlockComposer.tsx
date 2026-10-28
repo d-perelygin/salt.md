@@ -105,6 +105,8 @@ export default function AiBlockComposer(props: {
     }));
     props.onInserted();
     props.onClose();
+    // Notify user that insertion succeeded
+    window.dispatchEvent(new CustomEvent('salt:toast', { detail: { message: t('Done, inserted'), kind: 'info' } }));
   }
 
   return (

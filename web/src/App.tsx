@@ -264,7 +264,31 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [indexOpen, setIndexOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [aiChatOpen, setAiChatOpen] = useState(false);
+  // The side panel and its thread survive a reload (best-effort storage).
+  const [aiChatOpen, setAiChatOpen] = useState(() => {
+    try {
+      return localStorage.getItem('salt-ai-panel-open') === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('salt-ai-panel-open', aiChatOpen ? '1' : '0');
+    } catch {
+      /* best-effort */
+    }
+  }, [aiChatOpen]);
+  // Last non-empty document selection, so opening the panel from the floating
+  // button can hand it over as a quote right away.
+  const lastSelRef = useRef('');
+  useEffect(() => {
+    const onSel = (e: Event) => {
+      lastSelRef.current = ((e as CustomEvent<{ text?: string }>).detail?.text || '').trim();
+    };
+    window.addEventListener('salt:editor-selection', onSel);
+    return () => window.removeEventListener('salt:editor-selection', onSel);
+  }, []);
   // Quote handed to the side panel by in-document Ask AI (selection as a
   // quote — the document itself is never modified).
   const [aiQuote, setAiQuote] = useState<string | null>(null);
@@ -294,7 +318,21 @@ export default function App() {
     }
   }, [sidebarMode]);
   const [aiThreads, setAiThreads] = useState<AiThread[]>([]);
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('salt-ai-active-chat') || null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    try {
+      if (activeChatId) localStorage.setItem('salt-ai-active-chat', activeChatId);
+      else localStorage.removeItem('salt-ai-active-chat');
+    } catch {
+      /* best-effort */
+    }
+  }, [activeChatId]);
   const loadAiThreads = useCallback(async () => {
     try {
       setAiThreads((await api.listAIThreads()) as AiThread[]);
@@ -2153,7 +2191,11 @@ export default function App() {
       )}
       {helpOpen && <ShortcutSheet onClose={() => setHelpOpen(false)} />}
       {sidebarMode !== 'chats' && (
-        <button onClick={() => setAiChatOpen(true)} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 999, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}>✨</button>
+        <button onMouseDown={(e) => e.preventDefault()} onClick={() => {
+          const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
+          if (sel) setAiQuote(sel);
+          setAiChatOpen(true);
+        }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 999, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}>✨</button>
       )}
       {aiChatOpen && sidebarMode === 'docs' && (
         <AiChatPanel
