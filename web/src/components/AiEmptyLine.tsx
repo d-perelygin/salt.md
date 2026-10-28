@@ -215,6 +215,10 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
               if (e.key === 'Escape') {
                 e.preventDefault();
                 close();
+              } else if (e.key === 'Backspace' && !prompt) {
+                // Nothing typed: Backspace takes the panel back, like erasing the space.
+                e.preventDefault();
+                close();
               } else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 void send();
