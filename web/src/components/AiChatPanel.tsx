@@ -53,6 +53,7 @@ export default function AiChatPanel(props: {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [collectionTemplates, setCollectionTemplates] = useState<PageMeta[]>([]);
+  const [collectionEmpty, setCollectionEmpty] = useState(false);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(attachMenuOpen, attachMenuRef, () => setAttachMenuOpen(false));
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -82,6 +83,30 @@ export default function AiChatPanel(props: {
       .then((list) => setCollectionTemplates(list.filter((p) => p.type === 'collection' && !p.trashed)))
       .catch(() => {});
   }, [props.pageId]);
+
+  useEffect(() => {
+    const pid = props.pageId;
+    const isCol = pid && props.pagesById?.get(pid)?.type === 'collection';
+    if (!pid || !isCol) {
+      setCollectionEmpty(false);
+      return;
+    }
+    let alive = true;
+    const checkEmpty = () => {
+      void api.collectionRows(pid, { limit: 1 })
+        .then((res) => { if (alive) setCollectionEmpty(res.total === 0 && res.rows.length === 0); })
+        .catch(() => { if (alive) setCollectionEmpty(false); });
+    };
+    checkEmpty();
+    const onRows = (e: Event) => {
+      if ((e as CustomEvent<string>).detail === pid) checkEmpty();
+    };
+    window.addEventListener('salt:rows', onRows);
+    return () => {
+      alive = false;
+      window.removeEventListener('salt:rows', onRows);
+    };
+  }, [props.pageId, props.pagesById]);
 
   function onInputChange(v: string) {
     setInput(v);
@@ -595,7 +620,7 @@ export default function AiChatPanel(props: {
               </button>
             </div>
 
-            {isCollectionPage && (
+            {isCollectionPage && collectionEmpty && (
               <>
                 <div className="ai-zero-section">{t('Suggested')}</div>
                 <div className="ai-zero-list">

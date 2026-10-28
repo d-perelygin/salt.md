@@ -484,7 +484,7 @@ export default function AiChatView(props: {
               </div>
 
               <div className="ai-zero-section">{t('Actions')}</div>
-              <div className="ai-zero-list">
+              <div className="ai-view-zero-grid">
                 <button
                   type="button"
                   className="ai-zero-item"
@@ -557,10 +557,6 @@ export default function AiChatView(props: {
                   <span className="ai-zero-badge">↓</span>
                   <span className="ai-zero-label">{t('Attach file or CSV')}</span>
                 </button>
-              </div>
-
-              <div className="ai-zero-divider" />
-              <div className="ai-zero-list">
                 <button
                   type="button"
                   className="ai-zero-item"

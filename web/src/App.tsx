@@ -305,6 +305,13 @@ export default function App() {
   // Sidebar mode: document tree vs unified AI chat list (global + per-doc).
   const [sidebarMode, setSidebarMode] = useState<'docs' | 'chats'>(() => {
     try {
+      const qs = new URLSearchParams(window.location.search);
+      if (qs.has('chat') || window.location.pathname === '/chat' || window.location.pathname.startsWith('/chat/')) {
+        return 'chats';
+      }
+      if (window.location.pathname.startsWith('/p/')) {
+        return 'docs';
+      }
       return localStorage.getItem('salt-sidebar-mode') === 'chats' ? 'chats' : 'docs';
     } catch {
       return 'docs';
@@ -320,6 +327,12 @@ export default function App() {
   const [aiThreads, setAiThreads] = useState<AiThread[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(() => {
     try {
+      const qs = new URLSearchParams(window.location.search);
+      const qChat = qs.get('chat');
+      if (qChat !== null) return qChat || null;
+      const m = window.location.pathname.match(/^\/chat\/([^/]+)\/?$/);
+      if (m) return decodeURIComponent(m[1]);
+      if (window.location.pathname === '/chat' || window.location.pathname === '/chat/') return null;
       return localStorage.getItem('salt-ai-active-chat') || null;
     } catch {
       return null;
@@ -333,6 +346,12 @@ export default function App() {
       /* best-effort */
     }
   }, [activeChatId]);
+  const sidebarModeRef = useRef<'docs' | 'chats'>(sidebarMode);
+  const activeChatRef = useRef<string | null>(activeChatId);
+  useEffect(() => {
+    sidebarModeRef.current = sidebarMode;
+    activeChatRef.current = activeChatId;
+  }, [sidebarMode, activeChatId]);
   const loadAiThreads = useCallback(async () => {
     try {
       setAiThreads((await api.listAIThreads()) as AiThread[]);
@@ -595,7 +614,21 @@ export default function App() {
     // (set by pushTabHistory). Falls back to the URL id for entries with no
     // snapshot (e.g. the very first load), reopening a tab only then.
     const onPop = (e: PopStateEvent) => {
-      const st = e.state as { tabs?: string[]; active?: string | null } | null;
+      const qs = new URLSearchParams(window.location.search);
+      const qChat = qs.get('chat');
+      const chatMatch = window.location.pathname.match(/^\/chat(?:\/([^/]+))?\/?$/);
+      const st = e.state as { tabs?: string[]; active?: string | null; mode?: 'docs' | 'chats'; chatId?: string | null } | null;
+      if (st?.mode === 'chats' || qChat !== null || chatMatch) {
+        setSidebarMode('chats');
+        const cid = st?.chatId !== undefined ? st.chatId : (qChat || (chatMatch?.[1] ? decodeURIComponent(chatMatch[1]) : null));
+        setActiveChatId(cid || null);
+        if (st && Array.isArray(st.tabs)) {
+          setOpenTabs(st.tabs);
+          setCurrentId(st.active ?? null);
+        }
+        return;
+      }
+      setSidebarMode('docs');
       if (st && Array.isArray(st.tabs)) {
         setOpenTabs(st.tabs);
         setCurrentId(st.active ?? null);
@@ -616,7 +649,8 @@ export default function App() {
       const id = typeof detail === 'string' ? detail : detail?.id;
       const newTab = typeof detail === 'object' && !!detail?.newTab;
       if (!id) return;
-      history.pushState(null, '', pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))));
+      history.pushState({ tabs: tabsRef.current, active: id, mode: 'docs' }, '', pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))));
+      setSidebarMode('docs');
       setCurrentId(id);
       setSidebarOpen(false);
       // Computed from refs, not in a setOpenTabs updater: updater functions
@@ -995,8 +1029,14 @@ export default function App() {
   // otherwise the effect below corrects it once pages arrive — replaceState,
   // so no extra history entry and never a reload.
   const pushTabHistory = (tabs: string[], id: string | null, replace: boolean) => {
+    if (replace && sidebarModeRef.current === 'chats') {
+      const cid = activeChatRef.current;
+      const chatUrl = cid ? `/?chat=${encodeURIComponent(cid)}` : '/?chat=';
+      history.replaceState({ tabs, active: id, mode: 'chats', chatId: cid }, '', chatUrl);
+      return;
+    }
     const url = id ? pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))) : '/';
-    const state = { tabs, active: id };
+    const state = { tabs, active: id, mode: 'docs' as const };
     if (replace) history.replaceState(state, '', url);
     else history.pushState(state, '', url);
   };
@@ -1008,6 +1048,7 @@ export default function App() {
   // openInNewTab to always add a tab.
   const navigate = useCallback((id: string | null, replace = false) => {
     setIndexOpen(false); // any navigation leaves the full-screen index overlay
+    if (!replace) setSidebarMode('docs');
     let nextTabs = tabsRef.current;
     if (id && !tabsRef.current.includes(id)) {
       const active = activeRef.current;
@@ -1653,6 +1694,7 @@ export default function App() {
   // titles leave the URL alone (a stale slug still opens the page); a known
   // empty title falls back to the bare /p/<id>.
   useEffect(() => {
+    if (sidebarMode === 'chats') return;
     if (!currentId) return;
     if (!window.location.pathname.startsWith('/p/')) return;
     const meta = pagesById.get(currentId);
@@ -1661,7 +1703,34 @@ export default function App() {
       pagePath(currentId, pageSlugTitle(meta)) + window.location.search + window.location.hash;
     const cur = window.location.pathname + window.location.search + window.location.hash;
     if (cur !== want) history.replaceState(history.state, '', want);
-  }, [currentId, pagesById]);
+  }, [currentId, pagesById, sidebarMode]);
+
+  // Keep the address bar in sync with the AI Chats tab (?chat=<id> or ?chat=
+  // for a new chat), and restore the active document's /p/<slug>-<id> URL when
+  // switching back to the Home tab.
+  useEffect(() => {
+    if (!me?.authenticated) return;
+    if (/^\/(invite|form|public)\/[a-f0-9]+$/.test(window.location.pathname)) return;
+    if (window.location.pathname === '/oauth/consent') return;
+    if (sidebarMode === 'chats') {
+      const want = activeChatId ? `/?chat=${encodeURIComponent(activeChatId)}` : '/?chat=';
+      const cur = window.location.pathname + window.location.search;
+      if (cur !== want) {
+        history.pushState(
+          { tabs: tabsRef.current, active: activeRef.current, mode: 'chats', chatId: activeChatId },
+          '',
+          want,
+        );
+      }
+    } else {
+      const curSearch = new URLSearchParams(window.location.search);
+      if (curSearch.has('chat') || window.location.pathname === '/chat' || window.location.pathname.startsWith('/chat/')) {
+        const id = activeRef.current;
+        const want = id ? pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))) : '/';
+        history.pushState({ tabs: tabsRef.current, active: id, mode: 'docs' }, '', want);
+      }
+    }
+  }, [me?.authenticated, sidebarMode, activeChatId]);
 
   // A viewer (read-only workspace role) may not edit; the doc editor renders
   // read-only so a viewer isn't teased with an editable-looking page whose
