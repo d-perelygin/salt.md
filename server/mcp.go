@@ -557,7 +557,7 @@ var mcpTools = []map[string]any{
 var aiAgentExtraTools = []map[string]any{
 	{
 		"name":        "ask_user",
-		"description": "Ask the user ONE single clarifying question and wait for their answer. Rules: (1) Ask only ONE question per call — never combine two questions like 'Which page and which language?'. (2) Every item in 'options' MUST be a concrete, clickable answer to that single question (e.g. if asking 'Which language?', options must be languages like 'Russian', 'English', 'German', 'Spanish'). NEVER put a question or prompt as an option label, and NEVER mix answers to different questions in the same options list. (3) If a page is already open in context ('Currently open page in the editor'), 'this page' / 'current page' / 'this collection' refers to that page — do NOT ask which page. (4) Do not add an 'Other' option (the UI always shows a free-text input).",
+		"description": "Ask the user ONE single clarifying question and wait for their answer. Rules: (1) Ask only ONE question per call — never combine two questions like 'Which page and which language?'. (2) Every item in 'options' MUST be a concrete, clickable answer to that single question (e.g. if asking 'Which language?', options must be languages like 'Russian', 'English', 'German', 'Spanish'). NEVER put a question or prompt as an option label, and NEVER mix answers to different questions in the same options list. (3) The UI lets the user pick SEVERAL options at once (and add free text), so set 'multiple': true whenever more than one answer could be valid (e.g. 'Which languages do you want?'). (4) If a page is already open in context ('Currently open page in the editor'), 'this page' / 'current page' / 'this collection' refers to that page — do NOT ask which page. (5) Do not add an 'Other' option (the UI always shows a free-text input).",
 		"inputSchema": map[string]any{"type": "object",
 			"properties": map[string]any{
 				"question": map[string]any{"type": "string", "description": "A single, focused question about one decision (never combine two questions)."},
@@ -568,7 +568,7 @@ var aiAgentExtraTools = []map[string]any{
 							"description": map[string]any{"type": "string", "description": "Optional one-line explanation of this choice."},
 						},
 						"required": []string{"label"}}},
-				"multiple": map[string]any{"type": "boolean", "description": "Allow picking several options at once (default false)."},
+				"multiple": map[string]any{"type": "boolean", "description": "Set true when the user may pick several options at once. The UI always allows multi-select anyway, but this flag documents intent."},
 			},
 			"required": []string{"question", "options"}},
 	},
