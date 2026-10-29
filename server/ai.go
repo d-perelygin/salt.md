@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +26,19 @@ import (
 // aiEnabled reports whether AI is turned on for the instance.
 func (s *Server) aiEnabled() bool {
 	return s.setting("ai_enabled", "1") == "1"
+}
+
+// aiHTTPClient returns an *http.Client for AI provider calls. When AI_PROXY_URL
+// is set (e.g. http://mihomo:7890) the request is tunnelled through it; otherwise
+// a direct client is used. Other outbound traffic in salt does not use this proxy.
+func aiHTTPClient() *http.Client {
+	c := &http.Client{Timeout: 5 * time.Minute}
+	if u := os.Getenv("AI_PROXY_URL"); u != "" {
+		if pu, err := url.Parse(u); err == nil {
+			c.Transport = &http.Transport{Proxy: http.ProxyURL(pu)}
+		}
+	}
+	return c
 }
 
 // aiEnabledForUser reports whether AI is enabled both globally and for the user.
@@ -655,7 +669,7 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("x-opencode-session", newID())
 
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := aiHTTPClient()
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		httpError(w, 502, err.Error())
@@ -766,7 +780,7 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("x-opencode-session", newID())
 
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := aiHTTPClient()
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		httpError(w, 502, err.Error())
@@ -848,7 +862,7 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 		input = append(input, map[string]any{"role": h[0], "content": h[1]})
 	}
 	input = append(input, map[string]any{"role": "user", "content": task})
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := aiHTTPClient()
 	var finalContent string
 	rejected := false
 	s.aiAddStep(runID, threadID, u.ID, "thinking", "Planning", task, "running")
@@ -1428,7 +1442,7 @@ func (s *Server) streamChat(w http.ResponseWriter, baseURL, model string, temp f
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("x-opencode-session", newID())
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(httpReq)
+	resp, err := aiHTTPClient().Do(httpReq)
 	if err != nil {
 		httpError(w, 502, err.Error())
 		return
@@ -1502,7 +1516,7 @@ func (s *Server) streamResponses(w http.ResponseWriter, baseURL, model string, t
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("x-opencode-session", newID())
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(httpReq)
+	resp, err := aiHTTPClient().Do(httpReq)
 	if err != nil {
 		httpError(w, 502, err.Error())
 		return
@@ -1773,7 +1787,7 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		messages = append(messages, map[string]any{"role": h[0], "content": h[1]})
 	}
 	messages = append(messages, map[string]any{"role": "user", "content": task})
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := aiHTTPClient()
 	var finalContent string
 	rejected := false
 	s.aiAddStep(runID, threadID, u.ID, "thinking", "Planning", task, "running")
