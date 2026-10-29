@@ -824,16 +824,7 @@ export default function AiChatView(props: {
             </div>
           </div>
         </div>
-        {chipPageId !== '' && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            {[t('Summarize this page'), t('Translate this page'), t('Analyze for insights')].map((s) => (
-              <button key={s} className="ai-approval-pill" disabled={agentBusy}
-                onClick={() => { setInput(s); }}>
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* quick-prompt chips removed */}
       </div>
     </div>
   );

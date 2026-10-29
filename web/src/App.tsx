@@ -2327,20 +2327,22 @@ export default function App() {
           const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
           if (sel) setAiQuote(sel);
           setAiChatOpen(true);
-        }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 999, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}>✨</button>
+        }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 90, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}>✨</button>
       )}
-      {aiEnabled && aiChatOpen && sidebarMode === 'docs' && (
+      {aiEnabled && sidebarMode === 'docs' && (
         <AiChatPanel
           pageId={currentId ?? undefined}
           threadId={activeChatId}
           threads={aiThreads}
           pagesById={pagesById}
+          hidden={!aiChatOpen}
           onSelectThread={(id) => {
             setActiveChatId(id);
             void loadAiThreads();
           }}
           quote={aiQuote}
           onQuoteConsumed={() => setAiQuote(null)}
+          onOpenSidebar={openSidebar}
           onClose={() => {
             setAiChatOpen(false);
             setAiQuote(null);

@@ -30,6 +30,8 @@ export default function AiChatPanel(props: {
   quote?: string | null;
   onQuoteConsumed?: () => void;
   onClose: () => void;
+  onOpenSidebar?: () => void;
+  hidden?: boolean;
 }) {
   const [threadId, setThreadId] = useState<string | null>(props.threadId ?? null);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -52,6 +54,7 @@ export default function AiChatPanel(props: {
   useMenuDismiss(threadMenuOpen, threadMenuRef, () => setThreadMenuOpen(false));
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const [collectionTemplates, setCollectionTemplates] = useState<PageMeta[]>([]);
   const [collectionEmpty, setCollectionEmpty] = useState(false);
   const attachMenuRef = useRef<HTMLDivElement>(null);
@@ -77,6 +80,28 @@ export default function AiChatPanel(props: {
   }
 
   useEffect(() => { setThreadId(props.threadId ?? null); }, [props.threadId]);
+  useEffect(() => {
+    const id = props.threadId;
+    if (!id || agentBusy) return;
+    let alive = true;
+    void api.getAIThreadRuns(id).then((runs: any[]) => {
+      if (!alive || !Array.isArray(runs)) return;
+      const active = runs.find((r) => r && (r.status === 'running' || r.status === 'queued' || r.status === 'waiting_approval' || r.status === 'waiting_user'));
+      if (!active) return;
+      setThreadId(id);
+      setAgentBusy(true);
+      setRunId(active.id);
+      setRunStatus(active.status === 'completed' ? '' : (active.progress || active.status || ''));
+      setSteps([]);
+      setTraceOpen(true);
+      void consumeRun(active.id, id, active.task || '').then(() => {
+        setAgentBusy(false); setRunId(null); setWaitingApproval(false);
+      }).catch(() => {
+        setAgentBusy(false); setRunId(null); setWaitingApproval(false);
+      });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [props.threadId]);
   useEffect(() => { if (props.quote) setQuote(props.quote); }, [props.quote]);
   useEffect(() => {
     api.templates()
@@ -112,6 +137,7 @@ export default function AiChatPanel(props: {
     setInput(v);
     const m = v.match(/@([^@]{0,60})$/);
     setMentionQuery(m ? m[1] : null);
+    setMentionIndex(0);
   }
 
   function mentionMatches(): PageMeta[] {
@@ -309,6 +335,61 @@ export default function AiChatPanel(props: {
   const [lastRun, setLastRun] = useState<{ id: string; task: string; status: string; error: string } | null>(null);
   const inputBoxRef = useRef<HTMLTextAreaElement | null>(null);
 
+  async function consumeRun(runId: string, threadId: string, fullTask: string) {
+    const res = await fetch(`/api/ai/runs/${runId}/events`, { credentials: 'same-origin' });
+    if (!res.ok || !res.body) throw new Error('no events');
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    const seen = new Set<string>();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const j = JSON.parse(line.slice(5).trim());
+          if (j.type === 'step' && j.step && !seen.has(j.step.id)) {
+            seen.add(j.step.id);
+            setSteps((st) => [...st, j.step as AiStep]);
+          }
+          if (j.type === 'status') {
+            const err = typeof j.error === 'string' ? j.error : '';
+            if (j.status === 'failed') {
+              setLastError(err || t('Agent run failed'));
+            }
+            setRunStatus(j.status === 'completed' ? '' : ((j.progress || j.status) + (err && j.status === 'failed' ? `: ${err.slice(0, 200)}` : '')));
+            setWaitingApproval(j.status === 'waiting_approval');
+            if (j.status === 'waiting_user' && j.pendingTool === 'ask_user' && typeof j.pendingArgs === 'string') {
+              try {
+                const q = JSON.parse(j.pendingArgs);
+                if (q && typeof q.question === 'string' && Array.isArray(q.options)) {
+                  const key = runId + '|' + q.question;
+                  if (qKeyRef.current !== key) {
+                    qKeyRef.current = key;
+                    setPendingQuestion({ runId, question: q.question, options: q.options.slice(0, 6), multiple: !!q.multiple });
+                    setPicked([]);
+                    setFreeText('');
+                  }
+                }
+              } catch { /* ignore */ }
+            }
+            if (j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled') {
+              setLastRun({ id: runId, task: fullTask, status: j.status, error: err });
+              setPendingQuestion(null);
+              break;
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    }
+    const msgs = await api.getAIThreadMessages(threadId).catch(() => [] as Msg[]);
+    if (msgs.length) setMessages(msgs as Msg[]);
+  }
+
   async function runAsAgent(reuseTask?: string, isRetry = false) {
     if (agentBusy) return;
     const text = (reuseTask ?? input).trim();
@@ -352,58 +433,7 @@ export default function AiChatPanel(props: {
       setAutoQuote('');
       props.onQuoteConsumed?.();
       setFiles([]);
-      const res = await fetch(`/api/ai/runs/${r.id}/events`, { credentials: 'same-origin' });
-      if (!res.ok || !res.body) throw new Error('no events');
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      const seen = new Set<string>();
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue;
-          try {
-            const j = JSON.parse(line.slice(5).trim());
-            if (j.type === 'step' && j.step && !seen.has(j.step.id)) {
-              seen.add(j.step.id);
-              setSteps((s) => [...s, j.step as AiStep]);
-            }
-            if (j.type === 'status') {
-              const err = typeof j.error === 'string' ? j.error : '';
-              if (j.status === 'failed') {
-                setLastError(err || t('Agent run failed'));
-              }
-              setRunStatus(j.status === 'completed' ? '' : ((j.progress || j.status) + (err && j.status === 'failed' ? `: ${err.slice(0, 200)}` : '')));
-              setWaitingApproval(j.status === 'waiting_approval');
-              if (j.status === 'waiting_user' && j.pendingTool === 'ask_user' && typeof j.pendingArgs === 'string') {
-                try {
-                  const q = JSON.parse(j.pendingArgs);
-                  if (q && typeof q.question === 'string' && Array.isArray(q.options)) {
-                    const key = r.id + '|' + q.question;
-                    if (qKeyRef.current !== key) {
-                      qKeyRef.current = key;
-                      setPendingQuestion({ runId: r.id, question: q.question, options: q.options.slice(0, 6), multiple: !!q.multiple });
-                      setPicked([]);
-                      setFreeText('');
-                    }
-                  }
-                } catch { /* ignore */ }
-              }
-              if (j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled') {
-                setLastRun({ id: r.id, task: fullTask, status: j.status, error: err });
-                setPendingQuestion(null);
-                break;
-              }
-            }
-          } catch { /* ignore */ }
-        }
-      }
-      const msgs = await api.getAIThreadMessages(id).catch(() => [] as Msg[]);
-      if (msgs.length) setMessages(msgs as Msg[]);
+      await consumeRun(r.id, id, fullTask);
     } catch (err: any) {
       setLastError(err?.message || t('Run failed'));
       setRunStatus(t('Run failed'));
@@ -502,7 +532,7 @@ export default function AiChatPanel(props: {
   const traceAt = !agentBusy && messages.length > 0 && messages[messages.length - 1].role !== 'user' ? messages.length - 1 : messages.length;
 
   return (
-    <div className="ai-panel">
+    <div className="ai-panel" style={props.hidden ? { display: 'none' } : undefined}>
       <div className="ai-panel-head">
         <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }} ref={threadMenuRef}>
           <button
@@ -558,6 +588,9 @@ export default function AiChatPanel(props: {
           )}
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
+          {props.onOpenSidebar && (
+            <button className="ai-iconbtn ai-panel-sidebarbtn" onClick={props.onOpenSidebar} title={t('Menu')} type="button">☰</button>
+          )}
           <button className="ai-iconbtn" onClick={props.onClose} title={t('Close')} type="button">✕</button>
         </div>
       </div>
@@ -822,7 +855,7 @@ export default function AiChatPanel(props: {
               overflow: 'auto',
             }}
           >
-            {mentionMatches().map((p) => (
+            {mentionMatches().map((p, idx) => (
               <button
                 key={p.id}
                 type="button"
@@ -833,15 +866,15 @@ export default function AiChatPanel(props: {
                   gap: 8,
                   width: '100%',
                   textAlign: 'left',
-                  background: 'none',
+                  background: idx === mentionIndex ? 'var(--hover)' : 'none',
                   border: 'none',
                   cursor: 'pointer',
                   color: 'inherit',
                   padding: '8px 12px',
                   fontSize: 13,
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--hover)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                onMouseEnter={(e) => { setMentionIndex(idx); e.currentTarget.style.background = 'var(--hover)'; }}
+                onMouseLeave={(e) => { if (idx !== mentionIndex) e.currentTarget.style.background = 'transparent'; }}
               >
                 <PageIcon
                   icon={p.icon}
@@ -874,6 +907,29 @@ export default function AiChatPanel(props: {
                 e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
               }}
               onKeyDown={(e) => {
+                if (mentionQuery !== null && mentionMatches().length > 0) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setMentionIndex((i) => (i + 1) % mentionMatches().length);
+                    return;
+                  }
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setMentionIndex((i) => (i - 1 + mentionMatches().length) % mentionMatches().length);
+                    return;
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    const m = mentionMatches();
+                    if (m[mentionIndex]) pickMention(m[mentionIndex]);
+                    return;
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setMentionQuery(null);
+                    return;
+                  }
+                }
                 if (e.key === 'Escape' && mentionQuery !== null) {
                   e.preventDefault();
                   setMentionQuery(null);
@@ -942,7 +998,7 @@ export default function AiChatPanel(props: {
             )}
           </div>
         </div>
-        <div style={{ paddingTop: 8 }}>
+        <div style={{ paddingTop: 4 }}>
           <AiApprovalSelect value={approval} onChange={setApproval} />
         </div>
       </div>
