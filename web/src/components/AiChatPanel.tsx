@@ -321,7 +321,9 @@ export default function AiChatPanel(props: {
         const opt = pendingQuestion.options[num - 1];
         if (opt) {
           setPicked((prev) =>
-            prev.includes(opt.label) ? prev.filter((x) => x !== opt.label) : [...prev, opt.label],
+            pendingQuestion.multiple
+              ? (prev.includes(opt.label) ? prev.filter((x) => x !== opt.label) : [...prev, opt.label])
+              : (prev.includes(opt.label) ? [] : [opt.label]),
           );
         }
       }
@@ -766,7 +768,9 @@ export default function AiChatPanel(props: {
                     key={o.label}
                     className={'ai-question-opt' + (on ? ' on' : '')}
                     onClick={() => setPicked((prev) =>
-                      on ? prev.filter((x) => x !== o.label) : [...prev, o.label],
+                      pendingQuestion.multiple
+                        ? (on ? prev.filter((x) => x !== o.label) : [...prev, o.label])
+                        : (on ? [] : [o.label]),
                     )}
                     title={o.description || o.label}
                     type="button"
