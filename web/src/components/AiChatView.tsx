@@ -340,9 +340,14 @@ export default function AiChatView(props: {
           if (!line.startsWith('data:')) continue;
           try {
             const j = JSON.parse(line.slice(5).trim());
-            if (j.type === 'step' && j.step && !seen.has(j.step.id)) {
-              seen.add(j.step.id);
-              setSteps((s) => [...s, j.step as AiStep]);
+            if (j.type === 'step' && j.step) {
+              const st = j.step as AiStep;
+              if (!seen.has(st.id)) {
+                seen.add(st.id);
+                setSteps((s) => [...s, st]);
+              } else {
+                setSteps((s) => s.map((x) => (x.id === st.id ? st : x)));
+              }
             }
             if (j.type === 'status') {
               const err = typeof j.error === 'string' ? j.error : '';

@@ -940,13 +940,17 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 					break
 				}
 				s.db.Exec(`UPDATE ai_runs SET progress=? WHERE id=?`, "calling "+name, runID)
-				s.aiAddStep(runID, threadID, u.ID, "tool_call", "Script · "+name, argsStr, "running")
+				stepID := s.aiAddStep(runID, threadID, u.ID, "tool_call", "Script · "+name, argsStr, "running")
 				var args json.RawMessage = json.RawMessage(argsStr)
 				result, err := s.mcpCall(u, name, args, "")
 				if err != nil {
 					result = "error: " + err.Error()
 				}
-				s.aiAddStep(runID, threadID, u.ID, "tool_result", "Result · "+name, result, "done")
+				trunc := result
+				if len(trunc) > 2000 {
+					trunc = trunc[:2000] + "…"
+				}
+				s.db.Exec(`UPDATE ai_steps SET status='done', body=? WHERE id=?`, trunc, stepID)
 				s.aiRecordArtifacts(runID, name, result)
 				// append function_call and output to input
 				input = append(input, it)
@@ -1082,7 +1086,7 @@ func (s *Server) handleGetAIRunEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	fl, _ := w.(http.Flusher)
-	seen := map[string]bool{}
+	seen := map[string]string{}
 	ticker := time.NewTicker(400 * time.Millisecond)
 	defer ticker.Stop()
 	timeout := time.After(10 * time.Minute)
@@ -1093,8 +1097,8 @@ func (s *Server) handleGetAIRunEvents(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				var x aiStep
 				rows.Scan(&x.ID, &x.RunID, &x.ThreadID, &x.Seq, &x.Kind, &x.Title, &x.Body, &x.Status, &x.CreatedAt)
-				if !seen[x.ID] {
-					seen[x.ID] = true
+				if cur := x.Status + "|" + x.Body; seen[x.ID] != cur {
+					seen[x.ID] = cur
 					fmt.Fprintf(w, "data: %s\n\n", mustJSONStr(map[string]any{"type": "step", "step": x}))
 					if fl != nil {
 						fl.Flush()
@@ -1866,7 +1870,7 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 					break
 				}
 				s.db.Exec(`UPDATE ai_runs SET progress=? WHERE id=?`, "calling "+name, runID)
-				s.aiAddStep(runID, threadID, u.ID, "tool_call", "Script · "+name, argsStr, "running")
+				stepID := s.aiAddStep(runID, threadID, u.ID, "tool_call", "Script · "+name, argsStr, "running")
 				var args json.RawMessage = json.RawMessage(argsStr)
 				if len(args) == 0 {
 					args = json.RawMessage("{}")
@@ -1875,7 +1879,11 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 				if err != nil {
 					result = "error: " + err.Error()
 				}
-				s.aiAddStep(runID, threadID, u.ID, "tool_result", "Result · "+name, result, "done")
+				trunc := result
+				if len(trunc) > 2000 {
+					trunc = trunc[:2000] + "…"
+				}
+				s.db.Exec(`UPDATE ai_steps SET status='done', body=? WHERE id=?`, trunc, stepID)
 				s.aiRecordArtifacts(runID, name, result)
 
 				messages = append(messages, map[string]any{

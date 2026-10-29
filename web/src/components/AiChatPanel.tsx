@@ -352,9 +352,14 @@ export default function AiChatPanel(props: {
         if (!line.startsWith('data:')) continue;
         try {
           const j = JSON.parse(line.slice(5).trim());
-          if (j.type === 'step' && j.step && !seen.has(j.step.id)) {
-            seen.add(j.step.id);
-            setSteps((st) => [...st, j.step as AiStep]);
+          if (j.type === 'step' && j.step) {
+            const stp = j.step as AiStep;
+            if (!seen.has(stp.id)) {
+              seen.add(stp.id);
+              setSteps((st) => [...st, stp]);
+            } else {
+              setSteps((st) => st.map((x) => (x.id === stp.id ? stp : x)));
+            }
           }
           if (j.type === 'status') {
             const err = typeof j.error === 'string' ? j.error : '';
