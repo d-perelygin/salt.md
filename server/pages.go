@@ -226,30 +226,37 @@ func (s *Server) handleGetPage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, p)
 }
 
-// liveShared reports which of the given pages carry a live public link
-// (read-share or form-share, unexpired). share_links is the only source of
-// truth — pages carry no flag of their own — so this is one extra query per
-// listing, not a column to keep in sync.
+// liveShared reports which of the given pages carry a live public read link.
+// share_links is the only source of truth (pages carry no flag of their own),
+// so this is one extra query per listing, not a column to keep in sync.
+//
+// A form link does not count. It publishes a way to add rows, not the rows,
+// and the marker would invite a click on the globe that publishes them.
+//
+// The ids go in chunks: a listing can hold more pages than SQLite takes
+// parameters in one statement, and a failed query here would only make every
+// marker vanish without a word.
 func (s *Server) liveShared(ids []string) map[string]bool {
 	live := map[string]bool{}
-	if len(ids) == 0 {
-		return live
-	}
-	args := make([]any, len(ids)+1)
-	for i, id := range ids {
-		args[i] = id
-	}
-	args[len(ids)] = now()
-	rows, err := s.db.Query(`SELECT DISTINCT page_id FROM share_links WHERE page_id IN (`+placeholders(len(ids))+`) AND (expires_at IS NULL OR expires_at = '' OR expires_at > ?)`, args...)
-	if err != nil {
-		return live
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err == nil {
-			live[id] = true
+	for start := 0; start < len(ids); start += 500 {
+		chunk := ids[start:min(start+500, len(ids))]
+		args := make([]any, 0, len(chunk)+1)
+		for _, id := range chunk {
+			args = append(args, id)
 		}
+		args = append(args, now())
+		rows, err := s.db.Query(`SELECT DISTINCT page_id FROM share_links WHERE page_id IN (`+placeholders(len(chunk))+`)
+			AND mode != 'form' AND (expires_at IS NULL OR expires_at = '' OR expires_at > ?)`, args...)
+		if err != nil {
+			return live
+		}
+		for rows.Next() {
+			var id string
+			if rows.Scan(&id) == nil {
+				live[id] = true
+			}
+		}
+		rows.Close()
 	}
 	return live
 }
@@ -1100,7 +1107,7 @@ func (s *Server) reindexPage(id string) error {
 	// fake <mark> tags into search results.
 	clean := strings.NewReplacer("\x01", "", "\x02", "")
 	if _, err := s.db.Exec(`INSERT INTO pages_fts (id, title, body) VALUES (?, ?, ?)`,
-		id, clean.Replace(title), clean.Replace(body)); err != nil {
+		id, ftsText(clean.Replace(title)), ftsText(clean.Replace(body))); err != nil {
 		return err
 	}
 	// Passages in the same breath (see chunks.go). A failure here may not make the
@@ -1291,8 +1298,8 @@ type searchResult struct {
 	Icon    string `json:"icon"`
 	Snippet string `json:"snippet"`
 	// Heading: the heading path of the passage that matched, for example
-	// "Contract › Termination". Empty when the hit comes from the fallback or
-	// sits under no heading at all.
+	// "Contract › Termination". Empty when the hit comes from the whole-page
+	// index or sits under no heading at all.
 	Heading string `json:"heading,omitempty"`
 	// Where the hit lives, so pickers can annotate it: rows name their
 	// collection ("in Projects"), every hit names its workspace. ParentID is
@@ -1309,8 +1316,6 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, results)
 		return
 	}
-	match := ftsMatch(q)
-
 	userID := requestUser(r).ID
 	ws := s.scopeWorkspacesFor(requestUser(r), s.visibleWorkspaces(userID))
 	// Optional workspace filter (?ws=id1,id2): empty means everywhere the
@@ -1333,22 +1338,35 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, results)
 		return
 	}
-	// The search runs over the PASSAGES, not over whole pages (see chunks.go):
-	// the excerpt then comes from the paragraph that actually matches, and carries
-	// its heading path along.
-	//
-	// Fetching in rounds rather than 40 at once: the canRead filter below throws
-	// hits away, and with a fixed LIMIT the list stayed short as soon as a
-	// workspace held many private pages belonging to other people — you got four
-	// results and believed there were no more.
-	results = s.searchChunks(userID, match, ws, 20)
-	// Fallback: if the passage search finds nothing, the old page search counts.
-	// It is the foundation; a mistake in the cutting may not make content
-	// unfindable.
-	if len(results) == 0 {
-		results = s.searchPagesFallback(userID, match, ws, 20)
+	writeJSON(w, s.searchHits(userID, ftsMatch(q), ws, 20))
+}
+
+// searchHits is the search, for the browser and for agents alike.
+//
+// The PASSAGES answer first, not whole pages (see chunks.go): the excerpt then
+// comes from the paragraph that actually matches, and carries its heading path
+// along.
+//
+// The whole-page index fills what is left of the list. It is the foundation, and
+// it knows what no passage holds: the text of an attached PDF, a row's property
+// values, two words in different passages, a word a hard cut split in two. Asked
+// only when the passages found nothing, it lost all of these to a match on any
+// other page (#127).
+//
+// Both fetch in rounds rather than 40 at once: the canRead filter throws hits
+// away, and with a fixed LIMIT the list stayed short as soon as a workspace held
+// many private pages belonging to other people — you got four results and
+// believed there were no more.
+func (s *Server) searchHits(userID, match string, ws []string, want int) []searchResult {
+	out := s.searchChunks(userID, match, ws, want)
+	if len(out) >= want {
+		return out
 	}
-	writeJSON(w, results)
+	found := make(map[string]bool, len(out))
+	for _, res := range out {
+		found[res.ID] = true
+	}
+	return append(out, s.searchWholePages(userID, match, ws, want-len(out), found)...)
 }
 
 // searchChunks searches the passages and returns the BEST one per page.
@@ -1369,7 +1387,7 @@ func (s *Server) searchChunks(userID, match string, ws []string, want int) []sea
 		qArgs := append([]any{}, args...)
 		rows, err := s.db.Query(`
 			SELECT c.page_id, p.title, p.icon, c.heading,
-			       snippet(chunks_fts, 3, char(1), char(2), '…', 18),
+			       snippet(chunks_fts, 3, char(1), char(2), '…', `+snippetTokens(match, 18)+`),
 			       p.workspace_id, p.parent_id, parent.title
 			FROM chunks_fts
 			JOIN page_chunks c ON c.id = chunks_fts.chunk_id
@@ -1393,6 +1411,7 @@ func (s *Server) searchChunks(userID, match string, ws []string, want int) []sea
 					res.ParentID = parentID.String
 					res.ParentTitle = parentTitle.String
 				}
+				res.Snippet = readableSnippet(res.Snippet)
 				cand = append(cand, res)
 			}
 		}
@@ -1417,8 +1436,9 @@ func (s *Server) searchChunks(userID, match string, ws []string, want int) []sea
 	return out
 }
 
-// searchPagesFallback is the old, page-by-page search.
-func (s *Server) searchPagesFallback(userID, match string, ws []string, want int) []searchResult {
+// searchWholePages is the page-by-page search. Pages in skip are left out: the
+// passages already found them, with a better excerpt.
+func (s *Server) searchWholePages(userID, match string, ws []string, want int, skip map[string]bool) []searchResult {
 	out := []searchResult{}
 	args := make([]any, 0, len(ws)+1)
 	args = append(args, match)
@@ -1428,7 +1448,7 @@ func (s *Server) searchPagesFallback(userID, match string, ws []string, want int
 	for offset, round := 0, 0; len(out) < want && round < 8; round++ {
 		qArgs := append([]any{}, args...)
 		rows, err := s.db.Query(`
-			SELECT p.id, p.title, p.icon, snippet(pages_fts, 2, char(1), char(2), '…', 14),
+			SELECT p.id, p.title, p.icon, snippet(pages_fts, 2, char(1), char(2), '…', `+snippetTokens(match, 14)+`),
 			       p.workspace_id, p.parent_id, parent.title
 			FROM pages_fts JOIN pages p ON p.id = pages_fts.id
 			LEFT JOIN pages parent ON parent.id = p.parent_id
@@ -1447,6 +1467,7 @@ func (s *Server) searchPagesFallback(userID, match string, ws []string, want int
 					res.ParentID = parentID.String
 					res.ParentTitle = parentTitle.String
 				}
+				res.Snippet = readableSnippet(res.Snippet)
 				cand = append(cand, res)
 			}
 		}
@@ -1455,7 +1476,7 @@ func (s *Server) searchPagesFallback(userID, match string, ws []string, want int
 			if len(out) >= want {
 				break
 			}
-			if s.canRead(userID, res.ID) {
+			if !skip[res.ID] && s.canRead(userID, res.ID) {
 				out = append(out, res)
 			}
 		}
@@ -1476,7 +1497,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		// can show a precise message.
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) || strings.Contains(err.Error(), "too large") {
-			httpError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("file too large — max %d MB", maxUploadSize>>20))
+			httpError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("file too large: max %d MB", maxUploadSize>>20))
 		} else {
 			httpError(w, 400, "upload malformed")
 		}

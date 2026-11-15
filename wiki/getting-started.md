@@ -41,7 +41,7 @@ Two variables change what it does:
 | Variable | Effect |
 | --- | --- |
 | `BIN_DIR=/path` | install there instead of the default |
-| `SALT_VERSION=v1.6.0` | fetch that release rather than the latest |
+| `SALT_VERSION=v1.1.7` | fetch that release rather than the latest |
 
 Each release carries five binaries and a checksum file:
 
@@ -178,7 +178,8 @@ creates the account; the other is told *setup already completed*.
 The theme switch in the top right corner of the screen works before you
 have an account: **Light**, **Automatic (follows the system)**, **Dark**. So
 does the language: the interface takes it from your browser, and today there are
-two catalogues, English and German.
+five catalogues: English, German, Russian, Simplified Chinese and Traditional
+Chinese.
 
 The two are remembered in different places, which matters the moment you use a
 second device. **The language lives on your account** once you are signed in,

@@ -128,8 +128,10 @@ func TestPublicFileGate(t *testing.T) {
 	if rec := anonGet(s, good+"tampered"); rec.Code != http.StatusForbidden {
 		t.Errorf("tampered sig: %d, want 403", rec.Code)
 	}
-	if rec := anonGet(s, strings.Split(good, "?")[0]); rec.Code != http.StatusForbidden {
-		t.Errorf("missing sig: %d, want 403", rec.Code)
+	// The bare address is the fork's second proof: the token names the share
+	// and the page grant decides the file (see serveGrantedPublicFile).
+	if rec := anonGet(s, strings.Split(good, "?")[0]); rec.Code != http.StatusOK {
+		t.Errorf("bare token URL: %d, want 200", rec.Code)
 	}
 	// An upload nobody's page references is not reachable through the share.
 	key, _, found := s.shareFileScope(token)

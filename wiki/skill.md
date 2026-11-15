@@ -81,11 +81,10 @@ carries the configured one.
 **You can only get a skill for a workspace you belong to.** Asking for another
 one is refused with `workspace not found`, and a workspace your account is not a
 member of is never named in your bundle either: not its name, not its id, not
-its rules. The check is membership of the **account**, and that is the whole of
-it: if you fetch the bundle with an API token narrowed to one workspace, the
-narrowing is not applied here. The bundle still lists every workspace the account
-belongs to, with their ids, and it can quote the rules of a workspace that token
-was never granted.
+its rules. Fetched with a token, the bundle also keeps to what that token may
+enter: one narrowed to particular workspaces gets a bundle naming only those, a
+workspace whose rule keeps that token out is left out of it too, and asking for
+either by id answers `workspace not found`.
 
 **You can fetch it without a browser.** `/api/skill` is an ordinary
 authenticated `GET`, so a token works as well as a browser session, and a

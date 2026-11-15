@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,7 +14,7 @@ import (
 // day relative to the day the query runs on: "today", "yesterday",
 // "tomorrow", or "today" with an offset such as "today-1M" (a month ago) or
 // "today+7d" (a week from now). The stored value keeps the word, so a saved
-// view reading "after today-1M" stays live — tomorrow it still means a month
+// view reading "after today-1M" stays live: tomorrow it still means a month
 // back from tomorrow, where a baked-in date would already lie.
 //
 // Grammar, case-insensitive, spaces ignored:
@@ -25,15 +26,16 @@ import (
 // minus one month is 2026-02-28, clamped to the shorter month's last day.
 // Offsets beyond 9999 units are rejected rather than overflowed.
 //
-// The day resolved is the server's calendar day. The browser preview resolves
-// with the viewer's own day (see web/src/smartdate.ts), so around midnight the
-// two can disagree across timezones — accepted, the alternative is asking the
-// server for the viewer's zone on every row query.
+// The day resolved is the viewer's calendar day when the caller knows it
+// (the interface sends it with every row query), the server's otherwise.
+// The browser preview resolves with the viewer's own day too (see
+// resolveSmartDate in web/src/format.ts), so the two agree even around
+// midnight across timezones. Agents that pass no day get the server's.
 var smartDateRe = regexp.MustCompile(`^(today|yesterday|tomorrow)([+-]\d+)([dwmy])?$`)
 
 // resolveSmartDate names the calendar day a filter value means, in YYYY-MM-DD
 // form. ok is false for plain dates ("2026-10-09") and for anything that is
-// neither a date nor a recognised word — both pass through untouched.
+// neither a date nor a recognised word: both pass through untouched.
 func resolveSmartDate(s string, now time.Time) (day string, ok bool) {
 	norm := strings.ToLower(strings.ReplaceAll(s, " ", ""))
 	base := ""
@@ -109,33 +111,89 @@ func floorMod(a, b int) int {
 	return r
 }
 
+// dayRe is a calendar day, possibly followed by a time, which is how a timed
+// date is stored.
+var dayRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`)
+
+// comparesDays reports whether a condition on a date property compares its
+// value with days. contains does not: it looks for text, so "2026-10" finds
+// October. Neither do the two operators that take no value.
+func (f rowFilter) comparesDays() bool {
+	return f.Op != "contains" && f.Op != "is_empty" && f.Op != "is_not_empty"
+}
+
+// readableDay reports whether a date condition can compare against v: a day,
+// or a relative day that resolves. "toda" on the way to "today" or a typo
+// like "yesterdy" cannot. Compared as text they filtered the table by
+// accident, and the interface saved the view like that. isReadableDay in
+// format.ts is the same rule.
+func readableDay(v string) bool {
+	if dayRe.MatchString(v) {
+		return true
+	}
+	_, ok := resolveSmartDate(v, time.Now())
+	return ok
+}
+
 // resolveDates returns a copy of the condition with every relative day
 // replaced by the calendar day it names today, so the SQL below always
-// compares static values. Anything that is not a relative day keeps its
-// value: the resolver only ever rewrites what it recognises.
+// compares static values. A value that is not a day at all is dropped, and
+// the condition then waits the way an empty one does (see where()).
 //
 // Callers must only hand it conditions on DATE properties (see
 // resolveSmartDates): the same words are legal option ids and text, and
 // rewriting those would turn a search for a status named "Today" into a
 // search for a date that matches nothing.
 func (f rowFilter) resolveDates(now time.Time) rowFilter {
-	if v, ok := resolveSmartDate(f.Value, now); ok {
-		f.Value = v
+	if !f.comparesDays() {
+		return f
 	}
-	if v, ok := resolveSmartDate(f.Value2, now); ok {
-		f.Value2 = v
+	if f.Op == "" && f.Value != "" {
+		// Spelled out, because an empty op without a value means
+		// is_not_empty, and the value may be dropped below.
+		f.Op = "is"
 	}
+	day := func(v string) string {
+		if r, ok := resolveSmartDate(v, now); ok {
+			return r
+		}
+		if v == "" || dayRe.MatchString(v) {
+			return v
+		}
+		return ""
+	}
+	f.Value = day(f.Value)
+	f.Value2 = day(f.Value2)
 	if len(f.Values) > 0 {
-		vs := make([]string, len(f.Values))
-		copy(vs, f.Values)
-		for i, v := range vs {
-			if r, ok := resolveSmartDate(v, now); ok {
-				vs[i] = r
+		vs := make([]string, 0, len(f.Values))
+		for _, v := range f.Values {
+			if d := day(v); d != "" {
+				vs = append(vs, d)
 			}
 		}
 		f.Values = vs
 	}
 	return f
+}
+
+// unreadableDay is the first value of a date condition that is not a day.
+// Waiting quietly suits a person half way through typing. An agent would take
+// the unfiltered rows for the answer, so query_rows and set_view refuse it.
+func (f rowFilter) unreadableDay() (string, bool) {
+	if !f.comparesDays() {
+		return "", false
+	}
+	for _, v := range append([]string{f.Value, f.Value2}, f.Values...) {
+		if v != "" && !readableDay(v) {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// notADay is the error for such a value, in the words an agent can act on.
+func notADay(prop, value string) error {
+	return fmt.Errorf("filter on %q: %q is not a day. Use YYYY-MM-DD or a relative day such as today, yesterday, tomorrow, today-7d or today+1m", prop, value)
 }
 
 // todayParamRe is the shape of the browser's day: strict, so "tomorrow" or
@@ -179,18 +237,7 @@ func (s *Server) resolveSmartDates(collectionID string, filters []rowFilter, now
 	if err != nil {
 		return filters
 	}
-	dates := map[string]bool{}
-	for _, p := range schema {
-		id, _ := p["id"].(string)
-		typ, _ := p["type"].(string)
-		if id != "" && typ == "date" {
-			dates[id] = true
-		}
-	}
-	// Created and Updated read the row's own timestamps as days and are
-	// filterable with the same operators, so a relative day works on them too.
-	dates[sortCreatedProp] = true
-	dates[sortUpdatedProp] = true
+	dates := dateProps(schema)
 	out := make([]rowFilter, len(filters))
 	for i, f := range filters {
 		if dates[f.Prop] {
@@ -199,4 +246,38 @@ func (s *Server) resolveSmartDates(collectionID string, filters []rowFilter, now
 		out[i] = f
 	}
 	return out
+}
+
+// dateProps is the set of a schema's date property ids.
+func dateProps(schema []map[string]any) map[string]bool {
+	dates := map[string]bool{}
+	for _, p := range schema {
+		id, _ := p["id"].(string)
+		typ, _ := p["type"].(string)
+		if id != "" && typ == "date" {
+			dates[id] = true
+		}
+	}
+	return dates
+}
+
+// checkDayValues refuses a query whose date conditions name something that is
+// not a day (see unreadableDay).
+func (s *Server) checkDayValues(collectionID string, sets ...[]rowFilter) error {
+	schema, _, err := s.loadCollection(collectionID)
+	if err != nil {
+		return nil
+	}
+	dates := dateProps(schema)
+	for _, filters := range sets {
+		for _, f := range filters {
+			if !dates[f.Prop] {
+				continue
+			}
+			if v, bad := f.unreadableDay(); bad {
+				return notADay(f.Prop, v)
+			}
+		}
+	}
+	return nil
 }

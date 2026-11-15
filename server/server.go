@@ -20,15 +20,18 @@ import (
 )
 
 type Server struct {
-	db      *sql.DB
-	mux     *http.ServeMux
-	dataDir string
+	publicCSS string
+	db        *sql.DB
+	mux       *http.ServeMux
+	dataDir   string
 	// name → the markup INSIDE a Lucide <svg>, for the print view.
 	lucide map[string]string
 	// The third-party licence notices, embedded from the repository root.
 	notices     string
 	addr        string
 	tunnel      tunnelState
+	// What the settings show about the cloudflared in use (tunnel_update.go).
+	cloudflared cloudflaredUpdates
 	// Agent keys from listed addresses only; see agent_addresses.go.
 	agentAddressList addressList
 	loginMu     sync.Mutex
@@ -42,6 +45,10 @@ type Server struct {
 	tokenRate   *rateLimiter
 	formRate    *rateLimiter
 	sharePwRate *rateLimiter
+	// Refresh tokens replaced a moment ago, by the hash of the old one; see
+	// oauthRefresh.
+	renewMu     sync.Mutex
+	renewals    map[string]oauthRenewal
 	stopCleanup chan struct{}
 	// Generic OIDC state (see oidc.go): the discovery and JWKS caches plus a
 	// test override for the HTTP client. Nil in every real build.
@@ -91,6 +98,10 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	// data URI. A data URI rather than a link, because some MCP clients will
 	// not fetch foreign images (strict CSP) — a link would be silently empty
 	// there.
+	cssHref := ""
+	if index, err := fs.ReadFile(dist, "index.html"); err == nil {
+		cssHref = publicCSSHref(index)
+	}
 	iconURI := ""
 	// The Lucide set, generated at build time (web/scripts/build-lucide.mjs).
 	// Read once, like the favicon below: the print view is built on the server
@@ -108,6 +119,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	}
 
 	s := &Server{
+		publicCSS: cssHref,
 		mcpIcon:   iconURI,
 		lucide:    lucideSet,
 		ingest:    newIngestRegistry(),
@@ -125,6 +137,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 		// Passwords on shared pages, per link and address. A share password was
 		// checked as fast as anybody could send guesses.
 		sharePwRate: newRateLimiter(10, 5),
+		renewals:    map[string]oauthRenewal{},
 		stopCleanup: make(chan struct{}),
 		dist:        dist,
 	}
@@ -207,11 +220,15 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("POST /api/invites", s.auth(s.sessionOnly(s.handleCreateInvite)))
 	m.HandleFunc("GET /api/invites/{token}", s.handleInviteInfo)
 	m.HandleFunc("POST /api/invites/{token}/accept", s.handleAcceptInvite)
-	m.HandleFunc("GET /api/ics", s.auth(s.handleICSInfo))
-	m.HandleFunc("POST /api/ics/prefs", s.auth(s.handleICSPrefs))
-	m.HandleFunc("POST /api/ics/feeds", s.auth(s.handleICSFeedsCreate))
-	m.HandleFunc("PATCH /api/ics/feeds/{id}", s.auth(s.handleICSFeedUpdate))
-	m.HandleFunc("DELETE /api/ics/feeds/{id}", s.auth(s.handleICSFeedDelete))
+	// The calendar key is a credential of its own: /ics/<key> answers without a
+	// sign-in, for every workspace of the account. Handing it to a token let a
+	// token narrowed to one workspace (or kept out by a workspace's rule) read
+	// the dated rows of all of them, and rotating it is a GET.
+	m.HandleFunc("GET /api/ics", s.auth(s.sessionOnly(s.handleICSInfo)))
+	m.HandleFunc("POST /api/ics/prefs", s.auth(s.sessionOnly(s.handleICSPrefs)))
+	m.HandleFunc("POST /api/ics/feeds", s.auth(s.sessionOnly(s.handleICSFeedsCreate)))
+	m.HandleFunc("PATCH /api/ics/feeds/{id}", s.auth(s.sessionOnly(s.handleICSFeedUpdate)))
+	m.HandleFunc("DELETE /api/ics/feeds/{id}", s.auth(s.sessionOnly(s.handleICSFeedDelete)))
 	m.HandleFunc("GET /ics/{token}", s.handleICSFeed)
 	m.HandleFunc("GET /api/2fa", s.auth(s.sessionOnly(s.handle2FAStatus)))
 	m.HandleFunc("POST /api/2fa/setup", s.auth(s.sessionOnly(s.handle2FASetup)))
@@ -294,10 +311,13 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("GET /api/library", s.auth(s.handleLibrary))
 	m.HandleFunc("POST /api/library/{id}", s.auth(s.handleUseBlueprint))
 	// Break-glass: only the owner may request it; the people responsible for
-	// the workspace concerned may view and end it too.
+	// the workspace concerned may view and end it too. All three in a browser
+	// session: emergency access stays with a person at a keyboard (see
+	// sessionOnly), and the two routes below took any token and asked nothing
+	// about it, so an agent read the reasons and ended grants anywhere.
 	m.HandleFunc("POST /api/workspaces/{id}/break-glass", s.ownerOnly(s.handleBreakGlass))
-	m.HandleFunc("GET /api/workspaces/{id}/break-glass", s.auth(s.handleListBreakGlass))
-	m.HandleFunc("DELETE /api/workspaces/{id}/break-glass/{grantId}", s.auth(s.handleRevokeBreakGlass))
+	m.HandleFunc("GET /api/workspaces/{id}/break-glass", s.auth(s.sessionOnly(s.handleListBreakGlass)))
+	m.HandleFunc("DELETE /api/workspaces/{id}/break-glass/{grantId}", s.auth(s.sessionOnly(s.handleRevokeBreakGlass)))
 	m.HandleFunc("PATCH /api/workspaces/{id}", s.auth(s.handleUpdateWorkspace))
 	// Rules are what agents are told to follow, so no API token may write them
 	// (sessionOnly) — see handleWorkspaceRules. Agents may PROPOSE rules over

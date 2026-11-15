@@ -82,7 +82,7 @@ workspace name rather than clicking Yes. See [Workspaces](workspaces.md) and
 Two round buttons top right:
 
 - **Library (every page)** opens the full-screen library over the page. It has
-  its own tab strip (**Recently used**, **Favorites**, **Shared**, **Private**,
+  its own tab strip (**Recently used**, **Favorites**, **Workspace**, **Private**,
   **All pages**, **Graph** and **Tree · agent view**), with a workspace picker, a
   filter box and a sort menu. See [Library](library.md).
 - **Collapse the sidebar** slides it away. On a desktop it does not disappear:
@@ -282,29 +282,21 @@ the second tab: one document needs no tab bar.
 
 - **Clicking a page anywhere does not add a tab.** It navigates the tab you are
   in, the way a browser tab does. Use ⌘-click, middle-click or *Open in new tab*
-  to add one — the gestures work on a sidebar row, a board card, a row in any
-  collection view and a note in the notes column, and a board card's ⋯ menu
-  carries the entry too.
+  to add one. The gestures work on a sidebar row, a board card, a row in any
+  collection view, a note in the notes column and an entry of the sub-pages
+  block, and a board card's ⋯ menu carries the entry too.
 - A new tab opens directly after the active one and is focused.
-- **✕** closes a tab, and so does a **middle-click** on it. A right-click
-  opens the tab's menu: pin it, move it along the strip, close it, close
-  everything but it and the pins, or close everything to its right. Tabs can
-  also be dragged, and `Ctrl+Alt+Shift+←/→` moves the focused one.
-- A **pinned** tab leads the strip and keeps its place: following a link from
-  it opens the page after it instead of replacing it, and the bulk closes
-  leave it alone.
+- **✕** closes a tab, and so does a **middle-click** on it.
 - Closing the active tab activates the neighbour that slides into its place.
   Closing the last one does not leave you on an empty screen; a page is picked
   for you.
 - Back and forward restore the exact set of tabs that entry had, not just the
   address.
-- Switching workspace leaves the tabs alone: it focuses the tab you last had
-  open there, or opens that page in a new tab right after the current one —
-  never by replacing the tab you are leaving. A tab can go on showing a page
-  from a workspace the sidebar is no longer displaying.
-- The set of open tabs, their order and their pins are remembered in this
-  browser. A tab whose page was trashed or deleted elsewhere drops out on its
-  own, within a moment of the change arriving, so no ghost tabs pile up.
+- Switching workspace leaves the tabs alone. A tab can go on showing a page from
+  a workspace the sidebar is no longer displaying.
+- The set of open tabs is remembered in this browser. A tab whose page was
+  trashed or deleted elsewhere drops out on its own, within a moment of the
+  change arriving, so no ghost tabs pile up.
 
 ## The topbar
 
@@ -346,9 +338,8 @@ Four things, top to bottom:
    Empty: **No files**. See [Files](files.md).
 4. ***Linked from***: the pages that link here. Empty: **Nothing links here**.
 
-Clicking a **PDF**, a Word document (**.docx**) or a spreadsheet (**.xlsx**)
-opens it full-screen in a preview with **Download** and **Close**; Escape
-closes it too. Every other kind of file opens in a new tab.
+Clicking a **PDF** opens it full-screen in a preview with **Download** and
+**Close**; Escape closes it too. Every other kind of file opens in a new tab.
 
 The structure panel and the comment panel share the same strip on the right, so
 opening one closes the other. Both remember whether they were open, in this
@@ -356,10 +347,11 @@ browser, across pages.
 
 ### Sharing to the web
 
-The globe opens a small menu: the read-only link in a field that selects itself
-when you click it, **Expires:** with **Never**, **In 1 day**, **In 7 days** or
-**In 30 days**, an optional **Password (optional)** field, and two buttons,
-**Copy** and **Stop sharing**. See [Sharing](sharing.md).
+The globe opens a small menu and publishes nothing by itself: **Expires:** with
+**Never**, **In 1 day**, **In 7 days** or **In 30 days**, an optional
+**Password (optional)** field, and **Create link**. Once the link exists the
+menu shows it in a field that selects itself when you click it, with **Copy**
+and **Stop sharing**. See [Sharing](sharing.md).
 
 ### The ⋯ menu
 

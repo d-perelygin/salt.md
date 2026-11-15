@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Database-oriented MCP tools (Welle 9): they let an agent actually operate a
+// Database-oriented MCP tools (W9): they let an agent actually operate a
 // salt.md database — inspect its schema, query rows, write typed properties,
 // create a database, move pages, and resolve people. All go through the same
 // workspace/ACL guards as the REST UI (checked by the caller in mcpCall).
@@ -29,10 +29,10 @@ func (s *Server) mcpGetSchema(pageID string) (string, error) {
 }
 
 // mcpQueryRows filters/sorts/paginates a database's rows server-side and returns
-// compact JSON including computed rollup/formula values. groups are ORed, the
-// conditions inside one group ANDed; a flat filter list is one group. today is
-// the viewer's day for relative date words; zero falls back to the server's.
-func (s *Server) mcpQueryRows(u *user, pageID string, groups [][]rowFilter, sort string, limit, offset int, today time.Time) (string, error) {
+// compact JSON including computed rollup/formula values. flat and groups
+// combine as in collectionRowsQuery: "this AND (that OR those)". today is the
+// viewer's day for relative date words; zero falls back to the server's day.
+func (s *Server) mcpQueryRows(u *user, pageID string, flat []rowFilter, groups [][]rowFilter, sort string, limit, offset int, today time.Time) (string, error) {
 	var isCollection int
 	if s.db.QueryRow(`SELECT COUNT(*) FROM collections WHERE page_id = ?`, pageID).Scan(&isCollection); isCollection == 0 {
 		return "", fmt.Errorf("page %q is not a database", pageID)
@@ -43,12 +43,15 @@ func (s *Server) mcpQueryRows(u *user, pageID string, groups [][]rowFilter, sort
 	if offset < 0 {
 		offset = 0
 	}
+	if err := s.checkDayValues(pageID, append([][]rowFilter{flat}, groups...)...); err != nil {
+		return "", err
+	}
 	// Filter values may arrive as an option NAME as well (see set_properties).
 	resolved := make([][]rowFilter, len(groups))
 	for i, g := range groups {
 		resolved[i] = s.resolveFilterValues(pageID, g)
 	}
-	rows, total, err := s.collectionRowsQuery(u, pageID, resolved, sort, limit, offset, today)
+	rows, total, err := s.collectionRowsQuery(u, pageID, s.resolveFilterValues(pageID, flat), resolved, sort, limit, offset, today)
 	if err != nil {
 		return "", err
 	}
@@ -198,7 +201,7 @@ func (s *Server) mcpSetPropertiesEx(pageID string, properties json.RawMessage, a
 		if blob, err := json.Marshal(diff); err == nil {
 			s.auditChanges("agent", actor.ID, actor.Name+" (MCP)", "set_properties", pageID,
 				s.pageWorkspace(pageID),
-				fmt.Sprintf("%s — %s", title, strings.Join(changed, ", ")), string(blob))
+				fmt.Sprintf("%s: %s", title, strings.Join(changed, ", ")), string(blob))
 		}
 	}
 	return fmt.Sprintf("Set %d propert%s on row %s", len(changed), plural(len(changed), "y", "ies"), pageID), nil

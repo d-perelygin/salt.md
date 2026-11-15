@@ -367,6 +367,11 @@ pointing at the right thing. If the name is already taken on this instance, the
 new workspace gets **(Import)** appended. The upload is capped at 100 MB, the
 same ceiling as the Markdown archive import.
 
+Imported over the API with a token instead of in the browser, the archive's
+rules arrive as a pending proposal for an admin to apply, because rules are only
+ever set by a person. A token limited to particular workspaces cannot import at
+all: it could not open the result.
+
 | What can go wrong | The message |
 | --- | --- |
 | the file is not a ZIP | *not a valid zip archive* |

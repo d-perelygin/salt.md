@@ -50,21 +50,34 @@ language on the spot, with no reload.
 | **Week starts on** | the first column of a calendar | what the region implies |
 
 Every one of them is a single dropdown whose first entry is **Automatic**, and
-that entry names in brackets what it currently amounts to: **Automatic
-(Europe/Berlin)**, **Automatic (24-hour)**, **Automatic (Monday)**. On an account
-that has not set that value by hand, the bracketed name is exactly what automatic
-resolves to. A setting whose automatic value is invisible is one people switch to
+that entry names what it currently amounts to: **Automatic · Europe/Berlin**,
+**Automatic · 24-hour**, **Automatic · Monday**. On an account that has not set
+that value by hand, the name after the dot is exactly what automatic resolves to. A setting whose automatic value is invisible is one people switch to
 manual merely to find out what it was.
 
 ### Language
 
-Two languages ship today: **English** and **Deutsch**. English is the source
-language of the product, so English is never a translation and never has gaps.
+Five languages ship today: **English**, **Deutsch**, **Русский**,
+**简体中文** (Simplified Chinese) and **繁體中文** (Traditional Chinese).
+English is the source language of the product, so English is never a translation
+and never has gaps. German is kept complete by the build; Russian and both
+Chinese catalogues were contributed and can trail a release behind, in which
+case the newest texts show in English until they catch up.
 
 Automatic walks your browser's list of preferred languages and takes the first
 one salt.md has a catalogue for; if there is none, English. That is why a German
 browser gets a German interface on the very first visit, with nobody having
 chosen anything.
+
+A catalogue is matched by language and script, not by language alone. Chinese
+is one language written two ways: a browser set to `zh-CN` or plain `zh` asks
+for Simplified characters and gets 简体中文, while one set to `zh-TW` or
+`zh-HK` asks for Traditional characters and gets 繁體中文. Dates and numbers
+are not affected either way: they follow the browser's own regional variant, so
+a reader in Taipei on the Simplified interface still gets dates the `zh-TW` way.
+
+The Traditional catalogue is machine-marked throughout: regional wording
+corrections from readers in Taiwan and Hong Kong are welcome.
 
 The language changes the interface: menus, buttons, dialogs, dates spelled in
 words. It does not change anything you or your colleagues wrote. See
@@ -78,7 +91,7 @@ the page out right to left rather than needing a separate switch.
 
 ### Date and number format
 
-A short, curated list of eighteen regional tags rather than every tag the browser
+A short, curated list of twenty-one regional tags rather than every tag the browser
 knows, because the problem being solved is "my laptop says en-US but I write
 dates the European way", and a thousand-entry dropdown does not help anybody do
 that. Each entry reads as a name and its tag (**German (Germany): de-DE**,
@@ -86,7 +99,7 @@ that. Each entry reads as a name and its tag (**German (Germany): de-DE**,
 
 The list covers `de-DE`, `de-AT`, `de-CH`, `en-GB`, `en-US`, `en-IE`, `en-AU`,
 `en-CA`, `fr-FR`, `fr-CH`, `it-IT`, `es-ES`, `nl-NL`, `pl-PL`, `pt-BR`, `sv-SE`,
-`da-DK` and `cs-CZ`.
+`da-DK`, `cs-CZ`, `zh-CN`, `zh-TW` and `zh-HK`.
 
 This is deliberately a **separate** setting from the language. salt.md ships one
 catalogue per language, not per country (writing British and American copies of
@@ -119,7 +132,7 @@ hours, then days up to a week. Past a week it stops being relative and shows the
 day and month instead, with the year added as soon as the date is not in the
 current year, because "18 Jul" on its own could be any of several.
 
-**Beyond the eighteen.** The dropdown offers eighteen; the server accepts
+**Beyond the twenty-one.** The dropdown offers twenty-one; the server accepts
 anything shaped like a regional tag, so a value such as `en-NZ` can be stored by
 a script signed in as you and will be used for formatting. The dialog has no
 entry for a tag outside its list and cannot display one; picking any entry
@@ -260,7 +273,7 @@ a new account starts on automatic.
   no account yet, so the server has no way of knowing what language they read.
   See [Mail](mail.md).
 - **A page you share publicly is English for everyone.** The password prompt, the
-  "Not found" page for a dead link and the print bar of an exported page are
+  "Link unavailable" page for a dead link and the print bar of an exported page are
   built by the server as plain HTML with no translation layer, and they do not
   know who is reading. A shared collection prints its values raw as well:
   `2026-07-18`, and numbers with a dot. See [Sharing](sharing.md).
@@ -327,10 +340,13 @@ Two properties of the translation system are worth knowing before you start. The
 **English source text is the key** (`t('Manage users')`, not `users.manage`), so
 a string with no translation yet falls through as correct English rather than as
 a broken identifier, and a partial catalogue is immediately usable. The cost is
-the mirror image: editing an English sentence orphans its translation. The build
-refuses a catalogue that has drifted (an entry nobody asks for any more, or a
-string with no entry), so the drift is loud rather than silent, and a language
-being worked on is finished before it ships.
+the mirror image: editing an English sentence orphans its translation.
+
+The build holds **German** to that: it refuses a German catalogue that has
+drifted (an entry nobody asks for any more, or a string with no entry). Every
+other language is reported and allowed to trail behind, with its missing texts
+in English. Otherwise whoever renames a button would have to deliver every
+language at once, and the languages are topped up before a release instead.
 
 ## Related
 

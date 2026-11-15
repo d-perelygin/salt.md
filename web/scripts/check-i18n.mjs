@@ -10,12 +10,14 @@
 // build is the only version of "we'll remember" that works.
 //
 // Both sections are enforced. Section 2 became enforceable the moment the last
-// string was wrapped: from here on, a bare string or a stale catalog fails the
-// build, so rot is mechanically impossible rather than merely discouraged.
+// string was wrapped: from here on, a bare string or a stale German catalog
+// fails the build, so rot is mechanically impossible rather than merely
+// discouraged. Other languages are reported, not enforced (see REQUIRED).
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = join(here, '../src');
@@ -175,8 +177,10 @@ function isTechnical(s) {
   // A single token holding a dot, slash, at-sign or underscore: hostname, path,
   // email, env var. "Delete user" has a space and none of those.
   if (!/\s/.test(v) && /[./@_]/.test(v)) return true;
-  // No lowercase word of three letters or more anywhere — nothing to translate.
-  if (!/[a-z]{3}/.test(v)) return true;
+  // No word of three letters or more anywhere — nothing to translate. The first
+  // letter may be a capital: "Add" is a word, and reading it as an acronym left a
+  // button in English in every language.
+  if (!/[A-Za-z][a-z]{2}/.test(v)) return true;
   return false;
 }
 
@@ -201,46 +205,76 @@ for (const file of files) {
 
   if (!file.endsWith('.tsx')) continue;
 
-  // Scanned over the WHOLE file, not line by line. JSX puts text and its
-  // closing tag on separate lines all the time:
-  //
-  //     <button>
-  //       <ImageIcon /> Cover
-  //     </button>
-  //
-  // A per-line scan never sees the `<` and reports the file as clean. It did
-  // exactly that, and "Cover" sat untranslated on screen while the check said
-  // zero. Comments are blanked rather than removed so line numbers survive.
+  // Comments are blanked rather than removed so line numbers survive.
   const blanked = blankComments(text).replace(/<code[^>]*>[\s\S]*?<\/code>/g, (m) =>
     m.replace(/[^\n]/g, ' '),
   );
   const lineOf = (idx) => blanked.slice(0, idx).split('\n').length;
   const rawLines = text.split('\n');
   const exempt = (idx) => /i18n-ok:\s*\S/.test(rawLines[lineOf(idx) - 1] ?? '');
-
-  // Text between JSX tags, tolerating one line break on either side.
-  const JSX_TEXT = /(^|[^=!<>-])>[ \t]*\r?\n?[ \t]*([^<>{}\n]*[A-Za-z][^<>{}\n]*?)[ \t]*\r?\n?[ \t]*</g;
-  for (const m of blanked.matchAll(JSX_TEXT)) {
-    const s2 = m[2].trim();
-    if (s2.length < 3) continue;
-    if (/^[\d\s.,:;|/·—–-]+$/.test(s2)) continue;
-    if (/=>|&&|\|\||\?\?|===|!==|[[\]();:]/.test(s2)) continue;
-    const before = blanked.slice(Math.max(0, m.index - 40), m.index + 1);
-    if (/\b(Map|Set|Array|Promise|Record|Partial|Awaited|React|useState|useRef|useMemo)\s*$/.test(before)) continue;
-    if (isTechnical(s2)) continue;
-    if (exempt(m.index)) continue;
+  const report = (idx, what) => {
     unwrapped++;
-    allBare.push(`${rel}:${lineOf(m.index)}  ${s2.slice(0, 70)}`);
-    if (unwrappedSample.length < 8) unwrappedSample.push(`${rel}:${lineOf(m.index)}  ${s2.slice(0, 52)}`);
-  }
+    allBare.push(`${rel}:${lineOf(idx)}  ${what.slice(0, 70)}`);
+    if (unwrappedSample.length < 8) unwrappedSample.push(`${rel}:${lineOf(idx)}  ${what.slice(0, 52)}`);
+  };
+
+  // Read from the syntax tree, because the patterns this replaced could only see
+  // text with a tag on both sides and no brace or bracket inside. So
+  // `<Plus /> Anlegen: „{query}"` stayed German on screen for every language,
+  // English included, and a label next to a count stayed English, and the check
+  // said zero. Three shapes, the three that got through:
+  //
+  //   - JSX text, however it is surrounded;
+  //   - a label-like field in an object literal (`label: 'Text'`), which a person
+  //     reads and which t() has to reach, so the list is a function, not a
+  //     constant;
+  //   - a string handed straight to toast().
+  const inCode = (n) => {
+    for (let p = n.parent; p; p = p.parent) {
+      if (ts.isJsxElement(p) && p.openingElement.tagName.getText() === 'code') return true;
+    }
+    return false;
+  };
+  const inT = (n) => {
+    for (let p = n.parent; p && !ts.isBlock(p); p = p.parent) {
+      if (ts.isCallExpression(p) && ['t', 'plural'].includes(p.expression.getText())) return true;
+    }
+    return false;
+  };
+  const LABEL_FIELDS = new Set(['label', 'title', 'subtext', 'placeholder', 'confirmText']);
+  const tree = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  (function visit(n) {
+    if (ts.isJsxText(n) && !inCode(n)) {
+      const raw = n.getText();
+      const s2 = raw.replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
+      const at = n.getStart() + raw.length - raw.trimStart().length;
+      if (/[A-Za-z]{2}/.test(s2) && !isTechnical(s2) && !exempt(at)) report(at, s2);
+    }
+    if (
+      ts.isPropertyAssignment(n) &&
+      LABEL_FIELDS.has(n.name.getText()) &&
+      ts.isStringLiteralLike(n.initializer) &&
+      /[A-Za-z]{2}/.test(n.initializer.text) &&
+      !isTechnical(n.initializer.text) &&
+      !inT(n) &&
+      !exempt(n.getStart())
+    ) {
+      report(n.getStart(), `${n.name.getText()}: '${n.initializer.text}'`);
+    }
+    if (ts.isCallExpression(n) && n.expression.getText() === 'toast') {
+      const a = n.arguments[0];
+      if (a && (ts.isStringLiteralLike(a) || ts.isTemplateExpression(a)) && !exempt(n.getStart())) {
+        report(n.getStart(), `toast(${a.getText()})`);
+      }
+    }
+    ts.forEachChild(n, visit);
+  })(tree);
 
   // Attributes a human reads.
-  for (const m of blanked.matchAll(/\b(placeholder|title|aria-label|alt)=(["'])([^"']{2,})\2/g)) {
+  for (const m of blanked.matchAll(/\b(placeholder|title|aria-label|alt|label)=(["'])([^"']{2,})\2/g)) {
     if (isTechnical(m[3])) continue;
     if (exempt(m.index)) continue;
-    unwrapped++;
-    allBare.push(`${rel}:${lineOf(m.index)}  ${m[1]}="${m[3].slice(0, 55)}"`);
-    if (unwrappedSample.length < 8) unwrappedSample.push(`${rel}:${lineOf(m.index)}  ${m[1]}="${m[3].slice(0, 40)}"`);
+    report(m.index, `${m[1]}="${m[3]}"`);
   }
 }
 
@@ -310,7 +344,7 @@ const germanLines = [];
 // an id or a URL — anything ambiguous belongs in the line list above, not here.
 // Verbs and participles — what a BUTTON says.
 const GERMAN_STRONG =
-  /(?<![\w-])(absenden|fehlgeschlagen|umbenennen|umbenannt|verschieben|verschoben|loeschen|löschen|geloescht|gelöscht|gespeichert|speichern|hochladen|hochgeladen|anlegen|angelegt|erstellen|erstellt|schliessen|schließen|abbrechen|hinzufuegen|hinzufügen|entfernen|entfernt|bearbeiten|suchen|senden|gesendet|teilen|geteilt|beitritt|importierter|einsammeln|referenzierte|auswaehlen|auswählen|verbinden|verbunden|zurueck|zurück|weiter|fertig|ungueltig|ungültig|vorhanden|erforderlich|aufklappen|zuklappen|einklappen|ausklappen|umbenannt|gespeicherte|geoeffnet|geöffnet|geschlossen|verworfen|uebernehmen|übernehmen|bestaetigen|bestätigen|wiederherstellen|zuruecksetzen|zurücksetzen)(?![\w])/iu;
+  /(?<![\w-])(absenden|abmelden|anmelden|angemeldet|eingeladen|wurdest|fehlgeschlagen|umbenennen|umbenannt|verschieben|verschoben|loeschen|löschen|geloescht|gelöscht|gespeichert|speichern|hochladen|hochgeladen|anlegen|angelegt|erstellen|erstellt|schliessen|schließen|abbrechen|hinzufuegen|hinzufügen|entfernen|entfernt|bearbeiten|suchen|senden|gesendet|teilen|geteilt|beitritt|importierter|einsammeln|referenzierte|auswaehlen|auswählen|verbinden|verbunden|zurueck|zurück|weiter|fertig|ungueltig|ungültig|vorhanden|erforderlich|aufklappen|zuklappen|einklappen|ausklappen|umbenannt|gespeicherte|geoeffnet|geöffnet|geschlossen|verworfen|uebernehmen|übernehmen|bestaetigen|bestätigen|wiederherstellen|zuruecksetzen|zurücksetzen)(?![\w])/iu;
 
 // Nouns and adjectives — what a MENU ENTRY or a description says, and the class
 // both other rules were blind to. "Hervorgehobener Hinweis mit Emoji" sat in
@@ -328,11 +362,14 @@ const GERMAN_NOUNS =
  *  gefunden" has no umlaut and two words, and the line rule would never see it. */
 const stringReadsGerman = (s) => GERMAN_STRONG.test(s) || GERMAN_NOUNS.test(s);
 
-// Every quoted string in the source, JSX text included via the line rule above.
+// Every quoted string in the source, and every run of JSX text between a `>`
+// and the next `<`. The text was the gap: "Abmelden &amp; neu anmelden" sat on
+// the invitation page as plain JSX, too short for the line rule and no string
+// for this one, so neither saw it.
 const germanStrings = [];
 {
   const stack = [src];
-  const STR = /(['"`])((?:\\.|(?!\1)[^\\])*?)\1/g;
+  const STR = /(['"`])((?:\\.|(?!\1)[^\\])*?)\1|>([^<>{}]+)</g;
   while (stack.length) {
     const d = stack.pop();
     for (const name of readdirSync(d)) {
@@ -346,7 +383,7 @@ const germanStrings = [];
           .forEach((line, i) => {
             if (/i18n-ok:\s*\S/.test(line)) return;
             for (const m of line.matchAll(STR)) {
-              const text = m[2];
+              const text = m[2] ?? m[3];
               if (!/[A-Za-zÄÖÜäöüß]{3}/.test(text)) continue;
               if (stringReadsGerman(text)) {
                 germanStrings.push(`${rel}:${i + 1}  ${text.slice(0, 60)}`);
@@ -378,8 +415,20 @@ if (process.argv.includes('--german')) {
 
 // Catalogs: an entry nobody asks for any more is an orphan (usually the source
 // text was edited); a source string with no entry is simply untranslated.
+//
+// Only the catalogs in REQUIRED fail the build. German is the one this project
+// answers for: somebody here reads it, and a gap in it is a bug. Every other
+// language is a contribution and may lag behind, because a missing entry shows
+// its English source, which t() does anyway. Enforcing them all would make
+// whoever renames a button deliver Spanish, and French, and whatever arrives
+// next, which is the surest way to stop people contributing. They are topped up
+// before a release instead: node scripts/translate.mjs <locale>.
+const REQUIRED = new Set(['de.json']);
 const localeDir = join(src, 'locales');
 const report = [];
+// <locale>.machine.json beside a catalog is translate.mjs's list of entries no
+// human has read yet — an array of keys, not a catalog, and reading it as one
+// reported every one of them as an orphan.
 for (const name of readdirSync(localeDir).filter((f) => f.endsWith('.json') && !f.endsWith('.machine.json'))) {
   const cat = JSON.parse(readFileSync(join(localeDir, name), 'utf8'));
   const keys = Object.keys(cat);
@@ -459,7 +508,10 @@ else {
 }
 
 console.log();
-const stale = report.filter((r) => r.missing > 0 || r.orphans.length > 0);
+const behind = (r) => r.missing > 0 || r.orphans.length > 0;
+const stale = report.filter((r) => REQUIRED.has(r.name) && behind(r));
+for (const r of report.filter((r) => !REQUIRED.has(r.name) && behind(r)))
+  console.log(`  note — ${r.name} is behind (${r.missing} untranslated, ${r.orphans.length} orphaned); missing entries show in English`);
 if (errors.length || unwrapped > 0 || stale.length || germanLines.length || germanStrings.length) {
   if (errors.length) console.log(`  FAILED — ${errors.length} formatting violation(s)`);
   if (unwrapped > 0)
@@ -475,4 +527,4 @@ if (errors.length || unwrapped > 0 || stale.length || germanLines.length || germ
   console.log('  For the German list: node scripts/check-i18n.mjs --german');
   process.exit(1);
 }
-console.log('  ok — every string wrapped, every catalog current, source is English');
+console.log('  ok — every string wrapped, the German catalog current, source is English');

@@ -74,14 +74,25 @@ func (s *Server) mcpRevisions(u *user, pageID, action, revisionID string, limit 
 
 // mcpComments replaces get_comments, add_comment and resolve_comment.
 // delete_comment stays its own tool: see the note at the top of this file.
-func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID string, resolved *bool) (string, error) {
+func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID, agent, label string, resolved *bool) (string, error) {
 	switch action {
 	case "", "list":
 		list, err := s.pageComments(pageID)
 		if err != nil {
 			return "", err
 		}
-		out, err := json.Marshal(list)
+		type quotedComment struct {
+			commentJSON
+			Quote string `json:"quote,omitempty"`
+		}
+		comments := make([]quotedComment, 0, len(list))
+		for _, c := range list {
+			// Agents need the passage, not the collaborative editor's positions.
+			quote := commentQuote(c.Anchor)
+			c.Anchor = nil
+			comments = append(comments, quotedComment{c, quote})
+		}
+		out, err := json.Marshal(comments)
 		if err != nil {
 			return "", err
 		}
@@ -90,9 +101,12 @@ func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID s
 		if strings.TrimSpace(body) == "" {
 			return "", fmt.Errorf("body is required for action=add")
 		}
+		// Every comment added here comes through an agent's credential, so it
+		// always carries an agent: "generic" when the caller names none (#116).
+		agent, label := commentAgent(agent, label)
 		id := newID()
-		if _, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			id, pageID, blockID, u.ID, u.Name, strings.TrimSpace(body), now()); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at, agent, agent_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, pageID, blockID, u.ID, u.Name, strings.TrimSpace(body), now(), agent, label); err != nil {
 			return "", err
 		}
 		return "Added comment " + id, nil
@@ -104,7 +118,7 @@ func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID s
 		// comment. Without resolving it to its page, a guessed comment id would
 		// write into somebody else's workspace.
 		pid, ok := s.commentPage(commentID)
-		if !ok || !s.canWrite(u.ID, pid) {
+		if !ok || !s.canWrite(u.ID, pid) || !s.credentialMayEnter(u, s.pageWorkspace(pid)) {
 			return "", fmt.Errorf("comment %q not found", commentID)
 		}
 		want := action == "resolve"
@@ -170,7 +184,7 @@ func (s *Server) mcpSetTrashed(pageID string, trashed *bool) (string, error) {
 // than two tools that answer the same question at different zoom levels.
 func (s *Server) mcpGetLinks(u *user, pageID, wsID string, kinds []string, includeNodes bool) (string, error) {
 	if pageID != "" {
-		out, err := s.mcpBacklinks(u.ID, pageID)
+		out, err := s.mcpBacklinks(u, pageID)
 		if err != nil {
 			return "", err
 		}
@@ -196,7 +210,7 @@ func (s *Server) mcpGetLinks(u *user, pageID, wsID string, kinds []string, inclu
 func (s *Server) mcpWorkspace(u *user, wsID, name, icon, from string) (string, error) {
 	if wsID == "" {
 		if narrowedToWorkspaces(u) {
-			return "", fmt.Errorf("this connection is limited to particular workspaces, so it cannot create new ones — it would not be able to open them")
+			return "", fmt.Errorf("this connection is limited to particular workspaces, so it cannot create new ones. It would not be able to open them")
 		}
 		if icon != "" {
 			return "", fmt.Errorf("pass workspace_id to set an icon — a new workspace is created with a name only")

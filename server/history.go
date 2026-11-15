@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Page version history and comments (Welle 13).
+// Page version history and comments (W13).
 //
 // The CRDT update log is compacted away, so version history is a SEPARATE,
 // materialized snapshot store: whenever a page's content is written (editor
@@ -128,24 +128,29 @@ func (s *Server) handleRestoreRevision(w http.ResponseWriter, r *http.Request) {
 // ---- Comments ----
 
 type commentJSON struct {
-	ID         string  `json:"id"`
-	BlockID    string  `json:"blockId"`
-	AuthorID   string  `json:"authorId"`
-	AuthorName string  `json:"authorName"`
-	Body       string  `json:"body"`
-	CreatedAt  string  `json:"createdAt"`
-	ResolvedAt *string `json:"resolvedAt"`
+	ID         string          `json:"id"`
+	BlockID    string          `json:"blockId"`
+	AuthorID   string          `json:"authorId"`
+	AuthorName string          `json:"authorName"`
+	Body       string          `json:"body"`
+	CreatedAt  string          `json:"createdAt"`
+	ResolvedAt *string         `json:"resolvedAt"`
+	Anchor     json.RawMessage `json:"anchor,omitempty"`
 	// The author's colour/picture, so the same person looks the same
 	// everywhere — the comment column used to roll a colour out of the name
 	// that had nothing to do with the real user colour.
 	AuthorColor  string `json:"authorColor"`
 	AuthorAvatar string `json:"authorAvatar"`
+	// The agent that wrote it, when one did. A claim, shown beside the account
+	// that vouches for it, exactly as on the note trail.
+	Agent      string `json:"agent,omitempty"`
+	AgentLabel string `json:"agentLabel,omitempty"`
 }
 
 func (s *Server) pageComments(pageID string) ([]commentJSON, error) {
 	// LEFT JOIN: the author may be deleted — the comment stays.
-	rows, err := s.db.Query(`SELECT c.id, c.block_id, c.author_id, c.author_name, c.body, c.created_at, c.resolved_at,
-		COALESCE(u.color, ''), COALESCE(u.avatar, '')
+	rows, err := s.db.Query(`SELECT c.id, c.block_id, c.author_id, c.author_name, c.body, c.created_at, c.resolved_at, c.anchor,
+		COALESCE(u.color, ''), COALESCE(u.avatar, ''), c.agent, c.agent_label
 		FROM comments c LEFT JOIN users u ON u.id = c.author_id
 		WHERE c.page_id = ? ORDER BY c.created_at`, pageID)
 	if err != nil {
@@ -156,13 +161,19 @@ func (s *Server) pageComments(pageID string) ([]commentJSON, error) {
 	for rows.Next() {
 		var c commentJSON
 		var resolved sql.NullString
-		rows.Scan(&c.ID, &c.BlockID, &c.AuthorID, &c.AuthorName, &c.Body, &c.CreatedAt, &resolved, &c.AuthorColor, &c.AuthorAvatar)
+		var anchor string
+		if err := rows.Scan(&c.ID, &c.BlockID, &c.AuthorID, &c.AuthorName, &c.Body, &c.CreatedAt, &resolved, &anchor, &c.AuthorColor, &c.AuthorAvatar, &c.Agent, &c.AgentLabel); err != nil {
+			return nil, err
+		}
+		if anchor != "" {
+			c.Anchor = json.RawMessage(anchor)
+		}
 		if resolved.Valid {
 			c.ResolvedAt = &resolved.String
 		}
 		list = append(list, c)
 	}
-	return list, nil
+	return list, rows.Err()
 }
 
 func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
@@ -187,8 +198,11 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Body    string `json:"body"`
-		BlockID string `json:"blockId"`
+		Body    string          `json:"body"`
+		BlockID string          `json:"blockId"`
+		Agent   string          `json:"agent"`
+		Label   string          `json:"label"`
+		Anchor  json.RawMessage `json:"anchor"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
@@ -202,13 +216,90 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "comment is too long")
 		return
 	}
+	anchor := ""
+	var gen *int64
+	if len(body.Anchor) > 0 && string(body.Anchor) != "null" {
+		var a struct {
+			Gen   *int64          `json:"gen"`
+			Quote string          `json:"quote"`
+			From  json.RawMessage `json:"from"`
+			To    json.RawMessage `json:"to"`
+		}
+		if len(body.Anchor) > 32000 || json.Unmarshal(body.Anchor, &a) != nil || a.Gen == nil || *a.Gen < 0 || *a.Gen > 1<<53-1 || strings.TrimSpace(a.Quote) == "" || len([]rune(a.Quote)) > 2000 || !validCommentPosition(a.From) || !validCommentPosition(a.To) {
+			httpError(w, 400, "invalid comment anchor")
+			return
+		}
+		gen = a.Gen
+		anchor = string(body.Anchor)
+	}
+	// A comment that arrives with an API token or a signed-in agent's key came
+	// through an agent, whether or not it says which: marked, so the panel
+	// does not present it as typed by the person. A browser session cannot
+	// claim to be an agent.
+	agent, label := "", ""
+	if u.TokenKind != "" {
+		agent, label = commentAgent(body.Agent, body.Label)
+	}
 	id := newID()
-	if _, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, pageID, body.BlockID, u.ID, u.Name, strings.TrimSpace(body.Body), now()); err != nil {
+	result, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at, agent, agent_label, anchor)
+		SELECT ?, id, ?, ?, ?, ?, ?, ?, ?, ? FROM pages WHERE id = ? AND (? IS NULL OR doc_gen = ?)`,
+		id, body.BlockID, u.ID, u.Name, strings.TrimSpace(body.Body), now(), agent, label, anchor, pageID, gen, gen)
+	if err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}
+	if n, err := result.RowsAffected(); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	} else if n == 0 {
+		httpErrorCode(w, 409, "comment_anchor_stale", "The page changed. Select the text again.")
+		return
+	}
 	writeJSON(w, map[string]string{"id": id})
+}
+
+// commentQuote is the passage a comment was written on. A page comment has none.
+func commentQuote(anchor json.RawMessage) string {
+	var a struct {
+		Quote string `json:"quote"`
+	}
+	if len(anchor) > 0 {
+		json.Unmarshal(anchor, &a)
+	}
+	return a.Quote
+}
+
+// Yjs relative positions name a shared type and, optionally, an item in it.
+// Validate their shape here; only the collaborative editor can resolve them.
+func validCommentPosition(raw json.RawMessage) bool {
+	type itemID struct {
+		Client *uint64 `json:"client"`
+		Clock  *uint64 `json:"clock"`
+	}
+	var p struct {
+		Type  *itemID `json:"type"`
+		TName *string `json:"tname"`
+		Item  *itemID `json:"item"`
+		Assoc int64   `json:"assoc"`
+	}
+	validID := func(id *itemID) bool {
+		return id != nil && id.Client != nil && id.Clock != nil && *id.Client <= 1<<53-1 && *id.Clock <= 1<<53-1
+	}
+	return json.Unmarshal(raw, &p) == nil && ((p.Type != nil && p.TName == nil && validID(p.Type)) || (p.Type == nil && p.TName != nil && *p.TName != "")) && (p.Item == nil || validID(p.Item))
+}
+
+// commentAgent turns what a caller says about itself into the stored pair,
+// the way a note does: a known agent key or "generic", and a label that falls
+// back to whatever it called itself.
+func commentAgent(agent, label string) (string, string) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = strings.TrimSpace(agent)
+	}
+	if r := []rune(label); len(r) > 60 {
+		label = string(r[:60])
+	}
+	return normalizeAgent(agent), label
 }
 
 // handleResolveComment toggles a comment's resolved state.
@@ -246,6 +337,14 @@ func (s *Server) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	var ws string
 	s.db.QueryRow(`SELECT workspace_id FROM pages WHERE id = ?`, pageID).Scan(&ws)
+	// And the credential has to be allowed into that workspace: the request
+	// names a comment, not a page, so no page check covered it, and a token
+	// deleted comments wherever its person had written one (delete_comment over
+	// MCP had the same hole).
+	if !s.credentialMayEnter(u, ws) {
+		httpError(w, 404, "comment not found")
+		return
+	}
 	if authorID != u.ID && !s.isWorkspaceAdmin(u.ID, ws) {
 		httpError(w, 403, "forbidden")
 		return

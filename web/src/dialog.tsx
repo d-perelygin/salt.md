@@ -6,6 +6,7 @@ import type { PromptField } from './workflow';
 import { SelectCell, checklistItems } from './components/PropertyValue';
 import WorkflowDateInput from './components/WorkflowDateInput';
 import type { ChecklistItem, PropDef } from './types';
+import { imeComposing } from './keys';
 
 // In-app confirm / prompt dialogs (replacing native window.confirm/prompt,
 // which look out of place and can't be styled). Promise-based: call
@@ -443,7 +444,7 @@ export function DialogHost() {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') ok();
+                if (e.key === 'Enter' && !imeComposing(e)) ok();
               }}
             />
           )}

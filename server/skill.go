@@ -32,8 +32,8 @@ import (
 // followed, because there is nothing left to look up.
 //
 // Everything here is generated from what the CALLER may see: the workspace list
-// is the caller's, and the rules come with it. No permission decision is made
-// in this file — it renders what workspacesFor already returned.
+// is the caller's, narrowed to what its credential may enter
+// (credentialMayEnter), and the rules come with it.
 
 // skillDoc is one file in the bundle.
 type skillDoc struct{ name, body string }
@@ -67,7 +67,15 @@ func (s *Server) skillWorkspaces(userID string) []skillWorkspace {
 
 // buildSkill renders the whole bundle for one caller and one chosen workspace.
 func (s *Server) buildSkill(u *user, base string, chosen string) []skillDoc {
-	all := s.skillWorkspaces(u.ID)
+	// Only the workspaces this credential may enter. The bundle used to list
+	// every one on the account, by name and id, which is the directory
+	// list kind=workspaces deliberately keeps from a narrowed connection.
+	var all []skillWorkspace
+	for _, w := range s.skillWorkspaces(u.ID) {
+		if s.credentialMayEnter(u, w.ID) {
+			all = append(all, w)
+		}
+	}
 	// The chosen workspace goes first and carries the rules; the rest are listed
 	// so an agent knows what else it may be pointed at.
 	sort.SliceStable(all, func(i, j int) bool { return all[i].ID == chosen && all[j].ID != chosen })
@@ -380,12 +388,14 @@ again when the instance itself has changed.
 func (s *Server) handleSkill(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	ws := r.URL.Query().Get("workspace")
-	if ws == "" {
-		ws = s.defaultWorkspaceFor(u)
-	}
-	if ws != "" && !s.isMember(u.ID, ws) {
+	// A workspace the credential may not enter is not found, as it is over MCP.
+	// Membership alone handed a token any workspace's rules.
+	if ws != "" && (!s.isMember(u.ID, ws) || !s.credentialMayEnter(u, ws)) {
 		httpError(w, 404, "workspace not found")
 		return
+	}
+	if ws == "" {
+		ws = s.defaultWorkspaceFor(u)
 	}
 	// publicShareBase, not publicBase: this address is written into a repository
 	// and an agent will dial it from somewhere else entirely. The weaker

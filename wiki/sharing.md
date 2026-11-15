@@ -247,6 +247,14 @@ open: the token is not a key to the rest of the uploads. Changing the link's
 password or revoking the link kills every address it ever minted; the password
 itself never appears in them.
 
+The same address without `exp` and `sig` also works: there the token is the
+credential, the way it is for the JSON reader, and a password-protected link
+needs the hour-long cookie that opening it with the password leaves behind.
+Both forms stop at the page's own files. A file that is not an ordinary
+upload, or that leaves the uploads folder through a symlink, answers `404`,
+and nothing under this path is cacheable: revoking a link ends its images at
+once.
+
 An image whose address points at another website loads as before.
 
 ### Publishing a collection

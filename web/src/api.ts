@@ -135,6 +135,7 @@ export const api = {
       publicBaseUrl: string;
       trustProxy: boolean;
       allowUserWorkspaces: boolean;
+      createPersonalWorkspaces: boolean;
       agentAddressesOn: boolean;
       agentAddresses: string;
       anthropicAddresses: string;
@@ -165,6 +166,7 @@ export const api = {
       oidcClientId: string;
       oidcSecretSet: boolean;
       oidcName: string;
+      msTenant: string;
       mailProvider: string;
       mailAddress: string;
       mailFrom: string;
@@ -210,9 +212,18 @@ export const api = {
       httpsDomain: string;
       httpsEnabled: boolean;
       localUrl: string;
+      // The cloudflared in use and the newest release (server/tunnel_update.go).
+      cloudflaredVersion: string;
+      cloudflaredLatest: string;
+      cloudflaredBehind: boolean;
+      cloudflaredManaged: boolean;
+      cloudflaredCheckedAt: string;
+      cloudflaredCheckError: string;
+      cloudflaredUpdating: boolean;
+      cloudflaredAutoUpdate: boolean;
     }>('/api/admin/public-access'),
-  tunnelAction: (action: string, token?: string) =>
-    req<unknown>('/api/admin/tunnel', { method: 'POST', body: JSON.stringify({ action, token }) }),
+  tunnelAction: (action: string, token?: string, on?: boolean) =>
+    req<unknown>('/api/admin/tunnel', { method: 'POST', body: JSON.stringify({ action, token, on }) }),
   auditPrune: () =>
     req<{ removed: number; days: number }>('/api/admin/audit-prune', { method: 'POST' }),
   putSettings: (patch: Record<string, unknown>) =>
@@ -419,10 +430,12 @@ export const api = {
   // fromTemplate: instantiate a template (copy keeps the title).
   // asTemplate: save as template — the COPY becomes the template (snapshot),
   // the original stays a normal page.
-  duplicatePage: (id: string, fromTemplate = false, asTemplate = false) =>
+  // title: what to call the copy, in the reader's language (the server's own
+  // default is English).
+  duplicatePage: (id: string, fromTemplate = false, asTemplate = false, title = '') =>
     req<{ id: string }>(
       `/api/pages/${id}/duplicate${fromTemplate ? '?fromTemplate=1' : asTemplate ? '?asTemplate=1' : ''}`,
-      { method: 'POST' },
+      { method: 'POST', ...(title ? { body: JSON.stringify({ title }) } : {}) },
     ),
   importMarkdown: (parentId: string | null, title: string, markdown: string) =>
     req<{ id: string }>('/api/import', {
@@ -541,10 +554,10 @@ export const api = {
   // handleCommentCounts).
   commentCounts: (workspaceId: string) =>
     req<Record<string, number>>(`/api/comment-counts?workspaceId=${encodeURIComponent(workspaceId)}`),
-  createComment: (pageId: string, body: string, blockId = '') =>
+  createComment: (pageId: string, body: string, blockId = '', anchor?: import('./types').CommentAnchor) =>
     req<{ id: string }>(`/api/pages/${pageId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ body, blockId }),
+      body: JSON.stringify({ body, blockId, anchor }),
     }),
   resolveComment: (id: string, resolved: boolean) =>
     req<{ ok: boolean }>(`/api/comments/${id}/resolve`, {
@@ -785,7 +798,7 @@ export const api = {
       if (file.size > api.uploadMaxBytes) {
         reject(
           new ApiError(
-            t('File too large ({size}) — 50 MB max.', { size: formatBytes(file.size) }),
+            t('File too large ({size}), 50 MB max.', { size: formatBytes(file.size) }),
             413,
             'file_too_large',
           ),
@@ -832,7 +845,7 @@ export const api = {
       };
       xhr.onerror = () => {
         finish();
-        reject(new ApiError(t('Upload failed — no connection to the server.'), 0));
+        reject(new ApiError(t('Upload failed: no connection to the server.'), 0));
       };
       xhr.send(fd);
     }),

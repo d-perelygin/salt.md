@@ -60,7 +60,7 @@ func (s *Server) moveSubtreeToWorkspace(userID, pageID, targetWS string, tokenOK
 	// stop and say why.
 	for _, id := range ids {
 		if !s.canRead(userID, id) {
-			return 0, fmt.Errorf("this subtree contains private pages owned by someone else — they cannot be moved along")
+			return 0, fmt.Errorf("this subtree contains private pages owned by someone else. They cannot be moved along")
 		}
 	}
 
@@ -86,6 +86,13 @@ func (s *Server) moveSubtreeToWorkspace(userID, pageID, targetWS string, tokenOK
 		args = append(args, id)
 	}
 	if _, err := tx.Exec(`UPDATE pages SET workspace_id = ?, updated_at = ? WHERE id IN (`+ph+`)`, args...); err != nil {
+		return 0, err
+	}
+	// The file index carries the workspace as well (files.go) and the file list
+	// filters on it. Left behind, a moved page's files stayed listed in the
+	// workspace it came from, and were missing from the one it is in now.
+	if _, err := tx.Exec(`UPDATE files SET workspace_id = ? WHERE page_id IN (`+ph+`)`,
+		append([]any{targetWS}, args[2:]...)...); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -128,7 +135,12 @@ func (s *Server) mcpCreateWorkspace(userID, name string) (string, error) {
 // mcpMoveToWorkspace is the MCP facade of the move.
 func (s *Server) mcpMoveToWorkspace(u *user, pageID, targetWS string) (string, error) {
 	userID := u.ID
-	n, err := s.moveSubtreeToWorkspace(userID, pageID, targetWS, u.tokenCanReach)
+	// The whole gate, as the REST move asks it: the token's own list AND the
+	// destination's rule for agents. With the list alone, a token of any reach
+	// carried pages into a workspace closed to agents, and a permanent key into
+	// one that admits signed-in agents only.
+	n, err := s.moveSubtreeToWorkspace(userID, pageID, targetWS,
+		func(ws string) bool { return s.credentialMayEnter(u, ws) })
 	if err != nil {
 		return "", err
 	}

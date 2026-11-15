@@ -193,7 +193,7 @@ export default function TemplateGallery({
             <div className="tpl-preview">
               {!current ? (
                 <div className="dialog-hint">
-                  {t('Save any page as a template from its ⋯ menu — the page itself stays untouched.')}
+                  {t('Save any page as a template from its ⋯ menu. The page itself stays untouched.')}
                 </div>
               ) : (
                 <>

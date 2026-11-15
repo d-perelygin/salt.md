@@ -13,6 +13,7 @@ import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Pencil, Plus, Tra
 import { PageIcon } from '../pageIcon';
 import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
+import { imeComposing } from '../keys';
 
 interface Props {
   def: PropDef;
@@ -231,7 +232,7 @@ export function SelectCell({
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Enter' && !imeComposing(e)) {
                       e.preventDefault();
                       if (query && !exact) create();
                       else if (filtered[0]) pick(filtered[0].id);
@@ -260,11 +261,11 @@ export function SelectCell({
                   ))}
                   {query && !exact && onOptionsChange && (
                     <button className="select-create" onClick={create}>
-                      <Plus size={15} /> Anlegen: „{query}"
+                      <Plus size={15} /> {t('Create “{name}”', { name: query })}
                     </button>
                   )}
                   {filtered.length === 0 && !query && (
-                    <div className="select-empty">{t('No options — type to create one.')}</div>
+                    <div className="select-empty">{t('No options. Type to create one.')}</div>
                   )}
                 </div>
               </>
@@ -692,7 +693,7 @@ export function loadMembers(): Promise<Member[]> {
 /** The chip: a face plus the name. Matches by id first, then by name, so a
     value an agent wrote as plain text still finds its person; an unknown value
     stays readable text rather than disappearing. */
-function PersonChip({ raw, members }: { raw: string; members: Member[] }) {
+export function PersonChip({ raw, members }: { raw: string; members: Member[] }) {
   const lower = raw.toLowerCase();
   const hit = members.find((m) => m.userId === raw) ?? members.find((m) => m.name.toLowerCase() === lower);
   const name = hit?.name ?? raw;
@@ -1164,7 +1165,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
     onChange!(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
   };
   const filtered = options.filter((o) =>
-    (o.title || 'Untitled').toLowerCase().includes(query.toLowerCase()),
+    (o.title || t('Untitled')).toLowerCase().includes(query.toLowerCase()),
   );
 
   return (
@@ -1207,7 +1208,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
                     <PageIcon icon={o.icon} size={16} />
                   </span>
                 )}
-                {o.title || 'Untitled'}
+                {o.title || t('Untitled')}
               </button>
             ))}
           </div>
@@ -1215,6 +1216,50 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
       )}
     </div>
   );
+}
+
+// Editing and following a URL are separate actions. A filled cell must not
+// become impossible to correct merely because it already contains a link.
+function UrlValue({ def, value, onChange, readOnly, compact }: Props) {
+  const raw = String(value ?? '').trim();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(raw);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const cancelled = useRef(false);
+  let href = '';
+  let label = raw;
+  // The chip shows the host, the full address is what opens; a whole URL on a
+  // board card is noise. A scheme counts only when no port number follows its
+  // colon: "intranet.local:8080/wiki" would otherwise parse as the scheme
+  // "intranet.local:" and lose the link it always had. Only http and https may
+  // be opened, so a stored javascript: address stays text.
+  try {
+    const url = new URL(/^[a-z][a-z\d+.-]*:(?!\d)/i.test(raw) ? raw : 'https://' + raw);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      href = url.href;
+      label = url.hostname.replace(/^www\./, '');
+    }
+  } catch { /* An unfinished address can still be edited. */ }
+  const begin = () => { cancelled.current = false; setDraft(raw); setEditing(true); };
+  const finish = () => {
+    if (!cancelled.current && draft.trim() !== raw) onChange?.(draft.trim());
+    setEditing(false);
+  };
+  const restoreFocus = () => requestAnimationFrame(() => trigger.current?.focus());
+  const chip = <><LinkIcon size={11} /><span>{label}</span></>;
+  if (readOnly || !onChange || compact) {
+    if (!raw) return compact ? null : <span className="prop-empty">—</span>;
+    return href ? <a className="prop-url-chip" href={href} target="_blank" rel="noopener noreferrer" title={raw} onClick={(e) => e.stopPropagation()}>{chip}</a> : <span className="prop-url-chip">{chip}</span>;
+  }
+  if (editing) return <input className="prop-input" aria-label={def.name} autoFocus value={draft} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setDraft(e.target.value)} onBlur={finish} onKeyDown={(e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !imeComposing(e)) { e.preventDefault(); e.currentTarget.blur(); restoreFocus(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancelled.current = true; setEditing(false); restoreFocus(); }
+  }} />;
+  return <div className="prop-url-value">
+    <button ref={trigger} type="button" className="prop-url-edit prop-url-chip" aria-label={t('Edit') + ': ' + def.name} title={raw || def.name} onClick={(e) => { e.stopPropagation(); begin(); }}>{raw ? chip : <span className="prop-empty">—</span>}</button>
+    {href && <a className="prop-url-open" href={href} target="_blank" rel="noopener noreferrer" aria-label={t('Open link')} title={t('Open link')} onClick={(e) => e.stopPropagation()}><ExternalLink size={13} /></a>}
+  </div>;
 }
 
 export default function PropertyValue({
@@ -1488,7 +1533,7 @@ export default function PropertyValue({
     case 'person':
       return <PersonValue def={def} value={value} onChange={onChange} readOnly={readOnly} compact={compact} />;
     case 'text':
-    default:
+    default: {
       if (compact) return value ? <span className="prop-text-chip">{String(value)}</span> : null;
       if (ro || !editing) {
         return (
@@ -1500,19 +1545,43 @@ export default function PropertyValue({
           </span>
         );
       }
+      // A textarea, because a value can hold line breaks (an agent writes
+      // them, set_properties keeps them) and an <input> strips them from its
+      // value: clicking in and out used to save three lines as one (#108).
+      // Enter still saves, as it always has; Shift+Enter adds a line.
+      const text = value == null ? '' : String(value);
       return (
-        <input
-          className="prop-input"
+        <textarea
+          className="prop-input prop-textarea"
           autoFocus
-          defaultValue={(value as string) || ''}
+          rows={1}
+          defaultValue={text}
+          ref={(el) => el && fitHeight(el)}
+          onInput={(e) => fitHeight(e.currentTarget)}
           onBlur={(e) => {
             setEditing(false);
-            onChange!(e.target.value);
+            // Leaving without a change writes nothing, so the row does not
+            // count as edited.
+            if (e.target.value !== text) onChange!(e.target.value);
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Enter' && !e.shiftKey && !imeComposing(e)) {
+              e.preventDefault();
+              e.currentTarget.blur();
+            } else if (e.key === 'Escape') {
+              e.currentTarget.value = text;
+              e.currentTarget.blur();
+            }
           }}
         />
       );
+    }
   }
+}
+
+// A textarea as tall as what it holds, so editing a value does not hide its
+// second line behind a scrollbar.
+function fitHeight(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
 }

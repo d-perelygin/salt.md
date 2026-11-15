@@ -169,14 +169,32 @@ func shareFileAllowlist(p *page) map[string]bool {
 	return allow
 }
 
-// handlePublicFile serves one upload through a share token. The token IS the
-// credential for finding the share, the signature is the proof its page was
-// opened legitimately: it binds this file and this expiry to the share's
-// secret, which no anonymous reader ever sees. No password, no session, no
-// X-Share-Password — an <img> sends none of those.
+// handlePublicFile serves one upload through a share token, by either of two
+// proofs.
+//
+// A rendered document carries signed capability URLs (?exp=&sig=): the token
+// finds the share, the signature proves the page was opened legitimately, and
+// no password ever sits in an <img src>. That is what the page's own markup
+// uses (see mintShareFileURL).
+//
+// A bare /public/{token}/files/{name} is the other form: the token itself is
+// the credential, as it is for the JSON reader, and a passworded share needs
+// the hour-long grant cookie the password form sets (or X-Share-Password).
+// Both forms answer for the same page grant — the uploads this page currently
+// references, plus its icon and cover, and nothing else.
 func (s *Server) handlePublicFile(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	name := r.PathValue("name")
+	// Before anything can answer: a revoked link must not live on in a cache,
+	// and an uploaded .html/.svg must never run on this origin.
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Robots-Tag", "noindex")
+	if r.URL.Query().Get("sig") == "" {
+		s.serveGrantedPublicFile(w, r, token, name)
+		return
+	}
 	if !validShareFileName(name) {
 		httpError(w, 404, "not found")
 		return
@@ -227,29 +245,83 @@ func (s *Server) handlePublicFile(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "not found")
 		return
 	}
-	f, err := os.Open(filepath.Join(s.dataDir, "files", name))
-	if err != nil {
-		httpError(w, 404, "not found")
+	f, fi, code := s.openSharedFile(name)
+	if f == nil {
+		httpError(w, code, "not found")
 		return
 	}
 	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil || fi.IsDir() {
-		httpError(w, 404, "not found")
-		return
-	}
-	// Uploads are user-controlled: sandbox them exactly like /files/ so an
-	// uploaded .html/.svg can never run scripts on the app origin (stored
-	// XSS) — now reachable without signing in, so the sandbox matters more,
-	// not less.
-	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Robots-Tag", "noindex")
-	w.Header().Set("Cache-Control", "private, max-age=86400")
 	if ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(name))); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
 	serveSeekContent(w, r, name, fi.ModTime(), f)
+}
+
+// serveGrantedPublicFile answers a bare /public/{token}/files/{name}. The
+// password budget is the same one the HTML and JSON readers draw on, keyed by
+// link and address together, so guessing through an <img> costs what guessing
+// through the page costs.
+func (s *Server) serveGrantedPublicFile(w http.ResponseWriter, r *http.Request, token, name string) {
+	if !publicFileName(name) {
+		httpError(w, 404, "not found")
+		return
+	}
+	password := publicPassword(r)
+	if password != "" && !s.sharePwRate.allow(sharePwKey(token, s.clientIP(r))) {
+		httpErrorCode(w, http.StatusTooManyRequests, "too_many_attempts", "Too many password attempts for this link. Wait a minute and try again.")
+		return
+	}
+	pageID, needPW, pwOK, found := s.resolvePublicRequest(r, password)
+	if !found || (needPW && !pwOK) {
+		httpError(w, 404, "not found")
+		return
+	}
+	p, err := s.getPage(pageID)
+	if err != nil || p.Trashed {
+		httpError(w, 404, "not found")
+		return
+	}
+	if !publicPageReferencesFile(p, name) {
+		httpError(w, 404, "not found")
+		return
+	}
+	f, fi, code := s.openSharedFile(name)
+	if f == nil {
+		httpError(w, code, "not found")
+		return
+	}
+	defer f.Close()
+	if ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(name))); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	serveSeekContent(w, r, name, fi.ModTime(), f)
+}
+
+// openSharedFile opens an upload only when it really lives inside the uploads
+// directory. A symlink planted there (a restored backup, a hand-copied file)
+// pointing anywhere else must not turn a share into a reader of the disk.
+func (s *Server) openSharedFile(name string) (*os.File, os.FileInfo, int) {
+	root, err := filepath.EvalSymlinks(filepath.Join(s.dataDir, "files"))
+	if err != nil {
+		return nil, nil, 404
+	}
+	real, err := filepath.EvalSymlinks(filepath.Join(root, name))
+	if err != nil {
+		return nil, nil, 404
+	}
+	if rel, err := filepath.Rel(root, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, nil, 404
+	}
+	f, err := os.Open(real)
+	if err != nil {
+		return nil, nil, 404
+	}
+	fi, err := f.Stat()
+	if err != nil || fi.IsDir() {
+		f.Close()
+		return nil, nil, 404
+	}
+	return f, fi, 200
 }
 
 // serveSeekContent streams a file with range support. http.ServeContent takes

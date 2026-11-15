@@ -8,6 +8,7 @@ import { confirm } from '../dialog';
 import { toast } from '../toast';
 import { enqueue, isOfflineError, isTempId } from '../outbox';
 import { t, plural } from '../i18n';
+import { imeComposing } from '../keys';
 
 // The raw trail at the foot of a page — see server/notelog.go for what it is
 // and why nothing here can edit an entry.
@@ -180,7 +181,7 @@ export default function NoteTrail({ pageId, canWrite }: { pageId: string; canWri
                   // Enter sends. A trail entry is one thought — the moment it
                   // wants paragraphs it wants to be a document instead, and
                   // needing a modifier is exactly the friction this avoids.
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.key === 'Enter' && !e.shiftKey && !imeComposing(e)) {
                     e.preventDefault();
                     void add();
                   }
@@ -194,7 +195,7 @@ export default function NoteTrail({ pageId, canWrite }: { pageId: string; canWri
 
           {expanded && notes.length > 0 && (
             <div className="trail-foot">
-              <span>{t('Notes cannot be edited or removed one by one — that is what makes them worth reading later.')}</span>
+              <span>{t('Notes cannot be edited or removed one by one. That is what makes them worth reading later.')}</span>
               {canWrite && (
                 <button className="trail-clear" onClick={() => void clear()}>
                   <Eraser size={13} /> {t('Discard the whole trail')}

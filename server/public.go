@@ -91,6 +91,9 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Robots-Tag", "noindex")
+	// A shared page is not a referral source: its address is a secret, and the
+	// links in it must not hand it to whoever they point at.
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	// Stop sharing has to end the page everywhere at once. Without a word on
 	// caching, a proxy or the tunnel's edge may keep a copy of a page whose link
 	// was revoked, which is exactly the report in #68.
@@ -107,6 +110,12 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 		w.Write([]byte(`<!doctype html><html><head><meta charset="utf-8"><title>salt.md</title><style>` + htmlDocStyle + `</style></head><body><h1>Not found</h1><p>This link is invalid or has expired.</p></body></html>`))
 		return
+	}
+	// A correct password leaves an hour-long, token-bound grant behind. An
+	// <img> sends none of the page's headers, so the reader's images load
+	// through it, and it dies with the password or the link (see hasPublicGrant).
+	if needPW && pwOK {
+		s.setPublicGrant(w, r, token)
 	}
 	p, err := s.getPage(pageID)
 	if err != nil || p.Trashed {

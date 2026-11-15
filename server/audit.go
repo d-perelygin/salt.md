@@ -141,7 +141,7 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	// which is not something anybody does, so the answer was effectively not
 	// available even though the data was there.
 	pageFilter := r.URL.Query().Get("page")
-	if pageFilter != "" && !s.canRead(requestUser(r).ID, pageFilter) {
+	if pageFilter != "" && !s.canReadReq(r, pageFilter) {
 		writeJSON(w, []auditEntry{})
 		return
 	}
@@ -164,7 +164,11 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	// is full: the interface recognises the end of the history by getting back
 	// fewer than `limit` entries. If the list were simply truncated, everything
 	// older than the first filtered-out entry would be out of reach.
-	uid := requestUser(r).ID
+	//
+	// canReadReq rather than canRead: an entry keeps the workspace it was
+	// WRITTEN in, while the page it names may have moved since, and its current
+	// title comes along. Asking the person alone kept a moved page's history in
+	// view of every credential for the workspace it left.
 	list := []auditEntry{}
 	for round := 0; len(list) < limit && round < 20; round++ {
 		qArgs := append([]any{}, args...)
@@ -206,7 +210,7 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 			// If the entry points at a page that NO LONGER exists, it stays: otherwise
 			// exactly the events a log is there for would disappear — permanent deletion,
 			// and, with the automatic emptying of the trash, gradually and on their own.
-			if e.PageID != "" && s.pageExists(e.PageID) && !s.canRead(uid, e.PageID) {
+			if e.PageID != "" && s.pageExists(e.PageID) && !s.canReadReq(r, e.PageID) {
 				continue
 			}
 			list = append(list, e)
@@ -381,7 +385,7 @@ func (s *Server) handleAuditRevert(w http.ResponseWriter, r *http.Request) {
 		s.pagesChanged()
 		s.rowChanged(pageID)
 		s.audit("human", u.ID, u.Name, "revert_change", pageID, s.pageWorkspace(pageID),
-			fmt.Sprintf("%s — %s", s.pageTitle(pageID), strings.Join(reverted, ", ")))
+			fmt.Sprintf("%s: %s", s.pageTitle(pageID), strings.Join(reverted, ", ")))
 	}
 	writeJSON(w, map[string]any{"reverted": reverted, "skipped": skipped})
 }

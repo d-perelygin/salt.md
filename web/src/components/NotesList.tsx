@@ -112,7 +112,7 @@ export default function NotesList({ pages, currentWs, activeId, tagColors, tagFi
               ? t('No notes tagged #{tag}.', { tag: tagFilter })
               : list === 'untagged'
                 ? t('Everything is tagged. 🎉')
-                : t('No notes yet — write the first one.')}
+                : t('No notes yet. Write the first one.')}
           </div>
         )}
       </div>

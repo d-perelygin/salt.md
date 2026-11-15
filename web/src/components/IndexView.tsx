@@ -31,7 +31,10 @@ function tabs(): { id: Mode; label: string; icon: React.ReactNode }[] {
   return [
     { id: 'recent', label: t('Recently used'), icon: <Clock size={14} /> },
     { id: 'favorites', label: t('Favorites'), icon: <Star size={14} /> },
-    { id: 'shared', label: t('Shared'), icon: <Users size={14} /> },
+    // Pages the whole workspace can see. Labelled Shared until #68: the globe
+    // says Shared for a public link, and one word for two things read as
+    // "everything I have is public".
+    { id: 'shared', label: t('Workspace'), icon: <Users size={14} /> },
     { id: 'private', label: t('Private'), icon: <Lock size={14} /> },
     { id: 'all', label: t('All pages'), icon: <Library size={14} /> },
     { id: 'graph', label: t('Graph'), icon: <Share2 size={14} /> },
@@ -153,7 +156,7 @@ export default function IndexView({
       }
     });
     const list = shelf
-      .filter((p) => (p.title || 'Untitled').toLowerCase().includes(q))
+      .filter((p) => (p.title || t('Untitled')).toLowerCase().includes(q))
       .map((p) => ({
         page: p,
         out: outCount.get(p.id) ?? 0,
@@ -179,7 +182,7 @@ export default function IndexView({
           return bv < av ? -1 : bv > av ? 1 : 0;
         }
         default:
-          return compare(a.page.title || 'Untitled', b.page.title || 'Untitled');
+          return compare(a.page.title || t('Untitled'), b.page.title || t('Untitled'));
       }
     });
     return list;
@@ -232,7 +235,7 @@ export default function IndexView({
     for (const p of childrenMap.get(key) ?? []) {
       const before = treeRows.length;
       const descendantMatch = renderSubtree(p.id, depth + 1);
-      const matches = (p.title || 'Untitled').toLowerCase().includes(q);
+      const matches = (p.title || t('Untitled')).toLowerCase().includes(q);
       if (query && !matches && !descendantMatch) {
         // Drop any descendant rows we tentatively rendered for a non-matching branch.
         treeRows.length = before;
@@ -250,7 +253,7 @@ export default function IndexView({
             title={p.id}
           >
             <span className="idx-node-icon"><PageIcon icon={p.icon} size={14} fallback={isDb ? '🗄' : '📄'} /></span>
-            <span className={'idx-node-title' + (query && matches ? ' idx-hit' : '')}>{p.title || 'Untitled'}</span>
+            <span className={'idx-node-title' + (query && matches ? ' idx-hit' : '')}>{p.title || t('Untitled')}</span>
             {isDb && <span className="index-badge" title={t('Collection')}><Table2 size={11} /></span>}
           </button>
           <code className="idx-node-id">{p.id.slice(0, 8)}</code>
@@ -430,7 +433,7 @@ export default function IndexView({
           <p className="dialog-hint idx-tree-hint">
             {t('This is how an agent reads the structure of your workspace, the same way')}{' '}
             <code>list_pages</code> {t('does over MCP.')}{' '}
-            {t('Every row carries a stable Markdown link — copy')} <code>md</code>{' '}
+            {t('Every row carries a stable Markdown link. Copy')} <code>md</code>{' '}
             {t('and it stays searchable Markdown, wherever it lives.')}
           </p>
           <div className="idx-tree">

@@ -10,6 +10,7 @@ import { t } from '../i18n';
 import { compare } from '../format';
 import { openPage, openPageAux, peekPage } from '../pageOpen';
 import { matchCommands, paletteCommands, runPaletteCommand, workspaceSwitchCommands, type PaletteCommand } from '../commands';
+import { imeComposing } from '../keys';
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -265,7 +266,7 @@ export default function SearchModal({
   };
 
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.nativeEvent.isComposing) return; // don't hijack IME composition keys
+    if (imeComposing(e)) return; // don't hijack IME composition keys
     if (e.key === 'Escape') onClose();
     else if (e.key === 'ArrowDown') {
       e.preventDefault();

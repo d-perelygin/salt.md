@@ -109,7 +109,7 @@ export interface User {
   color: string;
   avatar: string;
   isAdmin: boolean;
-  /** Instanzrolle: owner betreibt die Instanz, admin verwaltet Menschen. */
+  /** Instance role: the owner runs the instance, an admin manages people. */
   orgRole?: 'owner' | 'admin' | 'member';
   /** Deactivated: no sign-in, but everything stays attributable. */
   disabled?: boolean;
@@ -152,6 +152,13 @@ export interface Revision {
   title: string;
 }
 
+export interface CommentAnchor {
+  gen: number;
+  quote: string;
+  from: Record<string, unknown>;
+  to: Record<string, unknown>;
+}
+
 export interface Comment {
   id: string;
   blockId: string;
@@ -162,6 +169,11 @@ export interface Comment {
   authorColor?: string;
   authorAvatar?: string;
   resolvedAt: string | null;
+  anchor?: CommentAnchor;
+  /** The agent that wrote it, when one did: a claim, shown beside the account
+      that vouches for it (server/history.go). */
+  agent?: string;
+  agentLabel?: string;
 }
 
 // One entry of a page's raw trail. No resolvedAt, no editedAt and no author id
@@ -300,7 +312,8 @@ export const isSystemRef = (id: string) =>
 /** Visible span of calendar and timeline views. */
 export type SpanMode = 'day' | 'week' | 'month' | '2months' | 'year';
 
-export interface ViewDef {  id: string;
+export interface ViewDef {
+  id: string;
   name: string;
   type: 'table' | 'board' | 'list' | 'gallery' | 'calendar' | 'form' | 'timeline';
   groupBy?: string;

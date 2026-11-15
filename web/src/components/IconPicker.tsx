@@ -10,17 +10,17 @@ import { mdiNames, mdiPath, useMdi } from '../mdiLoader';
 import { t } from '../i18n';
 
 // Notion-style icon colours; '' = default (adapts to light/dark theme).
-const ICON_COLORS = [
-  { name: 'Standard', hex: '' },
-  { name: 'Grau', hex: '#787774' },
-  { name: 'Rot', hex: '#e03131' },
-  { name: 'Orange', hex: '#e8590c' },
-  { name: 'Gelb', hex: '#f2b100' },
-  { name: 'Green', hex: '#2f9e44' },
-  { name: 'Teal', hex: '#0c8599' },
-  { name: 'Blau', hex: '#1971c2' },
-  { name: 'Lila', hex: '#7048e8' },
-  { name: 'Pink', hex: '#c2255c' },
+const iconColors = () => [
+  { name: t('Default'), hex: '' },
+  { name: t('Gray'), hex: '#787774' },
+  { name: t('Red'), hex: '#e03131' },
+  { name: t('Orange'), hex: '#e8590c' },
+  { name: t('Yellow'), hex: '#f2b100' },
+  { name: t('Green'), hex: '#2f9e44' },
+  { name: t('Teal'), hex: '#0c8599' },
+  { name: t('Blue'), hex: '#1971c2' },
+  { name: t('Purple'), hex: '#7048e8' },
+  { name: t('Pink'), hex: '#c2255c' },
 ];
 
 const LAST_TAB_KEY = 'salt-last-icon-tab';
@@ -251,7 +251,7 @@ export default function IconPicker({ currentIcon, onPick, onRemove, onClose, pag
       {tab === 'icon' && (
         <div className="icon-controls">
           <div className="icon-colors">
-            {ICON_COLORS.map((c) => (
+            {iconColors().map((c) => (
               <button
                 key={c.name}
                 type="button"
@@ -373,7 +373,7 @@ export default function IconPicker({ currentIcon, onPick, onRemove, onClose, pag
             <button type="button" className="icon-upload-btn" disabled={uploading} onClick={() => fileRef.current?.click()}>
               <UploadIcon size={16} /> {uploading ? t('Loading…') : t('Upload picture')}
             </button>
-            <p className="icon-upload-hint">{t('PNG, JPG, GIF or SVG — shown square, as an icon.')}</p>
+            <p className="icon-upload-hint">{t('PNG, JPG, GIF or SVG. Shown square, as an icon.')}</p>
           </div>
         )}
       </div>

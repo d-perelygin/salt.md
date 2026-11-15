@@ -167,7 +167,7 @@ func (s *Server) mcpPrependMarkdown(u *user, pageID, md string) (string, error) 
 
 // mcpBacklinks: which pages point here. The slip-box side of things that
 // Obsidian users expect — and that Notion's MCP does not have at all.
-func (s *Server) mcpBacklinks(userID, pageID string) (string, error) {
+func (s *Server) mcpBacklinks(u *user, pageID string) (string, error) {
 	rows, err := s.db.Query(`
 		SELECT p.id, p.title, p.icon FROM links l
 		JOIN pages p ON p.id = l.source_id
@@ -193,7 +193,10 @@ func (s *Server) mcpBacklinks(userID, pageID string) (string, error) {
 	rows.Close() // drain first, then check — a single DB connection
 	out := []ref{}
 	for _, r := range cand {
-		if s.canRead(userID, r.ID) { // private subtrees stay invisible
+		// Private subtrees stay invisible, and so do workspaces the credential
+		// may not enter: a link can cross workspaces, and the title of the
+		// page it comes from belongs to the workspace it sits in.
+		if s.canRead(u.ID, r.ID) && s.credentialMayEnter(u, s.pageWorkspace(r.ID)) {
 			out = append(out, r)
 		}
 	}

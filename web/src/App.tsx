@@ -55,12 +55,13 @@ import { pageIdFromPathname, pagePath, pageSlugTitle } from './pageUrl';
 import ShortcutSheet from './components/ShortcutSheet';
 import { guardDrops } from './dropFiles';
 import { setAiEnabledState } from './aiState';
+import { UserContext } from './userContext';
 
 /** Injected by the build; false everywhere except the website's framed demo. */
 declare const __SALT_DEMO__: boolean;
 
-/** Schriftwahl: 'system' laesst alles wie bisher, 'brand' schaltet die
- *  mitgelieferten Inter- und JetBrains-Mono-Schriften ein. */
+/** Font choice: 'system' leaves everything as it was, 'brand' switches on
+ *  the bundled Inter and JetBrains Mono fonts. */
 export type FontPref = 'system' | 'brand';
 
 // Feedback from the mail OAuth consent redirect (/?mailOauth=ok|<code>).
@@ -602,10 +603,7 @@ export default function App() {
         // here too, one frame later (W112).
         if (m.authenticated && m.prefs) void applyPrefs(m.prefs);
         if (m.version && m.version !== BUILD_VERSION) {
-          toast.info(t('A new version is available — reload the page'), {
-            sticky: true,
-            action: { label: t('Reload'), run: hardReload },
-          });
+          toast(t('A new version is available: reload the page'));
         }
         if (m.authenticated) void loadAll();
       })
@@ -982,15 +980,15 @@ export default function App() {
         };
         if (msg.type === 'hello' && msg.version && msg.version !== BUILD_VERSION && !warnedVersion) {
           warnedVersion = true;
-          toast.info(t('A new version is available — reload the page'), {
-            sticky: true,
-            action: { label: t('Reload'), run: hardReload },
-          });
+          toast(t('A new version is available: reload the page'));
         }
         if (msg.type === 'pages') {
           window.clearTimeout(reloadTimer.current);
           reloadTimer.current = window.setTimeout(() => void loadPages(), 250);
         }
+        // A workspace's settings moved (a rules proposal, say): the list holds
+        // them, and an open settings dialog reads from it.
+        if (msg.type === 'workspaces') void loadWorkspaces();
         // A database's rows moved. Passed on as a DOM event rather than through
         // props: only the open CollectionView cares, and only when it is the
         // database named here. Reloading every open view on every event is what
@@ -1600,6 +1598,15 @@ export default function App() {
 
   const updateMeta = useCallback((id: string, patch: Partial<PageMeta>) => {
     setPages((prev) => prev?.map((p) => (p.id === id ? { ...p, ...patch } : p)) ?? prev);
+    // A row opened in its own tab is not in the page list, so its tab title
+    // would keep the old name after a rename.
+    setExtraPages((prev) => {
+      const p = prev.get(id);
+      if (!p) return prev;
+      const next = new Map(prev);
+      next.set(id, { ...p, ...patch });
+      return next;
+    });
   }, []);
 
   // Import for the empty-state (no pages yet). The primary import entry point is
@@ -1658,14 +1665,15 @@ export default function App() {
   const duplicatePage = useCallback(
     async (id: string) => {
       try {
-        const r = await api.duplicatePage(id);
+        const title = pages?.find((p) => p.id === id)?.title ?? '';
+        const r = await api.duplicatePage(id, false, false, title ? t('Copy of {title}', { title }) : '');
         await loadPages();
         navigate(r.id);
       } catch {
         toast(t('Could not be duplicated'));
       }
     },
-    [loadPages, navigate],
+    [pages, loadPages, navigate],
   );
 
   const restorePage = useCallback(
@@ -2032,7 +2040,8 @@ export default function App() {
   const toaster = <Toaster />;
 
   return (
-    <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '') + (hoverLock ? ' hover-lock' : '')}>
+    <UserContext.Provider value={me?.user ?? null}>
+      <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '') + (hoverLock ? ' hover-lock' : '')}>
       {/* Collapsed-sidebar hover zone (desktop): hovering the left edge slides
           the sidebar in as an overlay without permanently un-collapsing it. */}
       {sidebarCollapsed && <div className="sidebar-hotzone" />}
@@ -2224,7 +2233,7 @@ export default function App() {
             <h2>{t('No workspace')}</h2>
             <p>
               {t(
-                'Your account currently belongs to no workspace. Ask an admin for access — or create one of your own, if this instance allows it.',
+                'Your account currently belongs to no workspace. Ask an admin for access, or create one of your own, if this instance allows it.',
               )}
             </p>
             {me?.allowUserWorkspaces && (
@@ -2259,7 +2268,7 @@ export default function App() {
             </button>
             <div className="empty-emoji"><Logo size={52} /></div>
             <h2>{t('No pages yet')}</h2>
-            <p>{t('Create your first page — or import from Notion (.zip) / Markdown (.md).')}</p>
+            <p>{t('Create your first page, or import from Notion (.zip) / Markdown (.md).')}</p>
             <div className="empty-actions">
               <button className="btn primary" onClick={() => void createPage(null)}>
                 {t('New page')}
@@ -2405,7 +2414,7 @@ export default function App() {
           }}
         >
           <WifiOff size={13} />
-          {t('Not receiving live updates — reconnect')}
+          {t('Not receiving live updates: reconnect')}
         </button>
       )}
       {toaster}
@@ -2414,5 +2423,6 @@ export default function App() {
       <ImageLightbox />
       <PullToRefresh />
     </div>
+    </UserContext.Provider>
   );
 }

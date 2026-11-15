@@ -77,7 +77,10 @@ When a client asks to sign in, the browser lands on a screen headed
 - The client's name, as "*<name>* is asking to work in your account."
 - A warning that the name is a claim: "That name was chosen by whoever set up
   the connection. Only continue if you started this yourself."
-- **It will be allowed to**: "read and change pages" or "read pages".
+- **It will be allowed to**: "read pages" or "read and change pages", as a
+  choice. What the client asked for is selected to begin with; a client that
+  asked for nothing in particular starts on "read pages", and you can give it
+  more or less than it asked for.
 - **Where**: either "Every workspace, including ones added later" or "Only the
   ones I pick". The list underneath starts with nothing ticked, and **Allow**
   stays dead until you tick something.
@@ -106,9 +109,10 @@ Two consequences worth knowing:
   presenting the name as an identity. If you did not start the sign-in yourself,
   the name proves nothing.
 - **There is no list of registered clients and no way to delete one.** The
-  handle you keep is the *grant*: the connection on your account. Ending that
-  ends the access; the applicant may still exist, and still cannot do anything
-  without somebody approving it again.
+  handle you keep is the *grant*: the connection on your account, listed under
+  **Signed-in connections** in the **API tokens** dialog. Ending that ends the
+  access; the applicant may still exist, and still cannot do anything without
+  somebody approving it again.
 
 Approving requires being signed in with a browser session. A credential can
 never approve a new credential, so an agent cannot enlarge its own reach by
@@ -116,8 +120,18 @@ asking itself for consent.
 
 What the client gets back is an access token good for one hour plus a renewal
 token it uses in the background, so nobody signs in again every hour. The
-renewal token changes on every use: the previous one stops working at that
-moment.
+renewal token changes on every use: the previous one stops working five minutes
+later, so that a client running on several machines does not lose its connection
+when two of them renew at once. The connection itself stays the same one through
+all of that.
+
+An address with a token in it can carry a sign-in as well, because Claude offers
+one as soon as it finds this server can do it. Then there are two credentials,
+and they can part ways: if the sign-in ends, requests still get through on the
+token, so every chat keeps working, while Claude lists the connector as needing a
+reconnect and leaves it out of scheduled runs. **Signed-in connections** shows
+that state: its last use stands still while the token's moves on. Connecting
+again in Claude repairs it.
 
 The grant is written to the activity log under your name, with the client's
 name and the scope. See [History and audit](history-and-audit.md).
@@ -214,11 +228,9 @@ For a bound credential:
   Adding the new workspace to the list automatically would be a credential
   widening its own reach.
 
-One list is not narrowed this way: `GET /api/workspaces`, the plain REST list
-the browser uses, returns every workspace the *account* is a member of, with its
-name and role, whatever the credential was granted. The MCP list is the one that
-was built to withhold; treat the REST list as showing the account, not the
-credential.
+The plain REST list follows the same rule: `GET /api/workspaces` answers a
+credential with the workspaces it may enter, without a count of the rest, and a
+browser session with every workspace the account is a member of.
 
 ## What a workspace decides
 
@@ -384,17 +396,21 @@ current access token. It always answers success, whether or not the token
 existed: telling a caller which is which would turn it into a way of testing
 guesses.
 
-On the salt.md side the connections on your account are readable at
-`/api/oauth/grants` and can be ended with a DELETE on
-`/api/oauth/grants/{id}`, both from a signed-in browser session only. **The
-consent screen promises this lives in your account settings; today it is the
-API, not a screen.**
+On the salt.md side: account menu → **API tokens** → **Signed-in connections**
+→ the ✕ on its row (**End connection**), which asks before it acts. That is the
+place the consent screen names in its last line. The connection stops working
+at once, and to come back the agent has to ask for your approval again. Behind
+the list are `GET /api/oauth/grants` and `DELETE /api/oauth/grants/{id}`, both
+for a signed-in browser session only: a credential cannot list or end
+connections, its own included.
 
 What that list holds, per connection: the client's name, the scope, the
-workspaces it was granted, when it was created, when it was last used, and the
-address it was last used from. That last pair is the same "notice a stranger"
-material the API token list makes a point of: an address you do not recognise
-is worth a question.
+workspaces it was granted, since when it has been connected, when it was last
+used, and the address it was last used from. That last pair is the same "notice
+a stranger" material the API token list makes a point of: an address you do not
+recognise is worth a question. Renewing does not disturb any of it: the access
+token is replaced every hour, the connection keeps its row, its date and its
+last use.
 
 Two consequences of other actions, and the difference between them matters when
 you are ending access in a hurry:

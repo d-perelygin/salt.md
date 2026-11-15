@@ -415,9 +415,9 @@ export function PageHoverCard({
                       setWarmState(false);
                       peekPanel(effPage.id);
                     }}
-                    title={`${peekMod}+Click ${t('to peek')}`}
+                    title={t('{mod}+Click to peek', { mod: peekMod })}
                   >
-                    {peekMod}+Click {t('to peek')}
+                    {t('{mod}+Click to peek', { mod: peekMod })}
                   </button>
                   <span className="page-hover-card-dot">•</span>
                   <button
@@ -433,9 +433,9 @@ export function PageHoverCard({
                         }),
                       );
                     }}
-                    title={`${newTabMod}+Click ${t('new tab')}`}
+                    title={t('{mod}+Click for a new tab', { mod: newTabMod })}
                   >
-                    {newTabMod}+Click {t('new tab')}
+                    {t('{mod}+Click for a new tab', { mod: newTabMod })}
                   </button>
                 </div>
               </div>

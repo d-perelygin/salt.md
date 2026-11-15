@@ -371,3 +371,85 @@ func TestABoardRefusesAGroupingItCannotMakeColumnsFrom(t *testing.T) {
 		t.Errorf("a board grouped by a multiselect must work: %v", err)
 	}
 }
+
+// A board whose grouping property was deleted afterwards: every change to it
+// is refused until it groups by something real, and the message says so
+// instead of `"status" is a  property`.
+func TestBoardOnADeletedPropertySaysWhatToPass(t *testing.T) {
+	s := testServer(t)
+	uid, _ := signedIn(t, s, "gone@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+	tasks := tasksCollection(t, s, ws, uid)
+	out, err := s.mcpCreateView(tasks, viewSpec{Name: "Board", Type: "board", GroupBy: ptr("status")})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	viewID := out[strings.Index(out, "(id ")+4 : strings.LastIndex(out, ")")]
+	schema, views, err := s.loadCollection(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := []map[string]any{}
+	for _, p := range schema {
+		if p["id"] != "status" {
+			kept = append(kept, p)
+		}
+	}
+	sb, _ := json.Marshal(kept)
+	vb, _ := json.Marshal(views)
+	if _, err := s.db.Exec(`UPDATE collections SET schema = ?, views = ? WHERE page_id = ?`, string(sb), string(vb), tasks); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.mcpUpdateView(tasks, viewID, viewSpec{Name: "Renamed"})
+	if err == nil || !strings.Contains(err.Error(), "no longer a property") {
+		t.Fatalf("update on a board grouped by a deleted property: %v", err)
+	}
+}
+
+func TestSlugIDSpellsOutLatinAccentsAndKeepsExistingOptionIDs(t *testing.T) {
+	taken := map[string]bool{}
+	cases := map[string]string{
+		"Acción":              "accion",
+		"Diseño — Revisión":   "diseno-revision",
+		"Año de Publicación":  "ano-de-publicacion",
+		"Ça marche / Español": "ca-marche-espanol",
+	}
+	for input, want := range cases {
+		if got := slugID(input, taken); got != want {
+			t.Errorf("slugID(%q) = %q, want %q", input, got, want)
+		}
+	}
+
+	s := testServer(t)
+	uid, _ := signedIn(t, s, "accents@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+	// Simulate a database created before accented letters were folded, where
+	// "En Revisión" received id "en-revisin" and a custom color.
+	dbID := s.makeCollection(t, ws, uid, "Tareas", `[
+		{"id":"estado","name":"Estado","type":"select","options":[
+			{"id":"en-revisin","name":"En Revisión","color":"amber"},
+			{"id":"listo","name":"Listo","color":"green"}]}]`)
+
+	// An agent adds a third option by passing option names as strings.
+	_, err := s.mcpUpdateSchema(dbID, json.RawMessage(`[
+		{"id":"estado","name":"Estado","type":"select","options":["En Revisión","Listo","Validación"]}]`), nil)
+	if err != nil {
+		t.Fatalf("mcpUpdateSchema: %v", err)
+	}
+	schema, _, err := s.loadCollection(dbID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts, _ := schema[0]["options"].([]any)
+	if len(opts) != 3 {
+		t.Fatalf("expected 3 options, got %d", len(opts))
+	}
+	first, _ := opts[0].(map[string]any)
+	if first["id"] != "en-revisin" || first["color"] != "amber" {
+		t.Errorf("existing option lost its stored id or color: %#v", first)
+	}
+	third, _ := opts[2].(map[string]any)
+	if third["id"] != "validacion" {
+		t.Errorf("new accented option id = %v, want validacion", third["id"])
+	}
+}

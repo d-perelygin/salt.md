@@ -1,7 +1,7 @@
 # MCP tools
 
 salt.md speaks MCP (Model Context Protocol) on one endpoint, `/mcp`, and offers
-**36 tools**. This page is the complete reference: every tool, every parameter,
+**33 tools**. This page is the complete reference: every tool, every parameter,
 what comes back, and what can go wrong. It is written for the person wiring an
 agent up and for the agent itself.
 
@@ -98,10 +98,13 @@ Four gates. The first is at the door, the other three run before a tool.
 
 1. **The account.** A deactivated account is refused at `/mcp` itself, with
    `403`, whatever the token says.
-2. **Token scope.** A read-only token may call only the reading tools. A
-   writing call gets `this API token is read-only; "<tool>" requires a write
-   token`. For `revisions` and `comments`, the *action* decides: reading a
-   history is a read, restoring a revision is a write.
+2. **Token scope.** A read-only token may call only the reading tools:
+   `list`, `search`, `get_page`, `query_rows`, `get_collection`, `get_links`,
+   `whoami`, `get_workspace`, `get_permissions` and `get_import_status`. Every
+   other tool counts as a write, and a writing call gets `this API token is
+   read-only; "<tool>" requires a write token`. For `revisions` and
+   `comments`, the *action* decides: reading a history is a read, restoring a
+   revision is a write.
 3. **Workspace scope.** A token can be narrowed to particular workspaces. A page
    outside them reads as not found, including as the destination of a move.
    A workspace can also refuse agents entirely, or accept only OAuth ones (see
@@ -140,17 +143,21 @@ nothing hands it back. Reading it means the browser, or `GET
 | Workspace rules | 16000 characters |
 | A single note | 2000 characters, truncated silently |
 
-Over the rate limit you get `rate limit exceeded — too many requests, slow
+Over the rate limit you get `rate limit exceeded: too many requests, slow
 down` as an ordinary tool error. Over the body limit the server refuses
 **before reading** (it checks Content-Length first) and tells you to use
 `/api/upload` instead.
 
-### Three arguments no schema mentions
+### Retrying a write
 
-Every writing tool accepts an `idempotency_key`. A retried call carrying the
-same key returns the first call's result instead of doing the work twice; the
-key is scoped per account and per tool. It appears in no tool schema, so a
-client that validates strictly will strip it.
+Every writing tool declares an optional `idempotency_key`. A retried call
+carrying the same key returns the first call's result instead of doing the work
+twice; the key is scoped per credential (the account, the kind of credential and
+the workspaces it was given) and per tool, so one credential's answer never
+comes back to another. For `note`, which nobody can edit or remove, it is the
+only protection against a duplicate.
+
+### Two arguments no schema mentions
 
 `get_page` accepts `recursive` as a synonym for `include_children`, also
 undeclared.
@@ -169,12 +176,22 @@ to it.
 | --- | --- |
 | Orientation | `list`, `search`, `get_page`, `get_links`, `whoami`, `get_workspace`, `get_permissions` |
 | Pages | `create_page`, `update_page`, `write_content`, `duplicate_page`, `set_trashed`, `save_as_template`, `upload_file`, `embed_database` |
-| Databases | `create_database`, `get_collection`, `update_schema`, `query_rows`, `create_rows`, `set_properties`, `set_view`, `delete_view`, `get_workflow`, `add_workflow_rule`, `remove_workflow_rule` |
+| Databases | `create_database`, `get_collection`, `update_schema`, `query_rows`, `create_rows`, `set_properties`, `set_view`, `delete_view` |
 | History and talk | `revisions`, `comments`, `delete_comment`, `note` |
 | Sharing | `set_sharing` |
 | Workspaces | `workspace`, `propose_workspace_rules` |
 | Bulk import | `import_url`, `get_import_status` |
 | Presence | `working_on` |
+
+Every tool in `tools/list` carries MCP annotations. The reading tools (`list`,
+`search`, `get_page`, `get_links`, `whoami`, `get_workspace`, `get_permissions`,
+`get_collection`, `query_rows`, `get_import_status`) say `readOnlyHint: true`,
+which lets a client in plan mode or a background agent call them without
+treating them as possible writes. Every other tool says `readOnlyHint: false`
+and states `destructiveHint`, `idempotentHint` and `openWorldHint`; only
+`import_url` reaches outside the instance. The reading list is the same one the
+[read-only token](#permissions) is checked against, so what a client is told
+and what such a token may call cannot disagree.
 
 ## Orientation
 
@@ -194,7 +211,9 @@ tools.
 
 What each returns:
 
-- **pages**: an indented text tree of every page you may read, each line
+- **pages**: an indented text tree of every page you may read, under one
+  heading per workspace, `Workspace "Name" (workspace_id: …)`, so two pages of
+  the same name in two workspaces can be told apart. Each line reads
   `- Title (id: …)`, with ` [database]` appended to a database. Empty answer:
   `No pages yet.`
 - **templates**: JSON with `id`, `title`, `icon`, `kind`, `description`,
@@ -213,9 +232,11 @@ What each returns:
   you, within the token's scope.
 - **cover_presets**: the 18 gradients the interface's own cover picker offers.
 
-`workspace_id` is honoured by **tags** and **files** only. The other kinds
-ignore it: pages, templates, workspaces and users always span everything the
-token reaches, and cover presets are constants.
+`workspace_id` narrows **pages**, **templates**, **tags** and **files** to that
+workspace; one you are not a member of, or one the connection was not granted,
+answers `workspace "…" not found`. The other kinds ignore it: workspaces and
+users always span everything the token reaches, and cover presets are
+constants.
 
 Three things about the file list are worth knowing, because it is an **index**
 and not a live scan of the disk:
@@ -251,8 +272,8 @@ somewhere in this 4000-word page". Up to 20 results, one per line:
   …notice period of three months…
 ```
 
-If passage search finds nothing, a whole-page search runs as a fallback. Empty
-answer: `No results.` Errors: `query is required`.
+Passages answer first, and a whole-page search fills what is left of the list.
+Empty answer: `No results.` Errors: `query is required`.
 
 See [Search](search.md) for what is indexed and how German words are folded.
 
@@ -264,6 +285,7 @@ Read one page as Markdown.
 | --- | --- | --- |
 | `page_id` | string | yes |
 | `include_children` | boolean | no, default false |
+| `include_notes` | boolean | no, default false |
 
 A document comes back as `# Icon Title` followed by the body. A **database**
 comes back as a Markdown table of its rows: a Title column plus one column per
@@ -279,6 +301,13 @@ large. The table above is what a plain `get_page` produces. With
 blocks, and a database page has none. You get an empty heading for the database
 followed by one `---` section per row. Ask for the table, or ask for the
 sub-tree; you cannot have both in one call.
+
+`include_notes` adds the page's [note trail](#note) after either form, under
+`## Note trail`, oldest first. Each note is one line with the time in UTC, the
+account, and the agent it came through when there was one:
+`- 2026-10-27 14:03 UTC, Ada via Claude Code (claude): …`. A page without notes
+says `No notes on this page yet.` The trail is framed as untrusted content, like
+the body.
 
 Errors: `page "…" not found`.
 
@@ -354,7 +383,7 @@ piled on top.
 
 Errors: `workspace "…" not found`; or, when the workspace is yours but outside
 this connection's grant, `workspace "…" is outside what this connection was
-granted — ask for it to be added, or name one it can reach`. The second wording
+granted. Ask for it to be added, or name one it can reach`. The second wording
 is deliberate: "not found" for something you own sends an agent hunting for a
 typo.
 
@@ -438,7 +467,7 @@ Metadata and place, in one tool. Only the fields you pass change.
 | `icon` | string | no |
 | `cover` | string | no |
 | `description` | string | no |
-| `visibility` | string | no: `workspace`, `private` or `restricted` |
+| `visibility` | string | no: `workspace` or `private` |
 | `tags` | array of string | no |
 | `parent_id` | string | no: `""` moves to the top level |
 | `workspace_id` | string | no |
@@ -456,7 +485,7 @@ Errors: `nothing to update: pass at least one of title, icon, cover,
 description, visibility, tags, parent_id, workspace_id or favorite`;
 `a page cannot be its own parent`; `cannot move a page into its own subtree`;
 `a page can only be re-parented within its own workspace`;
-`visibility must be "workspace", "private" or "restricted"`.
+`visibility must be "workspace" or "private"`.
 
 ### write_content
 
@@ -500,8 +529,12 @@ Errors: `unknown mode "x" — use append (the default), prepend or replace`;
 | Parameter | Type | Required |
 | --- | --- | --- |
 | `page_id` | string | yes |
+| `title` | string | no |
 
-A deep copy of the page and its sub-tree, placed next to the original.
+A deep copy of the page and its sub-tree, placed next to the original. Without
+`title` the copy is called *Copy of* and the original's title, in English, and a
+page without a title gives a copy without one. Pass a title in the workspace's
+language when that is not English.
 
 **It copies only the parts you may read.** A private sub-page belonging to
 somebody else is left out, and everything below it goes with it. That is not a
@@ -688,16 +721,11 @@ properties to add/change or remove_properties`; `unknown property type "x"`;
 | --- | --- | --- |
 | `page_id` | string | yes |
 | `filter` | array | no |
-| `filter_groups` | array of arrays | no |
 | `sort` | string | no |
 | `limit` | integer | no |
 | `offset` | integer | no |
 
-Each filter is `{property, op, value}`, all ANDed together. `filter_groups`
-holds OR groups instead: conditions inside one group are ANDed, groups are
-ORed. `filter` beside `filter_groups` distributes into every group, so a date
-condition in `filter` with two groups reads "after X AND (this OR that)".
-`property` is a
+Each filter is `{property, op, value}`, all ANDed together. `property` is a
 property id from `get_collection`; **the row title is not a property**, so
 filter titles with `search` instead. Operators:
 
@@ -800,11 +828,6 @@ JSON that then went quiet:
 
 An open board updates live, so a person watching sees the row move.
 
-Changing a status the process guards runs the same rules as a board drag: a
-refused move comes back as an error naming what is missing (`cannot move: …`),
-answered by setting the missing fields and moving again. Creating rows runs
-the on-creation rules the same way.
-
 Returns `Set N property/properties on row <id>`. Errors: `properties is
 required`; `properties must be a JSON object`; `page "…" not found`; `page "…"
 is in the trash`.
@@ -830,7 +853,6 @@ Create a view, or change one.
 | `date_prop` | string | calendar, timeline |
 | `end_date_prop` | string | timeline |
 | `filters` | array | no |
-| `filter_groups` | array of arrays | no |
 | `sort` | string | no |
 | `hidden` | array of string | no |
 
@@ -844,15 +866,15 @@ A board needs `group_by`, a calendar and a timeline need `date_prop`, and both
 are checked up front: a board without a grouping renders empty and sends you
 hunting for the mistake in the data rather than in the call.
 
-What is checked is that the property **exists in the schema**, not what type it
-is. A board grouped by a date or a checkbox is created without complaint, and
-then shows "This board needs a Select property to group by. Open ⚙ Properties to
-add one." instead of columns. The types that produce columns are select,
-multi-select and relation; those are also the only ones the interface's own
-group-by picker offers.
+A board's grouping is checked for **type** as well: it has to be a select, a
+multi-select or a relation, the same three the interface's own group-by picker
+offers, and a row with several tags appears under each of them. Anything else is
+refused, because a board grouped by a date or a text column would otherwise show
+one catch-all column with every row in it. A board whose grouping property has
+been deleted since is refused on every change until `group_by` names a real one.
 
-Clearing works through empty values: `""` for `sort`, `[]` for `filters`,
-`filter_groups` and `hidden`. **`group_by` and `date_prop` cannot be cleared on the view types that
+Clearing works through empty values: `""` for `sort`, `[]` for `filters` and
+`hidden`. **`group_by` and `date_prop` cannot be cleared on the view types that
 need them**: passing `""` removes the setting and the view is then refused for
 being incomplete, so a board with `group_by: ""` comes back as `a board needs
 group_by`, and a calendar or timeline with `date_prop: ""` likewise. To be rid
@@ -862,20 +884,18 @@ Filters take the same operators `query_rows` does. A board people actually work
 in usually needs one: without a "status is not done" filter the finished column
 grows forever and pushes the work aside.
 
-`filter_groups` holds OR groups: conditions inside one group are ANDed, groups
-are ORed. Either `filters` or `filter_groups` replaces the whole filter — a
-flat list deletes the groups, and groups reset the flat list to mirror the
-first one, so readers that only know the old shape still see something honest.
-
 An unnamed view is named after its type, capitalised.
 
 Returns `Created <type> view "Name" (id …)` or `Updated view "Name" (id …)`.
 Errors: `unknown view type "x" — use table, board, gallery, calendar, timeline,
 list or form`; `a view's type cannot be changed — delete it and create the new
 one`; `a board needs group_by (the property to make columns from)`;
-`a calendar needs date_prop (a date property id)`; `"x" is not a property of
-this database`; `filter N: unknown op "x" — use is, is_not, contains, gt, lt,
-between, is_empty or is_not_empty`; `view "…" not found — call get_collection for the
+`a calendar needs date_prop (a date property id)`; `board group_by: "x" is a
+text property. A board groups by a select, a multiselect or a relation`;
+`board group_by: "x" is no longer a property of this database. Pass group_by with
+a select, a multiselect or a relation property`; `"x" is not a property of this
+database`; `filter N: unknown op "x". Use is, is_not, contains, gt, lt, between,
+is_empty or is_not_empty`; `view "…" not found — call get_collection for the
 ids`.
 
 ### delete_view
@@ -891,77 +911,6 @@ deliberate choice and not a value an agent lands on by mistake.
 
 Errors: `cannot delete the last view — a database needs at least one`;
 `view "…" not found — call get_collection for the ids`.
-
-### get_workflow
-
-| Parameter | Type | Required |
-| --- | --- | --- |
-| `page_id` | string | yes |
-
-Reads the database's business process: the status property and every
-When/Then rule in plain words — what triggers, who may enter from where, what
-is asked or set — with rule ids for `remove_workflow_rule`. Status options and
-properties come back as `{id, name}` pairs; read the names, write the ids.
-
-A database with no process answers that every move is allowed, plus the
-select properties that could drive one. That is the starting point for
-`add_workflow_rule`.
-
-### add_workflow_rule
-
-| Parameter | Type | Required |
-| --- | --- | --- |
-| `page_id` | string | yes |
-| `status_property` | string | only for the very first rule |
-| `when` | object | yes |
-| `allow_from` | array of string | no |
-| `only_if_checklist` | string | no |
-| `only_if_filled` | string | no |
-| `only_if` | array | no |
-| `actions` | array | no |
-
-Appends one When/Then rule. `when` is `{"type":"status_to","to":…}` with a
-status option id **or name** (`"Done"` works, case-insensitively) or
-`{"type":"created"}` for rows arriving fresh. `allow_from` lists the option
-ids or names a move may come from; empty means any. `only_if_checklist` names
-a checklist property that must be complete; `only_if_filled` names a property
-that must be filled — when the same property is also asked below, asking
-fills the requirement instead of refusing. `only_if` lists row-value
-conditions `[{property, op: "is"|"is_not", value}]` picking which rows the rule
-fires for (option id or name for selects, raw text otherwise): a mismatch
-skips the rule so a sister rule may take the same move, it never refuses —
-only a row matching nothing is turned away, told which value it needs.
-
-Each action is `{action, property?, value?, mode?, url?}`:
-
-- **set**: write a value (`property` + `value`). Dates accept relative words
-  like `today+7d`, resolved when the rule fires. A checklist cannot be set,
-  only asked for.
-- **ask**: ask the mover for a property first (`mode` `always` or `if_empty`,
-  default `if_empty`).
-- **ask_comment**: ask for a comment, same modes, default `always`.
-- **assign_me**: the mover lands in a person property.
-- **set_today**: today lands in a date property.
-- **webhook**: POST `url` after the write, fire-and-forget.
-
-The first rule also needs `status_property`: the id of the select property
-driving the process. One status per database — naming another one later is
-refused.
-
-Everything is validated before anything is stored, and a refusal names the
-exact problem (`"Shipped" is not a status option here — pick one of: To do,
-In progress, Done`). Fix it and retry. Returns the rule id and a one-line
-summary — read it back, it is the process in the agent's own words.
-
-### remove_workflow_rule
-
-| Parameter | Type | Required |
-| --- | --- | --- |
-| `page_id` | string | yes |
-| `rule_id` | string | yes |
-
-Deletes the rule `get_workflow` reported under that id. The rest of the
-process is untouched. Errors: `no rule "…" on this database`.
 
 ## History, comments and notes
 
@@ -1011,10 +960,21 @@ Errors: `unknown action "x" — use list (the default), get or restore`;
 | `body` | string | `add` only |
 | `block_id` | string | `add` only |
 | `comment_id` | string | `resolve` and `reopen` |
+| `agent` | string | no, `add` only |
+| `label` | string | no, `add` only |
 
-`list` returns the page's comments as JSON. `add` posts one; give `block_id` to
-attach it to a single block instead of the page. `resolve` ticks one off,
+`list` returns the page's comments as JSON. A selection comment includes its
+original passage in `quote`, even when that passage is no longer available;
+editor anchors and Yjs positions are omitted. Page comments have no `quote`.
+`add` posts one; give `block_id` to attach it to a single block instead of the
+page. `resolve` ticks one off,
 `reopen` un-ticks it.
+
+A comment added here carries the agent that wrote it, the way a note does:
+`agent` is one of the known agent keys (anything else becomes `generic`, and so
+does leaving it out) and `label` is what you call yourself. The comments panel
+shows the account and, beside it, the agent's mark and label; in `list` they are
+`agent` and `agentLabel`. A comment written in the browser has neither.
 
 There is also an undeclared `resolved` boolean, and where it appears it wins:
 `action: "resolve"` together with `resolved: false` reopens the comment. Two
@@ -1063,17 +1023,18 @@ what makes it worth reading later: you wrote it before you knew how it would
 end. Correct a wrong one by adding another that says so. A person can discard a
 page's whole trail deliberately, and that discarding is itself logged.
 
-Everyone who may read the page sees the trail **in the browser**. No MCP tool
-hands it back: there is no kind of `list` for notes and nothing returns them, so
-an agent can write to the trail and cannot read what it or anyone else wrote
-there. Over HTTP it is `GET /api/pages/{id}/notes`, which needs read permission
-on the page (see [API](api.md)).
+Everyone who may read the page sees the trail: in the browser, over MCP with
+[`get_page`](#get_page) and `include_notes`, and over HTTP as
+`GET /api/pages/{id}/notes`, which needs read permission on the page (see
+[API](api.md)). Read it before you report something another helper may already
+have reported.
 
 This tool needs **write** permission. Text over 2000 characters is truncated
 without complaint.
 
 Returns `Noted, N on that page now. Nobody can edit or remove a single one,
-including you — correct a wrong note by adding another.` Errors:
+including you — correct a wrong note by adding another. get_page with
+include_notes reads the trail.` Errors:
 `a note needs text`; `page "…" not found`.
 
 This is not `working_on`: that says you are here now, this leaves something
@@ -1148,10 +1109,10 @@ database(s) with their schemas and views, no rows.` Changing returns
 
 Errors: `name is required`; `name is too long`; `creating workspaces is disabled
 on this instance`; `this connection is limited to particular workspaces, so it
-cannot create new ones — it would not be able to open them`; `pass workspace_id
+cannot create new ones. It would not be able to open them`; `pass workspace_id
 to set an icon — a new workspace is created with a name only`; `only a workspace
 admin can change "…"`; `nothing to change: pass name or icon`; `workspace "…"
-has no databases to copy — nothing to use as a blueprint`.
+has no databases to copy: nothing to use as a blueprint`.
 
 ### propose_workspace_rules
 
@@ -1182,7 +1143,7 @@ withdraw.`
 Errors: `this API token is read-only; proposing rules requires a write token`;
 `workspace "…" not found`; `workspace rules are managed by workspace admins;
 your token's account is not one here`; `workspace rules are limited to 16000
-characters`; `the pending proposal is not yours to withdraw — an admin can
+characters`; `the pending proposal is not yours to withdraw. An admin can
 dismiss it in the browser`.
 
 ## Bulk import
@@ -1315,7 +1276,7 @@ is how it went" is the most useful last line there is.
 
 Returns `Checked in on page <id>. You stay listed until you check out (done:
 true) — nothing expires on you mid-task.` or `Checked out of page <id>. Your
-last note stays on the page as a trail entry.` or `Nothing to check out of — you
+last note stays on the page as a trail entry.` or `Nothing to check out of: you
 were not marked as working on that page.`
 
 Errors: `page_id is required`; `page "…" not found`.

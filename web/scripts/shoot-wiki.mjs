@@ -101,7 +101,11 @@ export function fingerprint(shows) {
   return out;
 }
 
-const browser = await chromium.launch();
+// PLAYWRIGHT_CHANNEL=chrome uses the installed Chrome, as readme-hero.mjs and
+// the browser tests already allow, instead of the build Playwright downloads.
+const browser = await chromium.launch(
+  process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {},
+);
 
 /** One signed-in context, reused: signing in for every shot is slow and the
  *  session is the normal state anyway. Fresh-instance shots get their own. */
@@ -144,6 +148,8 @@ async function run(page, step) {
   // something it is about to photograph.
   if (step.goto !== undefined) return page.goto(page.__base + step.goto, { waitUntil: 'load' });
   if (step.click !== undefined) return page.click(step.click, { timeout: 10000 });
+  // Selects a block. The keys that do it differ between macOS and the rest.
+  if (step.tripleclick !== undefined) return page.click(step.tripleclick, { clickCount: 3, timeout: 10000 });
   if (step.hover !== undefined) return page.hover(step.hover, { timeout: 10000 });
   if (step.fill !== undefined) return page.fill(step.fill[0], step.fill[1]);
   if (step.press !== undefined) return page.keyboard.press(step.press);

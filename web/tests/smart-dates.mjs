@@ -76,6 +76,18 @@ await withFixture(async ({ page, context, api, base, workspace, path, read }) =>
   // not an empty table.
   await page.locator('.fs-date input[type="text"]').fill('today-');
   await eventually(async () => (await rows.count()) === 5);
+  await eventually(async () => (await page.locator('.fs-hint').count()) === 1);
+  await page.locator('.fs-date input[type="text"]').fill('today-5d');
+  await eventually(async () => (await rows.count()) === 1);
+
+  // So does anything else that is not a day: "yesterdy" compared as text
+  // emptied the table and was saved into the view like that. One hint says
+  // why, and the server waits for a day as well.
+  await page.locator('.fs-date input[type="text"]').fill('yesterdy');
+  await eventually(async () => (await rows.count()) === 5);
+  await eventually(async () => (await page.locator('.fs-hint').count()) === 1);
+  assert.equal(await page.locator('.fs-hint').innerText(), 'Unknown relative day. Try today-1M.');
+  assert.equal(await askOn('due', 'gt', 'yesterdy'), 5);
   await page.locator('.fs-date input[type="text"]').fill('today-5d');
   await eventually(async () => (await rows.count()) === 1);
 

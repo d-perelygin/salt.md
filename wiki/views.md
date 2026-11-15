@@ -34,12 +34,11 @@ A collection that has just been created carries two views: **Board**, grouped by
 the Status property, and **Table**, in that order, so the board is what opens
 first.
 
-A database created by an agent gets those same two views, whatever schema the
-agent supplied, including a Board grouped by a property with the id `status`.
-If the schema has no such property the database opens on *This board needs a
-Select property to group by. Open ⚙ Properties to add one.* Point the board at a
-real property with the **Group** button, or with `set_view` and `group_by`, or
-remove the board and keep the table.
+A database created by an agent gets the same two views, with the board pointed
+at the schema the agent supplied: grouped by `status` if that is a select, a
+multi-select or a relation, otherwise by the first property of those kinds. A
+schema with none of them gets only the table. Point the board at another
+property with the **Group** button, or with `set_view` and `group_by`.
 
 ### `table`
 
@@ -398,6 +397,16 @@ A new row, and a page made from a template, open in it — and a new row opens
 with the caret already in its title, since a row is made to be named. A screen
 too narrow for a peek has none, so both open as a tab there instead.
 
+A row made in a filtered view starts with the values its filters fix: in a view
+filtered to *Status is Done*, **New** makes a row whose status is Done. A filter
+that allows several values (*is any of*) leaves the property empty rather than
+picking one, a board column's value always wins (the *No …* column's empty one
+included), a relative day like *today* is stored as that day's date, and
+**Current user** is stored as whoever made the row. If the
+new row still does not match the filters, a message says so: *"The new row does
+not match this view's filters, so it is not shown here."* An embedded collection
+does the same with its own filters.
+
 **Filter**, **Sort**, **Group** and **Columns** light up in the accent colour as
 soon as anything is set, so you can see that a view is filtered without opening
 the popover.
@@ -428,7 +437,8 @@ and the labels change to suit it:
 | --- | --- |
 | number, rollup, formula | is · is not · **greater than** · **less than** · **between** · is empty · is not empty |
 | date | is · is not · **after** · **before** · **between** · is empty · is not empty |
-| text, person | is · is not · **contains** · is empty · is not empty |
+| person | **is any of** · **is none of** · **contains** · is empty · is not empty |
+| text | is · is not · **contains** · is empty · is not empty |
 | select, multi-select, relation | **is any of** · **is none of** · is empty · is not empty |
 | everything else | is · is not · is empty · is not empty |
 
@@ -436,7 +446,7 @@ What they mean:
 
 | Operator | Matches |
 | --- | --- |
-| `is` | equal to the value, or, on a list property, containing it |
+| `is` | equal to the value, or, on a list property, containing it. A number compares as a number, so 5 and 5.0 are equal, and on a checkbox **Unchecked** includes a box nobody ever touched. |
 | `is_not` | not equal, **and an empty value counts as "is not X"** |
 | `is_empty` | nothing there: no value, an empty text, an empty list |
 | `is_not_empty` | anything there |
@@ -445,9 +455,9 @@ What they mean:
 | `lt` | less than, same rule |
 | `between` | inside a range, **inclusive at both ends**: a range named by two dates contains the days it is named after. Takes two values, and does nothing until both are set. |
 
-Where the values come from a fixed list (a select, a multi-select, a relation),
-`is` and `is_not` take **several** values at once and read *is any of* and *is
-none of*. That is one condition with two boxes ticked, not two conditions that
+Where the values come from a fixed list (a select, a multi-select, a relation, a
+person), `is` and `is_not` take **several** values at once and read *is any of* and
+*is none of*. That is one condition with two boxes ticked, not two conditions that
 happen to be about the same column: "class is none of A, H" is a single thing to
 read and a single thing to change.
 
@@ -470,9 +480,16 @@ Three behaviours that surprise people:
 - **`is` and `contains` look inside lists.** Filtering a multi-select or a
   relation for one value needs no special operator.
 - **You never type an id.** The value box adapts to the property: a select offers
-  its options, a checkbox offers **Checked** and **Unchecked**, and a relation or
+  its options, a checkbox offers **Checked** and **Unchecked**, a person offers
+  workspace members with **Current user** (`@me`) at the top, and a relation or
   backrelation offers the titles of the rows it points at. Free text is only for
   the types that have nothing to offer.
+- **A person filter accepts `@me`.** Filtering an Assignee column by **Current user**
+  resolves to whoever is looking at the view, per query on the server and live in
+  the browser. A shared "My tasks" view therefore shows each colleague their own
+  tasks without needing a separate view per person. It belongs to *is any of* and
+  *is none of*; under *contains* it is plain text. An agent filtering with `@me`
+  gets the account its key or sign-in belongs to.
 
 The row **title** is not a property and cannot be filtered. To find rows by
 title use [Search](search.md).

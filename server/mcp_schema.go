@@ -201,25 +201,62 @@ var translit = map[rune]string{
 
 // slugID turns a name into a stable, readable identifier. Readable ids help
 // the agent: "due-date" says more than "p7". On a collision it counts up. The
-// letters below are spelled out because an id carries none of them.
+// umlaut and accent cases below spell German and Latin letters out, because an
+// id carries none.
 func slugID(name string, taken map[string]bool) string {
 	var b strings.Builder
+	prevHyphen := true
 	for _, r := range strings.ToLower(name) {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
 			b.WriteRune(r)
+			prevHyphen = false
 		case r == 'ä': // i18n-ok: German letter, spelled out below
 			b.WriteString("ae")
+			prevHyphen = false
 		case r == 'ö': // i18n-ok: German letter, spelled out below
 			b.WriteString("oe")
+			prevHyphen = false
 		case r == 'ü': // i18n-ok: German letter, spelled out below
 			b.WriteString("ue")
+			prevHyphen = false
 		case r == 'ß': // i18n-ok: German letter, spelled out below
 			b.WriteString("ss")
+			prevHyphen = false
+		case r == 'á' || r == 'à' || r == 'â' || r == 'ã': // i18n-ok: accented Latin letter, folded below
+			b.WriteRune('a')
+			prevHyphen = false
+		case r == 'é' || r == 'è' || r == 'ê' || r == 'ë': // i18n-ok: accented Latin letter, folded below
+			b.WriteRune('e')
+			prevHyphen = false
+		case r == 'í' || r == 'ì' || r == 'î' || r == 'ï': // i18n-ok: accented Latin letter, folded below
+			b.WriteRune('i')
+			prevHyphen = false
+		case r == 'ó' || r == 'ò' || r == 'ô' || r == 'õ': // i18n-ok: accented Latin letter, folded below
+			b.WriteRune('o')
+			prevHyphen = false
+		case r == 'ú' || r == 'ù' || r == 'û': // i18n-ok: accented Latin letter, folded below
+			b.WriteRune('u')
+			prevHyphen = false
+		case r == 'ñ': // i18n-ok: Spanish letter, folded below
+			b.WriteRune('n')
+			prevHyphen = false
+		case r == 'ç': // i18n-ok: accented Latin letter, folded below
+			b.WriteRune('c')
+			prevHyphen = false
 		case r == ' ' || r == '-' || r == '_':
-			b.WriteRune('-')
+			if !prevHyphen {
+				b.WriteRune('-')
+				prevHyphen = true
+			}
 		default:
-			b.WriteString(translit[r])
+			// Fork: Russian (and Ukrainian/Belarusian) names are spelled out,
+			// so a property and its select options keep readable ids instead of
+			// all collapsing into "prop-2", "prop-3".
+			if t, ok := translit[r]; ok {
+				b.WriteString(t)
+				prevHyphen = false
+			}
 		}
 	}
 	base := strings.Trim(b.String(), "-")
@@ -231,6 +268,73 @@ func slugID(name string, taken map[string]bool) string {
 		id = fmt.Sprintf("%s-%d", base, i)
 	}
 	return id
+}
+
+// mergeExistingOptions keeps the stored id and color of options that already
+// exist under the same name, so an agent re-sending ["En Revisión", "Listo"]
+// to add a third option never orphans rows or wipes custom colors.
+func mergeExistingOptions(existingRaw any, incomingRaw any) any {
+	existingList, ok1 := existingRaw.([]any)
+	incomingList, ok2 := incomingRaw.([]any)
+	if !ok1 || !ok2 {
+		return incomingRaw
+	}
+	byName := map[string]map[string]any{}
+	byID := map[string]map[string]any{}
+	taken := map[string]bool{}
+	for _, item := range existingList {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		id, _ := m["id"].(string)
+		if name != "" {
+			byName[name] = m
+		}
+		if id != "" {
+			byID[id] = m
+			taken[id] = true
+		}
+	}
+	out := make([]any, 0, len(incomingList))
+	for _, item := range incomingList {
+		m, ok := item.(map[string]any)
+		if !ok {
+			out = append(out, item)
+			continue
+		}
+		name, _ := m["name"].(string)
+		id, _ := m["id"].(string)
+		if prev, found := byID[id]; found {
+			if _, hasColor := m["color"]; !hasColor {
+				if c, ok := prev["color"]; ok {
+					m["color"] = c
+				}
+			}
+			out = append(out, m)
+			continue
+		}
+		if prev, found := byName[name]; found {
+			if prevID, ok := prev["id"].(string); ok && prevID != "" {
+				m["id"] = prevID
+			}
+			if _, hasColor := m["color"]; !hasColor {
+				if c, ok := prev["color"]; ok {
+					m["color"] = c
+				}
+			}
+			out = append(out, m)
+			continue
+		}
+		if id != "" && taken[id] {
+			id = slugID(name, taken)
+			m["id"] = id
+		}
+		taken[id] = true
+		out = append(out, m)
+	}
+	return out
 }
 
 // --- Schema ----------------------------------------------------------------
@@ -316,6 +420,9 @@ func (s *Server) mcpUpdateSchema(pageID string, props json.RawMessage, remove []
 			for k, v := range in {
 				if k == "id" {
 					continue
+				}
+				if k == "options" {
+					v = mergeExistingOptions(schema[idx]["options"], v)
 				}
 				schema[idx][k] = v
 			}
@@ -461,7 +568,7 @@ func checkViewFilter(f map[string]any, label string, has func(string) bool) (map
 		op = "is"
 	}
 	if !validFilterOps[op] {
-		return nil, fmt.Errorf("%s: unknown op %q — use is, is_not, contains, gt, lt, between, is_empty or is_not_empty", label, op)
+		return nil, fmt.Errorf("%s: unknown op %q. Use is, is_not, contains, gt, lt, between, is_empty or is_not_empty", label, op)
 	}
 	entry := map[string]any{"property": prop, "op": op}
 	for _, k := range []string{"value", "values", "value2"} {
@@ -479,6 +586,16 @@ func checkViewFilter(f map[string]any, label string, has func(string) bool) (map
 		entry["value"] = ""
 	}
 	return entry, nil
+}
+
+// viewFilterRow reads a checked view condition in the shape a query uses. A
+// value that is not text is left out: it cannot be a day either.
+func viewFilterRow(entry map[string]any) rowFilter {
+	var f filterJSON
+	if b, err := json.Marshal(entry); err == nil {
+		_ = json.Unmarshal(b, &f)
+	}
+	return f.rowFilter()
 }
 
 // applyViewSpec validates a spec against the schema and writes it onto a view
@@ -546,8 +663,13 @@ func applyViewSpec(view map[string]any, spec viewSpec, schema []map[string]any) 
 		// three.
 		switch t := typeOf(g); t {
 		case "select", "multiselect", "relation":
+		case "":
+			// The view still names a property that was deleted since. Any
+			// change to such a board lands here, so the message says what to
+			// pass rather than only what is wrong.
+			return fmt.Errorf("board group_by: %q is no longer a property of this database. Pass group_by with a select, a multiselect or a relation property", g)
 		default:
-			return fmt.Errorf("board group_by: %q is a %s property — a board groups by a select, a multiselect or a relation", g, t)
+			return fmt.Errorf("board group_by: %q is a %s property. A board groups by a select, a multiselect or a relation", g, t)
 		}
 	}
 	if viewType == "calendar" || viewType == "timeline" {
@@ -556,11 +678,17 @@ func applyViewSpec(view map[string]any, spec viewSpec, schema []map[string]any) 
 		}
 	}
 	if spec.Filters != nil {
+		dates := dateProps(schema)
 		out := make([]any, 0, len(*spec.Filters))
 		for i, f := range *spec.Filters {
 			entry, err := checkViewFilter(f, fmt.Sprintf("filter %d", i+1), has)
 			if err != nil {
 				return err
+			}
+			if prop, _ := entry["property"].(string); dates[prop] {
+				if v, bad := viewFilterRow(entry).unreadableDay(); bad {
+					return notADay(prop, v)
+				}
 			}
 			out = append(out, entry)
 		}
@@ -811,7 +939,7 @@ func (s *Server) mcpCreateRows(userID, pageID string, rows json.RawMessage) (str
 }
 
 // mcpBatchSetProperties updates many rows in one call.
-func (s *Server) mcpBatchSetProperties(userID string, updates json.RawMessage) (string, error) {
+func (s *Server) mcpBatchSetProperties(caller *user, updates json.RawMessage) (string, error) {
 	var list []struct {
 		PageID     string          `json:"page_id"`
 		Properties json.RawMessage `json:"properties"`
@@ -825,16 +953,22 @@ func (s *Server) mcpBatchSetProperties(userID string, updates json.RawMessage) (
 	if len(list) > 200 {
 		return "", fmt.Errorf("at most 200 updates per call (got %d)", len(list))
 	}
-	// Check the permissions for ALL of them BEFORE the first change — otherwise
-	// the call breaks off halfway and leaves a half-updated database.
+	// Check the permissions for ALL of them BEFORE the first change, or the
+	// call breaks off halfway and leaves a half-updated database. Every row
+	// passes both gates a single set_properties passes in mcpCall: the
+	// person's right to write, and the credential's. Without the second, a
+	// token narrowed to one workspace wrote rows in the others, and an agent
+	// wrote into a workspace closed to agents, as long as it used this form.
 	for _, u := range list {
-		if !s.canWrite(userID, u.PageID) {
+		if !s.canWrite(caller.ID, u.PageID) || !s.credentialMayEnter(caller, s.pageWorkspace(u.PageID)) {
 			return "", fmt.Errorf("page %q not found (nothing was changed)", u.PageID)
 		}
 	}
 	done := 0
 	for _, u := range list {
-		if _, err := s.mcpSetProperties(u.PageID, u.Properties, nil); err != nil {
+		// With the caller, so each change lands in the activity log and can be
+		// taken back like a single one.
+		if _, err := s.mcpSetProperties(u.PageID, u.Properties, caller); err != nil {
 			return "", fmt.Errorf("updated %d row(s), then failed on %q: %w", done, u.PageID, err)
 		}
 		done++

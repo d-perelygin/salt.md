@@ -220,6 +220,109 @@ type rowFilter struct {
 	Prop, Op, Value string
 	Values          []string
 	Value2          string
+	// Kind is the property's type where where() has to compare differently,
+	// "number" or "checkbox", and empty otherwise. Set per query by
+	// typeFilters, because where() has no schema.
+	Kind string
+}
+
+// typeFilters tells each condition what kind of property it is on, where
+// that changes the comparison. A number is stored as a JSON number and a
+// ticked box as JSON true, and comparing either with the filter's text
+// matched nothing: "Qty is 5" and "Done is Checked" found no rows (#95).
+func (s *Server) typeFilters(collectionID string, filters []rowFilter) []rowFilter {
+	schema, _, err := s.loadCollection(collectionID)
+	if err != nil {
+		return filters
+	}
+	kinds := map[string]string{}
+	for _, p := range schema {
+		id, _ := p["id"].(string)
+		switch t, _ := p["type"].(string); t {
+		case "number", "checkbox":
+			kinds[id] = t
+		}
+	}
+	out := make([]rowFilter, len(filters))
+	for i, f := range filters {
+		f.Kind = kinds[f.Prop]
+		out[i] = f
+	}
+	return out
+}
+
+// resolvePersonFilters resolves "@me" in filters on PERSON properties of the
+// collection to the viewer's ID (and name), so a view "Assignee is Me" works
+// dynamically for whoever opens it.
+func (s *Server) resolvePersonFilters(collectionID string, filters []rowFilter, u *user) []rowFilter {
+	schema, _, err := s.loadCollection(collectionID)
+	if err != nil {
+		return filters
+	}
+	persons := map[string]bool{}
+	for _, p := range schema {
+		if id, _ := p["id"].(string); id != "" {
+			if t, _ := p["type"].(string); t == "person" {
+				persons[id] = true
+			}
+		}
+	}
+	if len(persons) == 0 {
+		return filters
+	}
+	out := make([]rowFilter, len(filters))
+	for i, f := range filters {
+		if persons[f.Prop] {
+			f = f.resolvePerson(u)
+		}
+		out[i] = f
+	}
+	return out
+}
+
+// resolvePerson turns "@me" into the person asking: their id, and their name
+// as well, because a person an agent wrote as plain text is matched by name,
+// the way the chip in the browser matches it. Nobody signed in is nobody, a
+// value no row holds, so the condition keeps filtering instead of dropping
+// out the way a condition without a value does.
+//
+// Only where whole values are compared. Under contains, "@me" is text like
+// any other, the same as in the browser (matchesFilter).
+func (f rowFilter) resolvePerson(u *user) rowFilter {
+	if f.Op != "" && f.Op != "is" && f.Op != "is_not" {
+		return f
+	}
+	target := []string{"__nobody__"}
+	if u != nil && u.ID != "" {
+		target = []string{u.ID}
+		if u.Name != "" && u.Name != u.ID {
+			target = append(target, u.Name)
+		}
+	}
+	expand := func(v string) []string {
+		if v == "@me" {
+			return target
+		}
+		return []string{v}
+	}
+	isMe := f.Value == "@me"
+	if len(f.Values) > 0 {
+		var next []string
+		for _, v := range f.Values {
+			next = append(next, expand(v)...)
+		}
+		f.Values = next
+	} else if isMe {
+		f.Values = target
+	}
+	if isMe {
+		if u != nil && u.ID != "" {
+			f.Value = u.ID
+		} else {
+			f.Value = "__nobody__"
+		}
+	}
+	return f
 }
 
 // vals is what the condition actually compares against: the set if there is one,
@@ -237,6 +340,27 @@ func (f rowFilter) vals() []string {
 func isNumeric(s string) bool {
 	_, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
 	return err == nil
+}
+
+// privateRowRule is the SQL condition that keeps other people's private rows
+// out of everything that reads a collection's rows. The visibility switch in
+// the page header applies to database rows too. The row list honoured it first;
+// the Markdown export, get_page over MCP, the calendar feed and a publicly
+// shared collection went on reading every row, so a row hidden in the app was
+// readable four other ways. Every reader of rows goes through this now.
+//
+// userID "" is somebody without an account, reading a shared link: no private
+// row at all, whoever owns it. Workspace admins still see everything, the same
+// rule as in forbiddenPrivateAncestor.
+func (s *Server) privateRowRule(userID, colID string) (string, []any) {
+	if userID == "" {
+		return "visibility != 'private'", nil
+	}
+	wsAdmin := 0
+	if s.isWorkspaceAdmin(userID, s.pageWorkspace(colID)) {
+		wsAdmin = 1
+	}
+	return "(? = 1 OR visibility != 'private' OR owner_id = ?)", []any{wsAdmin, userID}
 }
 
 // where builds the SQL for one filter condition and the arguments to go with
@@ -332,6 +456,11 @@ func (f rowFilter) where() (string, []any) {
 	for i, v := range vals {
 		anyOf[i] = v
 	}
+	if op == "is" || op == "is_not" {
+		if cond, args, ok := f.typedIs(ex, op, vals); ok {
+			return cond, args
+		}
+	}
 	// The value may be stored as a scalar or inside a list (multiselect, a
 	// relation): both spellings have to answer the same question. A checklist
 	// stores objects ({id, text, done}), so the comparison runs against each
@@ -396,62 +525,115 @@ func (f rowFilter) where() (string, []any) {
 	return "", nil
 }
 
-// privateRowRule is the SQL condition that keeps other people's private rows
-// out of everything that reads a collection's rows. The visibility switch in
-// the page header applies to database rows too. The row list honoured it first;
-// the Markdown export, get_page over MCP, the calendar feed and a publicly
-// shared collection went on reading every row, so a row hidden in the app was
-// readable four other ways. Every reader of rows goes through this now.
+// typedIs is "is" and "is not" on a number or a checkbox, compared the way the
+// browser compares them in its second pass (matchesFilter). ok is false where
+// the plain text comparison applies.
 //
-// userID "" is somebody without an account, reading a shared link: no private
-// row at all, whoever owns it. Workspace admins still see everything, the same
-// rule as in forbiddenPrivateAncestor.
-func (s *Server) privateRowRule(userID, colID string) (string, []any) {
-	if userID == "" {
-		return "visibility != 'private'", nil
+// A number matches as a number, so 5 and 5.0 are one value, and still as text,
+// because a number written as text through the API ("5") always matched.
+// A box matches ticked when it holds JSON true; a box nobody touched has no
+// value at all and counts as unticked, as it does on screen.
+func (f rowFilter) typedIs(ex, op string, vals []string) (string, []any, bool) {
+	var cond string
+	var args []any
+	switch f.Kind {
+	case "number":
+		var nums, texts []any
+		for _, v := range vals {
+			if n, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+				nums = append(nums, n)
+				texts = append(texts, v)
+			}
+		}
+		if len(nums) == 0 {
+			return "", nil, false
+		}
+		holders := strings.TrimSuffix(strings.Repeat("?, ", len(nums)), ", ")
+		cond = "(" + ex + " IN (" + holders + ") OR " + ex + " IN (" + holders + "))"
+		args = append(nums, texts...)
+		if op == "is_not" {
+			return "(" + ex + " IS NULL OR NOT " + cond + ")", args, true
+		}
+		return cond, args, true
+	case "checkbox":
+		var ticked, unticked bool
+		for _, v := range vals {
+			switch strings.ToLower(strings.TrimSpace(v)) {
+			case "true":
+				ticked = true
+			case "false":
+				unticked = true
+			}
+		}
+		if !ticked && !unticked {
+			return "", nil, false
+		}
+		// COALESCE, because a missing value makes json_type NULL, and NOT NULL
+		// is NULL too: the untouched box would drop out of "is Unchecked".
+		isTicked := "COALESCE(json_type(props, '$." + f.Prop + "'), '') = 'true'"
+		switch {
+		case ticked && unticked:
+			cond = "1 = 1"
+		case ticked:
+			cond = isTicked
+		default:
+			cond = "NOT " + isTicked
+		}
+		if op == "is_not" {
+			return "NOT (" + cond + ")", nil, true
+		}
+		return cond, nil, true
 	}
-	wsAdmin := 0
-	if s.isWorkspaceAdmin(userID, s.pageWorkspace(colID)) {
-		wsAdmin = 1
-	}
-	return "(? = 1 OR visibility != 'private' OR owner_id = ?)", []any{wsAdmin, userID}
+	return "", nil, false
 }
 
 // collectionRowsQuery filters, sorts and paginates a collection's rows in
 // SQLite and injects computed (rollup/formula/relation) values. Shared by the
 // REST handler and the MCP query_rows tool so both behave identically.
 //
-// groups are ORed; the conditions inside one group are ANDed. A flat filter
-// list is one group. Empty groups constrain nothing.
-func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter, sortParam string, limit, offset int, today time.Time) (list []map[string]any, total int, err error) {
-	where := []string{"parent_id = ?", "trashed_at IS NULL"}
-	args := []any{colID}
+// flat is ANDed as it stands; groups are ORed, the conditions inside one group
+// ANDed, and the two together read "this AND (that OR those)". A group with no
+// complete condition constrains nothing.
+//
+// today is the day relative date words ("today", "today-1M") resolve against:
+// the viewer's day, sent by the interface with every query. Zero means the
+// caller does not know it (agents, old clients) and the server's day applies.
+func (s *Server) collectionRowsQuery(u *user, colID string, flat []rowFilter, groups [][]rowFilter, sortParam string, limit, offset int, today time.Time) (list []map[string]any, total int, err error) {
 	now := today
 	if now.IsZero() {
 		now = time.Now()
 	}
 	// A relative day names a different date every day. Resolve it now, per
-	// query, so a saved view stays live — and only on date properties (see
+	// query, so a saved view stays live, and only on date properties (see
 	// resolveSmartDates), so a status option named "Today" keeps working.
-	// Hide other people's private rows. The visibility switch in the page header
-	// applies to database rows too, but this query never honoured it: through the
-	// row list every workspace member read titles and properties of ALL rows,
-	// including the ones marked private.
-	//
-	// The condition belongs in the SQL, not behind the LIMIT: filtering afterwards
-	// would falsify paging and the total count. Workspace admins still see
-	// everything — the same rule as in forbiddenPrivateAncestor.
-	wsAdmin := 0
-	if s.isWorkspaceAdmin(u.ID, s.pageWorkspace(colID)) {
-		wsAdmin = 1
+	// Similarly, "@me" in person properties resolves to the viewing user.
+	flat = s.typeFilters(colID, s.resolvePersonFilters(colID, s.resolveSmartDates(colID, flat, now), u))
+	resolved := make([][]rowFilter, len(groups))
+	for i, g := range groups {
+		resolved[i] = s.typeFilters(colID, s.resolvePersonFilters(colID, s.resolveSmartDates(colID, g, now), u))
 	}
-	where = append(where, "(? = 1 OR visibility != 'private' OR owner_id = ?)")
-	args = append(args, wsAdmin, u.ID)
+	groups = resolved
+	where := []string{"parent_id = ?", "trashed_at IS NULL"}
+	args := []any{colID}
+	// Other people's private rows stay out. The condition belongs in the SQL,
+	// not behind the LIMIT: filtering afterwards would falsify paging and the
+	// total count.
+	var uid string
+	if u != nil {
+		uid = u.ID
+	}
+	rule, ruleArgs := s.privateRowRule(uid, colID)
+	where = append(where, rule)
+	args = append(args, ruleArgs...)
 	// Restricted subtrees (fork): hide rows under a restricted node the caller
 	// neither owns nor holds a grant on. Skipped entirely when the workspace
 	// holds no restricted page, so the common case pays nothing — and for
 	// admins the SQL short-circuits on the leading flag.
-	if wsAdmin == 0 && s.hasRestrictedInWorkspace(s.pageWorkspace(colID)) {
+	wsAdmin := 0
+	if uid != "" && s.isWorkspaceAdmin(uid, s.pageWorkspace(colID)) {
+		wsAdmin = 1
+	}
+	if uid != "" && wsAdmin == 0 && s.hasRestrictedInWorkspace(s.pageWorkspace(colID)) {
 		where = append(where, `NOT EXISTS (
 			WITH RECURSIVE anc(id, parent_id, visibility, owner_id) AS (
 				SELECT p2.id, p2.parent_id, p2.visibility, p2.owner_id FROM pages p2 WHERE p2.id = row.id
@@ -462,11 +644,19 @@ func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter
 			WHERE anc.visibility = 'restricted' AND anc.owner_id != ?
 				AND COALESCE(g.access, '') NOT IN ('view', 'edit')
 		)`)
-		args = append(args, u.ID, u.ID)
+		args = append(args, uid, uid)
+	}
+	// The flat list is a term of its own beside the OR of the groups. Copied
+	// into every group instead, it made an unfinished group match whatever the
+	// flat list matched, so adding a condition could widen the answer.
+	for _, f := range flat {
+		if cond, cargs := f.where(); cond != "" {
+			where = append(where, cond)
+			args = append(args, cargs...)
+		}
 	}
 	ors := make([]string, 0, len(groups))
 	for _, g := range groups {
-		g = s.resolveSmartDates(colID, g, now)
 		ands := make([]string, 0, len(g))
 		for _, f := range g {
 			cond, cargs := f.where()
@@ -596,20 +786,6 @@ func parseFilterGroups(vals []string) [][]rowFilter {
 	return groups
 }
 
-// distributeFilters folds a flat filter list into every OR group: `filter`
-// beside `filter_group` reads "this AND (that OR those)". Without groups the
-// flat list is the one group there is.
-func distributeFilters(flat []rowFilter, groups [][]rowFilter) [][]rowFilter {
-	if len(groups) == 0 {
-		return [][]rowFilter{flat}
-	}
-	out := make([][]rowFilter, 0, len(groups))
-	for _, g := range groups {
-		out = append(out, append(append([]rowFilter{}, flat...), g...))
-	}
-	return out
-}
-
 func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 	colID := r.PathValue("id")
 	if !s.canReadReq(r, colID) {
@@ -658,7 +834,7 @@ func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 	if day, ok := parseTodayParam(q.Get("today")); ok {
 		today = day
 	}
-	list, total, err := s.collectionRowsQuery(requestUser(r), colID, distributeFilters(filters, parseFilterGroups(q["filter_group"])), q.Get("sort"), limit, offset, today)
+	list, total, err := s.collectionRowsQuery(requestUser(r), colID, filters, parseFilterGroups(q["filter_group"]), q.Get("sort"), limit, offset, today)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return

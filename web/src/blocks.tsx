@@ -2,17 +2,18 @@ import { useEffect, useState } from 'react';
 import { createReactBlockSpec } from '@blocknote/react';
 import { Table2, Sparkles, RotateCw, Settings, FileText } from 'lucide-react';
 import { useBlockCtx } from './blockContext';
+import { api } from './api';
+import AiErrorCard from './components/AiErrorCard';
+import { useAiEnabled } from './aiState';
 import { openPage, openPageAux } from './pageOpen';
 import { MERMAID_REV, renderMermaid } from './mermaidLoader';
 import { PageIcon } from './pageIcon';
 import CollectionView, { type EmbedState } from './components/CollectionView';
 import { PageHoverCard } from './components/PageHoverCard';
 import { plural, t } from './i18n';
-import { api } from './api';
-import AiErrorCard from './components/AiErrorCard';
-import { useAiEnabled } from './aiState';
+import { imeComposing } from './keys';
 
-// Custom salt.md block types (Welle 17): callout, table of contents, bookmark.
+// Custom salt.md block types (W17): callout, table of contents, bookmark.
 // Columns are ours (columnsSpec, at the end of this file) and wired in pageLink.tsx.
 
 // safeHref collapses any non-http(s)/mailto URL to '#'. A bookmark url can be
@@ -243,7 +244,7 @@ export const bookmarkSpec = createReactBlockSpec(
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 e.stopPropagation();
-                if (e.key === 'Enter' && draft.trim()) {
+                if (e.key === 'Enter' && !imeComposing(e) && draft.trim()) {
                   let u = draft.trim();
                   if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
                   editor.updateBlock(block, { props: { url: u } } as never);

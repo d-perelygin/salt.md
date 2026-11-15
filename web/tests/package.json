@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node callout-colors.mjs && node property-order.mjs && node select-options.mjs && node menus-and-arrows.mjs && node shortcuts.mjs && node embeds.mjs && node people.mjs && node tabs.mjs && node tab-strip.mjs && node sidebar-drop.mjs && node peek-sidebar.mjs && node board-top.mjs && node table-scroll.mjs && node view-undo.mjs && node doc-undo.mjs && node timeline-undo.mjs && node rows-race.mjs && node relation-chips.mjs && node page-url.mjs && node smart-dates.mjs && node timeline.mjs && node offline.mjs && node api-rewrite.mjs && node collection-config.mjs && node trash-navigation.mjs"
+    "test": "node callout-colors.mjs && node property-order.mjs && node select-options.mjs && node menus-and-arrows.mjs && node shortcuts.mjs && node embeds.mjs && node people.mjs && node tabs.mjs && node tab-strip.mjs && node sidebar-drop.mjs && node peek-sidebar.mjs && node board-top.mjs && node table-scroll.mjs && node view-undo.mjs && node doc-undo.mjs && node timeline-undo.mjs && node rows-race.mjs && node relation-chips.mjs && node page-url.mjs && node smart-dates.mjs && node timeline.mjs && node offline.mjs && node api-rewrite.mjs && node collection-config.mjs && node trash-navigation.mjs && node collection-defaults.mjs && node share-menu.mjs && node slash-menu.mjs && node scroll-memory.mjs && node board-tick.mjs && node oauth-consent.mjs && node oauth-grants.mjs && node toolbar-menus.mjs && node inline-comments.mjs && node language.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"

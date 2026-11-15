@@ -462,6 +462,9 @@ func openDB(path string) (*sql.DB, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := ensureColumn(db, "comments", "anchor", `anchor TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate comments.anchor: %w", err)
+	}
 	if err := ensureColumn(db, "pages", "type", `type TEXT NOT NULL DEFAULT 'doc'`); err != nil {
 		return nil, fmt.Errorf("migrate pages.type: %w", err)
 	}
@@ -504,6 +507,14 @@ func openDB(path string) (*sql.DB, error) {
 	// newFromTemplate): empty means plain blank rows, as before.
 	if err := ensureColumn(db, "collections", "new_from_template", `new_from_template TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate collections.new_from_template: %w", err)
+	}
+	// Which agent wrote a comment, like a note's agent and label: a claim beside
+	// the verified account. Empty for a comment written in the browser (#116).
+	if err := ensureColumn(db, "comments", "agent", `agent TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate comments.agent: %w", err)
+	}
+	if err := ensureColumn(db, "comments", "agent_label", `agent_label TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate comments.agent_label: %w", err)
 	}
 	// Page tags: a JSON array of short labels (Obsidian-style, workspace-scoped).
 	if err := ensureColumn(db, "pages", "tags", `tags TEXT NOT NULL DEFAULT '[]'`); err != nil {
@@ -662,6 +673,9 @@ func openDB(path string) (*sql.DB, error) {
 		{"pref_timezone", `pref_timezone TEXT NOT NULL DEFAULT ''`},
 		{"pref_clock", `pref_clock TEXT NOT NULL DEFAULT ''`},
 		{"pref_week_start", `pref_week_start TEXT NOT NULL DEFAULT ''`},
+		// "" is automatic (off); "on" opens rows in a new tab. Like every
+		// other preference here, a TEXT column where "" means "never decided".
+		{"pref_open_rows_new_tab", `pref_open_rows_new_tab TEXT NOT NULL DEFAULT ''`},
 	} {
 		if err := ensureColumn(db, "users", c[0], c[1]); err != nil {
 			return nil, fmt.Errorf("migrate users.%s: %w", c[0], err)
@@ -773,16 +787,16 @@ func openDB(path string) (*sql.DB, error) {
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 const welcomeContent = `[
- {"type":"paragraph","content":[{"type":"text","text":"Welcome to ","styles":{}},{"type":"text","text":"salt.md","styles":{"bold":true}},{"type":"text","text":" — a fast, lightweight, open-source workspace for your notes, docs and ideas. 🧂","styles":{}}]},
+ {"type":"paragraph","content":[{"type":"text","text":"Welcome to ","styles":{}},{"type":"text","text":"salt.md","styles":{"bold":true}},{"type":"text","text":": a fast, lightweight, open-source workspace for your notes, docs and ideas. 🧂","styles":{}}]},
  {"type":"heading","props":{"level":2},"content":[{"type":"text","text":"Everything is a block","styles":{}}]},
  {"type":"paragraph","content":[{"type":"text","text":"Type ","styles":{}},{"type":"text","text":"/","styles":{"code":true}},{"type":"text","text":" anywhere to insert headings, lists, quotes, code blocks, images, tables and more. Drag blocks by their handle to rearrange them.","styles":{}}]},
  {"type":"checkListItem","props":{"checked":true},"content":[{"type":"text","text":"Install salt.md","styles":{}}]},
  {"type":"checkListItem","props":{"checked":false},"content":[{"type":"text","text":"Create your first page (button in the sidebar)","styles":{}}]},
  {"type":"checkListItem","props":{"checked":false},"content":[{"type":"text","text":"Press Ctrl/Cmd + K to search everything","styles":{}}]},
  {"type":"heading","props":{"level":2},"content":[{"type":"text","text":"Your data stays yours","styles":{}}]},
- {"type":"bulletListItem","content":[{"type":"text","text":"Single binary, single SQLite file — trivial to back up","styles":{}}]},
- {"type":"bulletListItem","content":[{"type":"text","text":"Export any page — or your whole workspace — as Markdown","styles":{}}]},
- {"type":"bulletListItem","content":[{"type":"text","text":"Clean REST API — build your own clients on top","styles":{}}]}
+ {"type":"bulletListItem","content":[{"type":"text","text":"Single binary, single SQLite file: trivial to back up","styles":{}}]},
+ {"type":"bulletListItem","content":[{"type":"text","text":"Export any page, or your whole workspace, as Markdown","styles":{}}]},
+ {"type":"bulletListItem","content":[{"type":"text","text":"Clean REST API: build your own clients on top","styles":{}}]}
 ]`
 
 func (s *Server) seed() error {

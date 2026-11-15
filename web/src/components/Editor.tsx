@@ -16,7 +16,7 @@ import {
 } from '@blocknote/react';
 import { CustomSideMenu } from './CustomDragHandleMenu';
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmentToHTML } from '@blocknote/core';
-import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
+import { de as coreDe, en as coreEn, ru as coreRu, zh as coreZh, zhTW as coreZhTW } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { TextSelection } from 'prosemirror-state';
 import { api, ApiError, materializeQuery } from '../api';
@@ -33,9 +33,9 @@ import {
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
-import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User, Workspace } from '../types';
+import type { Backlink, CollectionConfig, Comment, CommentAnchor, Page, PageMeta, PropOption, User, Workspace } from '../types';
 import { SaltProvider } from '../collab';
-import { plural, t } from '../i18n';
+import { getLocale, plural, t } from '../i18n';
 import { formatDay } from '../format';
 import { blockedByMap, dayNum, depListOf, isoDay, nextWorkday, prevWorkday, shiftTarget, type DepNode } from '../depUtils';
 import PropertyValue from './PropertyValue';
@@ -48,7 +48,7 @@ import { BlockContext } from '../blockContext';
 import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, focusRegion, navItem, nothingBefore, useNavRegion } from '../nav';
 import { openPage, openPageAux, type PageOpeners } from '../pageOpen';
 import { readPageScroll, writePageScroll } from '../pageUiState';
-import { useShortcut } from '../keys';
+import { imeComposing, useShortcut } from '../keys';
 import CollectionView from './CollectionView';
 import PageShares from './PageShares';
 import { HistoryModal } from './PageHistory';
@@ -71,6 +71,33 @@ import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
 import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles } from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
+import { InlineCommentButton, useInlineComments } from './InlineComments';
+
+// The dictionaries BlockNote ships for the languages the interface has.
+const blockNoteDictionaries: Record<string, typeof coreEn> = {
+  en: coreEn,
+  de: consistentGroups(coreDe),
+  // BlockNote's 'zh' is written in Simplified characters.
+  'zh-Hans': consistentGroups(coreZh),
+  'zh-Hant': consistentGroups(coreZhTW),
+};
+
+// One section per kind of block in the slash menu. BlockNote's German
+// dictionary files one subheading under the singular of the group's name and
+// the others under the plural, which split the menu into two sections side by
+// side; every item now takes the name the first item of its English group has.
+function consistentGroups(dict: typeof coreEn): typeof coreEn {
+  type Item = { group: string };
+  const english = coreEn.slash_menu as unknown as Record<string, Item>;
+  const local: Record<string, Item> = { ...(dict.slash_menu as unknown as Record<string, Item>) };
+  const names = new Map<string, string>();
+  for (const [key, item] of Object.entries(english)) {
+    if (!local[key]) continue;
+    if (!names.has(item.group)) names.set(item.group, local[key].group);
+    local[key] = { ...local[key], group: names.get(item.group)! };
+  }
+  return { ...dict, slash_menu: local as unknown as typeof dict.slash_menu };
+}
 
 export interface EditorProps {
   pageId: string;
@@ -137,6 +164,25 @@ export default function Editor(props: EditorProps) {
   // his colleagues work in them all day and reported the old shape as awkward:
   // at the very bottom, and two lines to write in.
   const [commentsOpen, setCommentsOpen] = useState(commentsPanelOpen);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [pendingComment, setPendingComment] = useState<{ anchor: CommentAnchor; blockId: string } | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [activeComment, setActiveComment] = useState<string | null>(null);
+  const [anchorStatuses, setAnchorStatuses] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let alive = true;
+    setComments([]);
+    setPendingComment(null);
+    setCommentDraft('');
+    setActiveComment(null);
+    setAnchorStatuses({});
+    const load = () => void api.listComments(props.pageId).then((items) => { if (alive) setComments(items); }).catch(() => {});
+    load();
+    window.addEventListener(COMMENTS_CHANGED, load);
+    window.addEventListener('focus', load);
+    return () => { alive = false; window.removeEventListener(COMMENTS_CHANGED, load); window.removeEventListener('focus', load); };
+  }, [props.pageId]);
 
   // Both panels occupy the same strip on the right, so opening one closes the
   // other. Sharing the width would leave two columns too narrow to be either.
@@ -328,6 +374,10 @@ export default function Editor(props: EditorProps) {
               toast.warning(t('This page was replaced on the server. Open Version history to recover your text.'));
               setNonce((n) => n + 1);
             }}
+            comments={comments}
+            onCommentSelection={(anchor, blockId) => { setPendingComment({ anchor, blockId }); setActiveComment(null); showComments(true); }}
+            onCommentOpen={(id) => { setActiveComment(id); showComments(true); }}
+            onAnchorStatuses={(statuses) => setAnchorStatuses((previous) => JSON.stringify(previous) === JSON.stringify(statuses) ? previous : statuses)}
           />
         )}
       </PageHeader>
@@ -337,6 +387,13 @@ export default function Editor(props: EditorProps) {
           myUserId={props.user.id}
           open
           onClose={() => showComments(false)}
+          pending={pendingComment}
+          draft={commentDraft}
+          onDraftChange={setCommentDraft}
+          onClearPending={() => setPendingComment(null)}
+          activeComment={activeComment}
+          anchorStatuses={anchorStatuses}
+          narrow={narrow}
         />
       )}
       {structureOpen && (
@@ -993,6 +1050,9 @@ function PageHeader({
   }, [pageId]);
   const isShared = shareUrl != null || (!!page.shared && !shareOff);
   const [shareExpiry, setShareExpiry] = useState(0); // days; 0 = never
+  // One mint at a time: a second click while the first request is in flight
+  // would replace the link the first one just made.
+  const [shareBusy, setShareBusy] = useState(false);
   const [sharePassword, setSharePassword] = useState('');
   const [shareHasPassword, setShareHasPassword] = useState(false);
   // Read-share and form-share are independent links; the dialog tracks them
@@ -1312,8 +1372,10 @@ function PageHeader({
       lastGesture = Date.now();
     };
     const maySave = () => Date.now() - lastGesture < 2000;
+    let lastTop = el.scrollTop;
     const onScroll = () => {
       const s = el.scrollTop;
+      lastTop = s;
       if (!scrolled && s > 110) {
         scrolled = true;
         el.classList.add('scrolled');
@@ -1336,8 +1398,12 @@ function PageHeader({
     return () => {
       cancelAnimationFrame(saveRaf);
       // A switch made mid-glide keeps the last user position rather than the
-      // one before it — but never an anchoring shift (no gesture, no save).
-      if (maySave()) writePageScroll(pageId, el.scrollTop);
+      // one before it, but never an anchoring shift (no gesture, no save).
+      // The position is the last one a scroll event saw: by now React has
+      // taken the old page body out of the document, and its scrollTop reads
+      // 0, which wiped the good value whenever a tab was switched within two
+      // seconds of scrolling.
+      if (maySave()) writePageScroll(pageId, lastTop);
       el.removeEventListener('scroll', onScroll);
       el.removeEventListener('wheel', markGesture);
       el.removeEventListener('touchmove', markGesture);
@@ -1405,6 +1471,8 @@ function PageHeader({
   const displayUrl = shareUrl ?? readStoredUrl();
 
   const mintShare = async (days: number, password: string, allowed?: string[] | null, allowDetail?: boolean, rotated = false) => {
+    if (shareBusy) return;
+    setShareBusy(true);
     try {
       const res = await api.sharePage(
         pageId,
@@ -1425,6 +1493,8 @@ function PageHeader({
       if (rotated) toast.warning(t('A new link was created — the old one no longer works'));
     } catch {
       toast(t('Sharing failed'));
+    } finally {
+      setShareBusy(false);
     }
   };
 
@@ -1891,6 +1961,7 @@ function PageHeader({
                   <>
                     <button
                       className="btn-sm primary"
+                      disabled={shareBusy}
                       onClick={() => void mintShare(shareExpiry, sharePassword, shareAllowed, shareAllowDetail)}
                     >
                       {t('Share publicly')}
@@ -1922,6 +1993,7 @@ function PageHeader({
                     <div className="share-hint">{t('The link is active, but this browser does not have its URL.')}</div>
                     <button
                       className="btn-sm"
+                      disabled={shareBusy}
                       onClick={() => void mintShare(shareExpiry, sharePassword, shareAllowed, shareAllowDetail, true)}
                     >
                       {t('Create a new link')}
@@ -1958,7 +2030,7 @@ function PageHeader({
                 {(readShared || displayUrl) && (
                   <>
                     <label className="share-expiry">
-                      Expires:
+                      {t('Expires:')}
                       <select
                         className="prop-select"
                         value={shareExpiry}
@@ -1974,6 +2046,7 @@ function PageHeader({
                       <input
                         className="share-input"
                         type="password"
+                        autoComplete="new-password"
                         placeholder={shareHasPassword ? '••••••' : t('Password (optional)')}
                         value={sharePassword}
                         onChange={(e) => setSharePassword(e.target.value)}
@@ -2157,7 +2230,7 @@ function PageHeader({
                       setOverflowOpen(false);
                     }}
                   >
-                    <Upload size={15} /> Import (.md / .zip)
+                    <Upload size={15} /> {t('Import (.md / .zip)')}
                   </button>
                 )}
                 <div className="menu-sep" />
@@ -2169,7 +2242,7 @@ function PageHeader({
                     setOverflowOpen(false);
                   }}
                 >
-                  <FileText size={15} /> Markdown (.md)
+                  <FileText size={15} /> {t('Markdown (.md)')}
                 </button>
                 <button
                   className="menu-item"
@@ -2575,6 +2648,10 @@ interface CollabProps {
   /** Keyboard-navigation region of the owning editor ('content', or 'peek' in
    *  the side panel). Flows through ...rest to BlockContent. */
   regionId: string;
+  comments: Comment[];
+  onCommentSelection: (anchor: CommentAnchor, blockId: string) => void;
+  onCommentOpen: (id: string) => void;
+  onAnchorStatuses: (statuses: Record<string, boolean>) => void;
 }
 
 function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabProps) {
@@ -2746,6 +2823,10 @@ function BlockContent({
   onPagesChanged,
   structureOpen,
   regionId,
+  comments,
+  onCommentSelection,
+  onCommentOpen,
+  onAnchorStatuses,
 }: {
   provider: SaltProvider;
   pageId: string;
@@ -2762,8 +2843,13 @@ function BlockContent({
   onOpenInNewTab: (id: string) => void;
   onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
   onPagesChanged: () => void;
+  comments: Comment[];
+  onCommentSelection: (anchor: CommentAnchor, blockId: string) => void;
+  onCommentOpen: (id: string) => void;
+  onAnchorStatuses: (statuses: Record<string, boolean>) => void;
 }) {
   const aiEnabled = useAiEnabled();
+  const blockNote = blockNoteDictionaries[getLocale()] ?? coreEn;
   const editor = useCreateBlockNote({
     schema: saltSchema,
     collaboration: {
@@ -2777,12 +2863,16 @@ function BlockContent({
     // both, while the same PDF added by an agent did not — the MCP path has
     // always passed a page id.
     uploadFile: (file: File) => api.upload(file, pageId),
-    // Column layout: edge-drop cursor + its dictionary entries.
+    // BlockNote's own words in the interface's language: the hint on an empty
+    // line, its menus, the toolbar. It was always handed English, so a German
+    // interface said "Enter text or type '/' for commands" (#114). Changing the
+    // language remounts the editor, so reading it here is enough; a language
+    // BlockNote does not ship falls back to English, as t() does.
     dictionary: {
-      ...coreEn,
+      ...blockNote,
       // The empty line advertises the one-shot AI panel (AiEmptyLine).
       placeholders: {
-        ...coreEn.placeholders,
+        ...blockNote.placeholders,
         ...(aiEnabled
           ? {
               default: t("Press 'space' for AI or '/' for commands"),
@@ -2889,6 +2979,7 @@ function BlockContent({
       return defaultPasteHandler();
     },
   });
+  useInlineComments(editor, provider, comments, onCommentOpen, onAnchorStatuses);
 
   // Doc undo for the ⋯ menu: BlockNote's own history, announced so the
   // topbar (outside this tree) can offer the buttons beside the collection
@@ -3215,13 +3306,16 @@ function BlockContent({
           },
         ]
       : [];
+    // Groups by the dictionary's own names, so an item of ours joins
+    // BlockNote's section of the same kind in any language instead of opening
+    // a second, English one.
     const custom = [
       ...aiItems,
       {
         title: t('Diagram'),
         subtext: t('A flow chart written as text'),
         aliases: ['diagram', 'diagramm', 'mermaid', 'flow', 'flussdiagramm', 'graph', 'диаграмма', 'схема', 'граф', 'блок-схема'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
-        group: 'Advanced',
+        group: editor.dictionary.slash_menu.table.group,
         icon: <Workflow size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, {
@@ -3233,7 +3327,7 @@ function BlockContent({
         title: t('Columns'),
         subtext: t('Two blocks side by side'),
         aliases: ['columns', 'column', 'spalten', 'nebeneinander', 'колонки', 'столбцы', 'рядом', 'колонка'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
-        group: 'Basic blocks',
+        group: editor.dictionary.slash_menu.paragraph.group,
         icon: <Columns2 size={18} />,
         // Inserted WITH its two children, because an empty columns block is a
         // control strip and nothing else — there would be no column to type in
@@ -3248,8 +3342,8 @@ function BlockContent({
       {
         title: t('Callout'),
         subtext: t('A highlighted note with an emoji'),
-        aliases: ['callout', 'hinweis', 'info', 'warnung', 'выноска', 'заметка', 'подсказка', 'важно'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
+        aliases: ['callout', 'hinweis', 'info', 'warnung', 'выноска', 'заметка', 'подсказка', 'важно'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
         icon: <span>💡</span>,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'callout' } as never),
@@ -3257,8 +3351,8 @@ function BlockContent({
       {
         title: t('Bookmark / Embed'),
         subtext: t('A link card, or a YouTube/Vimeo player'),
-        aliases: ['bookmark', 'embed', 'link', 'video', 'youtube', 'закладка', 'встроить', 'ссылка', 'видео'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Media',
+        aliases: ['bookmark', 'embed', 'link', 'video', 'youtube', 'закладка', 'встроить', 'ссылка', 'видео'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.image.group,
         icon: <span>🔖</span>,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'bookmark' } as never),
@@ -3266,8 +3360,8 @@ function BlockContent({
       {
         title: t('Embed a collection'),
         subtext: t('Show an existing collection inside the document'),
-        aliases: ['datenbank', 'database', 'db', 'tabelle', 'board', 'kanban', 'база', 'коллекция', 'таблица', 'доска', 'встроить коллекцию'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
+        aliases: ['datenbank', 'database', 'db', 'tabelle', 'board', 'kanban', 'база', 'коллекция', 'таблица', 'доска', 'встроить коллекцию'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
         icon: <span>▦</span>,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'database' } as never),
@@ -3275,16 +3369,16 @@ function BlockContent({
       {
         title: t('Table of contents'),
         subtext: t('Auto-generated list of every heading'),
-        aliases: ['toc', 'inhalt', 'inhaltsverzeichnis', 'outline', 'оглавление', 'содержание'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
+        aliases: ['toc', 'inhalt', 'inhaltsverzeichnis', 'outline', 'оглавление', 'содержание'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
         icon: <span>📑</span>,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'toc' } as never),
       },
       {
         title: t('Sub-pages'),
         subtext: t('List of pages below this one'),
-        aliases: ['subpages', 'unterseiten', 'children', 'sub-pages', 'подстраницы', 'дочерние', 'страницы', 'вложенные'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
+        aliases: ['subpages', 'unterseiten', 'children', 'sub-pages', 'подстраницы', 'дочерние', 'страницы', 'вложенные'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
         icon: <span>📄</span>,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'subpages' } as never),
       },
@@ -3298,7 +3392,23 @@ function BlockContent({
       ...it,
       aliases: [...(it.aliases ?? []), ...slashAliases(it.title)],
     }));
-    return filterSuggestionItems([...defaults, ...custom], query);
+    const matches = filterSuggestionItems(
+      [
+        ...getDefaultReactSlashMenuItems(editor),
+        ...custom,
+      ],
+      query,
+    );
+    // The menu keys headings by group. Repeated, non-adjacent groups create
+    // duplicate React keys and leave stale headings behind when filtering.
+    // Keep each group contiguous, with the first occurrence defining its order.
+    const groups = new Map<string | undefined, typeof matches>();
+    for (const item of matches) {
+      const group = groups.get(item.group);
+      if (group) group.push(item);
+      else groups.set(item.group, [item]);
+    }
+    return [...groups.values()].flat();
   };
 
   // Page-link menu (shared by the "@" mention trigger and the "[[" wiki-link
@@ -3311,13 +3421,13 @@ function BlockContent({
     const q = query.toLowerCase();
     const matches = [...pagesById.values()]
       .filter((p) => !p.trashed && p.id !== provider.pageId)
-      .filter((p) => (p.title || 'Untitled').toLowerCase().includes(q))
+      .filter((p) => (p.title || t('Untitled')).toLowerCase().includes(q))
       .slice(0, 12);
     const seen = new Set(matches.map((p) => p.id));
     seen.add(provider.pageId);
     const items = matches.map((p) => ({
-      title: p.title || 'Untitled',
-      subtext: p.type === 'collection' ? 'Database' : 'Page',
+      title: p.title || t('Untitled'),
+      subtext: p.type === 'collection' ? t('Collection') : t('Page'),
       onItemClick: () =>
         editor.insertInlineContent([
           { type: 'pageLink', props: { pageId: p.id, label: p.title || 'Untitled' } },
@@ -3359,8 +3469,8 @@ function BlockContent({
     }
     if (query.trim()) {
       items.push({
-        title: `Create "${query.trim()}"`,
-        subtext: 'New page',
+        title: t('Create “{name}”', { name: query.trim() }),
+        subtext: t('New page'),
         onItemClick: async () => {
           try {
             const created = await api.createPage(null, query.trim());
@@ -3937,6 +4047,7 @@ function BlockContent({
                   <NestBlockButton key="nestBlockButton" />
                   <UnnestBlockButton key="unnestBlockButton" />
                   <CreateLinkButton key="createLinkButton" />
+                  <InlineCommentButton editor={editor} provider={provider} onSelect={onCommentSelection} />
                 </FormattingToolbar>
               )}
             />
