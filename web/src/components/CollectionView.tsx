@@ -716,7 +716,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const trayNeedsFetch = trayIsCustom || !sameFilterGroups(trayFetchGroups, trayEffGroups);
   const trayServerGroups = trayFetchGroups
     .map((g) =>
-      g.filter((f) => filterIsArmed(f, f.property === SORT_CREATED || f.property === SORT_UPDATED || schema.find((p) => p.id === f.property)?.type === 'date')).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })),
+      g.filter((f) =>
+        filterIsArmed(
+          f,
+          f.property === SORT_CREATED ||
+            f.property === SORT_UPDATED ||
+            (config?.schema ?? []).some((p) => p.id === f.property && p.type === 'date'),
+        ),
+      ).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })),
     )
     .filter((g) => g.length > 0);
   const trayKey = view0 && trayNeedsFetch ? JSON.stringify([trayServerGroups, view0.sort, todayStr]) : '';
