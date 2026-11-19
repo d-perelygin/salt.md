@@ -2226,7 +2226,7 @@ export default function App() {
           // if someone is left without one anyway (assignment revoked, creation
           // failed), at least say what is going on.
           <div className="empty-state">
-            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label="Menu">
+            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label={t('Menu')}>
               <Menu size={18} />
             </button>
             <div className="empty-emoji"><Logo size={52} /></div>
@@ -2263,7 +2263,7 @@ export default function App() {
           </div>
         ) : (
           <div className="empty-state">
-            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label="Menu">
+            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label={t('Menu')}>
               <Menu size={18} />
             </button>
             <div className="empty-emoji"><Logo size={52} /></div>
