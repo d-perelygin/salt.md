@@ -1749,5 +1749,11 @@
   "Regenerate title": "Обновить название",
   "Archive": "Архивировать",
   "Unarchive": "Вернуть из архива",
-  "Archived": "Архив"
+  "Archived": "Архив",
+  "Memory": "Память",
+  "Remember this…": "Запомнить…",
+  "Nothing memorized yet.": "Пока ничего не запомнено.",
+  "Forget": "Забыть",
+  "Remember": "Запомнить",
+  "This workspace only": "Только этот воркспейс"
 }

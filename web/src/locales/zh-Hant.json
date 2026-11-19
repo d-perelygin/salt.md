@@ -1182,5 +1182,11 @@
   "Regenerate title": "重新生成標題",
   "Archive": "封存",
   "Unarchive": "取消封存",
-  "Archived": "已封存"
+  "Archived": "已封存",
+  "Memory": "記憶",
+  "Remember this…": "記住…",
+  "Nothing memorized yet.": "還沒有記住任何內容。",
+  "Forget": "忘記",
+  "Remember": "記住",
+  "This workspace only": "僅目前工作區"
 }

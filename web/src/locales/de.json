@@ -1670,5 +1670,11 @@
   "Regenerate title": "Titel neu generieren",
   "Archive": "Archivieren",
   "Unarchive": "Aus dem Archiv holen",
-  "Archived": "Archiviert"
+  "Archived": "Archiviert",
+  "Memory": "Gedächtnis",
+  "Remember this…": "Merken…",
+  "Nothing memorized yet.": "Noch nichts gemerkt.",
+  "Forget": "Vergessen",
+  "Remember": "Merken",
+  "This workspace only": "Nur dieser Workspace"
 }

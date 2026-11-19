@@ -309,6 +309,9 @@ database. See [Collections](collections.md) and [Properties](properties.md).
 | `ai_thread_runs` | List the agent runs of one of your chat threads (status, task, timing, artifacts). Read-only. |
 | `ai_run` | Read one agent run: status, task, progress, error, timing, artifacts. Read-only. |
 | `ai_run_steps` | Read the trace of one agent run: plan, tool calls, results, approvals. Read-only. |
+| `memory_recall` | Recall durable notes the agent stored about you (preferences, context worth keeping across runs). Read-only. |
+| `memory_remember` | Store a durable note about you for future runs. Keep it short — one fact per call. |
+| `memory_forget` | Delete a stored note by id when it is wrong or stale. |
 
 A note cannot be edited or removed afterwards, by the agent that wrote it or by
 anybody else, which is exactly what makes a trail worth reading later. What a
@@ -487,6 +490,7 @@ and writes through the same tools, and can keep working after you close the tab.
   task; any assistant answer offers ↻ to regenerate it. Assistant answers can
   be copied, and (on a document) inserted into the page below the cursor.
 - **Archive:** chats leave the list through Archive in the thread menu (restorable from the Archived section); archived chats stay readable and searchable.
+- **Memory:** the agent keeps durable notes about you across runs (preferences, facts worth keeping) — the brain button in the chat header lists, adds and forgets them, and the agent reads them on every run.
 - **Thread titles:** a new chat takes its title from the first message; after
   an agent run the title is upgraded from the recent conversation (never over
   a manual rename), and "Regenerate title" in the thread menu re-titles any

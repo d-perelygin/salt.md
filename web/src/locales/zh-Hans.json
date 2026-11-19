@@ -1182,5 +1182,11 @@
   "Regenerate title": "重新生成标题",
   "Archive": "归档",
   "Unarchive": "取消归档",
-  "Archived": "已归档"
+  "Archived": "已归档",
+  "Memory": "记忆",
+  "Remember this…": "记住…",
+  "Nothing memorized yet.": "还没有记住任何内容。",
+  "Forget": "忘记",
+  "Remember": "记住",
+  "This workspace only": "仅当前工作区"
 }

@@ -9,12 +9,13 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
+import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Brain, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import { renderTextWithMentions } from './aiChatHelpers';
 
 interface Msg { role: string; content: string; createdAt?: string }
 interface AttachedFile { name: string; text: string }
+interface MemoryEntry { id: string; workspaceId: string; content: string; createdAt: string; updatedAt: string }
 
 function formatDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -63,6 +64,12 @@ export default function AiChatView(props: {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [memories, setMemories] = useState<MemoryEntry[] | null>(null);
+  const [memDraft, setMemDraft] = useState('');
+  const [memWorkspaceOnly, setMemWorkspaceOnly] = useState(true);
+  const memMenuRef = useRef<HTMLSpanElement>(null);
+  useMenuDismiss(memoryOpen, memMenuRef, () => setMemoryOpen(false));
   const attachMenuRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(attachMenuOpen, attachMenuRef, () => setAttachMenuOpen(false));
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -559,6 +566,34 @@ export default function AiChatView(props: {
   // Page-scoped chips only make sense with a page in context; in the global
   // view they would promise something the chat cannot see.
   const chipPageId = props.pageId || active?.pageId || '';
+  const memWorkspaceId = props.pageId ? props.pagesById.get(props.pageId)?.workspaceId ?? '' : '';
+
+  // Agent memory: durable notes the agent keeps about the user. Global notes
+  // always apply; workspace notes apply to the current page's workspace.
+  async function loadMemories() {
+    try {
+      const r = (await api.listAIMemory()) as MemoryEntry[];
+      setMemories(Array.isArray(r) ? r : []);
+    } catch {
+      setMemories([]);
+    }
+  }
+  async function addMemory() {
+    const text = memDraft.trim();
+    if (!text) return;
+    try {
+      const ws = memWorkspaceId && memWorkspaceOnly ? memWorkspaceId : '';
+      await api.addAIMemory(text, ws);
+      setMemDraft('');
+      await loadMemories();
+    } catch { /* keep the draft */ }
+  }
+  async function forgetMemory(id: string) {
+    try {
+      await api.deleteAIMemory(id);
+      setMemories((prev) => (prev ?? []).filter((m) => m.id !== id));
+    } catch { /* keep it */ }
+  }
   const showTrace = steps.length > 0;
   const showZeroState = messages.length === 0 && !agentBusy && steps.length === 0 && !lastError;
   const liveDuration = agentBusy && runStartedAt !== null ? runElapsed : null;
@@ -625,6 +660,74 @@ export default function AiChatView(props: {
           <span className="ai-crumb">{t('AI')}</span>
           <span className="ai-crumb">/</span>
           <span className="ai-title">{active?.title || t('New chat')}{pageTitle ? ` · ${pageTitle}` : ''}</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ position: 'relative', display: 'inline-flex' }} ref={memMenuRef}>
+            <button
+              className="ai-iconbtn"
+              title={t('Memory')}
+              type="button"
+              onClick={() => {
+                const next = !memoryOpen;
+                setMemoryOpen(next);
+                if (next && memories === null) void loadMemories();
+              }}
+            >
+              <Brain size={15} />
+            </button>
+            {memoryOpen && (
+              <div
+                style={{
+                  position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 400,
+                  background: 'var(--card)', color: 'var(--fg)',
+                  border: '1px solid var(--border)', borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(0,0,0,.25)', width: 320, maxWidth: '80vw',
+                  maxHeight: 320, overflow: 'auto', padding: 10,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{t('Memory')}</div>
+                {memories === null ? (
+                  <div className="dialog-hint">{t('Loading…')}</div>
+                ) : memories.length === 0 ? (
+                  <div className="dialog-hint" style={{ marginBottom: 8 }}>{t('Nothing memorized yet.')}</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                    {memories.map((m) => (
+                      <div key={m.id} style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                        <span style={{ flex: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.content}</span>
+                        <button className="ai-iconbtn" type="button" title={t('Forget')} onClick={() => void forgetMemory(m.id)}>
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    className="prop-input"
+                    style={{ flex: 1, minWidth: 0 }}
+                    value={memDraft}
+                    onChange={(e) => setMemDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void addMemory();
+                      }
+                    }}
+                    placeholder={t('Remember this…')}
+                  />
+                  <button className="btn-sm primary" type="button" disabled={!memDraft.trim()} onClick={() => void addMemory()}>
+                    {t('Remember')}
+                  </button>
+                </div>
+                {memWorkspaceId && (
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    <input type="checkbox" checked={memWorkspaceOnly} onChange={(e) => setMemWorkspaceOnly(e.target.checked)} />
+                    {t('This workspace only')}
+                  </label>
+                )}
+              </div>
+            )}
+          </span>
         </div>
         <div className="ai-chat-body">
           {showZeroState && (

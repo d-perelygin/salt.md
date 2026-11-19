@@ -1175,5 +1175,11 @@
   "Regenerate title": "Regenerar título",
   "Archive": "Archivar",
   "Unarchive": "Desarchivar",
-  "Archived": "Archivados"
+  "Archived": "Archivados",
+  "Memory": "Memoria",
+  "Remember this…": "Recordar…",
+  "Nothing memorized yet.": "Nada memorizado aún.",
+  "Forget": "Olvidar",
+  "Remember": "Recordar",
+  "This workspace only": "Solo este espacio"
 }

@@ -113,6 +113,7 @@ var readTools = map[string]bool{
 	// Fork: the workflow is configuration to read, and the agent's own threads,
 	// runs and traces are records, not changes.
 	"get_workflow": true, "ai_threads": true, "ai_thread_messages": true,
+	"memory_recall": true,
 	"ai_thread_runs": true, "ai_run": true, "ai_run_steps": true,
 }
 
@@ -664,6 +665,38 @@ var mcpTools = []map[string]any{
 			"properties": map[string]any{"run_id": map[string]any{"type": "string"}},
 			"required":   []string{"run_id"}},
 	},
+	{
+		"name":        "memory_recall",
+		"description": "Recall durable notes the agent stored about this user (preferences, context worth keeping across runs). Read-only.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"query":        map[string]any{"type": "string", "description": "Optional text to search notes for"},
+				"workspace_id": map[string]any{"type": "string", "description": "Optional workspace to include scoped notes for (global notes always come along)"},
+				"limit":        map[string]any{"type": "integer", "description": "Max notes (default 20, max 100)"},
+			},
+			"required": []string{}},
+	},
+	{
+		"name":        "memory_remember",
+		"annotations": adds,
+		"description": "Store a durable note about this user for future runs (a preference, a fact worth keeping). Keep it short — one fact per call.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"text":         map[string]any{"type": "string", "description": "The note to keep"},
+				"workspace_id": map[string]any{"type": "string", "description": "Optional workspace this note applies to; omit for everywhere"},
+			},
+			"required": []string{"text"}},
+	},
+	{
+		"name":        "memory_forget",
+		"annotations": removes,
+		"description": "Delete a stored note by id (from memory_recall) when it is wrong or stale.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"memory_id": map[string]any{"type": "string"},
+			},
+			"required": []string{"memory_id"}},
+	},
 }
 
 // aiAgentExtraTools are tools for the built-in in-app agent only, appended to
@@ -930,6 +963,7 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 		// In-app AI chats (read-only over MCP).
 		ThreadID string `json:"thread_id"`
 		RunID    string `json:"run_id"`
+		MemoryID string `json:"memory_id"`
 		// workspace(from_workspace:) — copy a workspace's structure.
 		FromWorkspace string `json:"from_workspace"`
 		// working_on — the agent presence check-in.
@@ -1445,6 +1479,12 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 			return s.mcpAIRun(u, args.RunID)
 		case "ai_run_steps":
 			return s.mcpAIRunSteps(u, args.RunID)
+		case "memory_recall":
+			return s.mcpMemoryRecall(u, args.Query, args.WorkspaceID, args.Limit)
+		case "memory_remember":
+			return s.mcpMemoryRemember(u, args.Text, args.WorkspaceID)
+		case "memory_forget":
+			return s.mcpMemoryForget(u, args.MemoryID)
 		default:
 			return "", fmt.Errorf("unknown tool %q", name)
 		}

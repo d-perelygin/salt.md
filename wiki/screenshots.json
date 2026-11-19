@@ -81,7 +81,7 @@
       "takenAt": {
         "web/src/components/Sidebar.tsx": "8bd2257170e8",
         "web/src/components/Editor.tsx": "9bf1420e5770",
-        "web/src/App.tsx": "734d13c08449",
+        "web/src/App.tsx": "9855a1fc5601",
         "web/src/theme.css": "0318c08bf9ba"
       }
     },
@@ -631,7 +631,7 @@
       ],
       "takenAt": {
         "web/src/components/AgentConnect.tsx": "3bf35e4fd74a",
-        "server/mcp.go": "dfb68459f756",
+        "server/mcp.go": "e9ac098f41a9",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"

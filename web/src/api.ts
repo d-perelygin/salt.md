@@ -875,6 +875,14 @@ export const api = {
     }),
   markAIThreadRead: (id: string) =>
     req<{ ok: boolean }>(`/api/ai/threads/${id}/read`, { method: 'POST', body: '{}' }),
+  listAIMemory: (workspaceId?: string) => {
+    const q = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
+    return req<{ id: string; workspaceId: string; content: string; createdAt: string; updatedAt: string }[]>(`/api/ai/memory${q}`);
+  },
+  addAIMemory: (content: string, workspaceId?: string) =>
+    req<{ id: string }>('/api/ai/memory', { method: 'POST', body: JSON.stringify({ content, workspaceId: workspaceId ?? '' }) }),
+  deleteAIMemory: (id: string) =>
+    req<{ ok: boolean }>(`/api/ai/memory/${id}`, { method: 'DELETE' }),
   createAIRun: (body: { threadId?: string; task: string; prompt?: string; retry?: boolean; pageId?: string }) =>
     req<{ id: string; threadId: string }>('/api/ai/runs', { method: 'POST', body: JSON.stringify(body) }),
   getAIRun: (id: string) => req<any>(`/api/ai/runs/${id}`),

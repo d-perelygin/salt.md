@@ -856,6 +856,7 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 		s.db.QueryRow(`SELECT workspace_id FROM ai_threads WHERE id = ?`, threadID).Scan(&threadWS)
 	}
 	sys += s.aiWorkspaceRulesBlock(req.PageID, threadWS)
+	sys += s.aiMemoryBlock(u, threadWS)
 	msgs = append(msgs, map[string]any{"role": "system", "content": sys})
 	for _, m := range req.Messages {
 		msgs = append(msgs, map[string]any{"role": m.Role, "content": m.Content})
@@ -967,6 +968,7 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 		s.db.QueryRow(`SELECT workspace_id FROM ai_threads WHERE id = ?`, threadID).Scan(&threadWS)
 	}
 	sys += s.aiWorkspaceRulesBlock(req.PageID, threadWS)
+	sys += s.aiMemoryBlock(u, threadWS)
 	// build input messages
 	var input []map[string]any
 	for _, m := range req.Messages {
@@ -1990,6 +1992,7 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 	var threadWS string
 	s.db.QueryRow(`SELECT workspace_id FROM ai_threads WHERE id = ?`, threadID).Scan(&threadWS)
 	sys += s.aiWorkspaceRulesBlock(pageID, threadWS)
+	sys += s.aiMemoryBlock(u, threadWS)
 	if format == "responses" {
 		s.runAIBackgroundResponses(ctx, u, runID, threadID, task, pageID, baseURL, model, temp, apiKey, approvalMode, sys, userMsgID)
 		return

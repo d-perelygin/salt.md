@@ -233,6 +233,16 @@ CREATE TABLE IF NOT EXISTS ai_threads (
 	archived INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_ai_threads_user ON ai_threads(user_id, updated_at);
+-- Agent memory: durable notes the agent keeps about the user.
+CREATE TABLE IF NOT EXISTS ai_memory (
+	id TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	workspace_id TEXT NOT NULL DEFAULT '',
+	content TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_memory_user ON ai_memory(user_id, updated_at);
 -- AI chat messages.
 CREATE TABLE IF NOT EXISTS ai_messages (
 	id TEXT PRIMARY KEY,
