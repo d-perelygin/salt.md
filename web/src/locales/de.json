@@ -1676,5 +1676,11 @@
   "Nothing memorized yet.": "Noch nichts gemerkt.",
   "Forget": "Vergessen",
   "Remember": "Merken",
-  "This workspace only": "Nur dieser Workspace"
+  "This workspace only": "Nur dieser Workspace",
+  "AI usage": "KI-Nutzung",
+  "Messages": "Nachrichten",
+  "Runs": "Läufe",
+  "Tokens in": "Tokens in",
+  "Tokens out": "Tokens out",
+  "No AI usage yet.": "Noch keine KI-Nutzung."
 }

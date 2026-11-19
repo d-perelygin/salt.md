@@ -1181,5 +1181,11 @@
   "Nothing memorized yet.": "Nada memorizado aún.",
   "Forget": "Olvidar",
   "Remember": "Recordar",
-  "This workspace only": "Solo este espacio"
+  "This workspace only": "Solo este espacio",
+  "AI usage": "Uso de IA",
+  "Messages": "Mensajes",
+  "Runs": "Ejecuciones",
+  "Tokens in": "Tokens de entrada",
+  "Tokens out": "Tokens de salida",
+  "No AI usage yet.": "Aún no se ha usado la IA."
 }

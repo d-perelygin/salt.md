@@ -1188,5 +1188,11 @@
   "Nothing memorized yet.": "还没有记住任何内容。",
   "Forget": "忘记",
   "Remember": "记住",
-  "This workspace only": "仅当前工作区"
+  "This workspace only": "仅当前工作区",
+  "AI usage": "AI 使用情况",
+  "Messages": "消息",
+  "Runs": "运行",
+  "Tokens in": "输入 Token",
+  "Tokens out": "输出 Token",
+  "No AI usage yet.": "尚未使用 AI。"
 }

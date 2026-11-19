@@ -71,7 +71,8 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
   const [passSet, setPassSet] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-  const [tab, setTab] = useState<'general' | 'access' | 'email' | 'proxy' | 'webhooks' | 'documents' | 'maintenance'>('general');
+  const [tab, setTab] = useState<'general' | 'access' | 'email' | 'proxy' | 'webhooks' | 'documents' | 'maintenance' | 'ai'>('general');
+  const [aiStats, setAiStats] = useState<{ userId: string; name: string; messages: number; runs: number; runsOk: number; runsFailed: number; tokensIn: number; tokensOut: number; lastActive: string | null }[] | null>(null);
   const [hooks, setHooks] = useState<Webhook[] | null>(null);
   const [hookURL, setHookURL] = useState('');
   const [hookEvents, setHookEvents] = useState<string[]>(['page.created', 'page.updated']);
@@ -147,7 +148,8 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
     // The access tab shows the admin's own address beside the agent list.
     if ((tab === 'maintenance' || tab === 'access') && !info) void api.adminInfo().then(setInfo).catch(() => {});
     if (tab === 'webhooks' && hooks === null) void api.webhooks().then(setHooks).catch(() => setHooks([]));
-  }, [tab, info, hooks]);
+    if (tab === 'ai' && aiStats === null) void api.aiStats().then(setAiStats).catch(() => setAiStats([]));
+  }, [tab, info, hooks, aiStats]);
 
   // Live tunnel status while the proxy or access tab is open (the OAuth cards
   // derive the public redirect URI from a running tunnel).
@@ -335,6 +337,7 @@ ingress:
     { id: 'webhooks', label: t('Webhooks') },
     { id: 'documents', label: t('Documents') },
     { id: 'maintenance', label: t('Maintenance') },
+    { id: 'ai', label: t('AI') },
   ];
 
   return (
@@ -935,6 +938,41 @@ ingress:
                         </button>
                       </div>
                     ))}
+                  </>
+                )}
+                {tab === 'ai' && (
+                  <>
+                    <label>{t('AI usage')}</label>
+                    {aiStats === null ? (
+                      <div className="dialog-hint">{t('Loading…')}</div>
+                    ) : aiStats.length === 0 ? (
+                      <div className="dialog-hint">{t('No AI usage yet.')}</div>
+                    ) : (
+                      <table className="settings-table">
+                        <thead>
+                          <tr>
+                            <th>{t('User')}</th>
+                            <th>{t('Messages')}</th>
+                            <th>{t('Runs')}</th>
+                            <th>{t('Tokens in')}</th>
+                            <th>{t('Tokens out')}</th>
+                            <th>{t('Last activity')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {aiStats.map((r) => (
+                            <tr key={r.userId}>
+                              <td>{r.name || r.userId}</td>
+                              <td className="num">{r.messages}</td>
+                              <td className="num">{r.runsOk}/{r.runs}</td>
+                              <td className="num">{r.tokensIn}</td>
+                              <td className="num">{r.tokensOut}</td>
+                              <td>{(r.lastActive ?? '').slice(0, 10) || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                   </>
                 )}
                 {tab === 'documents' && (

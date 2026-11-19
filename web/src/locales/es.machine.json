@@ -1,5 +1,6 @@
 [
   "(pick relation first)",
+  "AI usage",
   "Access for {name} ended.",
   "Agents & MCP",
   "Archive",
@@ -21,8 +22,10 @@
   "Max",
   "Max (= 100%)",
   "Memory",
+  "Messages",
   "Min",
   "Multi-select",
+  "No AI usage yet.",
   "Nothing memorized yet.",
   "Original text no longer available",
   "Other agent",
@@ -36,6 +39,7 @@
   "Remember this…",
   "Remove selected text",
   "Rollup",
+  "Runs",
   "Sum",
   "Supports",
   "Tags",
@@ -43,5 +47,7 @@
   "Text",
   "The page changed. Select the text again.",
   "This workspace only",
+  "Tokens in",
+  "Tokens out",
   "Unarchive"
 ]

@@ -1,13 +1,19 @@
 [
+  "AI usage",
   "Archive",
   "Archived",
   "Automatic · {value}",
   "Forget",
   "Memory",
+  "Messages",
+  "No AI usage yet.",
   "Nothing memorized yet.",
   "Regenerate title",
   "Remember",
   "Remember this…",
+  "Runs",
   "This workspace only",
+  "Tokens in",
+  "Tokens out",
   "Unarchive"
 ]

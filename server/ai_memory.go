@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -200,4 +201,57 @@ func (s *Server) mcpMemoryForget(u *user, id string) (string, error) {
 		return "", fmt.Errorf("memory not found")
 	}
 	return `{"ok":true}`, nil
+}
+
+// ---- usage stats ----
+
+// AI usage per account: who uses the assistant and how much. Owner or admin
+// only — message counts and token sums across accounts are not for members.
+func (s *Server) handleAIStats(w http.ResponseWriter, r *http.Request) {
+	u := requestUser(r)
+	if u == nil || (!u.IsAdmin && !s.isOwner(u.ID)) {
+		httpError(w, 403, "admin only")
+		return
+	}
+	rows, err := s.db.Query(`SELECT u.id, u.name,
+		(SELECT COUNT(*) FROM ai_messages m JOIN ai_threads t ON t.id = m.thread_id WHERE t.user_id = u.id) AS messages,
+		(SELECT COUNT(*) FROM ai_runs x WHERE x.user_id = u.id) AS runs,
+		(SELECT COUNT(*) FROM ai_runs x WHERE x.user_id = u.id AND x.status = 'completed') AS runs_ok,
+		(SELECT COUNT(*) FROM ai_runs x WHERE x.user_id = u.id AND x.status = 'failed') AS runs_failed,
+		(SELECT COALESCE(SUM(m.tokens_in), 0) FROM ai_messages m JOIN ai_threads t ON t.id = m.thread_id WHERE t.user_id = u.id) AS tok_in,
+		(SELECT COALESCE(SUM(m.tokens_out), 0) FROM ai_messages m JOIN ai_threads t ON t.id = m.thread_id WHERE t.user_id = u.id) AS tok_out,
+		(SELECT MAX(m.created_at) FROM ai_messages m JOIN ai_threads t ON t.id = m.thread_id WHERE t.user_id = u.id) AS last_active
+		FROM users u ORDER BY messages DESC, runs DESC`)
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	type row struct {
+		UserID     string  `json:"userId"`
+		Name       string  `json:"name"`
+		Messages   int     `json:"messages"`
+		Runs       int     `json:"runs"`
+		RunsOK     int     `json:"runsOk"`
+		RunsFailed int     `json:"runsFailed"`
+		TokensIn   int64   `json:"tokensIn"`
+		TokensOut  int64   `json:"tokensOut"`
+		LastActive *string `json:"lastActive"`
+	}
+	out := []row{}
+	for rows.Next() {
+		var x row
+		var last sql.NullString
+		if err := rows.Scan(&x.UserID, &x.Name, &x.Messages, &x.Runs, &x.RunsOK, &x.RunsFailed, &x.TokensIn, &x.TokensOut, &last); err != nil {
+			continue
+		}
+		if last.Valid {
+			x.LastActive = &last.String
+		}
+		if x.Messages == 0 && x.Runs == 0 {
+			continue
+		}
+		out = append(out, x)
+	}
+	writeJSON(w, out)
 }

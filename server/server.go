@@ -398,6 +398,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("GET /api/ai/memory", s.auth(s.handleListAIMemory))
 	m.HandleFunc("POST /api/ai/memory", s.auth(s.handleAddAIMemory))
 	m.HandleFunc("DELETE /api/ai/memory/{id}", s.auth(s.handleDeleteAIMemory))
+	m.HandleFunc("GET /api/ai/stats", s.auth(s.handleAIStats))
 	m.HandleFunc("POST /api/ai/chat", s.auth(s.handleAIChat))
 	m.HandleFunc("POST /api/ai/generate", s.auth(s.handleAIGenerate))
 	m.HandleFunc("POST /api/ai/runs", s.auth(s.handleCreateAIRun))

@@ -46,14 +46,16 @@ already completed*. The screen itself is in
 
 ## Instance settings
 
-Seven tabs (**General**, **Access**, **Email**, **Domain & proxy**,
-**Webhooks**, **Documents**, **Maintenance**) and one pair of buttons at the
+Eight tabs (**General**, **Access**, **Email**, **Domain & proxy**,
+**Webhooks**, **Documents**, **Maintenance**, **AI**) and one pair of buttons at the
 bottom, **Cancel** and **Save**.
 **Save** writes the fields of every tab at once, so you can change the instance
 name and the signup policy in one pass. Some controls do **not** wait for Save
 because they act the moment you press them: starting or stopping a tunnel,
 connecting or disconnecting a mail account, sending a test mail, and adding or
-removing a webhook. **Cancel** therefore does not undo those.
+removing a webhook. **Cancel** therefore does not undo those. The **AI** tab is
+read-only: messages, runs and input/output tokens per account, for the owner
+and admins to see who uses the assistant and how much.
 
 ### General
 

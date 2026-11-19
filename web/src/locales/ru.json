@@ -1755,5 +1755,11 @@
   "Nothing memorized yet.": "Пока ничего не запомнено.",
   "Forget": "Забыть",
   "Remember": "Запомнить",
-  "This workspace only": "Только этот воркспейс"
+  "This workspace only": "Только этот воркспейс",
+  "AI usage": "Использование ИИ",
+  "Messages": "Сообщения",
+  "Runs": "Запуски",
+  "Tokens in": "Токены (вход)",
+  "Tokens out": "Токены (выход)",
+  "No AI usage yet.": "ИИ пока не использовался."
 }

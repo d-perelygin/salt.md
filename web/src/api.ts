@@ -883,6 +883,8 @@ export const api = {
     req<{ id: string }>('/api/ai/memory', { method: 'POST', body: JSON.stringify({ content, workspaceId: workspaceId ?? '' }) }),
   deleteAIMemory: (id: string) =>
     req<{ ok: boolean }>(`/api/ai/memory/${id}`, { method: 'DELETE' }),
+  aiStats: () =>
+    req<{ userId: string; name: string; messages: number; runs: number; runsOk: number; runsFailed: number; tokensIn: number; tokensOut: number; lastActive: string | null }[]>('/api/ai/stats'),
   createAIRun: (body: { threadId?: string; task: string; prompt?: string; retry?: boolean; pageId?: string }) =>
     req<{ id: string; threadId: string }>('/api/ai/runs', { method: 'POST', body: JSON.stringify(body) }),
   getAIRun: (id: string) => req<any>(`/api/ai/runs/${id}`),
