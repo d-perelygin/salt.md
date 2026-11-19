@@ -8,7 +8,7 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2, ArrowDown, BarChart3, Check, CircleHelp, Copy, Globe, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
+import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import { renderTextWithMentions } from './aiChatHelpers';
 
@@ -462,7 +462,7 @@ export default function AiChatView(props: {
             <div style={{ margin: '8px 0' }}>
               <div className="ai-actions-bar">
                 <button className="ai-actions-toggle" onClick={() => setTraceOpen((v) => !v)} type="button">
-                  <span style={{ fontSize: 10 }}>{traceOpen ? '▼' : '▶'}</span>
+                  <span style={{ display: 'inline-flex' }}>{traceOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
                   <span>
                     {liveDuration !== null
                       ? `${t('Working for')} ${formatDuration(liveDuration)} … (${steps.length})`
@@ -576,7 +576,7 @@ export default function AiChatView(props: {
                   className="ai-zero-item"
                   onClick={() => fileRef.current?.click()}
                 >
-                  <span className="ai-zero-badge">↓</span>
+                  <span className="ai-zero-badge"><ArrowDown size={15} /></span>
                   <span className="ai-zero-label">{t('Attach file or CSV')}</span>
                 </button>
                 <button
@@ -584,7 +584,7 @@ export default function AiChatView(props: {
                   className="ai-zero-item"
                   onClick={triggerMentionInInput}
                 >
-                  <span className="ai-zero-badge" data-tone="plain">↗</span>
+                  <span className="ai-zero-badge" data-tone="plain"><ArrowUpRight size={15} /></span>
                   <span className="ai-zero-label">{t('Link workspace page or collection')}</span>
                 </button>
               </div>

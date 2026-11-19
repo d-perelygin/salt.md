@@ -7,7 +7,7 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2, ArrowDown, BarChart3, Check, ChevronDown, CircleHelp, Copy, Globe, Menu, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
+import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Menu, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
 import {
@@ -512,7 +512,7 @@ export default function AiChatPanel(props: {
           <div style={{ margin: '6px 0' }}>
             <div className="ai-actions-bar">
               <button className="ai-actions-toggle" onClick={() => setTraceOpen((v) => !v)} type="button">
-                <span style={{ fontSize: 10 }}>{traceOpen ? '▼' : '▶'}</span>
+                <span style={{ display: 'inline-flex' }}>{traceOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
                 <span>
                   {histDuration !== null && steps.length === 0
                     ? `${t('Worked for')} ${formatDuration(histDuration)} (${histSteps.length} ${t('steps')})`
@@ -714,7 +714,7 @@ export default function AiChatPanel(props: {
                 className="ai-zero-item"
                 onClick={triggerMentionInInput}
               >
-                <span className="ai-zero-badge" data-tone="plain">↗</span>
+                <span className="ai-zero-badge" data-tone="plain"><ArrowUpRight size={15} /></span>
                 <span className="ai-zero-label">{t('Link workspace page or collection')}</span>
               </button>
             </div>
