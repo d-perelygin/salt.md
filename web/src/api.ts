@@ -861,6 +861,11 @@ export const api = {
   deleteAIThread: (id: string) => req<{ ok: boolean }>(`/api/ai/threads/${id}`, { method: 'DELETE' }),
   renameAIThread: (id: string, title: string) =>
     req<{ ok: boolean }>(`/api/ai/threads/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  autoThreadTitle: (id: string, force = true) =>
+    req<{ title: string; generated: boolean }>(`/api/ai/threads/${id}/title`, {
+      method: 'POST',
+      body: JSON.stringify({ force }),
+    }),
   markAIThreadRead: (id: string) =>
     req<{ ok: boolean }>(`/api/ai/threads/${id}/read`, { method: 'POST', body: '{}' }),
   createAIRun: (body: { threadId?: string; task: string; prompt?: string; retry?: boolean; pageId?: string }) =>

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { MessageCircle, MoreHorizontal, Plus, Pin, FileText, Link2, SquareCheck, Pencil, Trash2, ArrowUpRight } from 'lucide-react';
+import { MessageCircle, MoreHorizontal, Plus, Pin, FileText, Link2, SquareCheck, Pencil, Trash2, ArrowUpRight, RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import { confirm, promptText } from '../dialog';
 import { formatMoment } from '../format';
@@ -98,6 +98,14 @@ export default function AiThreadList(props: {
     } catch { /* keep old title */ }
   }
 
+  async function regenTitle(th: AiThread) {
+    setMenuFor(null);
+    try {
+      await api.autoThreadTitle(th.id);
+      props.onRefresh();
+    } catch { /* keep old title */ }
+  }
+
   async function markRead(th: AiThread) {
     setMenuFor(null);
     try {
@@ -165,6 +173,9 @@ export default function AiThreadList(props: {
               )}
               <button onClick={() => void rename(th)}>
                 <Pencil size={14} /> {t('Rename')}
+              </button>
+              <button onClick={() => void regenTitle(th)}>
+                <RefreshCw size={14} /> {t('Regenerate title')}
               </button>
               <button className="danger" onClick={() => void remove(th)}>
                 <Trash2 size={14} /> {t('Delete')}

@@ -2349,6 +2349,7 @@ export default function App() {
             setActiveChatId(id);
             void loadAiThreads();
           }}
+          onThreadsChanged={() => void loadAiThreads()}
           quote={aiQuote}
           onQuoteConsumed={() => setAiQuote(null)}
           onOpenSidebar={openSidebar}

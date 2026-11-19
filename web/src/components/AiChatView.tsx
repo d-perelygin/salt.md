@@ -440,6 +440,11 @@ export default function AiChatView(props: {
       if (tidRef.current === id) {
         const msgs = await api.getAIThreadMessages(id).catch(() => [] as Msg[]);
         if (msgs.length) setMessages(msgs as Msg[]);
+        // Fresh threads still carry their first-message slice as a title;
+        // upgrade it from the conversation once, never over a rename.
+        void api.autoThreadTitle(id, false).then((r) => {
+          if (tidRef.current === id && r && (r as any).generated) props.onThreadsChanged();
+        }).catch(() => {});
         try {
           const runs = await api.getAIThreadRuns(id).catch(() => [] as any[]);
           if (Array.isArray(runs)) setRunList(runs as any[]);

@@ -1666,5 +1666,6 @@
   "{mod}+Click to peek": "{mod}+Klick zum Ansehen",
   "{mod}+Click for a new tab": "{mod}+Klick in einem neuen Tab",
   "Expires:": "Läuft ab:",
-  "Filter": "Filter"
+  "Filter": "Filter",
+  "Regenerate title": "Titel neu generieren"
 }

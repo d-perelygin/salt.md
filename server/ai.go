@@ -493,6 +493,183 @@ func (s *Server) handleRenameAIThread(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
+// ---- thread titles ----
+
+// autoTitleSlice mirrors the browser's creation title: the first message,
+// cut at 40 characters. A thread whose title still equals that slice (or has
+// none) was never renamed by a person — safe to re-title from the content.
+func autoTitleSlice(content string) string {
+	r := []rune(strings.TrimSpace(content))
+	if len(r) > 40 {
+		r = r[:40]
+	}
+	return string(r)
+}
+
+// aiShortCompletion asks the model for a small non-streamed answer, for
+// housekeeping like titles — never for content the user reads as prose.
+func (s *Server) aiShortCompletion(baseURL, model, format, apiKey, sys, user string) string {
+	client := aiHTTPClient()
+	var body map[string]any
+	var url string
+	if format == "responses" {
+		url = strings.TrimRight(baseURL, "/") + "/responses"
+		body = map[string]any{
+			"model":        model,
+			"instructions": sys,
+			"input":        user,
+			"temperature":  0.3,
+			"stream":       false,
+		}
+	} else {
+		url = strings.TrimRight(baseURL, "/") + "/chat/completions"
+		body = map[string]any{
+			"model":       model,
+			"messages":    []any{map[string]any{"role": "system", "content": sys}, map[string]any{"role": "user", "content": user}},
+			"temperature": 0.3,
+			"stream":      false,
+		}
+	}
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(b))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil || resp.StatusCode >= 300 {
+		return ""
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return ""
+	}
+	var text string
+	if format == "responses" {
+		if arr, ok := out["output"].([]any); ok {
+			for _, it := range arr {
+				m, _ := it.(map[string]any)
+				if m["type"] != "message" {
+					continue
+				}
+				if content, ok := m["content"].([]any); ok {
+					for _, c := range content {
+						cm, _ := c.(map[string]any)
+						if cm["type"] == "output_text" {
+							if t, _ := cm["text"].(string); t != "" {
+								text = t
+							}
+						}
+					}
+				}
+			}
+		}
+		if text == "" {
+			text, _ = out["output_text"].(string)
+		}
+	} else {
+		if arr, ok := out["choices"].([]any); ok && len(arr) > 0 {
+			m, _ := arr[0].(map[string]any)
+			mm, _ := m["message"].(map[string]any)
+			text, _ = mm["content"].(string)
+		}
+	}
+	// One line, no quotes, capped like a manual rename.
+	line := strings.TrimSpace(text)
+	if i := strings.Index(line, "\n"); i >= 0 {
+		line = line[:i]
+	}
+	line = strings.Trim(strings.TrimSpace(line), "\"'«»„“”")
+	r := []rune(line)
+	if len(r) > 120 {
+		r = r[:120]
+	}
+	return strings.TrimSpace(string(r))
+}
+
+// maybeAutoThreadTitle generates the thread's title from its recent messages.
+// With force it always generates; otherwise only when the title is still
+// automatic (empty or the creation slice) — never over a manual rename.
+func (s *Server) maybeAutoThreadTitle(u *user, threadID string, force bool) (string, bool) {
+	var title, owner string
+	if err := s.db.QueryRow(`SELECT title, user_id FROM ai_threads WHERE id = ?`, threadID).Scan(&title, &owner); err != nil || owner != u.ID {
+		return "", false
+	}
+	var first string
+	s.db.QueryRow(`SELECT content FROM ai_messages WHERE thread_id = ? AND role = 'user' ORDER BY created_at ASC LIMIT 1`, threadID).Scan(&first)
+	if !force && title != "" && title != autoTitleSlice(first) {
+		return title, false
+	}
+	rows, err := s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 6`, threadID)
+	if err != nil {
+		return title, false
+	}
+	type msg struct{ role, content string }
+	msgs := []msg{}
+	for rows.Next() {
+		var m msg
+		if err := rows.Scan(&m.role, &m.content); err == nil {
+			msgs = append(msgs, m)
+		}
+	}
+	rows.Close()
+	if len(msgs) == 0 {
+		return title, false
+	}
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	baseURL, model, format, _, apiKey, _, err := s.resolveAIConfig(u)
+	if err != nil {
+		return title, false
+	}
+	var b strings.Builder
+	for _, m := range msgs {
+		t := m.content
+		if tr := []rune(t); len(tr) > 500 {
+			t = string(tr[:500]) + "…"
+		}
+		b.WriteString(m.role + ": " + t + "\n")
+	}
+	next := s.aiShortCompletion(baseURL, model, format, apiKey,
+		"You name chats. Reply with only a very short title (max 6 words, no quotes, no trailing period), in the same language as the conversation.",
+		b.String())
+	if next == "" {
+		return title, false
+	}
+	s.db.Exec(`UPDATE ai_threads SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?`, next, now(), threadID, u.ID)
+	return next, true
+}
+
+func (s *Server) handleGenerateAIThreadTitle(w http.ResponseWriter, r *http.Request) {
+	u := requestUser(r)
+	if !s.aiEnabledForUser(u) {
+		httpError(w, 403, "AI is disabled")
+		return
+	}
+	id := r.PathValue("id")
+	var body struct {
+		Force bool `json:"force"`
+	}
+	_ = decodeJSON(w, r, &body)
+	title, generated := s.maybeAutoThreadTitle(u, id, body.Force)
+	if title == "" {
+		var owner string
+		s.db.QueryRow(`SELECT user_id FROM ai_threads WHERE id = ?`, id).Scan(&owner)
+		if owner != u.ID {
+			httpError(w, 404, "not found")
+			return
+		}
+	}
+	writeJSON(w, map[string]any{"title": title, "generated": generated})
+}
+
 // Mark a thread read up to now (clears the unread dot).
 func (s *Server) handleReadAIThread(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)

@@ -2,6 +2,7 @@
   "(pick relation first)",
   "Access for {name} ended.",
   "Agents & MCP",
+  "Automatic · {value}",
   "Available:",
   "Average",
   "Backrelation",
@@ -24,6 +25,7 @@
   "Person",
   "Property",
   "Reference other properties with",
+  "Regenerate title",
   "Relation",
   "Remove selected text",
   "Rollup",
@@ -32,6 +34,5 @@
   "Tags",
   "Teal",
   "Text",
-  "The page changed. Select the text again.",
-  "Automatic · {value}"
+  "The page changed. Select the text again."
 ]

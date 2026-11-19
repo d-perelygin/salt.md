@@ -28,6 +28,7 @@ export default function AiChatPanel(props: {
   threads?: AiThread[];
   pagesById?: Map<string, PageMeta>;
   onSelectThread?: (id: string | null) => void;
+  onThreadsChanged?: () => void;
   quote?: string | null;
   onQuoteConsumed?: () => void;
   onClose: () => void;
@@ -432,6 +433,9 @@ export default function AiChatPanel(props: {
     if (threadIdRef.current !== myTid) return;
     const msgs = await api.getAIThreadMessages(myTid).catch(() => [] as Msg[]);
     if (msgs.length) setMessages(msgs as Msg[]);
+    void api.autoThreadTitle(myTid, false).then((r) => {
+      if (threadIdRef.current === myTid && r && (r as any).generated) props.onThreadsChanged?.();
+    }).catch(() => {});
     api.getAIThreadRuns(myTid).then((rs) => {
       if (threadIdRef.current !== myTid) return;
       if (Array.isArray(rs)) setRunList(rs as any[]);
