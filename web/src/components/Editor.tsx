@@ -16,7 +16,7 @@ import {
 } from '@blocknote/react';
 import { CustomSideMenu } from './CustomDragHandleMenu';
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmentToHTML } from '@blocknote/core';
-import { de as coreDe, en as coreEn, ru as coreRu, zh as coreZh, zhTW as coreZhTW } from '@blocknote/core/locales';
+import { de as coreDe, en as coreEn, es as coreEs, ru as coreRu, zh as coreZh, zhTW as coreZhTW } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { TextSelection } from 'prosemirror-state';
 import { api, ApiError, materializeQuery } from '../api';
@@ -77,6 +77,7 @@ import { InlineCommentButton, useInlineComments } from './InlineComments';
 const blockNoteDictionaries: Record<string, typeof coreEn> = {
   en: coreEn,
   de: consistentGroups(coreDe),
+  es: consistentGroups(coreEs),
   // BlockNote's 'zh' is written in Simplified characters.
   'zh-Hans': consistentGroups(coreZh),
   'zh-Hant': consistentGroups(coreZhTW),

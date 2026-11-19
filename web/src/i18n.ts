@@ -19,6 +19,7 @@ import { setFormatLocale, setFormatPrefs } from './format';
 export const LOCALES: Record<string, string> = {
   en: 'English',
   de: 'Deutsch',
+  es: 'Español',
   ru: 'Русский',
   // Keyed by script, not by country: one Simplified catalog serves zh-CN and
   // zh-SG alike, and dates still follow each reader's own regional variant.
