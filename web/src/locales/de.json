@@ -1667,5 +1667,8 @@
   "{mod}+Click for a new tab": "{mod}+Klick in einem neuen Tab",
   "Expires:": "Läuft ab:",
   "Filter": "Filter",
-  "Regenerate title": "Titel neu generieren"
+  "Regenerate title": "Titel neu generieren",
+  "Archive": "Archivieren",
+  "Unarchive": "Aus dem Archiv holen",
+  "Archived": "Archiviert"
 }

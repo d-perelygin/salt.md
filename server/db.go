@@ -229,7 +229,8 @@ CREATE TABLE IF NOT EXISTS ai_threads (
 	title TEXT NOT NULL DEFAULT '',
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
-	last_read_at TEXT NOT NULL DEFAULT ''
+	last_read_at TEXT NOT NULL DEFAULT '',
+	archived INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_ai_threads_user ON ai_threads(user_id, updated_at);
 -- AI chat messages.
@@ -775,6 +776,16 @@ func openDB(path string) (*sql.DB, error) {
 	}
 	if err := ensureColumn(db, "ai_threads", "last_read_at", `last_read_at TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate ai_threads.last_read_at: %w", err)
+	}
+	// Archived chats leave the list but stay readable, restorable and
+	// searchable by their owner.
+	if err := ensureColumn(db, "ai_threads", "archived", `archived INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return nil, fmt.Errorf("migrate ai_threads.archived: %w", err)
+	}
+	// Archived chats leave the list but stay readable, restorable and
+	// searchable by their owner.
+	if err := ensureColumn(db, "ai_threads", "archived", `archived INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return nil, fmt.Errorf("migrate ai_threads.archived: %w", err)
 	}
 	if err := ensureColumn(db, "users", "ai_disabled", `ai_disabled INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return nil, fmt.Errorf("migrate users.ai_disabled: %w", err)

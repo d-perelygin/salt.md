@@ -775,6 +775,27 @@
   letter-spacing: 0.05em;
   color: var(--muted);
 }
+/* Collapsible section header (Archived chats): same quiet caps row as the
+   titles above, but a button. */
+.ai-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.ai-section-toggle:hover {
+  color: var(--fg);
+}
 .ai-pin-badge {
   font-size: 11px;
   opacity: 0.6;

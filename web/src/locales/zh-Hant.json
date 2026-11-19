@@ -1179,5 +1179,8 @@
   "✓ Resolved": "✓ 已解決",
   "＋ Link": "＋ 連結",
   "＋ Person": "＋ 人員",
-  "Regenerate title": "重新生成標題"
+  "Regenerate title": "重新生成標題",
+  "Archive": "封存",
+  "Unarchive": "取消封存",
+  "Archived": "已封存"
 }

@@ -486,6 +486,7 @@ and writes through the same tools, and can keep working after you close the tab.
 - **Retry and regenerate:** a failed or cancelled run offers Retry with the same
   task; any assistant answer offers ↻ to regenerate it. Assistant answers can
   be copied, and (on a document) inserted into the page below the cursor.
+- **Archive:** chats leave the list through Archive in the thread menu (restorable from the Archived section); archived chats stay readable and searchable.
 - **Thread titles:** a new chat takes its title from the first message; after
   an agent run the title is upgraded from the recent conversation (never over
   a manual rename), and "Regenerate title" in the thread menu re-titles any

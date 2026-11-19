@@ -1179,5 +1179,8 @@
   "✓ Resolved": "✓ 已解决",
   "＋ Link": "＋ 链接",
   "＋ Person": "＋ 人员",
-  "Regenerate title": "重新生成标题"
+  "Regenerate title": "重新生成标题",
+  "Archive": "归档",
+  "Unarchive": "取消归档",
+  "Archived": "已归档"
 }

@@ -2,6 +2,8 @@
   "(pick relation first)",
   "Access for {name} ended.",
   "Agents & MCP",
+  "Archive",
+  "Archived",
   "Automatic · {value}",
   "Available:",
   "Average",
@@ -34,5 +36,6 @@
   "Tags",
   "Teal",
   "Text",
-  "The page changed. Select the text again."
+  "The page changed. Select the text again.",
+  "Unarchive"
 ]

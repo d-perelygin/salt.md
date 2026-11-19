@@ -853,8 +853,15 @@ export const api = {
   getAISettings: () => req<{ baseUrl: string; model: string; format: string; temperature: number; hasKey: boolean; approval: string }>('/api/ai/settings'),
   putAISettings: (body: { baseUrl?: string; model?: string; format?: string; temperature?: number; apiKey?: string; approval?: string }) =>
     req<{ ok: boolean }>('/api/ai/settings', { method: 'PUT', body: JSON.stringify(body) }),
-  listAIThreads: (pageId?: string) =>
-    req<any[]>(`/api/ai/threads${pageId ? `?page_id=${encodeURIComponent(pageId)}` : ''}`),
+  listAIThreads: (pageId?: string, archived = false) => {
+    const q = new URLSearchParams();
+    if (pageId) q.set('page_id', pageId);
+    if (archived) q.set('archived', '1');
+    const sfx = q.toString();
+    return req<any[]>(`/api/ai/threads${sfx ? '?' + sfx : ''}`);
+  },
+  archiveAIThread: (id: string, archived: boolean) =>
+    req<{ ok: boolean }>(`/api/ai/threads/${id}/archive`, { method: 'POST', body: JSON.stringify({ archived }) }),
   createAIThread: (body: { workspaceId?: string; pageId?: string; title?: string }) =>
     req<{ id: string }>('/api/ai/threads', { method: 'POST', body: JSON.stringify(body) }),
   getAIThreadMessages: (id: string) => req<any[]>(`/api/ai/threads/${id}/messages`),

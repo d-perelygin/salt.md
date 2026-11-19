@@ -11,7 +11,7 @@ type sqlRows = *sql.Rows
 
 // mcpAIThreads lists the calling user's chat threads.
 func (s *Server) mcpAIThreads(u *user) (string, error) {
-	rows, err := s.db.Query(`SELECT id, title, page_id, page_title, msg_count, has_runs, updated_at FROM ai_threads WHERE user_id = ? ORDER BY updated_at DESC`, u.ID)
+	rows, err := s.db.Query(`SELECT id, title, page_id, page_title, msg_count, has_runs, updated_at FROM ai_threads WHERE user_id = ? AND (archived IS NULL OR archived = 0) ORDER BY updated_at DESC`, u.ID)
 	if err != nil {
 		return "", err
 	}

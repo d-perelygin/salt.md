@@ -394,6 +394,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("PATCH /api/ai/threads/{id}", s.auth(s.handleRenameAIThread))
 	m.HandleFunc("POST /api/ai/threads/{id}/read", s.auth(s.handleReadAIThread))
 	m.HandleFunc("POST /api/ai/threads/{id}/title", s.auth(s.handleGenerateAIThreadTitle))
+	m.HandleFunc("POST /api/ai/threads/{id}/archive", s.auth(s.handleArchiveAIThread))
 	m.HandleFunc("POST /api/ai/chat", s.auth(s.handleAIChat))
 	m.HandleFunc("POST /api/ai/generate", s.auth(s.handleAIGenerate))
 	m.HandleFunc("POST /api/ai/runs", s.auth(s.handleCreateAIRun))

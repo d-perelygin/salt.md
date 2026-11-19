@@ -1172,5 +1172,8 @@
   "Written by an agent through this account": "Escrito por un agente a través de esta cuenta",
   "Agent": "Agente",
   "Copy of {title}": "Copia de {title}",
-  "Regenerate title": "Regenerar título"
+  "Regenerate title": "Regenerar título",
+  "Archive": "Archivar",
+  "Unarchive": "Desarchivar",
+  "Archived": "Archivados"
 }

@@ -307,14 +307,18 @@ func (s *Server) handleListAIThreads(w http.ResponseWriter, r *http.Request) {
 	}
 	pageID := r.URL.Query().Get("page_id")
 	wsID := r.URL.Query().Get("workspace_id")
+	arch := r.URL.Query().Get("archived")
 	q := `SELECT t.id, t.user_id, t.workspace_id, t.page_id, t.title, t.created_at, t.updated_at, t.last_read_at,
 		COALESCE(p.title, '') AS page_title,
 		(SELECT COUNT(*) FROM ai_messages m WHERE m.thread_id = t.id) AS msg_count,
 		(SELECT m2.content FROM ai_messages m2 WHERE m2.thread_id = t.id ORDER BY m2.created_at DESC LIMIT 1) AS last_preview,
 		(SELECT m3.role FROM ai_messages m3 WHERE m3.thread_id = t.id ORDER BY m3.created_at DESC LIMIT 1) AS last_role,
 		EXISTS (SELECT 1 FROM ai_runs r WHERE r.thread_id = t.id) AS has_runs
-		FROM ai_threads t LEFT JOIN pages p ON p.id = t.page_id WHERE t.user_id = ?`
-	args := []any{u.ID}
+		FROM ai_threads t LEFT JOIN pages p ON p.id = t.page_id WHERE t.user_id = ? AND t.archived = ?`
+	args := []any{u.ID, 0}
+	if arch == "1" {
+		args[1] = 1
+	}
 	if pageID != "" {
 		q += ` AND t.page_id = ?`
 		args = append(args, pageID)
@@ -671,6 +675,34 @@ func (s *Server) handleGenerateAIThreadTitle(w http.ResponseWriter, r *http.Requ
 }
 
 // Mark a thread read up to now (clears the unread dot).
+// Archive (or restore) a thread. Archived chats leave every list but stay
+// readable, restorable and searchable by their owner.
+func (s *Server) handleArchiveAIThread(w http.ResponseWriter, r *http.Request) {
+	u := requestUser(r)
+	id := r.PathValue("id")
+	var body struct {
+		Archived bool `json:"archived"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		httpError(w, 400, "invalid JSON")
+		return
+	}
+	v := 0
+	if body.Archived {
+		v = 1
+	}
+	res, err := s.db.Exec(`UPDATE ai_threads SET archived = ?, updated_at = ? WHERE id = ? AND user_id = ?`, v, now(), id, u.ID)
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		httpError(w, 404, "not found")
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
 func (s *Server) handleReadAIThread(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	id := r.PathValue("id")
