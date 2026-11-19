@@ -4,6 +4,7 @@ import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
 import type { PageMeta } from '../types';
 import AiAgentStep, { type AiStep } from './AiAgentStep';
+import AiRunSummary from './AiRunSummary';
 import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
@@ -12,7 +13,7 @@ import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Check, ChevronDow
 import type { AiThread } from './AiThreadList';
 import { renderTextWithMentions } from './aiChatHelpers';
 
-interface Msg { role: string; content: string }
+interface Msg { role: string; content: string; createdAt?: string }
 interface AttachedFile { name: string; text: string }
 
 function formatDuration(ms: number): string {
@@ -41,7 +42,7 @@ export default function AiChatView(props: {
   // live state (a brand-new thread's fetch resolves with [] mid-stream and
   // would otherwise wipe the user's own just-sent message).
   const streamingRef = useRef(false);
-  const [histSteps, setHistSteps] = useState<AiStep[]>([]);
+  const [runList, setRunList] = useState<any[]>([]);
   const [traceOpen, setTraceOpen] = useState(false);
   const [input, setInput] = useState('');
   const [quote, setQuote] = useState('');
@@ -51,7 +52,6 @@ export default function AiChatView(props: {
   const [runId, setRunId] = useState<string | null>(null);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [runElapsed, setRunElapsed] = useState(0);
-  const [histDurationMs, setHistDurationMs] = useState<number | null>(null);
   const [artifacts, setArtifacts] = useState<string[]>([]);
   const [waitingApproval, setWaitingApproval] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState<{ runId: string; question: string; options: { label: string; description?: string }[]; multiple: boolean } | null>(null);
@@ -109,9 +109,8 @@ export default function AiChatView(props: {
     if (!tid) {
       setMessages([]);
       setSteps([]);
-      setHistSteps([]);
       setArtifacts([]);
-      setHistDurationMs(null);
+      setRunList([]);
       setLastError(null);
       setLastRun(null);
       return;
@@ -119,8 +118,7 @@ export default function AiChatView(props: {
     // Reset per-thread UI at once: the previous thread must not flash through
     // while its replacement loads.
     setSteps([]);
-    setHistSteps([]);
-    setHistDurationMs(null);
+    setRunList([]);
     setLastError(null);
     setLastRun(null);
     let alive = true;
@@ -131,6 +129,7 @@ export default function AiChatView(props: {
       if (!alive || tidRef.current !== tid) return;
       if (streamingRef.current && runThreadRef.current === tid) return;
       const msgs = [...rawMsgs];
+      setRunList(Array.isArray(runs) ? (runs as any[]) : []);
       const ids: string[] = [];
       let latest: any = null;
       for (const run of runs) {
@@ -152,21 +151,6 @@ export default function AiChatView(props: {
         setLastRun(null);
       }
       setMessages(msgs);
-      if (!alive || tidRef.current !== tid) return;
-      if (latest && latest.startedAt && latest.finishedAt && latest.status !== 'running' && latest.status !== 'queued') {
-        const ms = Date.parse(latest.finishedAt) - Date.parse(latest.startedAt);
-        if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
-        // Show the trace of the latest finished run.
-        api.getAIRunSteps(latest.id).then((st) => {
-          if (!alive || tidRef.current !== tid) return;
-          if (Array.isArray(st) && st.length && !streamingRef.current) {
-            setHistSteps(st as AiStep[]);
-            setTraceOpen(false);
-          }
-        }).catch(() => {});
-      } else {
-        setHistDurationMs(null);
-      }
     }).catch(() => {});
     return () => { alive = false; };
   }, [tid]);
@@ -429,7 +413,6 @@ export default function AiChatView(props: {
     setWaitingApproval(false);
     setSteps([]);
     setTraceOpen(true);
-    setHistDurationMs(null);
     setRunStartedAt(Date.now());
     setRunElapsed(0);
     try {
@@ -458,12 +441,8 @@ export default function AiChatView(props: {
         const msgs = await api.getAIThreadMessages(id).catch(() => [] as Msg[]);
         if (msgs.length) setMessages(msgs as Msg[]);
         try {
-          const done = await api.getAIRun(r.id).catch(() => null) as any;
-          if (done && done.startedAt && done.finishedAt) {
-            const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
-            if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
-          }
           const runs = await api.getAIThreadRuns(id).catch(() => [] as any[]);
+          if (Array.isArray(runs)) setRunList(runs as any[]);
           const ids: string[] = [];
           for (const run of runs as any[]) {
             try {
@@ -511,11 +490,18 @@ export default function AiChatView(props: {
       setRunStatus(active.progress || active.status || '');
       setSteps([]);
       setTraceOpen(true);
-      void consumeRun(active.id, tid, active.task || '').then(() => {
+      void consumeRun(active.id, tid, active.task || '').then(async () => {
         if (tidRef.current !== tid) return;
         setAgentBusy(false);
         setRunId(null);
         setWaitingApproval(false);
+        const msgs = await api.getAIThreadMessages(tid).catch(() => [] as Msg[]);
+        if (tidRef.current !== tid) return;
+        if (msgs.length) setMessages(msgs as Msg[]);
+        const rs = await api.getAIThreadRuns(tid).catch(() => [] as any[]);
+        if (tidRef.current !== tid) return;
+        if (Array.isArray(rs)) setRunList(rs as any[]);
+        props.onThreadsChanged();
       }).catch(() => {
         if (tidRef.current !== tid) return;
         setAgentBusy(false);
@@ -568,13 +554,36 @@ export default function AiChatView(props: {
   // Page-scoped chips only make sense with a page in context; in the global
   // view they would promise something the chat cannot see.
   const chipPageId = props.pageId || active?.pageId || '';
-  const showTrace = steps.length > 0 || histSteps.length > 0;
-  const showZeroState = messages.length === 0 && !agentBusy && steps.length === 0 && histSteps.length === 0 && !lastError;
+  const showTrace = steps.length > 0;
+  const showZeroState = messages.length === 0 && !agentBusy && steps.length === 0 && !lastError;
   const liveDuration = agentBusy && runStartedAt !== null ? runElapsed : null;
-  const doneDuration = !agentBusy ? histDurationMs : null;
 
-  // The trace ("Worked for …") sits ABOVE the answer it produced; while a run
-  // streams there is no answer yet, so it stays below the question.
+  // Finished runs attach above the answer they produced: the first assistant
+  // message created at or after the run finished; stragglers go last.
+  const runTargets = new Map<number, any[]>();
+  {
+    const done = runList.filter(
+      (r) => r && r.finishedAt && (r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled'),
+    );
+    const order = [...done].sort((a, b) => Date.parse(a.finishedAt) - Date.parse(b.finishedAt));
+    const used = new Set<number>();
+    for (const r of order) {
+      const end = Date.parse(r.finishedAt);
+      let at = messages.findIndex(
+        (m, i) =>
+          m.role === 'assistant' && !used.has(i) && m.createdAt && Date.parse(m.createdAt) >= end,
+      );
+      if (at < 0) at = messages.length;
+      else used.add(at);
+      const list = runTargets.get(at) ?? [];
+      list.push(r);
+      runTargets.set(at, list);
+    }
+  }
+
+  // The live trace sits ABOVE the answer it will produce; while a run streams
+  // there is no answer yet, so it stays below the question. Finished runs
+  // render through their own per-message rows above.
   const traceEl = showTrace ? (
             <div style={{ margin: '8px 0' }}>
               <div className="ai-actions-bar">
@@ -583,15 +592,13 @@ export default function AiChatView(props: {
                   <span>
                     {liveDuration !== null
                       ? `${t('Working for')} ${formatDuration(liveDuration)} … (${steps.length})`
-                      : doneDuration !== null
-                        ? `${t('Worked for')} ${formatDuration(doneDuration)} (${steps.length > 0 ? steps.length : histSteps.length} ${t('steps')})`
-                        : `${t('Agent actions')} (${steps.length > 0 ? steps.length : histSteps.length})`}
+                      : `${t('Agent actions')} (${steps.length})`}
                   </span>
                 </button>
               </div>
               {traceOpen && (
                 <div className="ai-actions-list">
-                  {(steps.length > 0 ? steps : histSteps).map((s) => <AiAgentStep key={s.id} step={s} />)}
+                  {steps.map((s) => <AiAgentStep key={s.id} step={s} />)}
                 </div>
               )}
               {runStatus && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{runStatus}</div>}
@@ -710,6 +717,9 @@ export default function AiChatView(props: {
           {messages.map((m, i) => (
             <Fragment key={i}>
             {i === traceAt && traceEl}
+            {(runTargets.get(i) ?? []).map((r) => (
+              <AiRunSummary key={r.id} run={r} />
+            ))}
             <div className={m.role === 'user' ? 'ai-msg user' : 'ai-msg assistant'}>
               {m.role === 'user' ? (
                 <div className="ai-bubble-user">{renderTextWithMentions(m.content, props.pagesById, true)}</div>
@@ -742,6 +752,9 @@ export default function AiChatView(props: {
             </Fragment>
           ))}
           {traceAt >= messages.length && traceEl}
+          {(runTargets.get(messages.length) ?? []).map((r) => (
+            <AiRunSummary key={r.id} run={r} />
+          ))}
           {lastError && (
             <AiErrorCard
               error={lastError}

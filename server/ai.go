@@ -374,7 +374,7 @@ func (s *Server) handleListAIThreadRuns(w http.ResponseWriter, r *http.Request) 
 		httpError(w, 404, "not found")
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, status, task, progress, started_at, finished_at, artifacts FROM ai_runs WHERE thread_id = ? ORDER BY started_at ASC`, threadID)
+	rows, err := s.db.Query(`SELECT r.id, r.status, r.task, r.progress, r.started_at, r.finished_at, r.artifacts, (SELECT COUNT(*) FROM ai_steps s WHERE s.run_id = r.id) AS step_count FROM ai_runs r WHERE r.thread_id = ? ORDER BY r.started_at ASC`, threadID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -388,11 +388,12 @@ func (s *Server) handleListAIThreadRuns(w http.ResponseWriter, r *http.Request) 
 		StartedAt string `json:"startedAt"`
 		Finished  string `json:"finishedAt"`
 		Artifacts string `json:"artifacts"`
+		StepCount int    `json:"stepCount"`
 	}
 	out := []run{}
 	for rows.Next() {
 		var x run
-		rows.Scan(&x.ID, &x.Status, &x.Task, &x.Progress, &x.StartedAt, &x.Finished, &x.Artifacts)
+		rows.Scan(&x.ID, &x.Status, &x.Task, &x.Progress, &x.StartedAt, &x.Finished, &x.Artifacts, &x.StepCount)
 		out = append(out, x)
 	}
 	writeJSON(w, out)
