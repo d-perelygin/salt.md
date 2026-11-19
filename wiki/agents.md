@@ -309,6 +309,7 @@ database. See [Collections](collections.md) and [Properties](properties.md).
 | `ai_thread_runs` | List the agent runs of one of your chat threads (status, task, timing, artifacts). Read-only. |
 | `ai_run` | Read one agent run: status, task, progress, error, timing, artifacts. Read-only. |
 | `ai_run_steps` | Read the trace of one agent run: plan, tool calls, results, approvals. Read-only. |
+| `read_page_file` | List the uploads one of your pages references, or read one as text (text, PDF, office documents). Read-only. |
 | `memory_recall` | Recall durable notes the agent stored about you (preferences, context worth keeping across runs). Read-only. |
 | `memory_remember` | Store a durable note about you for future runs. Keep it short — one fact per call. |
 | `memory_forget` | Delete a stored note by id when it is wrong or stale. |
@@ -464,7 +465,9 @@ and writes through the same tools, and can keep working after you close the tab.
   instance key and turn AI off globally.
 - **Chat:** a floating button opens a chat panel bound to the current page; a
   second chat in the sidebar covers the whole workspace. Attachments (text,
-  Markdown, CSV, JSON, PDF) are read into the conversation.
+  Markdown, CSV, JSON, PDF, Word, Excel, PowerPoint, OpenDocument) are read
+  into the conversation, and the agent can read the same files off any of your
+  pages with `read_page_file`.
 - **Inline:** selecting text in the editor offers rewrite, summarize, translate
   and grammar fixes, with a preview before the text is replaced.
 - **Background runs:** a task can be handed to the agent ("create a page from

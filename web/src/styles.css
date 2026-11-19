@@ -5679,6 +5679,29 @@ body.is-unsched-carry .tl-end-space {
   min-height: 240px;
 }
 
+/* Plain data table for the AI usage tab: full width, quiet header, numbers
+   right-aligned. */
+.settings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.settings-table th,
+.settings-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.settings-table td.num,
+.settings-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .settings-check {
   display: flex;
   align-items: flex-start;

@@ -2185,7 +2185,8 @@ func (s *Server) handleUploadAIAttachment(w http.ResponseWriter, r *http.Request
 	threadID := r.FormValue("threadId")
 	// save file
 	fname := newID() + filepath.Ext(hdr.Filename)
-	os.WriteFile(filepath.Join(s.dataDir, "files", fname), data, 0o644)
+	saved := filepath.Join(s.dataDir, "files", fname)
+	os.WriteFile(saved, data, 0o644)
 	s.db.Exec(`INSERT INTO files (file_name, display_name, ext, size, created_at) VALUES (?,?,?,?,?)`,
 		fname, hdr.Filename, filepath.Ext(hdr.Filename), len(data), now())
 	// extract text (best effort)
@@ -2195,20 +2196,20 @@ func (s *Server) handleUploadAIAttachment(w http.ResponseWriter, r *http.Request
 	case ".txt", ".md", ".csv", ".json":
 		text = string(data)
 	case ".pdf":
-		// Best-effort: use pdftotext if present on the host.
-		tmp, _ := os.CreateTemp("", "salt-ai-*.pdf")
-		if tmp != nil {
-			tmp.Write(data)
-			tmp.Close()
-			if out, err := exec.Command("pdftotext", "-layout", tmp.Name(), "-").Output(); err == nil {
+		// The same guarded extractor the indexer uses; pdftotext stays as
+		// a fallback for the files the Go parser cannot read.
+		text = extractPDFText(saved)
+		if text == "" {
+			if out, err := exec.Command("pdftotext", "-layout", saved, "-").Output(); err == nil {
 				text = string(out)
 			}
-			os.Remove(tmp.Name())
 		}
+	case ".docx", ".xlsx", ".pptx", ".odt":
+		text = extractOfficeText(data, ext)
 	}
 	attID := newID()
 	status := "done"
-	if text == "" && ext == ".pdf" {
+	if text == "" && ext != ".txt" && ext != ".md" && ext != ".csv" && ext != ".json" {
 		status = "unsupported"
 	}
 	// Cap what travels back to the browser; the full text stays in the DB.
