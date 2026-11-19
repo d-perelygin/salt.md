@@ -90,6 +90,7 @@ export default function AiChatPanel(props: {
       if (!active) return;
       setThreadId(id);
       setAgentBusy(true);
+      runThreadRef.current = id;
       setRunId(active.id);
       setRunStatus(active.status === 'completed' ? '' : (active.progress || active.status || ''));
       setSteps([]);
@@ -133,8 +134,22 @@ export default function AiChatPanel(props: {
     };
   }, [props.pageId, props.pagesById]);
 
+  const draftKey = (t: string | null) => 'salt-ai-draft:p:' + (t ?? 'new');
+  // Composer draft survives thread switches (see AiChatView for the contract).
+  useEffect(() => {
+    try {
+      setInput(localStorage.getItem(draftKey(threadId)) ?? '');
+    } catch { setInput(''); }
+    setMentionQuery(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId]);
+  function clearDraft() {
+    try { localStorage.removeItem(draftKey(threadIdRef.current)); } catch { /* ignore */ }
+  }
+
   function onInputChange(v: string) {
     setInput(v);
+    try { localStorage.setItem(draftKey(threadIdRef.current), v); } catch { /* ignore */ }
     const m = v.match(/@([^@]{0,60})$/);
     setMentionQuery(m ? m[1] : null);
     setMentionIndex(0);
@@ -234,6 +249,17 @@ export default function AiChatPanel(props: {
   const streamingRef = useRef(false);
 
   useEffect(() => {
+    if (streamingRef.current && runThreadRef.current !== threadId) {
+      streamingRef.current = false;
+      try { readerRef.current?.cancel(); } catch { /* already closed */ }
+      readerRef.current = null;
+      setAgentBusy(false);
+      setRunId(null);
+      setWaitingApproval(false);
+      setSteps([]);
+      setRunStatus('');
+      setPendingQuestion(null);
+    }
     if (!threadId) {
       setMessages([]);
       setSteps([]);
@@ -243,11 +269,19 @@ export default function AiChatPanel(props: {
       setLastRun(null);
       return;
     }
+    setSteps([]);
+    setHistSteps([]);
+    setHistDuration(null);
+    setLastError(null);
+    setLastRun(null);
+    const myTid = threadId;
+    let alive = true;
     Promise.all([
       api.getAIThreadMessages(threadId).catch(() => [] as Msg[]),
       api.getAIThreadRuns(threadId).catch(() => [] as any[]),
     ]).then(([rawMsgs, runs]) => {
-      if (streamingRef.current) return;
+      if (!alive || threadIdRef.current !== myTid) return;
+      if (streamingRef.current && runThreadRef.current === myTid) return;
       const msgs = [...rawMsgs];
       const done = [...runs].reverse().find((run) => run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled');
       if (done && done.status === 'failed') {
@@ -261,15 +295,18 @@ export default function AiChatPanel(props: {
         setLastRun(null);
       }
       setMessages(msgs);
+      if (!alive || threadIdRef.current !== myTid) return;
       if (!done) return;
       if (done.startedAt && done.finishedAt) {
         const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
         if (Number.isFinite(ms) && ms >= 0) setHistDuration(ms);
       }
       api.getAIRunSteps(done.id).then((st) => {
+        if (!alive || threadIdRef.current !== myTid) return;
         if (Array.isArray(st) && st.length && !streamingRef.current) setHistSteps(st as AiStep[]);
       }).catch(() => {});
     }).catch(() => {});
+    return () => { alive = false; };
   }, [threadId]);
 
   function formatDuration(ms: number): string {
@@ -334,17 +371,28 @@ export default function AiChatPanel(props: {
 
   const [lastRun, setLastRun] = useState<{ id: string; task: string; status: string; error: string } | null>(null);
   const inputBoxRef = useRef<HTMLTextAreaElement | null>(null);
+  const threadIdRef = useRef<string | null>(threadId);
+  useEffect(() => { threadIdRef.current = threadId; }, [threadId]);
+  // Thread the live run belongs to (see AiChatView for the contract).
+  const runThreadRef = useRef<string | null>(null);
+  const readerRef = useRef<{ cancel: () => void } | null>(null);
 
-  async function consumeRun(runId: string, threadId: string, fullTask: string) {
+  async function consumeRun(runId: string, myTid: string, fullTask: string) {
     const res = await fetch(`/api/ai/runs/${runId}/events`, { credentials: 'same-origin' });
     if (!res.ok || !res.body) throw new Error('no events');
     const reader = res.body.getReader();
+    readerRef.current = reader as unknown as { cancel: () => void };
+    try {
     const dec = new TextDecoder();
     let buf = '';
     const seen = new Set<string>();
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      if (threadIdRef.current !== myTid) {
+        try { reader.cancel(); } catch { /* already closed */ }
+        return;
+      }
       buf += dec.decode(value, { stream: true });
       const lines = buf.split('\n');
       buf = lines.pop() || '';
@@ -391,7 +439,11 @@ export default function AiChatPanel(props: {
         } catch { /* ignore */ }
       }
     }
-    const msgs = await api.getAIThreadMessages(threadId).catch(() => [] as Msg[]);
+    } finally {
+      if (readerRef.current) readerRef.current = null;
+    }
+    if (threadIdRef.current !== myTid) return;
+    const msgs = await api.getAIThreadMessages(myTid).catch(() => [] as Msg[]);
     if (msgs.length) setMessages(msgs as Msg[]);
   }
 
@@ -399,7 +451,7 @@ export default function AiChatPanel(props: {
     if (agentBusy) return;
     const text = (reuseTask ?? input).trim();
     if (!text) return;
-    if (!isRetry) setInput('');
+    if (!isRetry) { setInput(''); clearDraft(); }
     const id = await ensureThread(text);
     if (!id) return;
     if (!isRetry) setMessages((m) => [...m, { role: 'user', content: text }]);
@@ -410,6 +462,7 @@ export default function AiChatPanel(props: {
     setFreeText('');
     qKeyRef.current = '';
     streamingRef.current = true;
+    runThreadRef.current = id;
     setAgentBusy(true);
     setRunStatus(t('Working…'));
     setWaitingApproval(false);
@@ -440,13 +493,18 @@ export default function AiChatPanel(props: {
       setFiles([]);
       await consumeRun(r.id, id, fullTask);
     } catch (err: any) {
-      setLastError(err?.message || t('Run failed'));
-      setRunStatus(t('Run failed'));
+      if (threadIdRef.current === id) {
+        setLastError(err?.message || t('Run failed'));
+        setRunStatus(t('Run failed'));
+      }
     } finally {
-      setAgentBusy(false);
-      setRunId(null);
-      setWaitingApproval(false);
-      streamingRef.current = false;
+      if (runThreadRef.current === id) {
+        runThreadRef.current = null;
+        streamingRef.current = false;
+        setAgentBusy(false);
+        setRunId(null);
+        setWaitingApproval(false);
+      }
     }
   }
 

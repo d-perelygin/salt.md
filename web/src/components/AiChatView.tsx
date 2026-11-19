@@ -70,14 +70,36 @@ export default function AiChatView(props: {
   const inputBoxRef = useRef<HTMLTextAreaElement>(null);
 
   const tid = props.threadId;
+  const tidRef = useRef<string | null>(tid);
+  useEffect(() => { tidRef.current = tid; }, [tid]);
+  // Thread the live run belongs to. Switching threads detaches the UI from a
+  // run that belongs elsewhere (it keeps going server-side); switching back
+  // re-attaches through the effect below.
+  const runThreadRef = useRef<string | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   useEffect(() => {
     api.listAIThreads().then((r) => setThreads(r as AiThread[])).catch(() => {});
   }, [tid]);
 
   // History: messages, past runs (for the Worked-for row), and artifacts.
-  // History fetches never overwrite live streaming state (see streamingRef).
+  // History fetches never overwrite live streaming state (see streamingRef),
+  // and late answers never land on a thread that is no longer selected.
   useEffect(() => {
+    // Detach from a run that belongs to another thread: it keeps going
+    // server-side, the UI just stops following it.
+    if (streamingRef.current && runThreadRef.current !== tid) {
+      streamingRef.current = false;
+      // runThreadRef stays: the run is still live, just not followed here.
+      try { readerRef.current?.cancel(); } catch { /* already closed */ }
+      readerRef.current = null;
+      setAgentBusy(false);
+      setRunId(null);
+      setWaitingApproval(false);
+      setSteps([]);
+      setRunStatus('');
+      setPendingQuestion(null);
+    }
     if (!tid) {
       setMessages([]);
       setSteps([]);
@@ -88,11 +110,20 @@ export default function AiChatView(props: {
       setLastRun(null);
       return;
     }
+    // Reset per-thread UI at once: the previous thread must not flash through
+    // while its replacement loads.
+    setSteps([]);
+    setHistSteps([]);
+    setHistDurationMs(null);
+    setLastError(null);
+    setLastRun(null);
+    let alive = true;
     Promise.all([
       api.getAIThreadMessages(tid).catch(() => [] as Msg[]),
       api.getAIThreadRuns(tid).catch(() => [] as any[]),
     ]).then(([rawMsgs, runs]) => {
-      if (streamingRef.current) return;
+      if (!alive || tidRef.current !== tid) return;
+      if (streamingRef.current && runThreadRef.current === tid) return;
       const msgs = [...rawMsgs];
       const ids: string[] = [];
       let latest: any = null;
@@ -115,11 +146,13 @@ export default function AiChatView(props: {
         setLastRun(null);
       }
       setMessages(msgs);
+      if (!alive || tidRef.current !== tid) return;
       if (latest && latest.startedAt && latest.finishedAt && latest.status !== 'running' && latest.status !== 'queued') {
         const ms = Date.parse(latest.finishedAt) - Date.parse(latest.startedAt);
         if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
         // Show the trace of the latest finished run.
         api.getAIRunSteps(latest.id).then((st) => {
+          if (!alive || tidRef.current !== tid) return;
           if (Array.isArray(st) && st.length && !streamingRef.current) {
             setHistSteps(st as AiStep[]);
             setTraceOpen(false);
@@ -129,6 +162,7 @@ export default function AiChatView(props: {
         setHistDurationMs(null);
       }
     }).catch(() => {});
+    return () => { alive = false; };
   }, [tid]);
 
   useEffect(() => {
@@ -184,8 +218,23 @@ export default function AiChatView(props: {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [pendingQuestion, picked, freeText]);
 
+  // Composer draft survives unmounts (Chat/Home switch) and thread
+  // switches: one draft per thread, restored when coming back.
+  const draftKey = (t: string | null) => 'salt-ai-draft:v:' + (t ?? 'new');
+  useEffect(() => {
+    try {
+      setInput(localStorage.getItem(draftKey(tid)) ?? '');
+    } catch { setInput(''); }
+    setMentionQuery(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tid]);
+  function clearDraft() {
+    try { localStorage.removeItem(draftKey(tidRef.current)); } catch { /* ignore */ }
+  }
+
   function onInputChange(v: string) {
     setInput(v);
+    try { localStorage.setItem(draftKey(tidRef.current), v); } catch { /* ignore */ }
     const m = v.match(/@([^@]{0,60})$/);
     setMentionQuery(m ? m[1] : null);
   }
@@ -282,57 +331,25 @@ export default function AiChatView(props: {
   // Agent run: the model works with tools and the trace streams in as
   // Thinking/Script steps, OpenChamber-style. May pause for approval.
   // With reuseTask the user message is already in the thread (retry).
-  async function runAsAgent(reuseTask?: string) {
-    if (agentBusy) return;
-    const text = (reuseTask ?? input).trim();
-    if (!text) return;
-    if (!reuseTask) setInput('');
-    const id = await ensureThread(text);
-    if (!id) return;
-    if (!reuseTask) setMessages((m) => [...m, { role: 'user', content: text }]);
-    setLastRun(null);
-    setLastError(null);
-    setPendingQuestion(null);
-    setPicked([]);
-    setFreeText('');
-    qKeyRef.current = '';
-    streamingRef.current = true;
-    setAgentBusy(true);
-    setRunStatus(t('Working…'));
-    setWaitingApproval(false);
-    setSteps([]);
-    setTraceOpen(true);
-    setHistDurationMs(null);
-    setRunStartedAt(Date.now());
-    setRunElapsed(0);
+  // Consume one run's SSE stream into this thread's UI. Belongs to
+  // myTid: if the user switches threads mid-run the loop stops and the
+  // re-attach effect below picks the run up on return.
+  async function consumeRun(runId: string, myTid: string, fullTask: string) {
+    const res = await fetch(`/api/ai/runs/${runId}/events`, { credentials: 'same-origin' });
+    if (!res.ok || !res.body) throw new Error('no events');
+    const reader = res.body.getReader();
+    readerRef.current = reader;
     try {
-      const refs = resolveMentions(text);
-      const refBlock = refs.length
-        ? 'Referenced pages (read them with get_page first):\n' + refs.map((m) => `- ${m.title} (id: ${m.id})`).join('\n') + '\n\n'
-        : '';
-      const filesBlock = files.length
-        ? 'Attached files:\n' + files.filter((f) => f.text).slice(0, 3).map((f) => `--- ${f.name} ---\n${f.text.slice(0, 4000)}`).join('\n') + '\n\n'
-        : '';
-      const fullTask = reuseTask ? reuseTask : (refBlock + filesBlock + (quote ? `Context quote:\n${quote}\n\n` : '') + text);
-      const r = await api.createAIRun({
-        threadId: id,
-        task: fullTask,
-        prompt: reuseTask ? undefined : text,
-        retry: !!reuseTask,
-        pageId: props.pageId,
-      });
-      setRunId(r.id);
-      setQuote('');
-      setFiles([]);
-      const res = await fetch(`/api/ai/runs/${r.id}/events`, { credentials: 'same-origin' });
-      if (!res.ok || !res.body) throw new Error('no events');
-      const reader = res.body.getReader();
       const dec = new TextDecoder();
       let buf = '';
       const seen = new Set<string>();
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        if (tidRef.current !== myTid) {
+          try { reader.cancel(); } catch { /* already closed */ }
+          return;
+        }
         buf += dec.decode(value, { stream: true });
         const lines = buf.split('\n');
         buf = lines.pop() || '';
@@ -360,10 +377,10 @@ export default function AiChatView(props: {
                 try {
                   const q = JSON.parse(j.pendingArgs);
                   if (q && typeof q.question === 'string' && Array.isArray(q.options)) {
-                    const key = r.id + '|' + q.question;
+                    const key = runId + '|' + q.question;
                     if (qKeyRef.current !== key) {
                       qKeyRef.current = key;
-                      setPendingQuestion({ runId: r.id, question: q.question, options: q.options.slice(0, 6), multiple: !!q.multiple });
+                      setPendingQuestion({ runId, question: q.question, options: q.options.slice(0, 6), multiple: !!q.multiple });
                       setPicked([]);
                       setFreeText('');
                     }
@@ -371,7 +388,7 @@ export default function AiChatView(props: {
                 } catch { /* ignore */ }
               }
               if (j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled') {
-                setLastRun({ id: r.id, task: fullTask, status: j.status, error: err });
+                setLastRun({ id: runId, task: fullTask, status: j.status, error: err });
                 setPendingQuestion(null);
                 break;
               }
@@ -379,35 +396,129 @@ export default function AiChatView(props: {
           } catch { /* ignore */ }
         }
       }
-      const msgs = await api.getAIThreadMessages(id).catch(() => [] as Msg[]);
-      if (msgs.length) setMessages(msgs as Msg[]);
-      try {
-        const done = await api.getAIRun(r.id).catch(() => null) as any;
-        if (done && done.startedAt && done.finishedAt) {
-          const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
-          if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
-        }
-        const runs = await api.getAIThreadRuns(id).catch(() => [] as any[]);
-        const ids: string[] = [];
-        for (const run of runs as any[]) {
-          try {
-            const arr = JSON.parse(run.artifacts || '[]');
-            if (Array.isArray(arr)) for (const pid of arr) if (typeof pid === 'string' && !ids.includes(pid)) ids.push(pid);
-          } catch { /* ignore */ }
-        }
-        setArtifacts(ids);
-      } catch { /* ignore */ }
+    } finally {
+      try { reader.releaseLock(); } catch { /* already closed */ }
+      if (readerRef.current === reader) readerRef.current = null;
+    }
+  }
+
+  async function runAsAgent(reuseTask?: string) {
+    if (agentBusy) return;
+    const text = (reuseTask ?? input).trim();
+    if (!text) return;
+    if (!reuseTask) { setInput(''); clearDraft(); }
+    const id = await ensureThread(text);
+    if (!id) return;
+    if (!reuseTask) setMessages((m) => [...m, { role: 'user', content: text }]);
+    setLastRun(null);
+    setLastError(null);
+    setPendingQuestion(null);
+    setPicked([]);
+    setFreeText('');
+    qKeyRef.current = '';
+    streamingRef.current = true;
+    runThreadRef.current = id;
+    setAgentBusy(true);
+    setRunStatus(t('Working…'));
+    setWaitingApproval(false);
+    setSteps([]);
+    setTraceOpen(true);
+    setHistDurationMs(null);
+    setRunStartedAt(Date.now());
+    setRunElapsed(0);
+    try {
+      const refs = resolveMentions(text);
+      const refBlock = refs.length
+        ? 'Referenced pages (read them with get_page first):\n' + refs.map((m) => `- ${m.title} (id: ${m.id})`).join('\n') + '\n\n'
+        : '';
+      const filesBlock = files.length
+        ? 'Attached files:\n' + files.filter((f) => f.text).slice(0, 3).map((f) => `--- ${f.name} ---\n${f.text.slice(0, 4000)}`).join('\n') + '\n\n'
+        : '';
+      const fullTask = reuseTask ? reuseTask : (refBlock + filesBlock + (quote ? `Context quote:\n${quote}\n\n` : '') + text);
+      const r = await api.createAIRun({
+        threadId: id,
+        task: fullTask,
+        prompt: reuseTask ? undefined : text,
+        retry: !!reuseTask,
+        pageId: props.pageId,
+      });
+      setRunId(r.id);
+      setQuote('');
+      setFiles([]);
+      await consumeRun(r.id, id, fullTask);
+      // The thread may have changed while the run streamed: only the thread
+      // the run belongs to takes its results.
+      if (tidRef.current === id) {
+        const msgs = await api.getAIThreadMessages(id).catch(() => [] as Msg[]);
+        if (msgs.length) setMessages(msgs as Msg[]);
+        try {
+          const done = await api.getAIRun(r.id).catch(() => null) as any;
+          if (done && done.startedAt && done.finishedAt) {
+            const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
+            if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
+          }
+          const runs = await api.getAIThreadRuns(id).catch(() => [] as any[]);
+          const ids: string[] = [];
+          for (const run of runs as any[]) {
+            try {
+              const arr = JSON.parse(run.artifacts || '[]');
+              if (Array.isArray(arr)) for (const pid of arr) if (typeof pid === 'string' && !ids.includes(pid)) ids.push(pid);
+            } catch { /* ignore */ }
+          }
+          setArtifacts(ids);
+        } catch { /* ignore */ }
+      }
       props.onThreadsChanged();
     } catch (err: any) {
       setLastError(err?.message || t('Run failed'));
       setRunStatus(t('Run failed'));
     } finally {
-      setAgentBusy(false);
-      setRunId(null);
-      setWaitingApproval(false);
-      streamingRef.current = false;
+      // Another thread's run finishing must not clear this thread's UI.
+      if (runThreadRef.current === id) {
+        runThreadRef.current = null;
+        streamingRef.current = false;
+        setAgentBusy(false);
+        setRunId(null);
+        setWaitingApproval(false);
+      }
     }
   }
+
+  // Coming back to a thread whose run is still going re-attaches the UI to
+  // it; otherwise the thread would sit silent until the run ends.
+  useEffect(() => {
+    if (!tid || streamingRef.current) return;
+    let alive = true;
+    void api.getAIThreadRuns(tid).catch(() => [] as any[]).then((runs) => {
+      if (!alive || !Array.isArray(runs) || tidRef.current !== tid) return;
+      const active = (runs as any[]).find((r) => r && (r.status === 'running' || r.status === 'queued' || r.status === 'waiting_approval' || r.status === 'waiting_user'));
+      if (!active || streamingRef.current) return;
+      streamingRef.current = true;
+      runThreadRef.current = tid;
+      setAgentBusy(true);
+      setRunId(active.id);
+      try {
+        const ms = Date.parse(active.startedAt);
+        setRunStartedAt(Number.isFinite(ms) ? ms : Date.now());
+      } catch { setRunStartedAt(Date.now()); }
+      setRunElapsed(0);
+      setRunStatus(active.progress || active.status || '');
+      setSteps([]);
+      setTraceOpen(true);
+      void consumeRun(active.id, tid, active.task || '').then(() => {
+        if (tidRef.current !== tid) return;
+        setAgentBusy(false);
+        setRunId(null);
+        setWaitingApproval(false);
+      }).catch(() => {
+        if (tidRef.current !== tid) return;
+        setAgentBusy(false);
+        setRunId(null);
+        setWaitingApproval(false);
+      });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [tid]);
 
   async function decide(approved: boolean) {
     if (!runId) return;
