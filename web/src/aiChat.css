@@ -168,9 +168,12 @@
   font-size: 15px;
   line-height: 1.5;
   font-family: inherit;
+  /* Same wrapping as the textarea (soft wrap, no word breaking): the two
+     layers must break lines at exactly the same places, or long tokens drift
+     apart once the field scrolls. */
   white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  overflow-wrap: normal;
+  word-break: normal;
   pointer-events: none;
   overflow: hidden;
   color: var(--fg);

@@ -68,6 +68,12 @@ export default function AiChatView(props: {
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const inputBoxRef = useRef<HTMLTextAreaElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const syncBackdrop = () => {
+    const ta = inputBoxRef.current;
+    const bd = backdropRef.current;
+    if (ta && bd) { bd.scrollTop = ta.scrollTop; bd.scrollLeft = ta.scrollLeft; }
+  };
 
   const tid = props.threadId;
   const tidRef = useRef<string | null>(tid);
@@ -852,8 +858,8 @@ export default function AiChatView(props: {
           <div className="ai-composer">
             <div className="ai-input-wrap">
               {input && (
-                <div className="ai-input-backdrop" aria-hidden="true">
-                  {renderTextWithMentions(input, props.pagesById, false)}
+                <div className="ai-input-backdrop" aria-hidden="true" ref={backdropRef}>
+                  {input.length > 20000 ? input : renderTextWithMentions(input, props.pagesById, false)}
                   {input.endsWith('\n') ? '\n ' : ''}
                 </div>
               )}
@@ -862,10 +868,12 @@ export default function AiChatView(props: {
                 className={input ? 'ai-input-mirrored' : undefined}
                 value={input}
                 rows={2}
+                onScroll={syncBackdrop}
                 onChange={(e) => {
                   onInputChange(e.target.value);
                   e.target.style.height = 'auto';
                   e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+                  syncBackdrop();
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape' && mentionQuery !== null) {
