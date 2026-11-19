@@ -8,7 +8,7 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2 } from 'lucide-react';
+import { FileText, Table2, ArrowDown, BarChart3, Check, CircleHelp, Copy, Globe, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import { renderTextWithMentions } from './aiChatHelpers';
 
@@ -492,16 +492,16 @@ export default function AiChatView(props: {
     <div className="ai-chat-root">
       <div className="ai-chat-main">
         <div className="ai-topbar">
-          <span className="ai-avatar">✨</span>
+          <span className="ai-avatar"><Sparkles size={16} /></span>
           <span className="ai-crumb">{t('AI')}</span>
           <span className="ai-crumb">/</span>
-          <span className="ai-title">{active?.title || t('New chat')}{pageTitle ? ` · 📄 ${pageTitle}` : ''}</span>
+          <span className="ai-title">{active?.title || t('New chat')}{pageTitle ? ` · ${pageTitle}` : ''}</span>
         </div>
         <div className="ai-chat-body">
           {showZeroState && (
             <div className="ai-view-zero">
               <div className="ai-view-zero-hero">
-                <span className="ai-view-zero-spark">✨</span>
+                <span className="ai-view-zero-spark"><Sparkles size={26} /></span>
                 <h2>{t('How can I help you today?')}</h2>
               </div>
 
@@ -520,7 +520,7 @@ export default function AiChatView(props: {
                     }
                   }}
                 >
-                  <span className="ai-zero-badge">📝</span>
+                  <span className="ai-zero-badge"><FileText size={15} /></span>
                   <span className="ai-zero-label">{t('Summarize this page')}</span>
                 </button>
                 <button
@@ -536,7 +536,7 @@ export default function AiChatView(props: {
                     }
                   }}
                 >
-                  <span className="ai-zero-badge">🌐</span>
+                  <span className="ai-zero-badge"><Globe size={15} /></span>
                   <span className="ai-zero-label">{t('Translate this page')}</span>
                 </button>
                 <button
@@ -552,7 +552,7 @@ export default function AiChatView(props: {
                     }
                   }}
                 >
-                  <span className="ai-zero-badge">📊</span>
+                  <span className="ai-zero-badge"><BarChart3 size={15} /></span>
                   <span className="ai-zero-label">{t('Analyze for insights')}</span>
                 </button>
                 <button
@@ -568,7 +568,7 @@ export default function AiChatView(props: {
                     }
                   }}
                 >
-                  <span className="ai-zero-badge">✅</span>
+                  <span className="ai-zero-badge"><SquareCheck size={15} /></span>
                   <span className="ai-zero-label">{t('Extract action items')}</span>
                 </button>
                 <button
@@ -602,19 +602,19 @@ export default function AiChatView(props: {
                   {m.content && (
                     <div className="ai-msg-actions">
                       <button className="ai-iconbtn" onClick={() => copyText(m.content, i)} title={t('Copy')}>
-                        {copiedIdx === i ? '✓' : '⧉'}
+                        {copiedIdx === i ? <Check size={14} /> : <Copy size={14} />}
                       </button>
                       {i === messages.length - 1 && (
                         <button className="ai-iconbtn" onClick={() => {
                           const lu = [...messages].reverse().find((x) => x.role === 'user');
                           if (lu) void runAsAgent(lu.content);
                         }} disabled={agentBusy} title={t('Regenerate')}>
-                          ↻
+                          <RefreshCw size={14} />
                         </button>
                       )}
                       {props.pageId && (
                         <button className="ai-iconbtn" onClick={() => insertIntoPage(m.content)} title={t('Insert into page')}>
-                          ⬇
+                          <ArrowDown size={14} />
                         </button>
                       )}
                     </div>
@@ -634,7 +634,7 @@ export default function AiChatView(props: {
           )}
           {pendingQuestion && (
             <div className="ai-question-card">
-              <div className="ai-question-title"><span>❓</span><span>{pendingQuestion.question}</span></div>
+              <div className="ai-question-title"><span><CircleHelp size={15} /></span><span>{pendingQuestion.question}</span></div>
               <div className="ai-question-options">
                 {pendingQuestion.options.map((o, idx) => {
                   const on = picked.includes(o.label);
@@ -655,7 +655,7 @@ export default function AiChatView(props: {
                         <span className="ai-question-opt-label">{o.label}</span>
                         {o.description && <span className="ai-question-opt-desc">{o.description}</span>}
                       </div>
-                      {on && <span className="ai-question-opt-check">✓</span>}
+                      {on && <span className="ai-question-opt-check"><Check size={13} /></span>}
                     </button>
                   );
                 })}
@@ -684,7 +684,7 @@ export default function AiChatView(props: {
                   const title = props.pagesById.get(id)?.title || t('Untitled page');
                   return (
                     <button key={id} className="ai-artifact-chip" onClick={() => props.onOpenPage?.(id)} title={title}>
-                      <span>📄</span>
+                      <span><FileText size={14} /></span>
                       <span>{title}</span>
                     </button>
                   );
@@ -696,16 +696,16 @@ export default function AiChatView(props: {
         </div>
         {quote && (
           <div className="ai-quote">
-            <span style={{ flex: 1, whiteSpace: 'pre-wrap', maxHeight: 80, overflow: 'auto' }}>❝ {quote}</span>
-            <button className="ai-iconbtn" onClick={() => setQuote('')} title={t('Remove quote')}>×</button>
+            <span style={{ flex: 1, whiteSpace: 'pre-wrap', maxHeight: 80, overflow: 'auto' }}><Quote size={13} /> {quote}</span>
+            <button className="ai-iconbtn" onClick={() => setQuote('')} title={t('Remove quote')}><X size={13} /></button>
           </div>
         )}
         {files.length > 0 && (
           <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
             {files.map((f, i) => (
               <span key={i} className="ai-filechip">
-                📎 {f.name}{!f.text ? ` (${t('unreadable')})` : ''}
-                {' '}<button className="ai-iconbtn" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} title={t('Remove')}>×</button>
+                <Paperclip size={13} /> {f.name}{!f.text ? ` (${t('unreadable')})` : ''}
+                {' '}<button className="ai-iconbtn" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} title={t('Remove')}><X size={13} /></button>
               </span>
             ))}
           </div>
@@ -803,7 +803,7 @@ export default function AiChatView(props: {
                         triggerMentionInInput();
                       }}
                     >
-                      📄 {t('Mention note (@)')}
+                      <FileText size={14} /> {t('Mention note (@)')}
                     </button>
                     <button
                       type="button"
@@ -812,7 +812,7 @@ export default function AiChatView(props: {
                         fileRef.current?.click();
                       }}
                     >
-                      💻 {t('File from computer')}
+                      <Upload size={14} /> {t('File from computer')}
                     </button>
                   </div>
                 )}

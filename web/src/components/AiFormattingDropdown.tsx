@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, ChevronDown, Check, X, ArrowUp, RefreshCw } from 'lucide-react';
+import { Sparkles, ChevronDown, Check, X, ArrowUp, RefreshCw, WandSparkles, FileText, Globe, PenLine, MessageCircle } from 'lucide-react';
 import { api } from '../api';
 import { t } from '../i18n';
 import AiErrorCard from './AiErrorCard';
@@ -169,7 +169,7 @@ export default function AiFormattingDropdown(props: {
                   className="ai-fmt-item"
                   onClick={() => void run('Rewrite the selected text to be clearer and more concise.')}
                 >
-                  <span className="ai-fmt-item-icon">🪄</span>
+                  <span className="ai-fmt-item-icon"><WandSparkles size={16} /></span>
                   <span>{t('Rewrite')}</span>
                 </button>
                 <button
@@ -177,7 +177,7 @@ export default function AiFormattingDropdown(props: {
                   className="ai-fmt-item"
                   onClick={() => void run('Summarize the selected text concisely.')}
                 >
-                  <span className="ai-fmt-item-icon">📝</span>
+                  <span className="ai-fmt-item-icon"><FileText size={16} /></span>
                   <span>{t('Summarize')}</span>
                 </button>
                 <button
@@ -185,7 +185,7 @@ export default function AiFormattingDropdown(props: {
                   className="ai-fmt-item"
                   onClick={() => void run('Translate the selected text to English.')}
                 >
-                  <span className="ai-fmt-item-icon">🌐</span>
+                  <span className="ai-fmt-item-icon"><Globe size={16} /></span>
                   <span>{t('Translate')}</span>
                 </button>
                 <button
@@ -193,7 +193,7 @@ export default function AiFormattingDropdown(props: {
                   className="ai-fmt-item"
                   onClick={() => void run('Fix grammar, spelling, and punctuation in the selected text.')}
                 >
-                  <span className="ai-fmt-item-icon">✍️</span>
+                  <span className="ai-fmt-item-icon"><PenLine size={16} /></span>
                   <span>{t('Fix grammar')}</span>
                 </button>
 
@@ -228,7 +228,7 @@ export default function AiFormattingDropdown(props: {
                   className="ai-fmt-item"
                   onClick={askInChat}
                 >
-                  <span className="ai-fmt-item-icon">💬</span>
+                  <span className="ai-fmt-item-icon"><MessageCircle size={16} /></span>
                   <span>{t('Ask in chat')}</span>
                 </button>
               </>

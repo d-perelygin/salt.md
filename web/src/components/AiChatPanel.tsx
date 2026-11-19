@@ -7,7 +7,7 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2 } from 'lucide-react';
+import { FileText, Table2, ArrowDown, BarChart3, Check, ChevronDown, CircleHelp, Copy, Globe, Menu, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
 import {
@@ -551,11 +551,11 @@ export default function AiChatPanel(props: {
               borderRadius: 6, maxWidth: 240,
             }}
           >
-            <span style={{ fontSize: 13 }}>✨</span>
+            <Sparkles size={13} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {activeThread?.title || t('AI')}
             </span>
-            <span style={{ fontSize: 10, opacity: 0.6, flex: 'none' }}>▼</span>
+            <ChevronDown size={10} />
           </button>
           {threadMenuOpen && (
             <div
@@ -594,9 +594,9 @@ export default function AiChatPanel(props: {
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
           {props.onOpenSidebar && (
-            <button className="ai-iconbtn ai-panel-sidebarbtn" onClick={props.onOpenSidebar} title={t('Menu')} type="button">☰</button>
+            <button className="ai-iconbtn ai-panel-sidebarbtn" onClick={props.onOpenSidebar} title={t('Menu')} type="button"><Menu size={14} /></button>
           )}
-          <button className="ai-iconbtn" onClick={props.onClose} title={t('Close')} type="button">✕</button>
+          <button className="ai-iconbtn" onClick={props.onClose} title={t('Close')} type="button"><X size={14} /></button>
         </div>
       </div>
       <div className="ai-panel-body">
@@ -625,7 +625,7 @@ export default function AiChatPanel(props: {
                     className="ai-zero-item"
                     onClick={() => void runAsAgent(t('Summarize the current collection: group items by status and highlight anything overdue or blocked.'))}
                   >
-                    <span className="ai-zero-badge">📊</span>
+                    <span className="ai-zero-badge"><BarChart3 size={15} /></span>
                     <span className="ai-zero-label">{t('Summarize collection')}</span>
                   </button>
                   <button
@@ -633,7 +633,7 @@ export default function AiChatPanel(props: {
                     className="ai-zero-item"
                     onClick={() => void runAsAgent(t('Analyze this collection for patterns, bottlenecks, and actionable insights.'))}
                   >
-                    <span className="ai-zero-badge">🔍</span>
+                    <span className="ai-zero-badge"><Search size={15} /></span>
                     <span className="ai-zero-label">{t('Analyze for insights')}</span>
                   </button>
                 </>
@@ -644,7 +644,7 @@ export default function AiChatPanel(props: {
                     className="ai-zero-item"
                     onClick={() => void runAsAgent(t('Summarize this page concisely with key takeaways.'))}
                   >
-                    <span className="ai-zero-badge">📝</span>
+                    <span className="ai-zero-badge"><FileText size={15} /></span>
                     <span className="ai-zero-label">{t('Summarize this page')}</span>
                   </button>
                   <button
@@ -652,7 +652,7 @@ export default function AiChatPanel(props: {
                     className="ai-zero-item"
                     onClick={() => void runAsAgent(t('Translate this page'))}
                   >
-                    <span className="ai-zero-badge">🌐</span>
+                    <span className="ai-zero-badge"><Globe size={15} /></span>
                     <span className="ai-zero-label">{t('Translate this page')}</span>
                   </button>
                   <button
@@ -660,7 +660,7 @@ export default function AiChatPanel(props: {
                     className="ai-zero-item"
                     onClick={() => void runAsAgent(t('Extract action items and next steps from this page as a checklist.'))}
                   >
-                    <span className="ai-zero-badge">✅</span>
+                    <span className="ai-zero-badge"><SquareCheck size={15} /></span>
                     <span className="ai-zero-label">{t('Extract action items')}</span>
                   </button>
                 </>
@@ -670,7 +670,7 @@ export default function AiChatPanel(props: {
                 className="ai-zero-item"
                 onClick={() => fileRef.current?.click()}
               >
-                <span className="ai-zero-badge">↓</span>
+                <span className="ai-zero-badge"><Paperclip size={14} /></span>
                 <span className="ai-zero-label">{t('Attach file or CSV')}</span>
               </button>
             </div>
@@ -732,19 +732,19 @@ export default function AiChatPanel(props: {
                 {m.content && (
                   <div className="ai-msg-actions">
                     <button className="ai-iconbtn" onClick={() => copyText(m.content, i)} title={t('Copy')}>
-                      {copiedIdx === i ? '✓' : '⧉'}
+                      {copiedIdx === i ? <Check size={14} /> : <Copy size={14} />}
                     </button>
                     {i === messages.length - 1 && (
                       <button className="ai-iconbtn" onClick={() => {
                         const lu = [...messages].reverse().find((x) => x.role === 'user');
                         if (lu) void runAsAgent(lu.content, true);
                       }} disabled={agentBusy} title={t('Regenerate')}>
-                        ↻
+                        <RefreshCw size={14} />
                       </button>
                     )}
                     {props.pageId && (
                       <button className="ai-iconbtn" onClick={() => insertIntoPage(m.content)} title={t('Insert into page')}>
-                        ⬇
+                        <ArrowDown size={14} />
                       </button>
                     )}
                   </div>
@@ -764,7 +764,7 @@ export default function AiChatPanel(props: {
         )}
         {pendingQuestion && (
           <div className="ai-question-card">
-            <div className="ai-question-title"><span>❓</span><span>{pendingQuestion.question}</span></div>
+            <div className="ai-question-title"><span><CircleHelp size={15} /></span><span>{pendingQuestion.question}</span></div>
             <div className="ai-question-options">
               {pendingQuestion.options.map((o, idx) => {
                 const on = picked.includes(o.label);
@@ -785,7 +785,7 @@ export default function AiChatPanel(props: {
                       <span className="ai-question-opt-label">{o.label}</span>
                       {o.description && <span className="ai-question-opt-desc">{o.description}</span>}
                     </div>
-                    {on && <span className="ai-question-opt-check">✓</span>}
+                    {on && <span className="ai-question-opt-check"><Check size={13} /></span>}
                   </button>
                 );
               })}
@@ -811,7 +811,7 @@ export default function AiChatPanel(props: {
       {(quote || autoQuote) && (
         <div className="ai-quote" style={{ margin: '0 12px' }}>
           <span style={{ flex: 1, whiteSpace: 'pre-wrap', maxHeight: 60, overflow: 'auto' }}>
-            ❝ {(quote || autoQuote).slice(0, 300)}{(quote || autoQuote).length > 300 ? '…' : ''}
+            <Quote size={13} /> {(quote || autoQuote).slice(0, 300)}{(quote || autoQuote).length > 300 ? '…' : ''}
           </span>
           <button
             className="ai-iconbtn"
@@ -828,7 +828,7 @@ export default function AiChatPanel(props: {
             }}
             title={t('Remove quote')}
           >
-            ×
+            <X size={13} />
           </button>
         </div>
       )}
@@ -836,8 +836,8 @@ export default function AiChatPanel(props: {
         <div style={{ display: 'flex', gap: 6, padding: '8px 12px 0', flexWrap: 'wrap' }}>
           {files.map((f, i) => (
             <span key={i} className="ai-filechip">
-              📎 {f.name}{!f.text ? ` (${t('unreadable')})` : ''}
-              {' '}<button className="ai-iconbtn" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} title={t('Remove')}>×</button>
+              <Paperclip size={13} /> {f.name}{!f.text ? ` (${t('unreadable')})` : ''}
+              {' '}<button className="ai-iconbtn" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} title={t('Remove')}><X size={13} /></button>
             </span>
           ))}
         </div>
@@ -981,7 +981,7 @@ export default function AiChatPanel(props: {
                       triggerMentionInInput();
                     }}
                   >
-                    📄 {t('Mention note (@)')}
+                    <FileText size={14} /> {t('Mention note (@)')}
                   </button>
                   <button
                     type="button"
@@ -990,7 +990,7 @@ export default function AiChatPanel(props: {
                       fileRef.current?.click();
                     }}
                   >
-                    💻 {t('File from computer')}
+                    <Upload size={14} /> {t('File from computer')}
                   </button>
                 </div>
               )}

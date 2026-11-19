@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowPropCond, WorkflowRule } from '../types';
+import { Check, TriangleAlert, X } from 'lucide-react';
 import { t } from '../i18n';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
 import { confirm } from '../dialog';
@@ -344,7 +345,7 @@ export default function WorkflowRules({
                 }}
               >
                 <span>
-                  {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+                  {iss.severity === 'error' ? <TriangleAlert size={13} /> : '! '}{issueText(iss)}
                 </span>
                 {fixableKinds.has(iss.kind) && (
                   <span
@@ -373,7 +374,7 @@ export default function WorkflowRules({
                 className={'workflow-issue ' + (iss.severity === 'error' ? 'workflow-issue-error' : 'workflow-issue-warn')}
               >
                 <span>
-                  {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+                  {iss.severity === 'error' ? <TriangleAlert size={13} /> : '! '}{issueText(iss)}
                 </span>
                 {fixableKinds.has(iss.kind) && (
                   <button type="button" className="workflow-fix" onClick={() => applyFix(iss)}>
@@ -431,7 +432,7 @@ export default function WorkflowRules({
                   void askRemoveRule(r.id);
                 }}
               >
-                ✕
+                <X size={14} />
               </button>
               {!open && ifSummary(r) && <span className="workflow-if-summary">{ifSummary(r)}</span>}
             </div>
@@ -628,7 +629,7 @@ export default function WorkflowRules({
                             })
                           }
                         >
-                          ✕
+                          <X size={14} />
                         </button>
                       </div>
                     );
@@ -765,7 +766,7 @@ export default function WorkflowRules({
           {(simRows ?? []).map((r) => (
             <div key={r.to} className="workflow-sim-row">
               <span>
-                {r.verdict === 'ok' ? '✓' : r.verdict === 'ask' ? '? ' : '✕ '}→ {r.toName}
+                {r.verdict === 'ok' ? <Check size={13} /> : r.verdict === 'ask' ? '? ' : <X size={13} />}→ {r.toName}
               </span>
               {r.detail.length > 0 && <span className="dialog-hint">{r.detail.join(' · ')}</span>}
             </div>
@@ -1056,7 +1057,7 @@ function ActionRow({
           onChange={(e) => onChange({ type: 'webhook', url: e.target.value })}
         />
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-          ✕
+          <X size={14} />
         </button>
       </div>
     );
@@ -1091,7 +1092,7 @@ function ActionRow({
           <option value="always">{t('Always')}</option>
         </select>
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-          ✕
+          <X size={14} />
         </button>
       </div>
     );
@@ -1110,7 +1111,7 @@ function ActionRow({
           <option value="if_empty">{t('If none yet')}</option>
         </select>
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-          ✕
+          <X size={14} />
         </button>
       </div>
     );
@@ -1137,7 +1138,7 @@ function ActionRow({
         </select>
         <SetValueInput def={def} value={action.value} onChange={setValue} />
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-          ✕
+          <X size={14} />
         </button>
       </div>
     );
@@ -1161,7 +1162,7 @@ function ActionRow({
           ))}
       </select>
       <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-        ✕
+        <X size={14} />
       </button>
     </div>
   );

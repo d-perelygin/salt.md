@@ -1,4 +1,5 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
+import { CalendarDays, Inbox, Users } from 'lucide-react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { toast } from '../toast';
@@ -6,7 +7,7 @@ import type { CollectionConfig, PageMeta } from '../types';
 
 export interface CollectionTemplatePreset {
   id: 'sales' | 'content' | 'requests';
-  badge: string;
+  badge: ReactNode;
   tone: 'green' | 'blue' | 'purple';
   label: () => string;
   title: () => string;
@@ -18,7 +19,7 @@ export interface CollectionTemplatePreset {
 export const COLLECTION_PRESETS: CollectionTemplatePreset[] = [
   {
     id: 'sales',
-    badge: '🤝',
+    badge: <Users size={15} />,
     tone: 'green',
     label: () => t('Sales pipeline'),
     title: () => t('Deals'),
@@ -62,7 +63,7 @@ export const COLLECTION_PRESETS: CollectionTemplatePreset[] = [
   },
   {
     id: 'content',
-    badge: '🗓️',
+    badge: <CalendarDays size={15} />,
     tone: 'blue',
     label: () => t('Content calendar'),
     title: () => t('Content calendar'),
@@ -109,7 +110,7 @@ export const COLLECTION_PRESETS: CollectionTemplatePreset[] = [
   },
   {
     id: 'requests',
-    badge: '📥',
+    badge: <Inbox size={15} />,
     tone: 'purple',
     label: () => t('Request tracker'),
     title: () => t('Requests'),

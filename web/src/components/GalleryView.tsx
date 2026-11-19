@@ -2,6 +2,7 @@ import type { PropDef, PropOption } from '../types';
 import PropertyValue from './PropertyValue';
 import { tagColorClass } from '../tags';
 import { PageIcon } from '../pageIcon';
+import { FileText } from 'lucide-react';
 import { openCollectionRow, openPageAux } from '../pageOpen';
 import { t } from '../i18n';
 
@@ -51,7 +52,7 @@ export default function GalleryView({
           onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
         >
           <div className="gallery-cover" style={coverStyle(r.cover)}>
-            {!r.cover && <span className="gallery-cover-icon"><PageIcon icon={r.icon} size={40} fallback="📄" /></span>}
+            {!r.cover && <span className="gallery-cover-icon"><PageIcon icon={r.icon} size={40} fallback={<FileText size={40} />} /></span>}
           </div>
           <div className="gallery-body">
             <div className="gallery-title">

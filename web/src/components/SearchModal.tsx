@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, PanelRight, SlidersHorizontal } from 'lucide-react';
+import { ExternalLink, PanelRight, SlidersHorizontal, FileText } from 'lucide-react';
 import { api } from '../api';
 import type { PageMeta, SearchResult, User } from '../types';
 import Portal from './Portal';
@@ -444,7 +444,7 @@ export default function SearchModal({
                     onClick={(e) => openRowClick(e, r.id)}
                     onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                   >
-                    <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
+                    <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback={<FileText size={16} />} /></span>
                     <span className="result-body">
                       <span className="result-title">{r.title || t('Untitled')}</span>
                       {context && <span className="result-context">{context}</span>}
@@ -477,7 +477,7 @@ export default function SearchModal({
                       onClick={(e) => openRowClick(e, r.id)}
                       onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                     >
-                      <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
+                      <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback={<FileText size={16} />} /></span>
                       <span className="result-body">
                         <span className="result-title">{r.title || t('Untitled')}</span>
                       </span>

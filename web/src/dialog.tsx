@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, X } from 'lucide-react';
 import Portal from './components/Portal';
 import { t } from './i18n';
 import type { PromptField } from './workflow';
@@ -292,7 +292,7 @@ function ChecklistAsk({
             onPaste={(e) => onPaste(e, it, idx)}
           />
           <button type="button" className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
-            ✕
+            <X size={14} />
           </button>
         </div>
       ))}

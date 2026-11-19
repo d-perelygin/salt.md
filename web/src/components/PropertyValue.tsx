@@ -871,7 +871,7 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
                 className={'relation-option' + (holds(m) ? ' on' : '')}
                 onClick={() => choose(m.userId)}
               >
-                <span className="relation-check">{holds(m) ? '✓' : ''}</span>
+                <span className="relation-check">{holds(m) ? <Check size={12} /> : ''}</span>
                 <PersonChip raw={m.userId} members={members} />
               </button>
             ))}
@@ -1202,7 +1202,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
                 className={'relation-option' + (ids.includes(o.id) ? ' on' : '')}
                 onClick={() => toggle(o.id)}
               >
-                <span className="relation-check">{ids.includes(o.id) ? '✓' : ''}</span>
+                <span className="relation-check">{ids.includes(o.id) ? <Check size={12} /> : ''}</span>
                 {o.icon && (
                   <span className="relation-icon">
                     <PageIcon icon={o.icon} size={16} />

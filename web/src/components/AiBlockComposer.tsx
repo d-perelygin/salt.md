@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FileText, Quote } from 'lucide-react';
 import { api } from '../api';
 import { t } from '../i18n';
 import type { PageMeta } from '../types';
@@ -143,7 +144,7 @@ export default function AiBlockComposer(props: {
                   }}
                   style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '8px 12px', fontSize: 14 }}
                 >
-                  📄 {p.title || t('Untitled')}
+                  <FileText size={14} /> {p.title || t('Untitled')}
                 </button>
               ))}
             </div>
@@ -159,7 +160,7 @@ export default function AiBlockComposer(props: {
       )}
       {props.selection && (
         <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 12, maxHeight: 60, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-          ❝ {props.selection.slice(0, 300)}{props.selection.length > 300 ? '…' : ''}
+          <Quote size={13} /> {props.selection.slice(0, 300)}{props.selection.length > 300 ? '…' : ''}
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -180,7 +181,7 @@ export default function AiBlockComposer(props: {
       )}
       <div style={{ fontWeight: 600, margin: '12px 0 8px' }}>{t('Using')}</div>
       <div style={{ padding: 8, border: '1px solid var(--border)', borderRadius: 8, opacity: 0.8, fontSize: 14 }}>
-        📄 {t('Current page only')}
+        <FileText size={14} /> {t('Current page only')}
       </div>
     </div>
   );

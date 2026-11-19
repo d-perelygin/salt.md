@@ -69,7 +69,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles } from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles, Lightbulb, Bookmark, Table2, List, Files, TriangleAlert } from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 import { InlineCommentButton, useInlineComments } from './InlineComments';
 
@@ -666,7 +666,7 @@ function BlockedBanner({
 
   return (
     <div className="dep-banner" role="status">
-      <span className="dep-banner-ic">⚠</span>
+      <span className="dep-banner-ic"><TriangleAlert size={15} /></span>
       <div className="dep-banner-text">
         {t('Blocked by {names} until {d}', {
           names: blockers.map((p) => titles.get(p.id) ?? t('Untitled')).join(', '),
@@ -3345,7 +3345,7 @@ function BlockContent({
         subtext: t('A highlighted note with an emoji'),
         aliases: ['callout', 'hinweis', 'info', 'warnung', 'выноска', 'заметка', 'подсказка', 'важно'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
         group: editor.dictionary.slash_menu.paragraph.group,
-        icon: <span>💡</span>,
+        icon: <Lightbulb size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'callout' } as never),
       },
@@ -3354,7 +3354,7 @@ function BlockContent({
         subtext: t('A link card, or a YouTube/Vimeo player'),
         aliases: ['bookmark', 'embed', 'link', 'video', 'youtube', 'закладка', 'встроить', 'ссылка', 'видео'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
         group: editor.dictionary.slash_menu.image.group,
-        icon: <span>🔖</span>,
+        icon: <Bookmark size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'bookmark' } as never),
       },
@@ -3363,7 +3363,7 @@ function BlockContent({
         subtext: t('Show an existing collection inside the document'),
         aliases: ['datenbank', 'database', 'db', 'tabelle', 'board', 'kanban', 'база', 'коллекция', 'таблица', 'доска', 'встроить коллекцию'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
         group: editor.dictionary.slash_menu.paragraph.group,
-        icon: <span>▦</span>,
+        icon: <Table2 size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'database' } as never),
       },
@@ -3372,7 +3372,7 @@ function BlockContent({
         subtext: t('Auto-generated list of every heading'),
         aliases: ['toc', 'inhalt', 'inhaltsverzeichnis', 'outline', 'оглавление', 'содержание'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
         group: editor.dictionary.slash_menu.paragraph.group,
-        icon: <span>📑</span>,
+        icon: <List size={18} />,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'toc' } as never),
       },
       {
@@ -3380,7 +3380,7 @@ function BlockContent({
         subtext: t('List of pages below this one'),
         aliases: ['subpages', 'unterseiten', 'children', 'sub-pages', 'подстраницы', 'дочерние', 'страницы', 'вложенные'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
         group: editor.dictionary.slash_menu.paragraph.group,
-        icon: <span>📄</span>,
+        icon: <Files size={18} />,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'subpages' } as never),
       },
     ];

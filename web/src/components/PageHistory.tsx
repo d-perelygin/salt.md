@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Clock } from 'lucide-react';
 import { api } from '../api';
 import type { Comment, Revision } from '../types';
 import Portal from './Portal';
@@ -45,7 +46,7 @@ export function HistoryModal({
         <div className="user-list">
           {revisions.map((r) => (
             <div key={r.id} className="user-row">
-              <span className="user-row-name">🕘 {when(r.createdAt)}</span>
+              <span className="user-row-name"><Clock size={14} /> {when(r.createdAt)}</span>
               <span className="user-row-email">{r.authorName || t('unknown')}</span>
               <button className="btn-sm" onClick={() => void restore(r)}>{t('Restore')}</button>
             </div>

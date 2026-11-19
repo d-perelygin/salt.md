@@ -1,6 +1,7 @@
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from '@blocknote/core';
 import { createReactInlineContentSpec } from '@blocknote/react';
 import { bookmarkSpec, databaseSpec, calloutSpec, tocSpec, subpagesSpec, columnsSpec, mermaidSpec, aiBlockSpec } from './blocks';
+import { Link2 } from 'lucide-react';
 import { t } from './i18n';
 
 // A "pageLink" is an inline mention of another salt.md page. It stores the target
@@ -74,7 +75,7 @@ export const pageLinkSpec = createReactInlineContentSpec(
               );
             }}
           >
-            <span className="page-link-icon">🔗</span>
+            <span className="page-link-icon"><Link2 size={13} /></span>
             {props.inlineContent.props.label || t('Untitled')}
           </button>
         </PageHoverCard>

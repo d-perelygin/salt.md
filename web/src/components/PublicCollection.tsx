@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Columns3, LayoutGrid, List, Lock, Table2 } from 'lucide-react';
+import { CalendarDays, Columns3, LayoutGrid, List, Lock, Table2, X, SquareCheck, Square } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { plural, t } from '../i18n';
 import { firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, weekdayNames } from '../format';
@@ -308,7 +308,7 @@ export default function PublicCollection({ token }: { token: string }) {
               {detail.icon && <PageIcon icon={detail.icon} size={22} />}
               <h2>{detail.title || t('Untitled')}</h2>
               <button className="btn-sm" onClick={() => setDetail(null)}>
-                ✕
+                <X size={14} />
               </button>
             </div>
             <PublicDetailProps schema={schema} values={detail.props} related={related} onOpen={openRow} />
@@ -1191,7 +1191,7 @@ function PublicDetailContent({ content }: { content: string }) {
         if (type === 'checkListItem')
           return (
             <li key={i} className="public-check">
-              {(block.props as { checked?: boolean } | undefined)?.checked ? '☑ ' : '☐ '}
+              {(block.props as { checked?: boolean } | undefined)?.checked ? <SquareCheck size={14} /> : <Square size={14} />}
               {text}
             </li>
           );

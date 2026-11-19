@@ -103,7 +103,7 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
-  ArrowRight, ChevronDown, History, Inbox, PanelLeftClose, PanelLeftOpen, Pin} from 'lucide-react';
+  ArrowRight, ChevronDown, History, Inbox, PanelLeftClose, PanelLeftOpen, Pin, TriangleAlert, X} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
 function propTypeIcon(t: PropDef['type']) {
@@ -2606,7 +2606,7 @@ function PersonFilterValue({ filter, onChange }: { filter: Filter; onChange: (pa
               className={'relation-option' + (picked.includes('@me') ? ' on' : '')}
               onClick={() => toggle('@me')}
             >
-              <span className="relation-check">{picked.includes('@me') ? '✓' : ''}</span>
+              <span className="relation-check">{picked.includes('@me') ? <Check size={12} /> : ''}</span>
               <MeChip />
             </button>
             {filtered.map((m) => (
@@ -2616,13 +2616,13 @@ function PersonFilterValue({ filter, onChange }: { filter: Filter; onChange: (pa
                 className={'relation-option' + (holds(m) ? ' on' : '')}
                 onClick={() => toggle(m.userId)}
               >
-                <span className="relation-check">{holds(m) ? '✓' : ''}</span>
+                <span className="relation-check">{holds(m) ? <Check size={12} /> : ''}</span>
                 <PersonChip raw={m.userId} members={members} />
               </button>
             ))}
             {q && !filtered.some((m) => m.name.toLowerCase() === q || m.userId.toLowerCase() === q) && q !== '@me' && (
               <button type="button" className="relation-option" onClick={() => toggle(query.trim())}>
-                <span className="relation-check">{picked.includes(query.trim()) ? '✓' : ''}</span>
+                <span className="relation-check">{picked.includes(query.trim()) ? <Check size={12} /> : ''}</span>
                 <span className="prop-person">
                   <span className="prop-person-name">{t('Use “{name}”', { name: query.trim() })}</span>
                 </span>
@@ -2970,7 +2970,7 @@ function FilterSortControls({
                       )
                     }
                   >
-                    ✕
+                    <X size={14} />
                   </button>
                 </div>
                 {hasValueInput(op) && (
@@ -3083,7 +3083,7 @@ function FilterSortControls({
                   title={t('Remove group')}
                   onClick={() => setGroups(groups.filter((_, j) => j !== gi))}
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               )}
               </div>
@@ -5651,7 +5651,7 @@ function TimelineView({
                 '{n} tasks start before their blockers end',
               )}
             >
-              ⚠ {plural(allViolations.length, '{n} conflict', '{n} conflicts')}
+              <TriangleAlert size={13} /> {plural(allViolations.length, '{n} conflict', '{n} conflicts')}
             </button>
             {conflictsOpen && (
               <>
@@ -6020,7 +6020,7 @@ function TimelineView({
                             setAddBlockerFor(null);
                           }}
                         >
-                          ⚠{blocked.length > 1 ? blocked.length : ''}
+                          <TriangleAlert size={13} />{blocked.length > 1 ? blocked.length : ''}
                         </button>
                       )}
                     </div>
@@ -6107,7 +6107,7 @@ function TimelineView({
                                 setAddBlockerFor(null);
                               }}
                             >
-                              ⚠
+                              <TriangleAlert size={13} />
                             </button>
                           )}
                         </div>
@@ -6183,7 +6183,7 @@ function TimelineView({
                             setAddBlockerFor(null);
                           }}
                         >
-                          ⚠
+                          <TriangleAlert size={13} />
                         </button>
                       )}
                       {resizable && (
@@ -6355,7 +6355,7 @@ function TimelineView({
                           unlink(a.pred, a.succ);
                         }}
                       >
-                        ✕
+                        <X size={14} />
                       </button>
                     );
                   })}
@@ -6457,7 +6457,7 @@ function TimelineView({
                       setDepPop(null);
                     }}
                   >
-                    ✕
+                    <X size={14} />
                   </button>
                 </div>
               );
@@ -6604,7 +6604,7 @@ function TimelineView({
                       unlink(depPop.id, sid);
                     }}
                   >
-                    ✕
+                    <X size={14} />
                   </button>
                 </div>
               );

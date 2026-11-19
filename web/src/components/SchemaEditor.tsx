@@ -10,7 +10,7 @@ import { OPTION_HEXES, optionPalette } from '../selectOptions';
 import { renameSelectOption, moveSelectOption, reorderSelectOption } from '../renameSelectOption';
 import { confirm } from '../dialog';
 import { toast } from '../toast';
-import { GripVertical, Check, Trash2 } from 'lucide-react';
+import { GripVertical, Check, Trash2, X } from 'lucide-react';
 import { t } from '../i18n';
 import { imeComposing } from '../keys';
 import { loadMembers, type Member } from './PropertyValue';
@@ -658,7 +658,7 @@ export default function SchemaEditor({
                   ))}
                 </select>
                 <button className="icon-btn danger" title={t('Delete property')} onClick={() => removeProp(p.id)}>
-                  ✕
+                  <X size={14} />
                 </button>
               </div>
               {(p.type === 'select' || p.type === 'multiselect') && (

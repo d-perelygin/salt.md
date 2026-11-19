@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { MessageCircle, MoreHorizontal, Plus, Pin } from 'lucide-react';
+import { MessageCircle, MoreHorizontal, Plus, Pin, FileText, Link2, SquareCheck, Pencil, Trash2, ArrowUpRight } from 'lucide-react';
 import { api } from '../api';
 import { confirm, promptText } from '../dialog';
 import { formatMoment } from '../format';
@@ -132,11 +132,11 @@ export default function AiThreadList(props: {
         <span className="ai-row-title">
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <span>{th.title || t('New chat')}</span>
-            {isPinned && <span className="ai-pin-badge" title={t('Pinned')}>📌</span>}
+            {isPinned && <span className="ai-pin-badge" title={t('Pinned')}><Pin size={11} /></span>}
           </span>
           {(pageTitle || th.lastPreview) && (
             <span className="ai-row-sub">
-              {[pageTitle && `📄 ${pageTitle}`, th.lastPreview].filter(Boolean).join(' · ').slice(0, 80)}
+              {[pageTitle, th.lastPreview].filter(Boolean).join(' · ').slice(0, 80)}
             </span>
           )}
         </span>
@@ -153,24 +153,24 @@ export default function AiThreadList(props: {
           {menuFor === th.id && (
             <AnchoredMenu>
               <button onClick={() => { setMenuFor(null); togglePin(th.id); }}>
-                📌 {isPinned ? t('Unpin chat') : t('Pin chat')}
+                <Pin size={14} /> {isPinned ? t('Unpin chat') : t('Pin chat')}
               </button>
               <button onClick={() => void copyLink(th.id)}>
-                🔗 {t('Copy link')}
+                <Link2 size={14} /> {t('Copy link')}
               </button>
               {unread && (
                 <button onClick={() => void markRead(th)}>
-                  ☑ {t('Mark as read')}
+                  <SquareCheck size={14} /> {t('Mark as read')}
                 </button>
               )}
               <button onClick={() => void rename(th)}>
-                ✎ {t('Rename')}
+                <Pencil size={14} /> {t('Rename')}
               </button>
               <button className="danger" onClick={() => void remove(th)}>
-                🗑 {t('Delete')}
+                <Trash2 size={14} /> {t('Delete')}
               </button>
               <button onClick={() => { setMenuFor(null); window.open(threadLink(th.id), '_blank', 'noopener'); }}>
-                ↗ {t('Open in new tab')}
+                <ArrowUpRight size={14} /> {t('Open in new tab')}
               </button>
               {th.updatedAt && (
                 <div className="menu-label">

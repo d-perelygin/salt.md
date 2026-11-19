@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createReactBlockSpec } from '@blocknote/react';
-import { Table2, Sparkles, RotateCw, Settings, FileText } from 'lucide-react';
+import { Table2, Sparkles, RotateCw, Settings, FileText, Bookmark } from 'lucide-react';
 import { useBlockCtx } from './blockContext';
 import { api } from './api';
 import AiErrorCard from './components/AiErrorCard';
@@ -283,7 +283,7 @@ export const bookmarkSpec = createReactBlockSpec(
           rel="noopener noreferrer"
           contentEditable={false}
         >
-          <span className="bn-bookmark-icon">🔖</span>
+          <span className="bn-bookmark-icon"><Bookmark size={16} /></span>
           <span className="bn-bookmark-body">
             <span className="bn-bookmark-url">{url}</span>
             <span className="bn-bookmark-host">{host}</span>

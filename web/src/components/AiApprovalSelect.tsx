@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Shield, Check } from 'lucide-react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
@@ -29,7 +30,7 @@ export default function AiApprovalSelect(props: { value: string; onChange: (m: A
         title={t('How should the agent ask for approval?')}
         onClick={() => setOpen((v) => !v)}
       >
-        🛡 {approvalLabel(props.value)}
+        <Shield size={14} /> {approvalLabel(props.value)}
       </button>
       {open && (
         <div
@@ -53,7 +54,7 @@ export default function AiApprovalSelect(props: { value: string; onChange: (m: A
             >
               <div style={{ fontWeight: 600, fontSize: 14 }}>
                 {m.id === 'always' ? t('Always ask') : m.id === 'review' ? t('Review for me') : t('Skip all approvals')}
-                {props.value === m.id && <span style={{ float: 'right' }}>✓</span>}
+                {props.value === m.id && <span style={{ float: 'right' }}><Check size={12} /></span>}
               </div>
               <div style={{ fontSize: 12, opacity: 0.7 }}>
                 {m.id === 'always' ? t('Ask before making changes or sharing content')

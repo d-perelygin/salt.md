@@ -1,6 +1,7 @@
 import type { PropDef, PropOption } from '../types';
 import PropertyValue from './PropertyValue';
 import { tagColorClass } from '../tags';
+import { FileText } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import { t } from '../i18n';
 import { openCollectionRow, openPageAux } from '../pageOpen';
@@ -55,7 +56,7 @@ export default function ListView({
           onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
         >
           <span className="list-row-icon">
-            <PageIcon icon={r.icon} size={17} fallback="📄" />
+            <PageIcon icon={r.icon} size={17} fallback={<FileText size={17} />} />
           </span>
           <span className="list-row-title">{r.title || t('Untitled')}</span>
           {r.tags && r.tags.length > 0 && (

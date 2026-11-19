@@ -6,7 +6,7 @@ import { PageIcon } from '../pageIcon';
 import { compare, formatMoment } from '../format';
 import { plural, t } from '../i18n';
 import { tagColorClass } from '../tags';
-import { Clock, FileText, Library, Lock, Share2, Star, Table2, Users, Workflow } from 'lucide-react';
+import { Clock, FileText, Library, Lock, Share2, Star, Table2, Users, Workflow, Database } from 'lucide-react';
 import GraphView from './GraphView';
 import { openPage, openPageAux } from '../pageOpen';
 
@@ -252,7 +252,7 @@ export default function IndexView({
             onAuxClick={(e) => openPageAux(e, p.id, { onNavigate, onOpenInNewTab })}
             title={p.id}
           >
-            <span className="idx-node-icon"><PageIcon icon={p.icon} size={14} fallback={isDb ? '🗄' : '📄'} /></span>
+            <span className="idx-node-icon"><PageIcon icon={p.icon} size={14} fallback={isDb ? <Database size={14} /> : <FileText size={14} />} /></span>
             <span className={'idx-node-title' + (query && matches ? ' idx-hit' : '')}>{p.title || t('Untitled')}</span>
             {isDb && <span className="index-badge" title={t('Collection')}><Table2 size={11} /></span>}
           </button>

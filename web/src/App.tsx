@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from './api';
 import { serverMessage } from './serverErrors';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, Menu, Sparkles, CloudOff } from 'lucide-react';
 import type { Me, PageMeta, User, Workspace } from './types';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
@@ -1954,7 +1954,7 @@ export default function App() {
   if (loadError && !pages) {
     return (
       <div className="empty-state">
-        <div className="empty-emoji">🍂</div>
+        <div className="empty-emoji"><CloudOff size={44} /></div>
         <h2>{t('Cannot reach the server')}</h2>
         <p>{t('salt.md could not load your workspace.')}</p>
         <button className="btn primary" onClick={() => window.location.reload()}>
@@ -2226,8 +2226,8 @@ export default function App() {
           // if someone is left without one anyway (assignment revoked, creation
           // failed), at least say what is going on.
           <div className="empty-state">
-            <button className="menu-btn empty-menu-btn" onClick={openSidebar}>
-              ☰
+            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label="Menu">
+              <Menu size={18} />
             </button>
             <div className="empty-emoji"><Logo size={52} /></div>
             <h2>{t('No workspace')}</h2>
@@ -2263,8 +2263,8 @@ export default function App() {
           </div>
         ) : (
           <div className="empty-state">
-            <button className="menu-btn empty-menu-btn" onClick={openSidebar}>
-              ☰
+            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label="Menu">
+              <Menu size={18} />
             </button>
             <div className="empty-emoji"><Logo size={52} /></div>
             <h2>{t('No pages yet')}</h2>
@@ -2336,7 +2336,7 @@ export default function App() {
           const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
           if (sel) setAiQuote(sel);
           setAiChatOpen(true);
-        }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 90, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}>✨</button>
+        }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 90, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}><Sparkles size={20} /></button>
       )}
       {aiEnabled && sidebarMode === 'docs' && (
         <AiChatPanel

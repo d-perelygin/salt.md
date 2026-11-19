@@ -9,7 +9,7 @@ import { useExclusiveModal } from '../modal';
 import { formatMoment, formatRelative } from '../format';
 import { plural, t } from '../i18n';
 import { AdminSettingsModal, TwoFAModal, CalendarSubModal } from './AdminSettings';
-import { Key, History, CalendarDays, ShieldCheck, Users, Settings, LogOut, Bot, User as UserIcon, Columns2, Type, Languages, Undo2, Keyboard, SquareArrowOutUpRight } from 'lucide-react';
+import { Key, History, CalendarDays, ShieldCheck, Users, Settings, LogOut, Bot, User as UserIcon, Columns2, Type, Languages, Undo2, Keyboard, SquareArrowOutUpRight, X } from 'lucide-react';
 import { chordFor } from '../keys';
 import { pagePath } from '../pageUrl';
 import { LanguageTimeModal } from './LanguageTime';
@@ -1155,7 +1155,7 @@ function TokensModal({ onClose }: { onClose: () => void }) {
                   load();
                 }}
               >
-                ✕
+                <X size={14} />
               </button>
             </div>
           ))}
@@ -1243,7 +1243,7 @@ function TokensModal({ onClose }: { onClose: () => void }) {
                   aria-label={t('End connection')}
                   onClick={() => void endGrant(g)}
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               </div>
             );
