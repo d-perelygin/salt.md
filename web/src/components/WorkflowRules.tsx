@@ -68,6 +68,9 @@ export default function WorkflowRules({
     commit({ statusPropId, rules: rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
 
   const [openRule, setOpenRule] = useState<string | null>(rules[0]?.id ?? null);
+  // Hovering a rule block in the list lights its arrows on the map —
+  // the reverse direction of clicking a map arrow, which opens the block.
+  const [hoverRuleId, setHoverRuleId] = useState<string | null>(null);
   const [newTarget, setNewTarget] = useState('');
   // List edits the rules; Scheme is a read-only map of where cards can go.
   const [view, setView] = useState<'list' | 'scheme'>('list');
@@ -447,7 +450,13 @@ export default function WorkflowRules({
             ? t('a row is created')
             : `${statusProp?.name ?? ''} → ${statusOpts.find((o) => o.id === whenTo)?.name ?? whenTo}`;
         return (
-          <div key={r.id} className={'schema-item' + (errorRules.has(r.id) ? ' schema-item-error' : '')} data-rule-id={r.id}>
+          <div
+            key={r.id}
+            className={'schema-item' + (errorRules.has(r.id) ? ' schema-item-error' : '')}
+            data-rule-id={r.id}
+            onMouseEnter={() => setHoverRuleId(r.id)}
+            onMouseLeave={() => setHoverRuleId((h) => (h === r.id ? null : h))}
+          >
             <div
               className="workflow-head"
               role="button"
@@ -860,6 +869,8 @@ export default function WorkflowRules({
         issues={issues}
         statusReady={!!statusPropId && statusOpts.length > 0}
         onLocate={locateOnMap}
+        activeRuleId={openRule}
+        hoverRuleId={hoverRuleId}
       />
       )}
       {fullScheme && (
@@ -889,6 +900,8 @@ export default function WorkflowRules({
                   issues={issues}
                   statusReady={!!statusPropId && statusOpts.length > 0}
                   onLocate={locateOnMap}
+                  activeRuleId={openRule}
+                  hoverRuleId={hoverRuleId}
                 />
               </div>
               <div className="workflow-full-side">{listView}</div>
@@ -912,6 +925,8 @@ function WorkflowScheme({
   issues,
   statusReady,
   onLocate,
+  activeRuleId,
+  hoverRuleId,
 }: {
   workflow: WorkflowConfig | undefined;
   schema: PropDef[];
@@ -919,6 +934,11 @@ function WorkflowScheme({
   issues: WorkflowIssue[];
   statusReady: boolean;
   onLocate: (target: { ruleId: string } | { groupKey: string }) => void;
+  // The rule block currently open in the list: its arrows stay lit so the
+  // map never loses the thread after a click-to-locate.
+  activeRuleId: string | null;
+  // The rule block under the pointer in the list: temporary, like a hover.
+  hoverRuleId: string | null;
 }) {
   if (!statusReady) {
     return (
@@ -1056,6 +1076,26 @@ function WorkflowScheme({
   };
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
+  // A clicked stage keeps only its own roads lit until the canvas (or the
+  // same stage again) clears it. Nodes do not know rules, so the spotlight
+  // is a node; the pinned set below merges it with rule-based lights.
+  const [spotNode, setSpotNode] = useState<string | null>(null);
+  // One predicate for every place that asks "is this edge lit": the open
+  // rule block, the list row under the pointer, the spotlighted stage, or
+  // an ordinary map hover. Kept in one place so the paint order, the dim
+  // rule and the node rings can never disagree about what is lit.
+  const ruleLit = (r: WorkflowRule) => r.id === activeRuleId || r.id === hoverRuleId;
+  const edgeLit = (e: Edge) =>
+    e.rules.some(ruleLit) ||
+    (spotNode !== null && (e.from === spotNode || e.to === spotNode)) ||
+    (hoveredNode !== null && (e.from === hoveredNode || e.to === hoveredNode)) ||
+    hoveredEdge === `${e.from}>${e.to}`;
+  const anyLit =
+    hoveredNode !== null ||
+    hoveredEdge !== null ||
+    spotNode !== null ||
+    hoverRuleId !== null ||
+    activeRuleId !== null;
 
   const renderEdge = (e: Edge) => {
     const i = idx.get(e.from)!;
@@ -1095,11 +1135,13 @@ function WorkflowScheme({
           ]),
         ].join('\n');
     const edgeKey = `${e.from}>${e.to}`;
-    const isOut = hoveredNode === e.from;
-    const isIn = hoveredNode === e.to;
-    const isEdgeHovered = hoveredEdge === edgeKey;
-    const isConn = isOut || isIn || isEdgeHovered;
-    const isDim = (hoveredNode !== null || hoveredEdge !== null) && !isConn;
+    const isConn = edgeLit(e);
+    const isDim = anyLit && !isConn;
+    // Hover keeps its old meaning (outgoing/incoming legs) through the same
+    // two flags; pinned edges join the lit set from the side. A spotlighted
+    // stage reads like a hovered one, so its fan keeps the direction tint.
+    const isOut = hoveredNode === e.from || (spotNode !== null && e.from === spotNode);
+    const isIn = hoveredNode === e.to || (spotNode !== null && e.to === spotNode);
     const cls = [
       e.free ? 'free' : '',
       isConn ? 'is-active' : '',
@@ -1165,40 +1207,41 @@ function WorkflowScheme({
           ))}
         </div>
       )}
-      <svg className="workflow-scheme-svg" width={width} height={height} role="img">
-        {((hoveredNode || hoveredEdge)
-          ? [...edges].sort((a, b) => {
-              const aActive =
-                (hoveredNode && (a.from === hoveredNode || a.to === hoveredNode)) ||
-                hoveredEdge === `${a.from}>${a.to}`
-                  ? 1
-                  : 0;
-              const bActive =
-                (hoveredNode && (b.from === hoveredNode || b.to === hoveredNode)) ||
-                hoveredEdge === `${b.from}>${b.to}`
-                  ? 1
-                  : 0;
-              return aActive - bActive;
-            })
+      <svg
+        className="workflow-scheme-svg"
+        width={width}
+        height={height}
+        role="img"
+        onClick={(e) => {
+          // Empty canvas clears the spotlight; a node or an arrow handles
+          // its own click and never reaches here (see below).
+          if (!(e.target as Element).closest?.('g[role="button"]')) setSpotNode(null);
+        }}
+      >
+        {(anyLit
+          ? [...edges].sort((a, b) => Number(edgeLit(a)) - Number(edgeLit(b)))
           : edges
         ).map(renderEdge)}
         {statusOpts.map((o, i) => {
           const flag = flagOf(o.id);
-          const isNodeHovered = hoveredNode === o.id;
-          const isNodeConnected = hoveredEdge
-            ? edges.some(
-                (e) => `${e.from}>${e.to}` === hoveredEdge && (e.from === o.id || e.to === o.id),
-              )
-            : false;
+          const lit =
+            hoveredNode === o.id ||
+            spotNode === o.id ||
+            edges.some(
+              (e) => edgeLit(e) && (e.from === o.id || e.to === o.id),
+            );
           return (
             <g
               key={o.id}
-              className={isNodeHovered || isNodeConnected ? 'is-hovered' : undefined}
+              className={lit ? 'is-hovered' : undefined}
               onMouseEnter={() => setHoveredNode(o.id)}
               onMouseLeave={() => setHoveredNode((h) => (h === o.id ? null : h))}
               style={{ cursor: 'pointer' }}
               aria-label={o.name}
-              {...keyActivate(() => onLocate({ groupKey: `to:${o.id}` }))}
+              {...keyActivate(() => {
+                setSpotNode((s) => (s === o.id ? null : o.id));
+                onLocate({ groupKey: `to:${o.id}` });
+              })}
             >
               <title>{o.name}</title>
               <rect
@@ -1207,10 +1250,7 @@ function WorkflowScheme({
                 width={NW}
                 height={NH}
                 rx={8}
-                className={
-                  'workflow-scheme-node' +
-                  (isNodeHovered || isNodeConnected ? ' is-hovered' : '')
-                }
+                className={'workflow-scheme-node' + (lit ? ' is-hovered' : '')}
               />
               <text x={X(i) + NW / 2} y={topH + NH / 2 + 5} textAnchor="middle" className="workflow-scheme-label">
                 {short(o.name)}
