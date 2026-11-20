@@ -42,6 +42,7 @@ import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import AnchoredMenu from './AnchoredMenu';
 import AiEmptyLine from './AiEmptyLine';
+import OutlineMinimap from './OutlineMinimap';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
@@ -4063,6 +4064,7 @@ function BlockContent({
           </BlockNoteView>
         </BlockContext.Provider>
         <AiEmptyLine editor={editor} pageId={pageId} canEdit={canEdit} />
+        <OutlineMinimap editor={editor} />
         {!structureOpen && (
           <Backlinks pageId={provider.pageId} pagesById={pagesById} tagColors={tagColors} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}

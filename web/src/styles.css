@@ -5585,6 +5585,107 @@ body.is-unsched-carry .tl-end-space {
   gap: 6px;
 }
 
+/* The document minimap: thin bars at the viewport's right edge, one per
+   heading, longer for higher headings (Notion-style). Hovering the rail
+   opens the headings as clickable entries; clicking a bar or an entry jumps
+   to it, and the bar of the heading on screen stays lit. Desktop only: it
+   needs a hover, room beside the page, and no peek panel around it. */
+.outline-minimap {
+  position: fixed;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 60;
+  display: none;
+}
+@media (min-width: 1300px) and (hover: hover) {
+  .outline-minimap {
+    display: block;
+  }
+  .peek-panel .outline-minimap {
+    display: none;
+  }
+}
+@media print {
+  .outline-minimap {
+    display: none;
+  }
+}
+.outline-bars {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 4px 8px 12px;
+}
+.outline-bar {
+  display: block;
+  /* content-box on purpose: the global reset is border-box, under which a
+     3px bar with a fat border would collapse its painted area to zero and
+     vanish. Padding is hit-testable; the colour paints the content box only,
+     so the eye sees a thin strip and the pointer gets a tall target. */
+  box-sizing: content-box;
+  height: 3px;
+  padding: 5px 2px 5px 0;
+  border: none;
+  background-color: color-mix(in srgb, var(--fg) 28%, transparent);
+  background-clip: content-box;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.outline-bar:hover {
+  background-color: var(--muted);
+}
+.outline-bar.is-on {
+  background-color: var(--accent);
+}
+.outline-popup {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 264px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  padding: 6px;
+}
+.outline-popup-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 6px 8px 4px;
+}
+.outline-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 5px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.outline-item:hover {
+  background: var(--hover);
+}
+.outline-item.is-on {
+  color: var(--accent);
+}
+
 .bn-bookmark-input {
   width: 100%;
 }
