@@ -108,12 +108,12 @@ export default function OutlineMinimap({ editor }: { editor: SaltEditor }) {
     locate(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
   // H1 longest; deeper headings shrink to a tick.
-  const barWidth = (level: number) => (level <= 1 ? 30 : level === 2 ? 22 : level === 3 ? 15 : 9);
+  const barWidth = (level: number) => (level <= 1 ? 34 : level === 2 ? 26 : level === 3 ? 18 : 10);
 
   return (
     <div
       ref={rootRef}
-      className="outline-minimap"
+      className={'outline-minimap' + (open ? ' is-open' : '')}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
