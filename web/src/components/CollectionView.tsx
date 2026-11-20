@@ -7173,28 +7173,31 @@ function CalendarView({
     return rows;
   };
   // Week view renders month grids with the unneeded weeks cut out: every
-  // selected week contributes the month-grid row holding it, and days
-  // outside the month stay empty exactly like in the month view. Thursday
-  // decides a week's month (ISO), so a week straddling two months lands in
-  // one block instead of showing both months' edges.
-  const thuOffset = (4 - firstWeekday() + 7) % 7; // getDay() counts Sunday as 0
+  // selected day lands in its own month's grid row, so no day of the span is
+  // ever lost (a week straddling two months contributes a row to each).
+  // Days outside the block's month stay empty, exactly like the month view.
   const weekBlocks: { first: Date; rows: (Date | null)[][] }[] = [];
   if (mode === 'week') {
+    const seen = new Set<string>();
     const byMonth = new Map<number, { first: Date; rows: (Date | null)[][] }>();
     for (const wd of weeks) {
-      const thu = wd[thuOffset];
-      const first = new Date(thu.getFullYear(), thu.getMonth(), 1);
-      const key = thu.getFullYear() * 12 + thu.getMonth();
-      let block = byMonth.get(key);
-      if (!block) {
-        block = { first, rows: [] };
-        byMonth.set(key, block);
-      }
-      const cells = monthCells(first);
-      const ti = cells.findIndex((c) => c !== null && ymd(c) === ymd(thu));
-      if (ti >= 0) {
-        const row = cells.slice(Math.floor(ti / 7) * 7, Math.floor(ti / 7) * 7 + 7);
-        block.rows.push(row);
+      for (const d of wd) {
+        const key = d.getFullYear() * 12 + d.getMonth();
+        let block = byMonth.get(key);
+        if (!block) {
+          block = { first: new Date(d.getFullYear(), d.getMonth(), 1), rows: [] };
+          byMonth.set(key, block);
+        }
+        const cells = monthCells(block.first);
+        const ti = cells.findIndex((c) => c !== null && ymd(c) === ymd(d));
+        if (ti >= 0) {
+          const ri = Math.floor(ti / 7);
+          const rowKey = `${key}:${ri}`;
+          if (!seen.has(rowKey)) {
+            seen.add(rowKey);
+            block.rows.push(cells.slice(ri * 7, ri * 7 + 7));
+          }
+        }
       }
     }
     weekBlocks.push(...byMonth.values());
