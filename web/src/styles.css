@@ -4133,6 +4133,10 @@ body.is-col-resizing {
   fill: var(--muted);
   font-size: 11px;
 }
+.workflow-scheme-countbg {
+  fill: var(--card);
+  stroke: var(--border);
+}
 .workflow-scheme-node {
   fill: var(--sidebar-bg);
   stroke: var(--border);

@@ -977,11 +977,43 @@ function WorkflowScheme({
   const edges = [...edgeMap.values()];
   const created = rules.filter((r) => r.when.type === 'created');
   const idx = new Map(statusOpts.map((o, i) => [o.id, i] as const));
-  const spanOf = (e: Edge) => Math.abs(idx.get(e.from)! - idx.get(e.to)!);
   const fwd = edges.filter((e) => idx.get(e.from)! < idx.get(e.to)!);
   const bwd = edges.filter((e) => idx.get(e.from)! > idx.get(e.to)!);
-  const topH = fwd.length > 0 ? 30 + 24 * Math.max(...fwd.map(spanOf)) : 16;
-  const botH = bwd.length > 0 ? 26 + 24 * Math.max(...bwd.map(spanOf)) : 12;
+  // Lanes, not nested arcs: overlapping horizontals get different lanes, so
+  // no two of them ever share paint (touching at a node counts as overlap —
+  // a chained A→B→C must not read as one long road). Greedy interval-graph
+  // coloring; stable because edgeMap keeps insertion order.
+  const assignLanes = (list: Edge[]): Map<Edge, number> => {
+    const at = (e: Edge) => {
+      const a = idx.get(e.from)!;
+      const b = idx.get(e.to)!;
+      return [Math.min(a, b), Math.max(a, b)] as const;
+    };
+    const sorted = [...list].sort((x, y) => {
+      const [ax, bx] = [at(x), at(y)];
+      return ax[0] - bx[0] || bx[1] - ax[1];
+    });
+    const ends: number[] = [];
+    const out = new Map<Edge, number>();
+    for (const e of sorted) {
+      const [l, r] = at(e);
+      let lane = ends.findIndex((end) => end < l);
+      if (lane === -1) {
+        lane = ends.length;
+        ends.push(r);
+      } else {
+        ends[lane] = r;
+      }
+      out.set(e, lane);
+    }
+    return out;
+  };
+  const laneF = assignLanes(fwd);
+  const laneB = assignLanes(bwd);
+  const lanesF = fwd.length > 0 ? Math.max(...laneF.values()) + 1 : 0;
+  const lanesB = bwd.length > 0 ? Math.max(...laneB.values()) + 1 : 0;
+  const topH = lanesF > 0 ? 30 + (lanesF - 1) * 22 : 16;
+  const botH = lanesB > 0 ? 26 + (lanesB - 1) * 22 : 12;
   const NW = 148;
   const NH = 52;
   const GAP = 56;
@@ -1007,8 +1039,9 @@ function WorkflowScheme({
     ];
     return parts.length > 0 ? parts.join(' · ') : t('Guard only');
   };
-  // Arrowhead at the end of a quadratic curve, drawn by hand — markers do
-  // not inherit the theme colour reliably.
+  // Arrowhead at the end of a segment, drawn by hand — markers do not
+  // inherit the theme colour reliably. The tangent comes from the control
+  // point: pass a point straight above/below the tip for a vertical arrow.
   const head = (cx: number, cy: number, x2: number, y2: number): string => {
     const dx = x2 - cx;
     const dy = y2 - cy;
@@ -1028,13 +1061,16 @@ function WorkflowScheme({
     const i = idx.get(e.from)!;
     const j = idx.get(e.to)!;
     const above = i < j;
-    const h = 30 + 24 * (Math.abs(i - j) - 1);
+    const lane = (above ? laneF : laneB).get(e)!;
     const x1 = X(i) + NW / 2;
     const x2 = X(j) + NW / 2;
     const y0 = above ? topH : topH + NH;
     const s = above ? -1 : 1;
-    const cx = (x1 + x2) / 2;
-    const cy = y0 + s * 2 * h;
+    // A step: out of the node edge, across on its own lane, back in.
+    // The final approach is vertical, so the hand-drawn head gets a
+    // vertical tangent instead of the old curve one.
+    const ly = y0 + s * (18 + lane * 22);
+    const step = `M ${x1} ${y0} L ${x1} ${ly} L ${x2} ${ly} L ${x2} ${y0}`;
     const tip = e.free
       ? t('Allowed — no rule')
       : [
@@ -1058,7 +1094,6 @@ function WorkflowScheme({
             ),
           ]),
         ].join('\n');
-    const apexY = y0 + s * h;
     const edgeKey = `${e.from}>${e.to}`;
     const isOut = hoveredNode === e.from;
     const isIn = hoveredNode === e.to;
@@ -1077,6 +1112,10 @@ function WorkflowScheme({
     const pickEdge = () => {
       if (e.rules.length > 0) onLocate({ ruleId: e.rules[0].id });
     };
+    // The count sits on the horizontal leg with its own backdrop, so it
+    // never drowns in crossings the way the old on-curve label did.
+    const midX = (x1 + x2) / 2;
+    const countY = ly + (above ? -8 : 16);
     return (
       <g
         key={edgeKey}
@@ -1087,13 +1126,23 @@ function WorkflowScheme({
         {...(e.rules.length > 0 ? keyActivate(pickEdge) : {})}
       >
         {tip && <title>{tip}</title>}
-        <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} />
-        <polygon points={head(cx, cy, x2, y0)} />
-        <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} className="workflow-scheme-hit" />
+        <path d={step} />
+        <polygon points={head(x2, y0 + s * 12, x2, y0)} />
+        <path d={step} className="workflow-scheme-hit" />
         {e.rules.length > 1 && (
-          <text x={cx} y={apexY + (above ? -6 : 14)} textAnchor="middle" className="workflow-scheme-count">
-            ×{e.rules.length}
-          </text>
+          <>
+            <rect
+              x={midX - 15}
+              y={countY - 11}
+              width={30}
+              height={15}
+              rx={7.5}
+              className="workflow-scheme-countbg"
+            />
+            <text x={midX} y={countY} textAnchor="middle" className="workflow-scheme-count">
+              ×{e.rules.length}
+            </text>
+          </>
         )}
       </g>
     );
