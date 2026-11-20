@@ -3202,15 +3202,21 @@ function FilterSortControls({
                   >
                     <option value="">{sorts.length ? t('+ Add sort…') : t('No sort')}</option>
                     <optgroup label={t('Columns')}>
-                      {schema.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
+                      {schema
+                        .filter((p) => !sorts.some((o) => o.property === p.id))
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
                     </optgroup>
                     <optgroup label={t('System')}>
-                      <option value={SORT_CREATED}>{t('Created')}</option>
-                      <option value={SORT_UPDATED}>{t('Updated')}</option>
+                      {!sorts.some((o) => o.property === SORT_CREATED) && (
+                        <option value={SORT_CREATED}>{t('Created')}</option>
+                      )}
+                      {!sorts.some((o) => o.property === SORT_UPDATED) && (
+                        <option value={SORT_UPDATED}>{t('Updated')}</option>
+                      )}
                     </optgroup>
                   </select>
                 </div>

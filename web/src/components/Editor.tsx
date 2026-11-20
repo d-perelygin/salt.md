@@ -1010,6 +1010,14 @@ function PageHeader({
   children?: React.ReactNode;
 }) {
   const [title, setTitle] = useState(page.title);
+  // The browser tab follows the name being edited, not the name as saved:
+  // without this the tab kept showing whatever it had before. A peek keeps
+  // out of it — it is a preview, not the page you are on.
+  useEffect(() => {
+    if (onPeekClose) return;
+    const name = title.trim();
+    document.title = name ? `${name} · salt.md` : 'salt.md';
+  }, [title, onPeekClose]);
   const focusBodyStartRef = useRef<(() => void) | null>(null);
   const registerFocusBodyStart = useCallback((fn: () => void) => {
     focusBodyStartRef.current = fn;

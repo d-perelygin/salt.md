@@ -1794,6 +1794,25 @@ export default function App() {
     }
   }, [me?.authenticated, sidebarMode, activeChatId]);
 
+  // The open editor owns the tab title while it lives (see PageHeader); this
+  // covers everything else — library, graph, search, a fresh chat — and the
+  // gap before the editor mounts.
+  useEffect(() => {
+    if (!me?.authenticated) return;
+    if (sidebarMode === 'chats') {
+      const th = aiThreads.find((t) => t.id === activeChatId);
+      const name = (th?.title || '').trim();
+      document.title = name ? `${name} · salt.md` : 'salt.md';
+      return;
+    }
+    if (!currentId) {
+      document.title = 'salt.md';
+      return;
+    }
+    const p = pagesById.get(currentId);
+    if (p) document.title = p.title ? `${p.title} · salt.md` : 'salt.md';
+  }, [me?.authenticated, sidebarMode, activeChatId, currentId, pagesById, aiThreads]);
+
   // A viewer (read-only workspace role) may not edit; the doc editor renders
   // read-only so a viewer isn't teased with an editable-looking page whose
   // writes the server would only reject.
