@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowPropCond, WorkflowRule } from '../types';
 import { Check, Maximize2, TriangleAlert, X } from 'lucide-react';
 import { t } from '../i18n';
@@ -74,6 +74,7 @@ export default function WorkflowRules({
   // Fullscreen map: the scheme on the left, the same collapsible rule list
   // on the right. Shares every bit of state with the inline views below.
   const [fullScheme, setFullScheme] = useState(false);
+  const graphRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!fullScheme) return;
     const onKey = (e: KeyboardEvent) => {
@@ -83,6 +84,25 @@ export default function WorkflowRules({
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
+  }, [fullScheme]);
+  // A mouse wheel only carries a vertical delta: when the map has nowhere
+  // to scroll vertically but overflows sideways (the usual case), spend the
+  // delta on the horizontal axis. Trackpads send both axes, pinches send
+  // ctrl/meta and Shift+wheel already arrives horizontal — all native, all
+  // left alone. React's wheel listener is passive, so this is a native one.
+  useEffect(() => {
+    if (!fullScheme) return;
+    const el = graphRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth > el.clientWidth + 1) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
   }, [fullScheme]);
   useEffect(() => {
     if (highlightRuleId) setOpenRule(highlightRuleId);
@@ -861,7 +881,7 @@ export default function WorkflowRules({
               </button>
             </div>
             <div className="workflow-full-body">
-              <div className="workflow-full-graph">
+              <div className="workflow-full-graph" ref={graphRef}>
                 <WorkflowScheme
                   workflow={workflow}
                   schema={schema}

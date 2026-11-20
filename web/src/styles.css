@@ -4232,8 +4232,45 @@ body.is-col-resizing {
 .workflow-full-graph {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
   padding: 18px;
+  /* Center the map when it is smaller than the viewport; margin: auto on
+     the child (below) keeps the top reachable when it is bigger, which plain
+     centering would cut off. */
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg) 35%, transparent) transparent;
+}
+/* The map scrolls as one with its on-creation box, in the outer container:
+   an inner scroller would trap the mouse wheel (vertical deltas never move
+   it sideways) and hide the overflow behind its own box. */
+.workflow-full-graph .workflow-scheme {
+  overflow: visible;
+  margin: auto 0;
+  flex: none;
+}
+/* A scrollbar you can see: overlay scrollbars hide until touched, which
+   reads as "not scrollable". Painted only when there is somewhere to go
+   (overflow is auto, so no overflow means no bar). */
+.workflow-full-graph::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.workflow-full-graph::-webkit-scrollbar-track,
+.workflow-full-graph::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.workflow-full-graph::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--fg) 30%, transparent);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 6px;
+}
+.workflow-full-graph::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--fg) 55%, transparent);
+  background-clip: content-box;
 }
 .workflow-full-side {
   flex: 0 0 400px;
