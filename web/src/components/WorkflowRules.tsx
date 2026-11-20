@@ -77,6 +77,10 @@ export default function WorkflowRules({
   // Fullscreen map: the scheme on the left, the same collapsible rule list
   // on the right. Shares every bit of state with the inline views below.
   const [fullScheme, setFullScheme] = useState(false);
+  // Open (unguarded) roads are noise next to guarded transitions: shown faint
+  // unless the switch below hides them outright. One state for both map
+  // instances, so inline and fullscreen never disagree.
+  const [showFree, setShowFree] = useState(true);
   const graphRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!fullScheme) return;
@@ -871,6 +875,8 @@ export default function WorkflowRules({
         onLocate={locateOnMap}
         activeRuleId={openRule}
         hoverRuleId={hoverRuleId}
+        showFree={showFree}
+        onToggleFree={() => setShowFree((v) => !v)}
       />
       )}
       {fullScheme && (
@@ -902,6 +908,8 @@ export default function WorkflowRules({
                   onLocate={locateOnMap}
                   activeRuleId={openRule}
                   hoverRuleId={hoverRuleId}
+                  showFree={showFree}
+                  onToggleFree={() => setShowFree((v) => !v)}
                 />
               </div>
               <div className="workflow-full-side">{listView}</div>
@@ -925,6 +933,8 @@ function WorkflowScheme({
   issues,
   statusReady,
   onLocate,
+  showFree,
+  onToggleFree,
   activeRuleId,
   hoverRuleId,
 }: {
@@ -939,6 +949,9 @@ function WorkflowScheme({
   activeRuleId: string | null;
   // The rule block under the pointer in the list: temporary, like a hover.
   hoverRuleId: string | null;
+  // Whether the unguarded open roads are drawn at all (faint when shown).
+  showFree: boolean;
+  onToggleFree: () => void;
 }) {
   if (!statusReady) {
     return (
@@ -994,7 +1007,7 @@ function WorkflowScheme({
       if (!edgeMap.has(k)) edgeMap.set(k, { from: f.id, to: to.id, rules: [], free: true });
     }
   }
-  const edges = [...edgeMap.values()];
+  const edges = [...edgeMap.values()].filter((e) => showFree || !e.free);
   const created = rules.filter((r) => r.when.type === 'created');
   const idx = new Map(statusOpts.map((o, i) => [o.id, i] as const));
   const fwd = edges.filter((e) => idx.get(e.from)! < idx.get(e.to)!);
@@ -1191,6 +1204,10 @@ function WorkflowScheme({
   };
   return (
     <div className="workflow-scheme">
+      <label className="workflow-free-toggle">
+        <input type="checkbox" checked={showFree} onChange={onToggleFree} />
+        {t('Open roads')}
+      </label>
       {created.length > 0 && (
         <div
           className="workflow-scheme-created workflow-scheme-link"
@@ -1224,6 +1241,11 @@ function WorkflowScheme({
         ).map(renderEdge)}
         {statusOpts.map((o, i) => {
           const flag = flagOf(o.id);
+          // Roles read off the frame, not just the dot: a trap reads red, an
+          // unreachable stage amber and dashed. The dot stays — it carries
+          // the tooltip with the why.
+          const roleCls =
+            flag?.kind === 'trap' ? ' is-trap' : flag?.kind === 'unreachable' ? ' is-unreachable' : '';
           const lit =
             hoveredNode === o.id ||
             spotNode === o.id ||
@@ -1250,7 +1272,7 @@ function WorkflowScheme({
                 width={NW}
                 height={NH}
                 rx={8}
-                className={'workflow-scheme-node' + (lit ? ' is-hovered' : '')}
+                className={'workflow-scheme-node' + roleCls + (lit ? ' is-hovered' : '')}
               />
               <text x={X(i) + NW / 2} y={topH + NH / 2 + 5} textAnchor="middle" className="workflow-scheme-label">
                 {short(o.name)}

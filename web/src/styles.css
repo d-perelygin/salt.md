@@ -4113,13 +4113,15 @@ body.is-col-resizing {
   transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
 }
 /* Roads no rule guards: allowed by default, drawn dashed so the map shows
- *  the open roads apart from the guarded ones. */
+ *  the open roads apart from the guarded ones. Faint on purpose — they are
+ *  the majority of the ink and carry no information; the toggle above hides
+ *  them outright. */
 .workflow-scheme-svg .free path {
   stroke-dasharray: 5 4;
-  opacity: 0.55;
+  opacity: 0.18;
 }
 .workflow-scheme-svg .free polygon {
-  opacity: 0.55;
+  opacity: 0.18;
 }
 .workflow-scheme-svg polygon {
   fill: currentColor;
@@ -4146,6 +4148,31 @@ body.is-col-resizing {
   stroke: var(--accent);
   stroke-width: 2;
   fill: var(--hover);
+}
+/* Roles read off the frame, not just the flag dot: a trap is somewhere a
+   card enters and never leaves, an unreachable stage no move can enter. */
+.workflow-scheme-node.is-trap {
+  stroke: var(--danger);
+  stroke-width: 2;
+}
+.workflow-scheme-node.is-unreachable {
+  stroke: #b58a3b;
+  stroke-dasharray: 6 3;
+}
+/* A row of toggles above the map itself. */
+.workflow-free-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: 8px;
+  width: fit-content;
+}
+.workflow-free-toggle input[type='checkbox'] {
+  cursor: pointer;
+  margin: 0;
 }
 .workflow-scheme-svg g.is-dimmed {
   opacity: 0.15;
