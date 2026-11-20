@@ -5740,7 +5740,7 @@ body.is-unsched-carry .tl-end-space {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 5px;
+  gap: 4px;
   padding: 8px 4px 8px 12px;
 }
 .outline-bar {
@@ -5757,9 +5757,9 @@ body.is-unsched-carry .tl-end-space {
 .outline-bar::before {
   content: '';
   display: block;
-  height: 3px;
-  margin-top: 5px;
-  border-radius: 2px;
+  height: 2px;
+  margin-top: 6px;
+  border-radius: 1px;
   background-color: color-mix(in srgb, var(--fg) 60%, transparent);
   transition: background-color 0.12s ease, box-shadow 0.12s ease;
 }
