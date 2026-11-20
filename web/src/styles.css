@@ -5688,16 +5688,19 @@ body.is-unsched-carry .tl-end-space {
   height: 3px;
   padding: 5px 2px 5px 0;
   border: none;
-  background-color: color-mix(in srgb, var(--fg) 28%, transparent);
+  /* Clearly visible at rest (the old 28% read as nothing on a dark page),
+     full ink on hover, accent with a glow for the heading on screen. */
+  background-color: color-mix(in srgb, var(--fg) 60%, transparent);
   background-clip: content-box;
   border-radius: 8px;
   cursor: pointer;
 }
 .outline-bar:hover {
-  background-color: var(--muted);
+  background-color: var(--fg);
 }
 .outline-bar.is-on {
   background-color: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 65%, transparent);
 }
 .outline-popup {
   position: absolute;
