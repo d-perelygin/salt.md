@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowPropCond, WorkflowRule } from '../types';
-import { Check, TriangleAlert, X } from 'lucide-react';
+import { Check, Maximize2, TriangleAlert, X } from 'lucide-react';
 import { t } from '../i18n';
+import Portal from './Portal';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
 import { confirm } from '../dialog';
 import WorkflowDateInput from './WorkflowDateInput';
@@ -70,6 +71,19 @@ export default function WorkflowRules({
   const [newTarget, setNewTarget] = useState('');
   // List edits the rules; Scheme is a read-only map of where cards can go.
   const [view, setView] = useState<'list' | 'scheme'>('list');
+  // Fullscreen map: the scheme on the left, the same collapsible rule list
+  // on the right. Shares every bit of state with the inline views below.
+  const [fullScheme, setFullScheme] = useState(false);
+  useEffect(() => {
+    if (!fullScheme) return;
+    const onKey = (e: KeyboardEvent) => {
+      // A confirm above the overlay (rule delete) handles its own Escape;
+      // closing the map underneath it would strand the user.
+      if (e.key === 'Escape' && !document.querySelector('.confirm-dialog')) setFullScheme(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [fullScheme]);
   useEffect(() => {
     if (highlightRuleId) setOpenRule(highlightRuleId);
   }, [highlightRuleId]);
@@ -286,30 +300,40 @@ export default function WorkflowRules({
     );
   }
 
-  return (
-    <div className="workflow-list">
-      <div className="workflow-view-toggle" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === 'list'}
-          className={'workflow-view-tab' + (view === 'list' ? ' workflow-view-tab-on' : '')}
-          onClick={() => setView('list')}
-        >
-          {t('List')}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === 'scheme'}
-          className={'workflow-view-tab' + (view === 'scheme' ? ' workflow-view-tab-on' : '')}
-          onClick={() => setView('scheme')}
-        >
-          {t('Scheme')}
-        </button>
-      </div>
-      {view === 'list' ? (
-      <>
+  // Clicking a stage or an arrow on the map opens the matching rule block
+  // and scrolls it into view — in the List tab, or in the fullscreen panel.
+  // Two animation frames: one for the state commit, one for the paint.
+  const locateOnMap = (target: { ruleId: string } | { groupKey: string }) => {
+    if (!fullScheme) setView('list');
+    let ruleId: string | null = null;
+    let groupKey: string | null = null;
+    if ('ruleId' in target) {
+      ruleId = target.ruleId;
+    } else {
+      groupKey = target.groupKey;
+      const g = groups.find((x) => x.key === groupKey);
+      if (g && g.rules.length > 0) ruleId = g.rules[0].id;
+    }
+    if (ruleId) setOpenRule(ruleId);
+    const attr = ruleId ? 'data-rule-id' : 'data-group-key';
+    const key = (ruleId ?? groupKey) as string;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        // In fullscreen the same blocks exist twice (behind the overlay and
+        // in its panel) — scope the search to the visible copy.
+        const scope = fullScheme ? document.querySelector('.workflow-full-side') : document;
+        scope
+          ?.querySelector(`[${attr}="${CSS.escape(key)}"]`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }),
+    );
+  };
+
+  // One JSX tree, two mount points: the List tab and the fullscreen right
+  // panel render the same element. Safe because every input here is
+  // controlled and nothing carries an id — the copies never clash.
+  const listView = (
+    <>
       <label className="schema-template-row">
         <span>{t('Status property')}</span>
         <select className="prop-select" value={statusPropId} onChange={(e) => setStatus(e.target.value)}>
@@ -390,7 +414,7 @@ export default function WorkflowRules({
       {flatList.map((it) => {
         if (it.kind === 'head') {
           return (
-            <div key={it.key} className="workflow-group-head">
+            <div key={it.key} className="workflow-group-head" data-group-key={it.group.key}>
               <span>{it.group.key === 'created' ? t('On creation') : t('Entering {name}', { name: it.group.title })}</span>
             </div>
           );
@@ -403,7 +427,7 @@ export default function WorkflowRules({
             ? t('a row is created')
             : `${statusProp?.name ?? ''} → ${statusOpts.find((o) => o.id === whenTo)?.name ?? whenTo}`;
         return (
-          <div key={r.id} className={'schema-item' + (errorRules.has(r.id) ? ' schema-item-error' : '')}>
+          <div key={r.id} className={'schema-item' + (errorRules.has(r.id) ? ' schema-item-error' : '')} data-rule-id={r.id}>
             <div
               className="workflow-head"
               role="button"
@@ -773,35 +797,108 @@ export default function WorkflowRules({
           ))}
         </div>
       )}
-      </>
-      ) : (
+    </>
+  );
+
+  return (
+    <div className="workflow-list">
+      <div className="workflow-view-toggle" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'list'}
+          className={'workflow-view-tab' + (view === 'list' ? ' workflow-view-tab-on' : '')}
+          onClick={() => setView('list')}
+        >
+          {t('List')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'scheme'}
+          className={'workflow-view-tab' + (view === 'scheme' ? ' workflow-view-tab-on' : '')}
+          onClick={() => setView('scheme')}
+        >
+          {t('Scheme')}
+        </button>
+        <span className="workflow-view-spacer" />
+        <button
+          type="button"
+          className="icon-btn workflow-full-btn"
+          title={t('Open full screen')}
+          aria-label={t('Open full screen')}
+          onClick={() => setFullScheme(true)}
+        >
+          <Maximize2 size={15} />
+        </button>
+      </div>
+      {view === 'list' ? listView : (
       <WorkflowScheme
         workflow={workflow}
         schema={schema}
         statusOpts={statusOpts}
         issues={issues}
         statusReady={!!statusPropId && statusOpts.length > 0}
+        onLocate={locateOnMap}
       />
+      )}
+      {fullScheme && (
+        <Portal>
+          <div className="workflow-full" role="dialog" aria-modal="true" aria-label={t('Scheme')}>
+            <div className="workflow-full-bar">
+              <span>
+                {t('Process')}
+                {rules.length > 0 && ` · ${rules.length}`}
+              </span>
+              <button
+                type="button"
+                className="icon-btn"
+                title={t('Close')}
+                aria-label={t('Close')}
+                onClick={() => setFullScheme(false)}
+              >
+                <X size={15} />
+              </button>
+            </div>
+            <div className="workflow-full-body">
+              <div className="workflow-full-graph">
+                <WorkflowScheme
+                  workflow={workflow}
+                  schema={schema}
+                  statusOpts={statusOpts}
+                  issues={issues}
+                  statusReady={!!statusPropId && statusOpts.length > 0}
+                  onLocate={locateOnMap}
+                />
+              </div>
+              <div className="workflow-full-side">{listView}</div>
+            </div>
+          </div>
+        </Portal>
       )}
     </div>
   );
 }
 
-/** Read-only map of the process: statuses left to right, one arrow per
- *  allowed transition (×N when several rules share it), a dashed box for
- *  the on-creation rules. Preview only — editing stays in the list. */
+
+/** Map of the process: statuses left to right, one arrow per allowed
+ *  transition (×N when several rules share it), a dashed box for the
+ *  on-creation rules. Clicking a stage or an arrow jumps to the matching
+ *  rule block (onLocate); editing itself stays in the list. */
 function WorkflowScheme({
   workflow,
   schema,
   statusOpts,
   issues,
   statusReady,
+  onLocate,
 }: {
   workflow: WorkflowConfig | undefined;
   schema: PropDef[];
   statusOpts: { id: string; name: string }[];
   issues: WorkflowIssue[];
   statusReady: boolean;
+  onLocate: (target: { ruleId: string } | { groupKey: string }) => void;
 }) {
   if (!statusReady) {
     return (
@@ -813,6 +910,21 @@ function WorkflowScheme({
   const rules = workflow?.rules ?? [];
   const live = new Set(statusOpts.map((o) => o.id));
   const propName = (id: string) => schema.find((p) => p.id === id)?.name ?? id;
+  const optName = (id: string) => statusOpts.find((o) => o.id === id)?.name ?? id;
+  // Map stages and guarded arrows behave like buttons: Enter/Space work like
+  // a click. Free (unguarded) arrows have no rule block to jump to and stay
+  // inert.
+  const keyActivate = (fn: () => void) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: fn,
+    onKeyDown: (ev: ReactKeyboardEvent) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        fn();
+      }
+    },
+  });
   type Edge = { from: string; to: string; rules: WorkflowRule[]; free: boolean };
   const edgeMap = new Map<string, Edge>();
   const targeted = new Set<string>();
@@ -940,12 +1052,19 @@ function WorkflowScheme({
       isIn ? 'is-incoming' : '',
       isDim ? 'is-dimmed' : '',
     ].filter(Boolean).join(' ');
+    // The first rule on the arrow is the block that opens; a shared arrow
+    // lands on the first of its ×N.
+    const pickEdge = () => {
+      if (e.rules.length > 0) onLocate({ ruleId: e.rules[0].id });
+    };
     return (
       <g
         key={edgeKey}
         className={cls || undefined}
         onMouseEnter={() => setHoveredEdge(edgeKey)}
         onMouseLeave={() => setHoveredEdge((h) => (h === edgeKey ? null : h))}
+        aria-label={e.rules.length > 0 ? `${optName(e.from)} → ${optName(e.to)}` : undefined}
+        {...(e.rules.length > 0 ? keyActivate(pickEdge) : {})}
       >
         {tip && <title>{tip}</title>}
         <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} />
@@ -962,7 +1081,11 @@ function WorkflowScheme({
   return (
     <div className="workflow-scheme">
       {created.length > 0 && (
-        <div className="workflow-scheme-created">
+        <div
+          className="workflow-scheme-created workflow-scheme-link"
+          aria-label={t('On creation')}
+          {...keyActivate(() => onLocate({ groupKey: 'created' }))}
+        >
           <div className="workflow-scheme-created-head">
             {t('On creation')} · {created.length}
           </div>
@@ -1005,6 +1128,8 @@ function WorkflowScheme({
               onMouseEnter={() => setHoveredNode(o.id)}
               onMouseLeave={() => setHoveredNode((h) => (h === o.id ? null : h))}
               style={{ cursor: 'pointer' }}
+              aria-label={o.name}
+              {...keyActivate(() => onLocate({ groupKey: `to:${o.id}` }))}
             >
               <title>{o.name}</title>
               <rect

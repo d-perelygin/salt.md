@@ -4195,6 +4195,84 @@ body.is-col-resizing {
 .workflow-scheme-rule {
   font-size: 13px;
 }
+.workflow-scheme-link {
+  cursor: pointer;
+}
+
+/* Fullscreen process map: the scheme on the left, the collapsible rule
+ * list on the right. Portalled to <body> at the modal layer (same z-index,
+ * later in the DOM, so above the properties dialog it belongs to) and below
+ * toasts and confirms.
+ */
+.workflow-full {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+.workflow-full-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  flex: none;
+}
+.workflow-full-bar .icon-btn {
+  margin-left: auto;
+}
+.workflow-full-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.workflow-full-graph {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 18px;
+}
+.workflow-full-side {
+  flex: 0 0 400px;
+  max-width: min(430px, 44vw);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 14px;
+}
+.workflow-view-spacer {
+  flex: 1;
+}
+/* Map stages and guarded arrows behave like buttons. */
+.workflow-scheme-svg g[role='button'] {
+  outline: none;
+}
+.workflow-scheme-svg g[role='button']:focus-visible rect {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+/* Free (unguarded) arrows have no rule block to jump to — not clickable. */
+.workflow-scheme-svg g.free .workflow-scheme-hit {
+  cursor: default;
+}
+@media (max-width: 760px) {
+  .workflow-full-body {
+    flex-direction: column;
+  }
+  .workflow-full-graph {
+    flex: 0 0 42%;
+    border-bottom: 1px solid var(--border);
+    padding: 12px;
+  }
+  .workflow-full-side {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-width: none;
+    border-left: none;
+  }
+}
 .workflow-chips {
   display: flex;
   flex-wrap: wrap;
