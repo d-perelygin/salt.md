@@ -6760,7 +6760,7 @@ function useSettingsHint(name: string): [boolean, () => void] {
 }
 
 // Day/Week/Month/Year switch shared by the calendar and the timeline
-// headers, with a − N + stepper for the count behind it: same control, same
+// headers, with a − N + stepper at the foot of its menu: same control, same
 // place, same labels. The button reads the pair — "2 months", not just the
 // period. '2months' as a separate mode is gone (it was always just month × 2),
 // but a stored one still reads as that pair.
@@ -6811,29 +6811,6 @@ function ModePicker({ mode, onPick, count }: {
       <button className="btn-sm" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
         {spanLabel(effMode, effCount)} <ChevronDown size={14} />
       </button>
-      <span className="cal-count">
-        <button
-          type="button"
-          className="btn-sm"
-          disabled={effCount <= 1}
-          onClick={() => pick(effMode, Math.max(1, effCount - 1))}
-          title={t('Show fewer')}
-          aria-label={t('Show fewer')}
-        >
-          −
-        </button>
-        <span className="cal-count-num" aria-hidden="true">{effCount}</span>
-        <button
-          type="button"
-          className="btn-sm"
-          disabled={effCount >= 12}
-          onClick={() => pick(effMode, Math.min(12, effCount + 1))}
-          title={t('Show more')}
-          aria-label={t('Show more')}
-        >
-          +
-        </button>
-      </span>
       {open && (
         <>
           <div className="fs-backdrop" onClick={() => setOpen(false)} />
@@ -6854,6 +6831,33 @@ function ModePicker({ mode, onPick, count }: {
                       : t('Month')}
               </button>
             ))}
+            <div className="menu-sep" />
+            {/* The count stepper lives here, in the menu, not beside the
+                button: period and count are picked in one place, and the
+                menu stays open while stepping. */}
+            <div className="cal-count cal-count-menu">
+              <button
+                type="button"
+                className="btn-sm"
+                disabled={effCount <= 1}
+                onClick={() => onPick(effMode, Math.max(1, effCount - 1))}
+                title={t('Show fewer')}
+                aria-label={t('Show fewer')}
+              >
+                −
+              </button>
+              <span className="cal-count-num" aria-hidden="true">{effCount}</span>
+              <button
+                type="button"
+                className="btn-sm"
+                disabled={effCount >= 12}
+                onClick={() => onPick(effMode, Math.min(12, effCount + 1))}
+                title={t('Show more')}
+                aria-label={t('Show more')}
+              >
+                +
+              </button>
+            </div>
           </div>
         </>
       )}

@@ -4890,12 +4890,17 @@ button.relation-chip:hover {
   gap: 4px;
 }
 
-/* How many span units to show at once: − N + right behind the period picker. */
+/* How many span units to show at once: the − N + stepper at the foot of the
+   period menu (one control: period and count are picked in the same place). */
 .cal-count {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   margin-left: 6px;
+}
+.view-tab-menu .cal-count {
+  margin: 2px 4px 4px;
+  justify-content: space-between;
 }
 .cal-count .btn-sm:disabled {
   opacity: 0.35;
