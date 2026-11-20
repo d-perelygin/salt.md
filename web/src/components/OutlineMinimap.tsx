@@ -108,7 +108,7 @@ export default function OutlineMinimap({ editor }: { editor: SaltEditor }) {
     locate(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
   // H1 longest; deeper headings shrink to a tick.
-  const barWidth = (level: number) => (level <= 1 ? 34 : level === 2 ? 26 : level === 3 ? 18 : 10);
+  const barWidth = (level: number) => (level <= 1 ? 28 : level === 2 ? 20 : level === 3 ? 14 : 9);
 
   return (
     <div

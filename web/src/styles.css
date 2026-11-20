@@ -5745,28 +5745,28 @@ body.is-unsched-carry .tl-end-space {
      vanish. Padding is hit-testable; the colour paints the content box only,
      so the eye sees a thin strip and the pointer gets a tall target. */
   box-sizing: content-box;
-  height: 4px;
+  height: 3px;
   padding: 5px 2px 5px 0;
   border: none;
   background-color: color-mix(in srgb, var(--fg) 60%, transparent);
   background-clip: content-box;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   transition: background-color 0.12s ease, box-shadow 0.12s ease;
 }
 .outline-bar:hover {
   background-color: var(--fg);
 }
-/* The heading on screen reads as plain white, Notion-style — no colour.
-   While the popup covers the rail the bars sit plain instead: the popup
-   itself marks the current heading. */
+/* At rest every bar reads the same: no highlight while the rail is idle.
+   The white glow lives only under an open popup — like Notion, where the
+   current section lights up once the outline is showing. */
 .outline-bar.is-on {
-  background-color: var(--fg);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--fg) 70%, transparent);
-}
-.outline-minimap.is-open .outline-bar.is-on {
   background-color: color-mix(in srgb, var(--fg) 60%, transparent);
   box-shadow: none;
+}
+.outline-minimap.is-open .outline-bar.is-on {
+  background-color: var(--fg);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fg) 70%, transparent);
 }
 @keyframes outline-popup-in {
   from {
