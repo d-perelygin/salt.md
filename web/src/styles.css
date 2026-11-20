@@ -5714,7 +5714,8 @@ body.is-unsched-carry .tl-end-space {
 .outline-minimap {
   position: fixed;
   right: 14px;
-  top: 50%;
+  /* A third down, not dead center: the eye lands there first. */
+  top: 33%;
   transform: translateY(-50%);
   z-index: 60;
   display: none;
