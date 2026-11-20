@@ -2039,7 +2039,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
           mode={view.tlMode ?? 'month'}
-          onModeChange={(m) => updateView({ tlMode: m })}
           onViewChange={updateView}
           onEnsureDepProps={ensureDepProps}
           onAddRow={(preset) => addRow(preset)}
@@ -4565,7 +4564,6 @@ function TimelineView({
   onNavigate,
   onOpenInNewTab,
   mode,
-  onModeChange,
   onViewChange,
   onEnsureDepProps,
   onAddRow,
@@ -4593,7 +4591,6 @@ function TimelineView({
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   mode: SpanMode;
-  onModeChange: (m: SpanMode) => void;
   onViewChange: (patch: Partial<ViewDef>) => void;
   onEnsureDepProps: () => void;
   onAddRow: (presetProps?: Record<string, unknown>) => void;
@@ -5864,7 +5861,7 @@ function TimelineView({
           <div className="tl-settings-wrap" ref={tlSettingsRef}>
             <button
               className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
-              title={t('Timeline settings: start, end and blockers')}
+              title={t('Timeline settings')}
               onClick={() => {
                 setSettingsOpen((o) => !o);
                 setConflictsOpen(false);
@@ -5877,6 +5874,14 @@ function TimelineView({
             {settingsOpen && (
               <AnchoredMenu className="menu tl-settings-menu">
                 <div className="tl-menu-head">{t('Timeline settings')}</div>
+                <div className="tl-settings-row">
+                  <span>{t('Range')}</span>
+                  <ModePicker
+                    mode={mode}
+                    onPick={(m, n) => onViewChange({ tlMode: m, tlCount: n === 1 ? undefined : n })}
+                    count={spanCount(view.tlCount)}
+                  />
+                </div>
                 <label className="tl-settings-row">
                   <span>{t('Start')}</span>
                   <select
@@ -5939,11 +5944,6 @@ function TimelineView({
               </AnchoredMenu>
             )}
           </div>
-          <ModePicker
-            mode={mode}
-            onPick={(m, n) => onViewChange({ tlMode: m, tlCount: n === 1 ? undefined : n })}
-            count={spanCount(view.tlCount)}
-          />
         </div>
       </div>
       <div className="tl-scroll">
