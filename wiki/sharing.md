@@ -54,7 +54,9 @@ with a note that the form is already shared.
    **Share to web (read-only link)**. On a narrow window the topbar keeps only
    the star, the panel button and **More**; the globe moves into that ⋯ menu
    under the same name.
-3. The menu opens **without creating anything**. Press **Share publicly** to
+3. The dialog opens on the **Publish** tab (the lock button opens the same
+   dialog on the **Share** tab, with the workspace access list). The Publish
+   tab opens **without creating anything**. Press **Share publicly** to
    mint the link; the field then holds the address. Above it:
    "Anyone with this link can view this page (read-only)."
 4. Optionally pick an expiry under **Expires:** (`Never`, `In 1 day`,
@@ -302,7 +304,8 @@ with accounts: a page narrowed to named people in the same workspace, each as
 [Permissions](permissions.md#restricted-pages); here is the mechanics.
 
 1. Open the page and pick **Page access…** from the ⋯ menu, or click the lock
-   button in the topbar.
+   button in the topbar. Both open the same dialog on the **Share** tab
+   (the globe button opens it on the **Publish** tab instead).
 2. Choose **Chosen members** in the dialog. Pick a member, pick the access,
    press **Share** — repeat for everybody who needs in. Nobody else can see
    the page from that moment — not in the sidebar, not in search.

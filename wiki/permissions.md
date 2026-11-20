@@ -307,7 +307,7 @@ question is then **Leave anyway?** or **Remove anyway?**.
 ## Restricted pages
 
 A page can be narrowed to chosen members instead of the whole workspace. The
-lock button in the topbar always opens the **Page access** panel under itself
+lock button in the topbar always opens the share dialog on its **Share** tab
 (⋯ menu → **Page access…** holds the same): **Everyone in the workspace**,
 **Only me**, or **Chosen members** with the member list underneath.
 

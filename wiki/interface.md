@@ -316,8 +316,8 @@ The icons, left to right:
 | speech bubble | **Show comments** / **Hide comments** | opens the comment panel; carries the number of open comments. Not shown on a collection: its *rows* carry comments, not the collection itself |
 | panel | **Show structure** / **Hide structure** | the structure panel (see below) |
 | star | **Add to favorites** / **Remove from favorites** | |
-| padlock | **Private (only you): click to share with the workspace** / **Visible to the workspace: click to make it private** | see [Permissions](permissions.md) |
-| globe | **Share to web (read-only link)** | see below |
+| padlock | **Private (only you): click to share with the workspace** / **Visible to the workspace: click to make it private** | opens the share dialog on the **Share** tab; see [Permissions](permissions.md) |
+| globe | **Share to web (read-only link)** | opens the same dialog on the **Publish** tab; see below |
 | **⋯** | **More** | everything below |
 
 If an agent said how long it expected to be, the tooltip ends with **checked in
@@ -347,11 +347,12 @@ browser, across pages.
 
 ### Sharing to the web
 
-The globe opens a small menu and publishes nothing by itself: **Expires:** with
-**Never**, **In 1 day**, **In 7 days** or **In 30 days**, an optional
-**Password (optional)** field, and **Create link**. Once the link exists the
-menu shows it in a field that selects itself when you click it, with **Copy**
-and **Stop sharing**. See [Sharing](sharing.md).
+The globe opens the share dialog on its **Publish** tab and publishes nothing
+by itself: **Expires:** with **Never**, **In 1 day**, **In 7 days** or
+**In 30 days**, an optional **Password (optional)** field, and **Create link**.
+The lock button opens the same dialog on the **Share** tab instead. Once the
+link exists the Publish tab shows it in a field that selects itself when you
+click it, with **Copy** and **Stop sharing**. See [Sharing](sharing.md).
 
 ### The ⋯ menu
 

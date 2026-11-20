@@ -52,6 +52,7 @@ import { readPageScroll, writePageScroll } from '../pageUiState';
 import { imeComposing, useShortcut } from '../keys';
 import CollectionView from './CollectionView';
 import PageShares from './PageShares';
+import ShareDialog, { type ShareTab } from './ShareDialog';
 import { HistoryModal } from './PageHistory';
 import CommentsPanel, {
   COMMENTS_CHANGED,
@@ -1043,6 +1044,9 @@ function PageHeader({
   const [visibility, setVisibility] = useState(page.visibility);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  // The two entries — the lock and the globe — open one dialog on different
+  // tabs, so the access list and the public link stop being two menus.
+  const [shareTab, setShareTab] = useState<ShareTab>('share');
   // The server's shared flag survives navigation; the local states do not, so
   // both are reset here. shareOff masks a just-revoked link the list still
   // reports until it reloads.
@@ -1051,6 +1055,7 @@ function PageHeader({
     setShareUrl(null);
     setShareOff(false);
     setShareOpen(false);
+    setShareTab('share');
     setShareExpiry(0);
     setSharePassword('');
     setShareHasPassword(false);
@@ -1139,14 +1144,9 @@ function PageHeader({
   // Dropdowns must close on an outside click / Escape, not just mouse-leave.
   const shareWrapRef = useRef<HTMLDivElement>(null);
   const overflowWrapRef = useRef<HTMLDivElement>(null);
-  const accessWrapRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(shareOpen, shareWrapRef, () => setShareOpen(false));
   useMenuDismiss(overflowOpen, overflowWrapRef, () => setOverflowOpen(false));
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [sharesOpen, setSharesOpen] = useState(false);
-  // The access panel hangs off its topbar button like the share menu — same
-  // outside-click/Escape dismissal, no modal overlay.
-  useMenuDismiss(sharesOpen, accessWrapRef, () => setSharesOpen(false));
   const [openComments, setOpenComments] = useState(0);
   // Same rule as in Editor, and it has to be asked here too: this is where the
   // button, the menu entries and the count live.
@@ -1547,11 +1547,24 @@ function PageHeader({
     return out;
   };
 
-  const openShare = async () => {
-    setShareOpen((o) => !o);
+  const openShareDialog = async (tab: ShareTab) => {
+    // A second press on the open tab closes the dialog; pressing the other
+    // entry switches straight to its tab instead of closing first.
+    if (shareOpen && shareTab === tab) {
+      setShareOpen(false);
+      return;
+    }
+    setShareTab(tab);
+    setShareOpen(true);
     // Never mint here: minting replaces the token, so opening the menu must
     // only read. A fresh link is created by the explicit button below.
-    await loadShareSettings();
+    if (tab === 'publish') await loadShareSettings();
+  };
+
+  // Same read-only load when the tab is switched from inside the dialog.
+  const switchShareTab = (tab: ShareTab) => {
+    setShareTab(tab);
+    if (tab === 'publish') void loadShareSettings();
   };
 
   const toggleShareView = async (viewId: string) => {
@@ -1940,31 +1953,36 @@ function PageHeader({
               </button>
             </>
           )}
-          <div className="access-wrap" ref={accessWrapRef}>
+          {/* One dialog for both halves of sharing: the lock opens the Share
+              tab, the globe the Publish tab. The buttons stay separate so the
+              restricted and published markers keep their place in the topbar. */}
+          <div className="share-wrap" ref={shareWrapRef}>
             <button
               className={'icon-btn topbar-wide-only' + (isAccessRestricted ? ' active-star' : '')}
               title={inheritedAccess ? t('Page access… (inherited)') : t('Page access…')}
-              onClick={() => setSharesOpen((o) => !o)}
+              onClick={() => void openShareDialog('share')}
             >
               {isAccessRestricted ? <Lock size={17} /> : <LockOpen size={17} />}
             </button>
-            {sharesOpen && (
-              <PageShares
-                pageId={pageId}
-                workspaceId={page.workspaceId}
-                myUserId={user.id}
-                visibility={visibility}
-                inheritedFrom={inheritedAccess}
-                onClose={() => setSharesOpen(false)}
-                onVisibilityChange={setVisibility}
-              />
-            )}
-          </div>
-          <div className="share-wrap" ref={shareWrapRef}>
-            <button className={'icon-btn topbar-wide-only' + (isShared ? ' shared-active' : '')} title={isShared ? t('Shared') : t('Share to web (read-only link)')} onClick={openShare}>
+            <button className={'icon-btn topbar-wide-only' + (isShared ? ' shared-active' : '')} title={isShared ? t('Shared') : t('Share to web (read-only link)')} onClick={() => void openShareDialog('publish')}>
               <Globe size={17} />
             </button>
             {shareOpen && (
+              <ShareDialog
+                tab={shareTab}
+                onTabChange={switchShareTab}
+                share={
+                  <PageShares
+                    pageId={pageId}
+                    workspaceId={page.workspaceId}
+                    myUserId={user.id}
+                    visibility={visibility}
+                    inheritedFrom={inheritedAccess}
+                    onClose={() => setShareOpen(false)}
+                    onVisibilityChange={setVisibility}
+                  />
+                }
+                publish={
               <div className="menu share-menu">
                 <div className="share-hint">{isCollection ? t('Anyone with this link sees this collection (read-only).') : t('Anyone with this link can view this page (read-only).')}</div>
                 {!readShared && !displayUrl ? (
@@ -2077,6 +2095,8 @@ function PageHeader({
                   </>
                 )}
               </div>
+                }
+              />
             )}
           </div>
           <div className="share-wrap" ref={overflowWrapRef}>
@@ -2207,7 +2227,7 @@ function PageHeader({
                   className="menu-item"
                   onClick={() => {
                     setOverflowOpen(false);
-                    setSharesOpen(true);
+                    void openShareDialog('share');
                   }}
                 >
                   <Lock size={15} /> {t('Page access…')}
@@ -2216,7 +2236,7 @@ function PageHeader({
                   className="menu-item narrow-only"
                   onClick={() => {
                     setOverflowOpen(false);
-                    openShare();
+                    void openShareDialog('publish');
                   }}
                 >
                   <Globe size={15} /> {t('Share to web (read-only link)')}
