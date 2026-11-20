@@ -432,7 +432,7 @@ func (s *Server) handleGetAIThreadMessages(w http.ResponseWriter, r *http.Reques
 		httpError(w, 404, "not found")
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, thread_id, role, content, model, tokens_in, tokens_out, attachments, created_at FROM ai_messages WHERE thread_id = ? ORDER BY created_at ASC`, threadID)
+	rows, err := s.db.Query(`SELECT id, thread_id, role, content, model, tokens_in, tokens_out, attachments, created_at, COALESCE(run_id,'') FROM ai_messages WHERE thread_id = ? ORDER BY created_at ASC`, threadID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -448,11 +448,12 @@ func (s *Server) handleGetAIThreadMessages(w http.ResponseWriter, r *http.Reques
 		TokensOut   int    `json:"tokensOut"`
 		Attachments string `json:"attachments"`
 		CreatedAt   string `json:"createdAt"`
+		RunID       string `json:"runId"`
 	}
 	out := []m{}
 	for rows.Next() {
 		var x m
-		rows.Scan(&x.ID, &x.ThreadID, &x.Role, &x.Content, &x.Model, &x.TokensIn, &x.TokensOut, &x.Attachments, &x.CreatedAt)
+		rows.Scan(&x.ID, &x.ThreadID, &x.Role, &x.Content, &x.Model, &x.TokensIn, &x.TokensOut, &x.Attachments, &x.CreatedAt, &x.RunID)
 		out = append(out, x)
 	}
 	writeJSON(w, out)
@@ -1199,8 +1200,8 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 		}
 	}
 	s.aiAddStep(runID, threadID, u.ID, "thinking", "Done", finalContent, "done")
-	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at) VALUES (?,?,?,?,?,?)`,
-		newID(), threadID, "assistant", finalContent, model, now())
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at, run_id) VALUES (?,?,?,?,?,?,?)`,
+		newID(), threadID, "assistant", finalContent, model, now(), runID)
 	if rejected {
 		s.db.Exec(`UPDATE ai_runs SET status='cancelled', progress='rejected', finished_at=? WHERE id=?`, now(), runID)
 	} else {
@@ -2116,8 +2117,8 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		break
 	}
 	s.aiAddStep(runID, threadID, u.ID, "thinking", "Done", finalContent, "done")
-	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at) VALUES (?,?,?,?,?,?)`,
-		newID(), threadID, "assistant", finalContent, model, now())
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at, run_id) VALUES (?,?,?,?,?,?,?)`,
+		newID(), threadID, "assistant", finalContent, model, now(), runID)
 	if rejected {
 		s.db.Exec(`UPDATE ai_runs SET status='cancelled', progress='rejected', finished_at=? WHERE id=?`, now(), runID)
 	} else {

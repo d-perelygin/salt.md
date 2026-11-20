@@ -253,7 +253,8 @@ CREATE TABLE IF NOT EXISTS ai_messages (
 	tokens_in INTEGER NOT NULL DEFAULT 0,
 	tokens_out INTEGER NOT NULL DEFAULT 0,
 	attachments TEXT NOT NULL DEFAULT '[]',
-	created_at TEXT NOT NULL
+	created_at TEXT NOT NULL,
+	run_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_ai_messages_thread ON ai_messages(thread_id, created_at);
 -- AI background runs.
@@ -783,6 +784,12 @@ func openDB(path string) (*sql.DB, error) {
 	}
 	if err := ensureColumn(db, "ai_runs", "pending_answer", `pending_answer TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate ai_runs.pending_answer: %w", err)
+	}
+	// Link each assistant answer to the run that produced it, so the
+	// per-message "Worked for …" row sits above its own answer even when the
+	// row and the message land milliseconds apart.
+	if err := ensureColumn(db, "ai_messages", "run_id", `run_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate ai_messages.run_id: %w", err)
 	}
 	if err := ensureColumn(db, "ai_threads", "last_read_at", `last_read_at TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate ai_threads.last_read_at: %w", err)

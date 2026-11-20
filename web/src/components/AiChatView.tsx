@@ -13,7 +13,7 @@ import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Brain, Check, Che
 import type { AiThread } from './AiThreadList';
 import { renderTextWithMentions } from './aiChatHelpers';
 
-interface Msg { role: string; content: string; createdAt?: string }
+interface Msg { role: string; content: string; createdAt?: string; runId?: string }
 interface AttachedFile { name: string; text: string }
 interface MemoryEntry { id: string; workspaceId: string; content: string; createdAt: string; updatedAt: string }
 
@@ -637,6 +637,10 @@ export default function AiChatView(props: {
 
   // Finished runs attach above the answer they produced: the first assistant
   // message created at or after the run finished; stragglers go last.
+  // Each finished run belongs above the answer it produced. New answers
+  // carry their run's id, so the match is exact; older rows (and runs that
+  // produced no answer, like instant failures) fall back to the latest message
+  // the run could have answered — usually its own question.
   const runTargets = new Map<number, any[]>();
   {
     const done = runList.filter(
@@ -645,11 +649,15 @@ export default function AiChatView(props: {
     const order = [...done].sort((a, b) => Date.parse(a.finishedAt) - Date.parse(b.finishedAt));
     const used = new Set<number>();
     for (const r of order) {
-      const end = Date.parse(r.finishedAt);
-      let at = messages.findIndex(
-        (m, i) =>
-          m.role === 'assistant' && !used.has(i) && m.createdAt && Date.parse(m.createdAt) >= end,
-      );
+      let at = messages.findIndex((m) => m.role === 'assistant' && (m as Msg).runId === r.id);
+      if (at < 0) {
+        const end = r.finishedAt as string;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (used.has(i) || !messages[i].createdAt || (messages[i].createdAt as string) > end) continue;
+          at = i;
+          break;
+        }
+      }
       if (at < 0) at = messages.length;
       else used.add(at);
       const list = runTargets.get(at) ?? [];
