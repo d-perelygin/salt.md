@@ -149,12 +149,31 @@ export default function AiChatPanel(props: {
     try { localStorage.removeItem(draftKey(threadIdRef.current)); } catch { /* ignore */ }
   }
 
-  function onInputChange(v: string) {
+  // See AiChatView.mentionQueryAt for the rule: @ counts right before
+  // the caret, anywhere in the text, but not inside a word.
+  function mentionQueryAt(value: string, caret: number | null): string | null {
+    const pos = caret ?? value.length;
+    const before = value.slice(0, pos);
+    const m = before.match(/@([^@\n]{0,60})$/);
+    if (!m) return null;
+    const at = pos - m[0].length;
+    if (at > 0 && !/\s/.test(before[at - 1])) return null;
+    return m[1];
+  }
+
+  function onInputChange(v: string, caret: number | null = null) {
     setInput(v);
     try { localStorage.setItem(draftKey(threadIdRef.current), v); } catch { /* ignore */ }
-    const m = v.match(/@([^@]{0,60})$/);
-    setMentionQuery(m ? m[1] : null);
+    setMentionQuery(mentionQueryAt(v, caret ?? v.length));
     setMentionIndex(0);
+  }
+
+  function refreshMentionFromCaret() {
+    const el = inputBoxRef.current;
+    if (!el) return;
+    const q = mentionQueryAt(el.value, el.selectionStart ?? el.value.length);
+    setMentionQuery((prev) => (prev === q ? prev : q));
+    if (q === null) setMentionIndex(0);
   }
 
   function mentionMatches(): PageMeta[] {
@@ -168,21 +187,38 @@ export default function AiChatPanel(props: {
 
   function pickMention(p: PageMeta) {
     const title = p.title || t('Untitled');
-    const next = input.replace(/@[^@]{0,60}$/, '@' + title + ' ');
+    const el = inputBoxRef.current;
+    const pos = el?.selectionStart ?? input.length;
+    const before = input.slice(0, pos);
+    const after = input.slice(pos);
+    const replaced = before.replace(/@[^@\n]{0,60}$/, '@' + title + ' ');
+    const next = replaced + after;
     setInput(next);
+    try { localStorage.setItem(draftKey(threadIdRef.current), next); } catch { /* ignore */ }
     setMentionQuery(null);
-    window.setTimeout(() => inputBoxRef.current?.focus(), 0);
+    window.setTimeout(() => {
+      const ta = inputBoxRef.current;
+      if (!ta) return;
+      ta.focus();
+      const caret = replaced.length;
+      try { ta.setSelectionRange(caret, caret); } catch { /* ignore */ }
+    }, 0);
   }
 
   function triggerMentionInInput() {
-    const next = input ? (input.endsWith(' ') ? input + '@' : input + ' @') : '@';
-    onInputChange(next);
+    const el = inputBoxRef.current;
+    const pos = el && document.activeElement === el && el.selectionStart !== null ? el.selectionStart : input.length;
+    const before = input.slice(0, pos);
+    const after = input.slice(pos);
+    const sep = before === '' || /\s$/.test(before) ? '' : ' ';
+    const next = before + sep + '@' + after;
+    const caret = before.length + sep.length + 1;
+    onInputChange(next, caret);
     window.setTimeout(() => {
-      const el = inputBoxRef.current;
-      if (el) {
-        el.focus();
-        el.setSelectionRange(next.length, next.length);
-      }
+      const ta = inputBoxRef.current;
+      if (!ta) return;
+      ta.focus();
+      try { ta.setSelectionRange(caret, caret); } catch { /* ignore */ }
     }, 0);
   }
 
@@ -983,8 +1019,11 @@ export default function AiChatPanel(props: {
               value={input}
               rows={2}
               onScroll={syncBackdrop}
+              onSelect={() => refreshMentionFromCaret()}
+              onKeyUp={() => refreshMentionFromCaret()}
+              onClick={() => refreshMentionFromCaret()}
               onChange={(e) => {
-                onInputChange(e.target.value);
+                onInputChange(e.target.value, e.target.selectionStart);
                 e.target.style.height = 'auto';
                 e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
                 syncBackdrop();
