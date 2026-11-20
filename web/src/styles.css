@@ -5735,36 +5735,40 @@ body.is-unsched-carry .tl-end-space {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 7px;
+  gap: 5px;
   padding: 8px 4px 8px 12px;
 }
 .outline-bar {
   display: block;
-  /* content-box on purpose: the global reset is border-box, under which a
-     3px bar with a fat border would collapse its painted area to zero and
-     vanish. Padding is hit-testable; the colour paints the content box only,
-     so the eye sees a thin strip and the pointer gets a tall target. */
-  box-sizing: content-box;
-  height: 3px;
-  padding: 5px 2px 5px 0;
+  /* The button itself is just a tall hit target; the visible strip is
+     painted by ::before so its corner radius is exact, not derived from
+     the padding box. */
+  height: 13px;
+  padding: 0 2px 0 0;
   border: none;
-  background-color: color-mix(in srgb, var(--fg) 60%, transparent);
-  background-clip: content-box;
-  border-radius: 6px;
+  background: none;
   cursor: pointer;
+}
+.outline-bar::before {
+  content: '';
+  display: block;
+  height: 3px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--fg) 60%, transparent);
   transition: background-color 0.12s ease, box-shadow 0.12s ease;
 }
-.outline-bar:hover {
+.outline-bar:hover::before {
   background-color: var(--fg);
 }
 /* At rest every bar reads the same: no highlight while the rail is idle.
    The white glow lives only under an open popup — like Notion, where the
    current section lights up once the outline is showing. */
-.outline-bar.is-on {
+.outline-bar.is-on::before {
   background-color: color-mix(in srgb, var(--fg) 60%, transparent);
   box-shadow: none;
 }
-.outline-minimap.is-open .outline-bar.is-on {
+.outline-minimap.is-open .outline-bar.is-on::before {
   background-color: var(--fg);
   box-shadow: 0 0 10px color-mix(in srgb, var(--fg) 70%, transparent);
 }
