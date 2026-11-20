@@ -5707,9 +5707,10 @@ body.is-unsched-carry .tl-end-space {
 
 /* The document minimap: thin bars at the viewport's right edge, one per
    heading, longer for higher headings (Notion-style). Hovering the rail
-   opens the headings as clickable entries; clicking a bar or an entry jumps
-   to it, and the bar of the heading on screen stays lit. Desktop only: it
-   needs a hover, room beside the page, and no peek panel around it. */
+   opens the headings as clickable entries (mouse); a tap jumps straight
+   there. Clicking a bar or an entry jumps to it. At rest the bars read
+   uniform; the current one lights up only while the popup is open. Shown
+   everywhere but phones, the peek panel (no room to spare) and print. */
 .outline-minimap {
   position: fixed;
   right: 14px;
@@ -5718,7 +5719,10 @@ body.is-unsched-carry .tl-end-space {
   z-index: 60;
   display: none;
 }
-@media (min-width: 1300px) and (hover: hover) {
+/* The rail floats over the page edge, so it stays out of the text's way
+   even in a half-width window; only phones and the peek panel (which has no
+   room to spare) and print go without. */
+@media (min-width: 600px) {
   .outline-minimap {
     display: block;
   }
