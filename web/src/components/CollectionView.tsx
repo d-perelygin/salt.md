@@ -6759,31 +6759,29 @@ function useSettingsHint(name: string): [boolean, () => void] {
   return [show, seen];
 }
 
-// Day/Week/Month/2-months/Year switch shared by the calendar and the
-// timeline headers: same control, same place, same labels.
+// Day/Week/Month/Year switch shared by the calendar and the timeline
+// headers, with a − N + stepper for the count behind it: same control, same
+// place, same labels. The button reads the pair — "2 months", not just the
+// period. '2months' as a separate mode is gone (it was always just month × 2),
+// but a stored one still reads as that pair.
 // How many span units to show at once: 1 to 12, 1 when absent.
 function spanCount(n: unknown): number {
   const v = typeof n === 'number' && Number.isFinite(n) ? Math.floor(n) : 1;
   return Math.min(12, Math.max(1, v));
 }
-
-// One dropdown holds both the period and the count: Day, Week, Month,
-// 2 months, Year. '2 months' is month × 2, not a separate mode — a stored
-// '2months' mode reads as that option, and any other stored count keeps
-// rendering until the next pick normalizes it.
-const SPAN_OPTIONS: { mode: SpanMode; count: number }[] = [
-  { mode: 'day', count: 1 },
-  { mode: 'week', count: 1 },
-  { mode: 'month', count: 1 },
-  { mode: 'month', count: 2 },
-  { mode: 'year', count: 1 },
-];
+// The button label for a (period, count) pair. Singulars reuse the unit
+// names; anything above one pluralizes.
 function spanLabel(mode: SpanMode, count: number): string {
-  if (mode === '2months' || (mode === 'month' && count === 2)) return t('2 months');
-  if (mode === 'day') return t('Day');
-  if (mode === 'week') return t('Week');
-  if (mode === 'year') return t('Year');
-  return t('Month');
+  if (count <= 1) {
+    if (mode === 'day') return t('Day');
+    if (mode === 'week') return t('Week');
+    if (mode === 'year') return t('Year');
+    return t('Month');
+  }
+  if (mode === 'day') return plural(count, '{n} day', '{n} days');
+  if (mode === 'week') return plural(count, '{n} week', '{n} weeks');
+  if (mode === 'year') return plural(count, '{n} year', '{n} years');
+  return plural(count, '{n} month', '{n} months');
 }
 function ModePicker({ mode, onPick, count }: {
   mode: SpanMode;
@@ -6793,8 +6791,17 @@ function ModePicker({ mode, onPick, count }: {
   count?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const effCount = mode === '2months' ? 2 : (count ?? 1);
+  // Like every other menu: Escape dismisses, not just a backdrop click.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open ]);
   const effMode: SpanMode = mode === '2months' ? 'month' : mode;
+  const effCount = mode === '2months' && (count ?? 1) <= 1 ? 2 : (count ?? 1);
   const pick = (m: SpanMode, n: number) => {
     setOpen(false);
     if (m !== effMode || n !== effCount) onPick(m, n);
@@ -6802,20 +6809,49 @@ function ModePicker({ mode, onPick, count }: {
   return (
     <div className="cal-range-wrap">
       <button className="btn-sm" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
-        {spanLabel(mode, effCount)} <ChevronDown size={14} />
+        {spanLabel(effMode, effCount)} <ChevronDown size={14} />
       </button>
+      <span className="cal-count">
+        <button
+          type="button"
+          className="btn-sm"
+          disabled={effCount <= 1}
+          onClick={() => pick(effMode, Math.max(1, effCount - 1))}
+          title={t('Show fewer')}
+          aria-label={t('Show fewer')}
+        >
+          −
+        </button>
+        <span className="cal-count-num" aria-hidden="true">{effCount}</span>
+        <button
+          type="button"
+          className="btn-sm"
+          disabled={effCount >= 12}
+          onClick={() => pick(effMode, Math.min(12, effCount + 1))}
+          title={t('Show more')}
+          aria-label={t('Show more')}
+        >
+          +
+        </button>
+      </span>
       {open && (
         <>
           <div className="fs-backdrop" onClick={() => setOpen(false)} />
           <div className="menu view-tab-menu" role="listbox">
-            {SPAN_OPTIONS.map((opt) => (
+            {(['day', 'week', 'month', 'year'] as const).map((m) => (
               <button
-                key={opt.mode + opt.count}
+                key={m}
                 role="option"
-                aria-selected={opt.mode === effMode && opt.count === effCount}
-                onClick={() => pick(opt.mode, opt.count)}
+                aria-selected={effMode === m}
+                onClick={() => pick(m, effCount)}
               >
-                {spanLabel(opt.mode, opt.count)}
+                {m === 'day'
+                  ? t('Day')
+                  : m === 'week'
+                    ? t('Week')
+                    : m === 'year'
+                      ? t('Year')
+                      : t('Month')}
               </button>
             ))}
           </div>

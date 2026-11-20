@@ -20,7 +20,6 @@
   },
   "1 · Try it right away (quick tunnel)": "1 · Попробовать сразу (быстрый туннель)",
   "12-hour": "12-часовой",
-  "2 months": "2 месяца",
   "2 · Permanently, with your own domain (Cloudflare Tunnel)": "2 · Навсегда, со своим доменом (Cloudflare Tunnel)",
   "24-hour": "24-часовой",
   "2FA code": "Код 2FA",
@@ -1477,6 +1476,12 @@
     "many": "{n} мин",
     "other": "{n} мин"
   },
+  "{n} months": {
+    "one": "{n} месяц",
+    "few": "{n} месяца",
+    "many": "{n} месяцев",
+    "other": "{n} месяцев"
+  },
   "{n} notes": {
     "one": "{n} заметка",
     "few": "{n} заметки",
@@ -1537,11 +1542,23 @@
     "many": "{n} представлений",
     "other": "{n} представлений"
   },
+  "{n} weeks": {
+    "one": "{n} неделя",
+    "few": "{n} недели",
+    "many": "{n} недель",
+    "other": "{n} недель"
+  },
   "{n} without links": {
     "one": "{n} без ссылок",
     "few": "{n} без ссылок",
     "many": "{n} без ссылок",
     "other": "{n} без ссылок"
+  },
+  "{n} years": {
+    "one": "{n} год",
+    "few": "{n} года",
+    "many": "{n} лет",
+    "other": "{n} лет"
   },
   "{pages} in shared workspaces stay where they are.": "{pages} в общих рабочих пространствах остаются на месте.",
   "{prop} is not {value}": "{prop} — не {value}",
@@ -1764,5 +1781,7 @@
   "Tokens out": "Токены (выход)",
   "No AI usage yet.": "ИИ пока не использовался.",
   "+ Add sort…": "+ Добавить сортировку…",
-  "Remove sort": "Убрать сортировку"
+  "Remove sort": "Убрать сортировку",
+  "Show fewer": "Показывать меньше",
+  "Show more": "Показывать больше"
 }

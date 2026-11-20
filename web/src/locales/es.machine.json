@@ -43,6 +43,8 @@
   "Remove sort",
   "Rollup",
   "Runs",
+  "Show fewer",
+  "Show more",
   "Sum",
   "Supports",
   "Tags",
@@ -52,5 +54,8 @@
   "This workspace only",
   "Tokens in",
   "Tokens out",
-  "Unarchive"
+  "Unarchive",
+  "{n} months",
+  "{n} weeks",
+  "{n} years"
 ]

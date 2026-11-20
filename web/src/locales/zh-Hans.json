@@ -1129,6 +1129,9 @@
   "{n} min": {
     "other": "{n} 分钟"
   },
+  "{n} months": {
+    "other": "{n} 个月"
+  },
   "{n} notes": {
     "other": "{n} 条记录"
   },
@@ -1156,8 +1159,14 @@
   "{n} views": {
     "other": "{n} 个视图"
   },
+  "{n} weeks": {
+    "other": "{n} 周"
+  },
   "{n} without links": {
     "other": "{n} 个无链接"
+  },
+  "{n} years": {
+    "other": "{n} 年"
   },
   "{pages} in shared workspaces stay where they are.": "共享工作区中的 {pages} 会保留在原处。",
   "“{client}” is asking to work in your account.": "“{client}”请求使用你的账号工作。",

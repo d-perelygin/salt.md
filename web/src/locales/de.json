@@ -1068,6 +1068,10 @@
     "other": "{n} Mitglieder"
   },
   "{n} min": "{n} Min.",
+  "{n} months": {
+    "one": "{n} Monat",
+    "other": "{n} Monate"
+  },
   "{n} notes": {
     "one": "{n} Schnipsel",
     "other": "{n} Schnipsel"
@@ -1098,7 +1102,15 @@
     "one": "{n} Ansicht",
     "other": "{n} Ansichten"
   },
+  "{n} weeks": {
+    "one": "{n} Woche",
+    "other": "{n} Wochen"
+  },
   "{n} without links": "{n} ohne Links",
+  "{n} years": {
+    "one": "{n} Jahr",
+    "other": "{n} Jahre"
+  },
   "{pages} in shared workspaces stay where they are.": "{pages} in geteilten Workspaces bleiben bestehen.",
   "Make the instance public for that (Instance settings → Domain & proxy) and connect through the public URL. Local CLIs on the same network work directly.": "Dafür die Instanz öffentlich machen (Instanz-Einstellungen → Domain & Proxy) und über die öffentliche URL verbinden. Lokale CLIs im selben Netz funktionieren direkt.",
   "“{client}” is asking to work in your account.": "„{client}“ möchte in deinem Konto arbeiten.",
@@ -1165,7 +1177,6 @@
   "+ Add group": "+ Gruppe hinzufügen",
   "+ Add rule": "+ Regel hinzufügen",
   "+ Only if value": "+ Nur wenn Wert",
-  "2 months": "2 Monate",
   "A + button duplicates the template, then fills in what it prescribes — the column, the day. The rest — values, text — comes from the template.": "Die +-Schaltfläche dupliziert die Vorlage und trägt dann ein, was sie vorgibt — die Spalte, den Tag. Der Rest — Werte, Text — kommt aus der Vorlage.",
   "A mismatch skips the rule — another rule may take the same move.": "Bei Nichtübereinstimmung wird die Regel übersprungen — eine andere Regel kann denselben Übergang nehmen.",
   "A new link was created — the old one no longer works": "Ein neuer Link wurde erstellt — der alte funktioniert nicht mehr.",
@@ -1685,5 +1696,7 @@
   "Tokens out": "Tokens out",
   "No AI usage yet.": "Noch keine KI-Nutzung.",
   "+ Add sort…": "+ Sortierung hinzufügen…",
-  "Remove sort": "Sortierung entfernen"
+  "Remove sort": "Sortierung entfernen",
+  "Show fewer": "Weniger anzeigen",
+  "Show more": "Mehr anzeigen"
 }

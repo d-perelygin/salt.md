@@ -1094,6 +1094,10 @@
     "other": "{n} miembros"
   },
   "{n} min": "{n} min",
+  "{n} months": {
+    "one": "{n} mes",
+    "other": "{n} meses"
+  },
   "{n} notes": {
     "one": "{n} nota",
     "other": "{n} notas"
@@ -1127,7 +1131,15 @@
     "one": "{n} vista",
     "other": "{n} vistas"
   },
+  "{n} weeks": {
+    "one": "{n} semana",
+    "other": "{n} semanas"
+  },
   "{n} without links": "{n} sin enlaces",
+  "{n} years": {
+    "one": "{n} año",
+    "other": "{n} años"
+  },
   "{pages} in shared workspaces stay where they are.": "{pages} en espacios de trabajo compartidos permanecen donde están.",
   "“{client}” is asking to work in your account.": "«{client}» solicita acceso para trabajar en tu cuenta.",
   "“{name}” deleted.": "«{name}» eliminado.",

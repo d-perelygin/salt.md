@@ -4853,6 +4853,24 @@ button.relation-chip:hover {
   gap: 4px;
 }
 
+/* How many span units to show at once: − N + right behind the period picker. */
+.cal-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+.cal-count .btn-sm:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.cal-count-num {
+  min-width: 1.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
 .cal-grids {
   display: flex;
   flex-direction: column;
