@@ -7172,6 +7172,33 @@ function CalendarView({
     for (let r = 0; r * 7 < cells.length; r++) rows.push(lanesFor(cells.slice(r * 7, r * 7 + 7)));
     return rows;
   };
+  // Week view renders month grids with the unneeded weeks cut out: every
+  // selected week contributes the month-grid row holding it, and days
+  // outside the month stay empty exactly like in the month view. Thursday
+  // decides a week's month (ISO), so a week straddling two months lands in
+  // one block instead of showing both months' edges.
+  const thuOffset = (4 - firstWeekday() + 7) % 7; // getDay() counts Sunday as 0
+  const weekBlocks: { first: Date; rows: (Date | null)[][] }[] = [];
+  if (mode === 'week') {
+    const byMonth = new Map<number, { first: Date; rows: (Date | null)[][] }>();
+    for (const wd of weeks) {
+      const thu = wd[thuOffset];
+      const first = new Date(thu.getFullYear(), thu.getMonth(), 1);
+      const key = thu.getFullYear() * 12 + thu.getMonth();
+      let block = byMonth.get(key);
+      if (!block) {
+        block = { first, rows: [] };
+        byMonth.set(key, block);
+      }
+      const cells = monthCells(first);
+      const ti = cells.findIndex((c) => c !== null && ymd(c) === ymd(thu));
+      if (ti >= 0) {
+        const row = cells.slice(Math.floor(ti / 7) * 7, Math.floor(ti / 7) * 7 + 7);
+        block.rows.push(row);
+      }
+    }
+    weekBlocks.push(...byMonth.values());
+  }
 
   const step = (delta: number) => {
     if (mode === 'day') setCursor((c) => addDays(c, delta));
@@ -7457,16 +7484,23 @@ function CalendarView({
           ))}
         </>
       ) : mode === 'week' ? (
-        <>
-          {weeks.map((wd, wi) => (
-            <div className="calendar-grid" key={wi}>
-              {weekdayNames().map((d) => (
-                <div key={d} className="calendar-dow">{d}</div>
-              ))}
-              {wd.map((d, i) => dayCell(d, `${wi}-${i}`, lanesFor(wd), wd.map((x) => ymd(x))))}
+        <div className="cal-grids">
+          {weekBlocks.map(({ first, rows }, bi) => (
+            <div key={bi} className="calendar-grid-wrap">
+              <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
+              <div className="calendar-grid">
+                {weekdayNames().map((d) => (
+                  <div key={d} className="calendar-dow">{d}</div>
+                ))}
+                {rows.flatMap((rowCells, ri) => {
+                  const lanes = lanesFor(rowCells);
+                  const keys = rowCells.map((c) => (c ? ymd(c) : '')).filter((k) => k !== '');
+                  return rowCells.map((d, i) => dayCell(d, `${bi}-${ri}-${i}`, lanes, keys));
+                })}
+              </div>
             </div>
           ))}
-        </>
+        </div>
       ) : mode === 'year' ? (
         <div className="cal-year">
           {yearMonths.map((first, mi) => (
