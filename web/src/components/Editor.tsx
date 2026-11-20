@@ -3856,11 +3856,14 @@ function BlockContent({
 
   // A text drag that leaves the text column must not keep growing: the
   // browser maps points outside the text to distant block boundaries, so one
-  // overshoot left swallows whole paragraphs up to the document start. While
-  // a drag that started inside the text is in flight, a selection change with
-  // the pointer outside the column restores the last in-column selection
-  // instead. Only the sideways overshoot is frozen — dragging down to the
-  // end, shift-selecting from the keyboard and the title field are untouched.
+  // overshoot left swallows whole paragraphs up to the document start. And a
+  // mostly-sideways drag with a slight upward drift grabs the blocks above
+  // without ever leaving the column. While a drag that started inside the
+  // text is in flight, a selection change is reverted when either happens:
+  // the pointer is outside the column, or the drag reads as horizontal and
+  // its focus left the block it started in. Deliberate vertical drags (down
+  // to the end, up to the start) are untouched — only the sideways overshoot
+  // is frozen, and the title field never arms this at all.
   useEffect(() => {
     const root = scrollRef.current;
     if (!root) return;
@@ -3868,8 +3871,11 @@ function BlockContent({
     let pressing = false; // the button/finger is still down
     let px = 0;
     let py = 0;
+    let sx = 0;
+    let sy = 0;
     let havePoint = false;
     let outOfDoc = false;
+    let startBlock: Element | null = null;
     let saved: {
       anchorNode: Node;
       anchorOffset: number;
@@ -3888,6 +3894,12 @@ function BlockContent({
           }
         : null;
 
+    const blockOf = (n: Node | null): Element | null => {
+      if (!n) return null;
+      const el = n instanceof Element ? n : n.parentElement;
+      return el?.closest?.('[data-id]') ?? null;
+    };
+
     // The pointer is over text when the element under it lives inside
     // .editor-inner. elementFromPoint (rather than a cached rect) is used so
     // autoscroll drags, which move the column under a pinned pointer, still
@@ -3905,6 +3917,9 @@ function BlockContent({
       pressing = armed;
       havePoint = false;
       outOfDoc = false;
+      sx = e.clientX;
+      sy = e.clientY;
+      startBlock = null;
       const s = document.getSelection();
       saved = s ? snapshot(s) : null;
     };
@@ -3933,17 +3948,36 @@ function BlockContent({
       const col = root.querySelector('.editor-inner');
       // Someone else's selection (sidebar search, chat input): not ours.
       if (!col || !s.anchorNode || !col.contains(s.anchorNode)) return;
-      if (armed && pressing && !overText()) {
-        if (saved && saved.anchorNode.isConnected && saved.focusNode.isConnected) {
-          restoring = true;
-          try {
-            s.setBaseAndExtent(saved.anchorNode, saved.anchorOffset, saved.focusNode, saved.focusOffset);
-          } catch {
-            saved = snapshot(s); // nodes detached mid-edit — take the browser's
+      // The caret is the drag's origin — but on a fast fling the caret may
+      // never surface as its own event: the first selectionchange already
+      // shows the jump. So the starting block is taken from the anchor of
+      // the first selection the gesture shows (a flip always passes through
+      // a collapse, which corrects it back to the true origin below).
+      if (s.anchorNode && (s.isCollapsed || !startBlock)) {
+        startBlock = blockOf(s.anchorNode) ?? startBlock;
+      }
+      if (armed && pressing) {
+        // Outside the column: the browser is mapping the point to distant
+        // block boundaries — freeze.
+        // Sideways but still inside: a horizontal drag whose focus left the
+        // starting block is an overshoot, not a multi-block select (those go
+        // up or down, decisively).
+        const dx = px - sx;
+        const dy = py - sy;
+        const sideways = havePoint && !outOfDoc && Math.abs(dx) > 2 * Math.abs(dy);
+        const leftBlock = sideways && !!startBlock && !startBlock.contains(s.focusNode);
+        if (!overText() || leftBlock) {
+          if (saved && saved.anchorNode.isConnected && saved.focusNode.isConnected) {
+            restoring = true;
+            try {
+              s.setBaseAndExtent(saved.anchorNode, saved.anchorOffset, saved.focusNode, saved.focusOffset);
+            } catch {
+              saved = snapshot(s); // nodes detached mid-edit — take the browser's
+            }
+            restoring = false;
           }
-          restoring = false;
+          return;
         }
-        return;
       }
       saved = snapshot(s);
     };
