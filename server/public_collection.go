@@ -213,20 +213,35 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 			}
 		}
 	}
-	sortParam := ""
-	if sraw, _ := json.Marshal(view["sort"]); len(sraw) > 2 {
-		var so struct {
-			Property string `json:"property"`
-			Dir      string `json:"dir"`
+	// sorts wins when present; the legacy sort is its first key.
+	var sortViews []map[string]any
+	if sraw, _ := json.Marshal(view["sorts"]); len(sraw) > 2 {
+		_ = json.Unmarshal(sraw, &sortViews)
+	}
+	if len(sortViews) == 0 {
+		if sraw, _ := json.Marshal(view["sort"]); len(sraw) > 2 {
+			var so map[string]any
+			if json.Unmarshal(sraw, &so) == nil {
+				sortViews = []map[string]any{so}
+			}
 		}
-		if json.Unmarshal(sraw, &so) == nil && so.Property != "" &&
-			(safePropID(so.Property) || so.Property == sortCreatedProp || so.Property == sortUpdatedProp) {
+	}
+	sortParam := ""
+	{
+		parts := []string{}
+		for _, v := range sortViews {
+			prop, _ := v["property"].(string)
+			dir, _ := v["dir"].(string)
+			if prop == "" || !(safePropID(prop) || prop == sortCreatedProp || prop == sortUpdatedProp) {
+				continue
+			}
 			d := "asc"
-			if strings.EqualFold(so.Dir, "desc") {
+			if strings.EqualFold(dir, "desc") {
 				d = "desc"
 			}
-			sortParam = so.Property + ":" + d
+			parts = append(parts, prop+":"+d)
 		}
+		sortParam = strings.Join(parts, ",")
 	}
 	where := []string{"parent_id = ?", "trashed_at IS NULL", "(visibility IS NULL OR visibility != 'private')"}
 	args := []any{colID}

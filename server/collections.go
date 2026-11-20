@@ -181,7 +181,8 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 //	                           same shape (repeatable); ANDed inside, ORed
 //	                           between groups; a repeatable `filter` beside
 //	                           them holds for every group
-//	sort=<propId>:<asc|desc>
+//	sort=<propId>:<asc|desc>[,<propId>:<asc|desc>...] — repeatable; the first
+//	key wins ties, like SQL ORDER BY
 type collectionRow struct {
 	ID       string          `json:"id"`
 	Title    string          `json:"title"`
@@ -680,20 +681,26 @@ func (s *Server) collectionRowsQuery(u *user, colID string, flat []rowFilter, gr
 
 	orderSQL := "position, created_at"
 	if sortParam != "" {
-		propID, dir, _ := strings.Cut(sortParam, ":")
-		d := "ASC"
-		if strings.EqualFold(dir, "desc") {
-			d = "DESC"
-		}
-		switch propID {
-		case sortCreatedProp:
-			orderSQL = "created_at " + d + ", position"
-		case sortUpdatedProp:
-			orderSQL = "updated_at " + d + ", position"
-		default:
-			if safePropID(propID) {
-				orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position"
+		keys := []string{}
+		for _, part := range strings.Split(sortParam, ",") {
+			propID, dir, _ := strings.Cut(strings.TrimSpace(part), ":")
+			d := "ASC"
+			if strings.EqualFold(dir, "desc") {
+				d = "DESC"
 			}
+			switch propID {
+			case sortCreatedProp:
+				keys = append(keys, "created_at "+d)
+			case sortUpdatedProp:
+				keys = append(keys, "updated_at "+d)
+			default:
+				if safePropID(propID) {
+					keys = append(keys, "json_extract(props, '$."+propID+"') "+d)
+				}
+			}
+		}
+		if len(keys) > 0 {
+			orderSQL = strings.Join(keys, ", ") + ", position"
 		}
 	}
 
@@ -834,7 +841,7 @@ func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 	if day, ok := parseTodayParam(q.Get("today")); ok {
 		today = day
 	}
-	list, total, err := s.collectionRowsQuery(requestUser(r), colID, filters, parseFilterGroups(q["filter_group"]), q.Get("sort"), limit, offset, today)
+	list, total, err := s.collectionRowsQuery(requestUser(r), colID, filters, parseFilterGroups(q["filter_group"]), strings.Join(q["sort"], ","), limit, offset, today)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return

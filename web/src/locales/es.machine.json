@@ -1,5 +1,6 @@
 [
   "(pick relation first)",
+  "+ Add sort…",
   "AI usage",
   "Access for {name} ended.",
   "Agents & MCP",
@@ -38,6 +39,7 @@
   "Remember",
   "Remember this…",
   "Remove selected text",
+  "Remove sort",
   "Rollup",
   "Runs",
   "Sum",

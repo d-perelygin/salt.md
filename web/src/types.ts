@@ -348,6 +348,11 @@ export interface ViewDef {
   trayFilters?: Filter[];
   trayFilterGroups?: Filter[][];
   sort?: Sort | null;
+  /** Extra sort keys after the first, in priority order: the SQL ORDER BY of
+   *  the view. When present and non-empty it wins over `sort`; the flat `sort`
+   *  then mirrors `sorts[0]` for older readers. Absent means `sort` alone is
+   *  the whole order. */
+  sorts?: Sort[];
   formTitle?: string; // form view: heading above the form
   formDesc?: string; // form view: description under the heading
   formSubmit?: string; // form view: submit-button label

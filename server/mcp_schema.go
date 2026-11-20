@@ -722,6 +722,7 @@ func applyViewSpec(view map[string]any, spec viewSpec, schema []map[string]any) 
 	if spec.Sort != nil {
 		if strings.TrimSpace(*spec.Sort) == "" {
 			delete(view, "sort")
+			delete(view, "sorts")
 		} else {
 			prop, dir, _ := strings.Cut(*spec.Sort, ":")
 			if !has(prop) {
@@ -730,7 +731,9 @@ func applyViewSpec(view map[string]any, spec viewSpec, schema []map[string]any) 
 			if dir != "desc" {
 				dir = "asc"
 			}
-			view["sort"] = map[string]any{"property": prop, "dir": dir}
+			one := map[string]any{"property": prop, "dir": dir}
+			view["sort"] = one
+			view["sorts"] = []any{one}
 		}
 	}
 	if spec.Hidden != nil {

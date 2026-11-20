@@ -143,9 +143,9 @@ function propTypeIcon(t: PropDef['type']) {
  *  is every embed written before this existed. */
 export interface EmbedState {
   viewId: string;
-  views: Record<string, { filters?: Filter[]; filterGroups?: Filter[][]; sort?: ViewDef['sort'] }>;
+  views: Record<string, { filters?: Filter[]; filterGroups?: Filter[][]; sorts?: Sort[]; sort?: ViewDef['sort'] }>;
   onViewId: (viewId: string) => void;
-  onView: (viewId: string, patch: { filters?: Filter[]; filterGroups?: Filter[][]; sort?: ViewDef['sort'] }) => void;
+  onView: (viewId: string, patch: { filters?: Filter[]; filterGroups?: Filter[][]; sorts?: Sort[]; sort?: ViewDef['sort'] }) => void;
 }
 
 interface Props {
@@ -278,11 +278,20 @@ export function viewFilterGroups(view: Pick<ViewDef, 'filters' | 'filterGroups'>
   return [];
 }
 
+// The effective sort keys of a view, in priority order. sorts wins when
+// present and non-empty; the legacy flat sort reads as the single key, so
+// older views keep their meaning exactly.
+function viewSorts(view: Pick<ViewDef, 'sort' | 'sorts'>): Sort[] {
+  if (view.sorts !== undefined && view.sorts.length > 0) return view.sorts;
+  if (view.sort) return [view.sort];
+  return [];
+}
+
 // Apply a view's filters and sort to the row set. A row passes when some group
 // passes wholly; groups with nothing armed in them do not filter.
 function applyView(rows: Row[], view: ViewDef, schema: PropDef[], currentUser: AuthUser | null = null): Row[] {
   const out = filterRowsByGroups(rows, viewFilterGroups(view), schema, currentUser);
-  return sortRows(out, view.sort);
+  return sortRows(out, viewSorts(view));
 }
 
 // The filter half of applyView, reusable wherever a custom group set replaces
@@ -310,22 +319,27 @@ function filterRowsByGroups(rows: Row[], groups: Filter[][], schema: PropDef[], 
 }
 
 // The sort half of applyView: the tray inherits the view's order even under
-// its own filters.
-function sortRows(rows: Row[], sort: ViewDef['sort']): Row[] {
-  if (!sort) return rows;
-  return [...rows].sort((a, b) => {
+// its own filters. Keys apply in order, like SQL ORDER BY: the first key
+// decides, the next breaks its ties.
+function sortRows(rows: Row[], sorts: Sort[]): Row[] {
+  if (!sorts.length) return rows;
+  const keyOf = (sort: Sort, r: Row): string | number => {
     if (sort.property === SORT_CREATED || sort.property === SORT_UPDATED) {
-      const ak = sort.property === SORT_CREATED ? (a.createdAt ?? '') : (a.updatedAt ?? '');
-      const bk = sort.property === SORT_CREATED ? (b.createdAt ?? '') : (b.updatedAt ?? '');
-      const cmp = ak < bk ? -1 : ak > bk ? 1 : 0;
-      return sort.dir === 'desc' ? -cmp : cmp;
+      return sort.property === SORT_CREATED ? (r.createdAt ?? '') : (r.updatedAt ?? '');
     }
-    const av = a.props[sort.property];
-    const bv = b.props[sort.property];
-    const as = Array.isArray(av) ? av.join(',') : String(av ?? '');
-    const bs = Array.isArray(bv) ? bv.join(',') : String(bv ?? '');
-    const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : compare(as, bs);
-    return sort.dir === 'desc' ? -cmp : cmp;
+    const v = r.props[sort.property];
+    if (typeof v === 'number') return v;
+    const s = Array.isArray(v) ? v.join(',') : String(v ?? '');
+    return s;
+  };
+  return [...rows].sort((a, b) => {
+    for (const sort of sorts) {
+      const ak = keyOf(sort, a);
+      const bk = keyOf(sort, b);
+      const cmp = typeof ak === 'number' && typeof bk === 'number' ? ak - bk : compare(String(ak), String(bk));
+      if (cmp !== 0) return sort.dir === 'desc' ? -cmp : cmp;
+    }
+    return 0;
   });
 }
 
@@ -585,12 +599,12 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const serverGroups = viewFilterGroups(view0 ?? { filters: [] })
     .map((g) => g.filter((f) => filterIsArmed(f, schemaDateProp(f.property))).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })))
     .filter((g) => g.length > 0);
-  const serverSort = view0?.sort ?? null;
+  const serverSorts = view0 ? viewSorts(view0) : [];
   // The viewer's day travels with every row query, so "today" resolves
   // against it and not the server's. Part of the key so a tab left open
   // overnight reloads with the new day.
   const todayStr = today();
-  const fsKey = JSON.stringify([serverGroups, serverSort, todayStr]);
+  const fsKey = JSON.stringify([serverGroups, serverSorts, todayStr]);
 
   // Loads ALL rows, in steps of 200 one after another. It used to stop at the
   // first page plus a "Load more" button — with the result that a board of 656
@@ -610,7 +624,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           limit: PAGE,
           offset: acc.length,
           filterGroups: serverGroups,
-          sort: serverSort,
+          sorts: serverSorts,
           today: todayStr,
         });
         if (!fresh()) return; // inzwischen neu geladen — or written to meanwhile
@@ -726,7 +740,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       ).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })),
     )
     .filter((g) => g.length > 0);
-  const trayKey = view0 && trayNeedsFetch ? JSON.stringify([trayServerGroups, view0.sort, todayStr]) : '';
+  const trayKey = view0 && trayNeedsFetch ? JSON.stringify([trayServerGroups, viewSorts(view0), todayStr]) : '';
   const [trayExtra, setTrayExtra] = useState<{ key: string; rows: Row[] } | null>(null);
   useEffect(() => {
     if (!trayNeedsFetch) return;
@@ -739,7 +753,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           limit: PAGE,
           offset: acc.length,
           filterGroups: trayServerGroups,
-          sort: view0?.sort,
+          sorts: view0 ? viewSorts(view0) : [],
           today: todayStr,
         });
         if (dead) return;
@@ -1264,7 +1278,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       // anywhere: top of the new one.
       let newPos: number | undefined;
       const v = view;
-      if (v?.type === 'board' && !v.sort && boardGroupBy && propId === boardGroupBy) {
+      if (v?.type === 'board' && viewSorts(v).length === 0 && boardGroupBy && propId === boardGroupBy) {
         const optId = Array.isArray(value) ? (value[0] as string) : (value as string);
         const siblings =
           optId === undefined || optId === ''
@@ -1488,12 +1502,15 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // An embed keeps its filters and sort to itself (#26): set inside a
     // document, they must not change the collection's view everywhere else.
     // Embed-local changes stay out of the undo stack with them.
-    if (embed && ('filters' in patch || 'filterGroups' in patch || 'sort' in patch)) {
-      const { filters, filterGroups, sort, ...rest } = patch;
+    if (embed && ('filters' in patch || 'filterGroups' in patch || 'sorts' in patch || 'sort' in patch)) {
+      const { filters, filterGroups, sorts, sort, ...rest } = patch;
       embed.onView(view.id, {
         ...('filters' in patch ? { filters } : {}),
         ...('filterGroups' in patch ? { filterGroups } : {}),
-        ...('sort' in patch ? { sort } : {}),
+        // Both shapes travel, like filters above: readers that only know the
+        // old shape still sort by the first key.
+        ...('sorts' in patch ? { sorts, sort: (sorts ?? [])[0] ?? null } : {}),
+        ...('sort' in patch && !('sorts' in patch) ? { sort } : {}),
       });
       if (Object.keys(rest).length === 0) return;
       patch = rest;
@@ -1517,7 +1534,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       });
       if (JSON.stringify(prev) === JSON.stringify(nextView)) return;
       const sortBack =
-        JSON.stringify(prev.sort ?? null) !== JSON.stringify(nextView.sort ?? null);
+        JSON.stringify(viewSorts(prev)) !== JSON.stringify(viewSorts(nextView));
       const filterBack =
         JSON.stringify(prev.filters ?? []) !== JSON.stringify(nextView.filters ?? []) ||
         JSON.stringify(prev.filterGroups ?? []) !== JSON.stringify(nextView.filterGroups ?? []);
@@ -1646,7 +1663,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // the extra query above (keyed by trayKey). While a fresh custom set loads,
   // keep showing the previous one rather than flashing the inherited set.
   const trayBase =
-    !trayNeedsFetch ? rows : trayExtra && trayExtra.key === trayKey ? sortRows(trayExtra.rows, view.sort) : (trayExtra?.rows ?? rows);
+    !trayNeedsFetch ? rows : trayExtra && trayExtra.key === trayKey ? sortRows(trayExtra.rows, viewSorts(view)) : (trayExtra?.rows ?? rows);
   const emptyLabel =
     rows.length > 0 && viewRows.length === 0
       ? t('No rows match the current filter.')
@@ -1950,7 +1967,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onDropCard={(rowId, groupBy, optId, _curOrder, newOrder) => {
             void dropCardCrossColumn(rowId, groupBy, optId, newOrder);
           }}
-          manualOrder={!view.sort}
+          manualOrder={viewSorts(view).length === 0}
           onMoveCard={(rowId, curOrder, newOrder) => {
             void moveCard(rowId, curOrder, newOrder);
           }}
@@ -1959,7 +1976,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             // A board + makes the card for this column, on its top: one less
             // than the column's lowest position. A sorted view orders by its
             // sort, so positions stay out of it.
-            const col = !view.sort ? boardColumnRows(viewRows, groupBy, optId) : [];
+            const col = viewSorts(view).length === 0 ? boardColumnRows(viewRows, groupBy, optId) : [];
             return void addRow(
               optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) },
               col.length > 0 ? { prependBefore: Math.min(...col.map((r) => r.position)) } : undefined,
@@ -2726,7 +2743,10 @@ function FilterSortControls({
   // Write both shapes at once: the flat list mirrors the first group, so
   // readers that only know the old shape still see something honest.
   const setGroups = (next: Filter[][]) => onChange({ filters: next[0] ?? [], filterGroups: next });
-  const sort = view.sort ?? null;
+  const sorts = viewSorts(view);
+  // Write both shapes at once: the flat sort mirrors the first key, so
+  // readers that only know the old shape still sort by something honest.
+  const setSorts = (next: Sort[]) => onChange({ sorts: next, sort: next[0] ?? null });
   const propName = (id: string) =>
     id === TEMPLATE_FILTER
       ? t('Template')
@@ -2868,10 +2888,10 @@ function FilterSortControls({
             <FilterIcon size={14} /> {t('Filter')}{filterCount ? ` (${filterCount})` : ''}
           </button>
           <button
-            className={'btn-sm' + (sort ? ' active' : '')}
+            className={'btn-sm' + (sorts.length ? ' active' : '')}
             onClick={() => setOpen(open === 'sort' ? null : 'sort')}
           >
-            <ArrowUpDown size={14} /> {t('Sort')}
+            <ArrowUpDown size={14} /> {t('Sort')}{sorts.length > 1 ? ` (${sorts.length})` : ''}
           </button>
         </>
       )}
@@ -3121,42 +3141,79 @@ function FilterSortControls({
             )}
             {open === 'sort' && (
               <>
-          <div className="fs-row">
-            <select
-              className="prop-select"
-              value={sort?.property ?? ''}
-              onChange={(e) =>
-                onChange({
-                  sort: e.target.value ? { property: e.target.value, dir: sort?.dir ?? 'asc' } : null,
-                })
-              }
-            >
-              <option value="">{t('No sort')}</option>
-              <optgroup label={t('Columns')}>
-                {schema.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label={t('System')}>
-                <option value={SORT_CREATED}>{t('Created')}</option>
-                <option value={SORT_UPDATED}>{t('Updated')}</option>
-              </optgroup>
-            </select>
-            {sort && (
-              <select
-                className="prop-select"
-                value={sort.dir}
-                onChange={(e) =>
-                  onChange({ sort: { ...sort, dir: e.target.value as Sort['dir'] } })
-                }
-              >
-                <option value="asc">{t('Ascending')}</option>
-                <option value="desc">{t('Descending')}</option>
-              </select>
-            )}
-          </div>
+                {sorts.map((s, si) => {
+                  // Keyed by what the sort IS, like filter rows: removing one
+                  // must not move another row's state onto the wrong key.
+                  const occurrence = sorts
+                    .slice(0, si)
+                    .filter((o) => o.property === s.property).length;
+                  const rowKey = `${s.property}::${occurrence}`;
+                  const patchSort = (u: Partial<Sort>) => {
+                    const next = sorts.slice();
+                    next[si] = { ...s, ...u };
+                    setSorts(next);
+                  };
+                  return (
+                    <div className="fs-row" key={rowKey}>
+                      <select
+                        className="prop-select"
+                        value={s.property}
+                        onChange={(e) => patchSort({ property: e.target.value })}
+                      >
+                        <optgroup label={t('Columns')}>
+                          {schema.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label={t('System')}>
+                          <option value={SORT_CREATED}>{t('Created')}</option>
+                          <option value={SORT_UPDATED}>{t('Updated')}</option>
+                        </optgroup>
+                      </select>
+                      <select
+                        className="prop-select"
+                        value={s.dir}
+                        onChange={(e) => patchSort({ dir: e.target.value as Sort['dir'] })}
+                      >
+                        <option value="asc">{t('Ascending')}</option>
+                        <option value="desc">{t('Descending')}</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="icon-btn danger fs-remove"
+                        title={t('Remove sort')}
+                        onClick={() => setSorts(sorts.filter((_, j) => j !== si))}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="fs-row">
+                  <select
+                    className="prop-select"
+                    value=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      setSorts([...sorts, { property: e.target.value, dir: 'asc' }]);
+                    }}
+                  >
+                    <option value="">{sorts.length ? t('+ Add sort…') : t('No sort')}</option>
+                    <optgroup label={t('Columns')}>
+                      {schema.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label={t('System')}>
+                      <option value={SORT_CREATED}>{t('Created')}</option>
+                      <option value={SORT_UPDATED}>{t('Updated')}</option>
+                    </optgroup>
+                  </select>
+                </div>
               </>
             )}
             {open === 'group' && (

@@ -525,8 +525,10 @@ not: there the sort is the database's alone.
 
 ## Sorting
 
-One property, **Ascending** or **Descending**, or **No sort** (the popover
-behind the **Sort** button). Text is compared the way your language sorts it, so
+One or several properties, each **Ascending** or **Descending** (the popover
+behind the **Sort** button, **+ Add sort…** appends another key). Keys apply in
+order, like SQL `ORDER BY`: the first decides, the next breaks its ties. Text
+is compared the way your language sorts it, so
 accented letters land beside their plain forms instead of after Z; numbers are
 compared as numbers. Below the collection's columns, under a **System** heading
 of their own, sit two orders that are not columns at all: **Created** and

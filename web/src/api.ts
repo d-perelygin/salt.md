@@ -484,6 +484,10 @@ export const api = {
       filters?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[];
       filterGroups?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[][];
       sort?: { property: string; dir: 'asc' | 'desc' } | null;
+      // Extra sort keys after the first, in priority order. Travels as
+      // repeated sort params; the server reads them as one ORDER BY.
+      // Prefer sorts; the single sort is kept for older callers.
+      sorts?: { property: string; dir: 'asc' | 'desc' }[];
       // The viewer's day as YYYY-MM-DD: relative date words ("today",
       // "today-1M") resolve against it, not the server's day.
       today?: string;
@@ -504,7 +508,8 @@ export const api = {
     for (const f of opts.filters ?? []) p.append('filter', encode(f));
     // One filter_group param per OR group; each is a JSON array of conditions.
     for (const g of opts.filterGroups ?? []) p.append('filter_group', JSON.stringify(g));
-    if (opts.sort) p.set('sort', `${opts.sort.property}:${opts.sort.dir}`);
+    const sorts = [...(opts.sorts ?? []), ...(opts.sort && !(opts.sorts ?? []).length ? [opts.sort] : [])];
+    for (const s of sorts) p.append('sort', `${s.property}:${s.dir}`);
     return req<{
       rows: {
         id: string;

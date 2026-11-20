@@ -1194,5 +1194,7 @@
   "Runs": "執行",
   "Tokens in": "輸入 Token",
   "Tokens out": "輸出 Token",
-  "No AI usage yet.": "還沒有使用 AI。"
+  "No AI usage yet.": "還沒有使用 AI。",
+  "+ Add sort…": "+ 新增排序…",
+  "Remove sort": "移除排序"
 }

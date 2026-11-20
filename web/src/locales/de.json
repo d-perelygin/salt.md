@@ -1682,5 +1682,7 @@
   "Runs": "Läufe",
   "Tokens in": "Tokens in",
   "Tokens out": "Tokens out",
-  "No AI usage yet.": "Noch keine KI-Nutzung."
+  "No AI usage yet.": "Noch keine KI-Nutzung.",
+  "+ Add sort…": "+ Sortierung hinzufügen…",
+  "Remove sort": "Sortierung entfernen"
 }

@@ -1187,5 +1187,7 @@
   "Runs": "Ejecuciones",
   "Tokens in": "Tokens de entrada",
   "Tokens out": "Tokens de salida",
-  "No AI usage yet.": "Aún no se ha usado la IA."
+  "No AI usage yet.": "Aún no se ha usado la IA.",
+  "+ Add sort…": "+ Añadir orden…",
+  "Remove sort": "Quitar orden"
 }

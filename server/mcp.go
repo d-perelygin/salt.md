@@ -278,7 +278,7 @@ var mcpTools = []map[string]any{
 					"items": filterConditionSchema()},
 				"filter_groups": map[string]any{"type": "array", "description": "OR groups: each group is an array of conditions shaped like the items of filter, ANDed inside a group and ORed between groups. A group without one complete condition is ignored.",
 					"items": map[string]any{"type": "array", "items": filterConditionSchema()}},
-				"sort":   map[string]any{"type": "string", "description": "propertyId:asc or propertyId:desc"},
+				"sort":   map[string]any{"type": "string", "description": "propertyId:asc or propertyId:desc; comma-separated for several keys in priority order, like SQL ORDER BY"},
 				"limit":  map[string]any{"type": "integer", "description": "Max rows (default 50, max 500)"},
 				"offset": map[string]any{"type": "integer"},
 				"today":  map[string]any{"type": "string", "description": "Your current day as YYYY-MM-DD, used to resolve relative date words (today, today-1M). Omit it and the server resolves against its own day instead, which can differ near midnight."},
