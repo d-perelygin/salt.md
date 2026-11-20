@@ -5941,9 +5941,8 @@ function TimelineView({
           </div>
           <ModePicker
             mode={mode}
-            onChange={onModeChange}
+            onPick={(m, n) => onViewChange({ tlMode: m, tlCount: n === 1 ? undefined : n })}
             count={spanCount(view.tlCount)}
-            onCountChange={(n) => onViewChange({ tlCount: n === 1 ? undefined : n })}
           />
         </div>
       </div>
@@ -6768,77 +6767,55 @@ function spanCount(n: unknown): number {
   return Math.min(12, Math.max(1, v));
 }
 
-function ModePicker({ mode, onChange, count, onCountChange }: {
+// One dropdown holds both the period and the count: Day, Week, Month,
+// 2 months, Year. '2 months' is month × 2, not a separate mode — a stored
+// '2months' mode reads as that option, and any other stored count keeps
+// rendering until the next pick normalizes it.
+const SPAN_OPTIONS: { mode: SpanMode; count: number }[] = [
+  { mode: 'day', count: 1 },
+  { mode: 'week', count: 1 },
+  { mode: 'month', count: 1 },
+  { mode: 'month', count: 2 },
+  { mode: 'year', count: 1 },
+];
+function spanLabel(mode: SpanMode, count: number): string {
+  if (mode === '2months' || (mode === 'month' && count === 2)) return t('2 months');
+  if (mode === 'day') return t('Day');
+  if (mode === 'week') return t('Week');
+  if (mode === 'year') return t('Year');
+  return t('Month');
+}
+function ModePicker({ mode, onPick, count }: {
   mode: SpanMode;
-  onChange: (m: SpanMode) => void;
+  // One patch for both halves, so the mode and the count land in a single
+  // view update instead of racing each other to the server.
+  onPick: (m: SpanMode, n: number) => void;
   count?: number;
-  onCountChange?: (n: number) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const label =
-    mode === 'day'
-      ? t('Day')
-      : mode === 'week'
-        ? t('Week')
-        : mode === 'year'
-          ? t('Year')
-          : mode === '2months'
-            ? t('2 months')
-            : t('Month');
-  const pick = (m: SpanMode) => {
+  const effCount = mode === '2months' ? 2 : (count ?? 1);
+  const effMode: SpanMode = mode === '2months' ? 'month' : mode;
+  const pick = (m: SpanMode, n: number) => {
     setOpen(false);
-    if (m !== mode) onChange(m);
+    if (m !== effMode || n !== effCount) onPick(m, n);
   };
   return (
     <div className="cal-range-wrap">
       <button className="btn-sm" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
-        {label} <ChevronDown size={14} />
+        {spanLabel(mode, effCount)} <ChevronDown size={14} />
       </button>
-      {count !== undefined && onCountChange && (
-        <span className="cal-count">
-          <button
-            type="button"
-            className="btn-sm"
-            disabled={count <= 1}
-            onClick={() => onCountChange(Math.max(1, count - 1))}
-            title={t('Show fewer')}
-            aria-label={t('Show fewer')}
-          >
-            −
-          </button>
-          <span className="cal-count-num" aria-hidden="true">{count}</span>
-          <button
-            type="button"
-            className="btn-sm"
-            disabled={count >= 12}
-            onClick={() => onCountChange(Math.min(12, count + 1))}
-            title={t('Show more')}
-            aria-label={t('Show more')}
-          >
-            +
-          </button>
-        </span>
-      )}
       {open && (
         <>
           <div className="fs-backdrop" onClick={() => setOpen(false)} />
           <div className="menu view-tab-menu" role="listbox">
-            {(['day', 'week', 'month', '2months', 'year'] as const).map((m) => (
+            {SPAN_OPTIONS.map((opt) => (
               <button
-                key={m}
+                key={opt.mode + opt.count}
                 role="option"
-                aria-selected={mode === m}
-                onClick={() => pick(m)}
+                aria-selected={opt.mode === effMode && opt.count === effCount}
+                onClick={() => pick(opt.mode, opt.count)}
               >
-                {m === 'day'
-                  ? t('Day')
-                  : m === 'week'
-                    ? t('Week')
-                    : m === 'year'
-                      ? t('Year')
-                      : m === '2months'
-                        ? t('2 months')
-                        : t('Month')}
+                {spanLabel(opt.mode, opt.count)}
               </button>
             ))}
           </div>
@@ -7450,9 +7427,8 @@ function CalendarView({
         </div>
           <ModePicker
             mode={mode}
-            onChange={onModeChange}
+            onPick={(m, n) => onViewChange({ calMode: m, calCount: n === 1 ? undefined : n })}
             count={spanCount(view.calCount)}
-            onCountChange={(n) => onViewChange({ calCount: n === 1 ? undefined : n })}
           />
         </div>
       </div>
