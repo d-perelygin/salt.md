@@ -205,7 +205,9 @@ does.
 
 A mode picker beside it switches between **Day**, **Week**,
 **Month**, **2 months** and **Year**; two months stack one under the other, and
-the year is twelve small grids whose month names jump straight there. `‹`/`›`
+the year is twelve small grids whose month names jump straight there. Right
+after the picker, **−** and **+** choose how many of the span to show at once —
+three weeks, two months — up to twelve. `‹`/`›`
 always slide by one step of the shown span — one day, week, month or year — so
 no month is ever skipped over in the two-month view. The choice
 is stored on the view, and a public link shows what its owner set. Which day the
@@ -248,7 +250,8 @@ holds **+ New**, which adds a row dated at what the timeline is showing and
 opens it in the side peek.
 
 The head carries the same Day / Week / Month / 2 months / Year switch as the
-calendar, stored on the view the same way, and a button that collapses the sticky
+calendar, stored on the view the same way, and with the same **−** / **+** span
+count beside it; a button that collapses the sticky
 title column, leaving the axis alone; both live on the view, and a public link
 shows what its owner set, without the switch, the button and the add button. The
 add button goes with the column it sits at the foot of: collapsed, the timeline

@@ -321,8 +321,14 @@ export interface ViewDef {
   /** Calendar view: which span the grid shows. Older views carry calRange
    *  instead (1 = month, 2 = two months); calMode wins when both are set. */
   calMode?: SpanMode;
+  /** Calendar view: how many of the mode's units the grid shows at once
+   *  (3 weeks, 2 months). 1 when absent; clamped to 1–12 when read. */
+  calCount?: number;
   /** Timeline view: which window it shows. Defaults to a month. */
   tlMode?: SpanMode;
+  /** Timeline view: how many of the mode's units the axis shows at once.
+   *  1 when absent; clamped to 1–12 when read. */
+  tlCount?: number;
   /** Timeline view: the sticky title column is collapsed, leaving the axis. */
   tlHideLabels?: boolean;
   /** Timeline view: shifting a row out of its blockers' way lands on a working

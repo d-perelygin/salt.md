@@ -5010,18 +5010,21 @@ function TimelineView({
     const wd = new Date(n * 86400000).getUTCDay();
     return wd === 0 || wd === 6;
   };
+  const tlCount = spanCount(view.tlCount);
   let dayCols: number[] = [];
   let monthCols: { y: number; mo: number }[] = [];
   if (mode === 'day') {
-    dayCols = [cursor];
+    dayCols = Array.from({ length: tlCount }, (_, k) => cursor + k);
   } else if (mode === 'week') {
     const ws = cursor - ((new Date(cursor * 86400000).getUTCDay() - firstWeekday() + 7) % 7);
-    dayCols = Array.from({ length: 7 }, (_, k) => ws + k);
+    dayCols = Array.from({ length: 7 * tlCount }, (_, k) => ws + k);
   } else if (mode === 'year') {
-    const y = yearOf(cursor);
-    monthCols = Array.from({ length: 12 }, (_, mo) => ({ y, mo }));
+    monthCols = Array.from({ length: 12 * tlCount }, (_, i) => {
+      const base = yearOf(cursor) * 12 + i;
+      return { y: Math.floor(base / 12), mo: base % 12 };
+    });
   } else {
-    const nMonths = mode === '2months' ? 2 : 1;
+    const nMonths = (mode === '2months' ? 2 : 1) * tlCount;
     const m0 = { y: yearOf(cursor), mo: monthOf(cursor) };
     const firstDay = Math.floor(Date.UTC(m0.y, m0.mo, 1) / 86400000);
     const lastDay = Math.floor(Date.UTC(m0.y, m0.mo + nMonths, 1) / 86400000) - 1;
@@ -5510,7 +5513,9 @@ function TimelineView({
       : mode === 'week'
         ? formatDay(isoDay(dayCols[0])) + ' — ' + formatDay(isoDay(dayCols[dayCols.length - 1]))
         : mode === 'year'
-          ? String(yearOf(cursor))
+          ? monthCols.length > 12
+            ? String(monthCols[0].y) + ' — ' + String(monthCols[monthCols.length - 1].y)
+            : String(yearOf(cursor))
           : dayCols.length > 0 && monthOf(dayCols[0]) === monthOf(dayCols[dayCols.length - 1])
             ? formatMonth(yearOf(dayCols[0]), monthOf(dayCols[0]), 'long')
             : formatMonth(yearOf(dayCols[0]), monthOf(dayCols[0]), 'long') +
@@ -5546,11 +5551,12 @@ function TimelineView({
       return { l: (s - dayCols[0]) / n, r: (e - dayCols[0] + 1) / n };
     }
     const ser = (n: number) => yearOf(n) * 12 + monthOf(n);
-    const base = yearOf(cursor) * 12;
+    const base = monthCols[0].y * 12 + monthCols[0].mo;
+    const n = monthCols.length;
     const a = Math.max(0, ser(it.start) - base);
-    const b = Math.min(11, ser(it.end) - base);
+    const b = Math.min(n - 1, ser(it.end) - base);
     if (b < a) return null;
-    return { l: a / 12, r: (b + 1) / 12 };
+    return { l: a / n, r: (b + 1) / n };
   };
   const barGeom = (it: Item) => {
     const f = fracGeom(it);
@@ -5933,7 +5939,12 @@ function TimelineView({
               </AnchoredMenu>
             )}
           </div>
-          <ModePicker mode={mode} onChange={onModeChange} />
+          <ModePicker
+            mode={mode}
+            onChange={onModeChange}
+            count={spanCount(view.tlCount)}
+            onCountChange={(n) => onViewChange({ tlCount: n === 1 ? undefined : n })}
+          />
         </div>
       </div>
       <div className="tl-scroll">
@@ -6751,7 +6762,18 @@ function useSettingsHint(name: string): [boolean, () => void] {
 
 // Day/Week/Month/2-months/Year switch shared by the calendar and the
 // timeline headers: same control, same place, same labels.
-function ModePicker({ mode, onChange }: { mode: SpanMode; onChange: (m: SpanMode) => void }) {
+// How many span units to show at once: 1 to 12, 1 when absent.
+function spanCount(n: unknown): number {
+  const v = typeof n === 'number' && Number.isFinite(n) ? Math.floor(n) : 1;
+  return Math.min(12, Math.max(1, v));
+}
+
+function ModePicker({ mode, onChange, count, onCountChange }: {
+  mode: SpanMode;
+  onChange: (m: SpanMode) => void;
+  count?: number;
+  onCountChange?: (n: number) => void;
+}) {
   const [open, setOpen] = useState(false);
   const label =
     mode === 'day'
@@ -6772,6 +6794,31 @@ function ModePicker({ mode, onChange }: { mode: SpanMode; onChange: (m: SpanMode
       <button className="btn-sm" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
         {label} <ChevronDown size={14} />
       </button>
+      {count !== undefined && onCountChange && (
+        <span className="cal-count">
+          <button
+            type="button"
+            className="btn-sm"
+            disabled={count <= 1}
+            onClick={() => onCountChange(Math.max(1, count - 1))}
+            title={t('Show fewer')}
+            aria-label={t('Show fewer')}
+          >
+            −
+          </button>
+          <span className="cal-count-num" aria-hidden="true">{count}</span>
+          <button
+            type="button"
+            className="btn-sm"
+            disabled={count >= 12}
+            onClick={() => onCountChange(Math.min(12, count + 1))}
+            title={t('Show more')}
+            aria-label={t('Show more')}
+          >
+            +
+          </button>
+        </span>
+      )}
       {open && (
         <>
           <div className="fs-backdrop" onClick={() => setOpen(false)} />
@@ -7105,14 +7152,22 @@ function CalendarView({
   const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
   const addMonths = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth() + n, 1);
   const startOfWeek = (d: Date) => addDays(d, -((d.getDay() - firstWeekday() + 7) % 7));
-  const weekStart = startOfWeek(cursor);
-  const weekDays: Date[] = [];
-  for (let k = 0; k < 7; k++) weekDays.push(addDays(weekStart, k));
+  const calCount = spanCount(view.calCount);
+  // Weeks shown back to back, each starting on the week's first day.
+  const weeks: Date[][] = [];
+  if (mode === 'week') {
+    for (let w = 0; w < calCount; w++) {
+      const start = addDays(startOfWeek(cursor), w * 7);
+      weeks.push(Array.from({ length: 7 }, (_, k) => addDays(start, k)));
+    }
+  }
+  const weekDays: Date[] = weeks[0] ?? [];
   // One cell grid per shown month.
-  const monthStarts: Date[] =
-    mode === '2months'
-      ? [new Date(cursor.getFullYear(), cursor.getMonth(), 1), addMonths(cursor, 1)]
-      : [new Date(cursor.getFullYear(), cursor.getMonth(), 1)];
+  const monthStarts: Date[] = (() => {
+    if (mode === '2months') return Array.from({ length: 2 * calCount }, (_, k) => addMonths(cursor, k));
+    if (mode === 'month') return Array.from({ length: calCount }, (_, k) => addMonths(cursor, k));
+    return [new Date(cursor.getFullYear(), cursor.getMonth(), 1)];
+  })();
   const monthCells = (first: Date) => {
     // Where the week starts is a property of the language, not of the code:
     // Monday across most of Europe, Sunday in the US and Japan, Saturday in much
@@ -7134,7 +7189,6 @@ function CalendarView({
     return rows;
   };
 
-  const second = monthStarts[1];
   const step = (delta: number) => {
     if (mode === 'day') setCursor((c) => addDays(c, delta));
     else if (mode === 'week') setCursor((c) => addDays(c, delta * 7));
@@ -7147,17 +7201,23 @@ function CalendarView({
     const n = new Date();
     setCursor(new Date(n.getFullYear(), n.getMonth(), n.getDate()));
   };
+  const lastWeek = weeks.length > 0 ? weeks[weeks.length - 1] : weekDays;
+  const lastMonth = monthStarts[monthStarts.length - 1];
   const title =
     mode === 'day'
-      ? formatDay(toDayString(cursor))
+      ? calCount > 1
+        ? formatDay(toDayString(cursor)) + ' — ' + formatDay(toDayString(addDays(cursor, calCount - 1)))
+        : formatDay(toDayString(cursor))
       : mode === 'week'
-        ? formatDay(toDayString(weekStart)) + ' — ' + formatDay(toDayString(addDays(weekStart, 6)))
+        ? formatDay(toDayString(weeks[0][0])) + ' — ' + formatDay(toDayString(lastWeek[lastWeek.length - 1]))
         : mode === 'year'
-          ? String(cursor.getFullYear())
-          : mode === '2months' && second
+          ? calCount > 1
+            ? String(cursor.getFullYear()) + ' — ' + String(cursor.getFullYear() + calCount - 1)
+            : String(cursor.getFullYear())
+          : monthStarts.length > 1
             ? formatMonth(monthStarts[0].getFullYear(), monthStarts[0].getMonth(), 'long') +
               ' — ' +
-              formatMonth(second.getFullYear(), second.getMonth(), 'long')
+              formatMonth(lastMonth.getFullYear(), lastMonth.getMonth(), 'long')
             : formatMonth(cursor.getFullYear(), cursor.getMonth(), 'long');
   const eventButton = (r: Row, d: Date | null) => (
     <PageHoverCard key={r.id} page={rowToPageMeta(r, pages)} side="bottom" tagColors={tagColors}>
@@ -7281,7 +7341,9 @@ function CalendarView({
     );
   };
   const yearMonths: Date[] = [];
-  for (let m = 0; m < 12; m++) yearMonths.push(new Date(cursor.getFullYear(), m, 1));
+  for (let y = 0; y < calCount; y++) {
+    for (let m = 0; m < 12; m++) yearMonths.push(new Date(cursor.getFullYear() + y, m, 1));
+  }
 
   return (
     <div
@@ -7386,7 +7448,12 @@ function CalendarView({
             </AnchoredMenu>
           )}
         </div>
-          <ModePicker mode={mode} onChange={onModeChange} />
+          <ModePicker
+            mode={mode}
+            onChange={onModeChange}
+            count={spanCount(view.calCount)}
+            onCountChange={(n) => onViewChange({ calCount: n === 1 ? undefined : n })}
+          />
         </div>
       </div>
       {ghost && (
@@ -7395,23 +7462,36 @@ function CalendarView({
         </div>
       )}
       {mode === 'day' ? (
-        <div className="cal-day-list">
-          {(byDate.get(toDayString(cursor)) ?? []).map((r) => eventButton(r, cursor))}
-          {(byDate.get(toDayString(cursor)) ?? []).length === 0 && (
-            <div className="db-empty">{t('Nothing on this day.')}</div>
-          )}
-        </div>
-      ) : mode === 'week' ? (
-        <div className="calendar-grid">
-          {weekdayNames().map((d) => (
-            <div key={d} className="calendar-dow">{d}</div>
+        <>
+          {Array.from({ length: calCount }, (_, k) => addDays(cursor, k)).map((day) => (
+            <div className="cal-day-list" key={toDayString(day)}>
+              <div className="cal-day-title">{formatDay(toDayString(day), 'full')}</div>
+              {(byDate.get(toDayString(day)) ?? []).map((r) => eventButton(r, day))}
+              {(byDate.get(toDayString(day)) ?? []).length === 0 && (
+                <div className="db-empty">{t('Nothing on this day.')}</div>
+              )}
+            </div>
           ))}
-          {weekDays.map((d, i) => dayCell(d, i, lanesFor(weekDays), weekDays.map((x) => ymd(x))))}
-        </div>
+        </>
+      ) : mode === 'week' ? (
+        <>
+          {weeks.map((wd, wi) => (
+            <div className="calendar-grid" key={wi}>
+              {weekdayNames().map((d) => (
+                <div key={d} className="calendar-dow">{d}</div>
+              ))}
+              {wd.map((d, i) => dayCell(d, `${wi}-${i}`, lanesFor(wd), wd.map((x) => ymd(x))))}
+            </div>
+          ))}
+        </>
       ) : mode === 'year' ? (
         <div className="cal-year">
           {yearMonths.map((first, mi) => (
-            <div key={mi} className="cal-mini">
+            <Fragment key={mi}>
+            {mi % 12 === 0 && calCount > 1 && (
+              <div className="cal-year-title">{first.getFullYear()}</div>
+            )}
+            <div className="cal-mini">
               <button
                 className="cal-mini-title"
                 onClick={() => {
@@ -7450,6 +7530,7 @@ function CalendarView({
                 })}
               </div>
             </div>
+            </Fragment>
           ))}
         </div>
       ) : (
@@ -7464,7 +7545,7 @@ function CalendarView({
                 .filter((k) => k !== '');
             return (
               <div key={mi} className="calendar-grid-wrap">
-                {mode === '2months' && (
+                {(mode === '2months' || monthStarts.length > 1) && (
                   <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
                 )}
                 <div className="calendar-grid">
