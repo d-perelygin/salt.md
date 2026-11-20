@@ -3854,6 +3854,122 @@ function BlockContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A text drag that leaves the text column must not keep growing: the
+  // browser maps points outside the text to distant block boundaries, so one
+  // overshoot left swallows whole paragraphs up to the document start. While
+  // a drag that started inside the text is in flight, a selection change with
+  // the pointer outside the column restores the last in-column selection
+  // instead. Only the sideways overshoot is frozen — dragging down to the
+  // end, shift-selecting from the keyboard and the title field are untouched.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    let armed = false; // the drag started inside the editable text
+    let pressing = false; // the button/finger is still down
+    let px = 0;
+    let py = 0;
+    let havePoint = false;
+    let outOfDoc = false;
+    let saved: {
+      anchorNode: Node;
+      anchorOffset: number;
+      focusNode: Node;
+      focusOffset: number;
+    } | null = null;
+    let restoring = false;
+
+    const snapshot = (s: Selection) =>
+      s.anchorNode && s.focusNode
+        ? {
+            anchorNode: s.anchorNode,
+            anchorOffset: s.anchorOffset,
+            focusNode: s.focusNode,
+            focusOffset: s.focusOffset,
+          }
+        : null;
+
+    // The pointer is over text when the element under it lives inside
+    // .editor-inner. elementFromPoint (rather than a cached rect) is used so
+    // autoscroll drags, which move the column under a pinned pointer, still
+    // read correctly. No point yet means the click itself, which is inside
+    // by construction — only a move can take the pointer out.
+    const overText = () => {
+      if (outOfDoc || !havePoint) return !outOfDoc;
+      const el = document.elementFromPoint(px, py);
+      return el instanceof Element && !!el.closest('.editor-inner');
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      armed = !!t?.closest?.('[contenteditable="true"]');
+      pressing = armed;
+      havePoint = false;
+      outOfDoc = false;
+      const s = document.getSelection();
+      saved = s ? snapshot(s) : null;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      px = e.clientX;
+      py = e.clientY;
+      havePoint = true;
+      // Touch/pen moves only fire mid-touch; a mouse move without buttons is
+      // a hover, not a drag.
+      pressing = armed && (e.pointerType !== 'mouse' || e.buttons !== 0);
+    };
+    const end = () => {
+      armed = false;
+      pressing = false;
+    };
+    const onLeaveDoc = () => {
+      outOfDoc = true;
+    };
+    const onEnterDoc = () => {
+      outOfDoc = false;
+    };
+    const onSelectionChange = () => {
+      if (restoring) return;
+      const s = document.getSelection();
+      if (!s || s.rangeCount === 0) return;
+      const col = root.querySelector('.editor-inner');
+      // Someone else's selection (sidebar search, chat input): not ours.
+      if (!col || !s.anchorNode || !col.contains(s.anchorNode)) return;
+      if (armed && pressing && !overText()) {
+        if (saved && saved.anchorNode.isConnected && saved.focusNode.isConnected) {
+          restoring = true;
+          try {
+            s.setBaseAndExtent(saved.anchorNode, saved.anchorOffset, saved.focusNode, saved.focusOffset);
+          } catch {
+            saved = snapshot(s); // nodes detached mid-edit — take the browser's
+          }
+          restoring = false;
+        }
+        return;
+      }
+      saved = snapshot(s);
+    };
+
+    root.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    window.addEventListener('blur', end);
+    window.addEventListener('keydown', end);
+    document.documentElement.addEventListener('mouseleave', onLeaveDoc);
+    document.documentElement.addEventListener('mouseenter', onEnterDoc);
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => {
+      root.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('blur', end);
+      window.removeEventListener('keydown', end);
+      document.documentElement.removeEventListener('mouseleave', onLeaveDoc);
+      document.documentElement.removeEventListener('mouseenter', onEnterDoc);
+      document.removeEventListener('selectionchange', onSelectionChange);
+    };
+  }, [pageId]);
+
   // The outline sits on an element this component does not render, so it is set
   // rather than expressed in JSX.
   useEffect(() => {
