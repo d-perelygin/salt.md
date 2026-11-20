@@ -7290,22 +7290,23 @@ body.is-unsched-carry .tl-end-space {
   gap: 10px;
 }
 
+/* Share | Publish tabs: the same quiet segmented control as the schema
+   editor's Properties | Process — one look for tabs everywhere. */
 .share-tabs {
   display: flex;
-  gap: 2px;
-  border-bottom: 1px solid var(--border);
-  padding: 0 4px;
+  gap: 4px;
+  padding-bottom: 10px;
 }
 
 .share-dialog .share-tab {
-  flex: 1 1 0;
-  text-align: center;
-  font-weight: 600;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--muted);
-  padding: 8px 4px;
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
-  border-radius: 6px 6px 0 0;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
   white-space: nowrap;
 }
 
@@ -7314,8 +7315,9 @@ body.is-unsched-carry .tl-end-space {
 }
 
 .share-dialog .share-tab.is-on {
+  background: var(--sidebar-bg);
   color: var(--fg);
-  border-bottom-color: var(--accent);
+  border-color: var(--border);
 }
 
 /* The two old menus now live one level down, as tab panels: drop their
