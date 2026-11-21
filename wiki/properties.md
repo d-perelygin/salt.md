@@ -90,8 +90,9 @@ id, every type and every option id.
 
 The schema dialog's Process tab has three views: List, Scheme and Code. List
 edits rules by clicking, Scheme draws where cards can go, and Code edits the
-same process as text. The text is a small flat language — significant
-indentation, no brackets to balance:
+same rules as text: every visual rule gets its own editor, plus free-form
+code blocks below. Typing valid text applies it to the rule at once; broken
+text reports the line and locks that rule's List row until fixed or reset.
 
 ```python
 # A comment. Names go in quotes; bare names refer to constants above.
@@ -112,9 +113,12 @@ rule "To review":
 
 One `when` line per rule (created for new rows, any for every source),
 optional gates (`only from`, `needs checklist`, `needs filled`, `if` — several
-values after `is` mean *or*), then actions under `do:`. Every visual rule also
-renders as this text at the top of the tab, so the two never drift apart; code
-blocks appear in the List as locked rows that jump to their source.
+values after `is` mean *or*), then actions under `do:`.
+
+Two things exist only in code: OR value lists and named constants have no
+List editor. Writing one moves the rule out of List automatically — the tab
+asks first, and a checkbox makes it move silently from then on. Code blocks
+appear in the List as locked rows that jump to their source.
 
 While typing, the server checks the draft and underlines problems with the
 block name and line number. Saving compiles the text into the same rules the
