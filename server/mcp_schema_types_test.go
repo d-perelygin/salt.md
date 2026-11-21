@@ -147,14 +147,20 @@ func TestUpdateSchemaWithoutAnIdAddsAProperty(t *testing.T) {
 	db := s.makeCollection(t, ws, uid, "Разборы", `[{"id":"prop","name":"Первый","type":"text"}]`)
 
 	call := `{"page_id":"` + db + `","properties":[{"name":"Сезоны","type":"text"}]}`
-	for i := 1; i <= 2; i++ {
-		out, err := callTool(t, s, u, "update_schema", call)
+	call2 := `{"page_id":"` + db + `","properties":[{"name":"Эпизоды","type":"text"}]}`
+	for i, c := range []string{call, call2} {
+		out, err := callTool(t, s, u, "update_schema", c)
 		if err != nil {
-			t.Fatalf("update_schema #%d: %v", i, err)
+			t.Fatalf("update_schema #%d: %v", i+1, err)
 		}
 		if !strings.Contains(out, "added") {
-			t.Fatalf("call #%d should ADD a property, not change one: %s", i, out)
+			t.Fatalf("call #%d should ADD a property, not change one: %s", i+1, out)
 		}
+	}
+	// The same name twice is refused instead: name-based lookups cannot
+	// tell two same-named columns apart.
+	if _, err := callTool(t, s, u, "update_schema", call); err == nil {
+		t.Fatalf("a second \"Сезоны\" should be refused")
 	}
 
 	schema, _, err := s.loadCollection(db)
@@ -178,9 +184,9 @@ func TestUpdateSchemaWithoutAnIdAddsAProperty(t *testing.T) {
 		}
 		seen[id] = true
 	}
-	// Two properties of the same name still need two ids — and a Russian name
-	// has to say something, not fall back to "prop-2".
-	if !seen["sezony"] || !seen["sezony-2"] {
+	// Two properties of different names still need two ids — and a Russian
+	// name has to say something, not fall back to "prop-2".
+	if !seen["sezony"] || !seen["epizody"] {
 		t.Errorf("the invented ids do not spell the name out: %v", seen)
 	}
 }

@@ -54,6 +54,78 @@ var validViewTypes = map[string]bool{
 	"calendar": true, "timeline": true, "form": true,
 }
 
+// A property with the names that duplicate checks care about.
+type schemaNames struct {
+	name    string
+	options []string
+}
+
+// checkDuplicateNames rejects same-named properties and same-named options
+// inside one select: name-based lookups (process code, filters) cannot tell
+// two same-named columns apart. Comparison ignores case and surrounding
+// spaces; empty names are left to the callers that require them.
+func checkDuplicateNames(props []schemaNames) error {
+	for i := range props {
+		a := strings.TrimSpace(props[i].name)
+		if a == "" {
+			continue
+		}
+		for j := i + 1; j < len(props); j++ {
+			if strings.EqualFold(a, strings.TrimSpace(props[j].name)) {
+				return fmt.Errorf("two properties are both named %q — rename one", props[j].name)
+			}
+		}
+		for k := range props[i].options {
+			o := strings.TrimSpace(props[i].options[k])
+			if o == "" {
+				continue
+			}
+			for l := k + 1; l < len(props[i].options); l++ {
+				if strings.EqualFold(o, strings.TrimSpace(props[i].options[l])) {
+					return fmt.Errorf("two options in %q are both named %q — rename one", props[i].name, props[i].options[l])
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateSchemaNames is the PropSchema entry to checkDuplicateNames.
+func validateSchemaNames(props []PropSchema) error {
+	conv := make([]schemaNames, 0, len(props))
+	for _, p := range props {
+		opts := make([]string, 0, len(p.Options))
+		for _, o := range p.Options {
+			opts = append(opts, o.Name)
+		}
+		conv = append(conv, schemaNames{name: p.Name, options: opts})
+	}
+	return checkDuplicateNames(conv)
+}
+
+// validateSchemaNameMaps is the generic-map entry (agent-supplied schemas).
+func validateSchemaNameMaps(schema []map[string]any) error {
+	conv := make([]schemaNames, 0, len(schema))
+	for _, p := range schema {
+		name, _ := p["name"].(string)
+		var opts []string
+		if raw, ok := p["options"].([]any); ok {
+			for _, o := range raw {
+				switch v := o.(type) {
+				case string:
+					opts = append(opts, v)
+				case map[string]any:
+					if n, _ := v["name"].(string); n != "" {
+						opts = append(opts, n)
+					}
+				}
+			}
+		}
+		conv = append(conv, schemaNames{name: name, options: opts})
+	}
+	return checkDuplicateNames(conv)
+}
+
 // normalizeSchema brings a property list supplied by an agent into the shape
 // the interface expects — and is the whole reason this function exists:
 //
@@ -134,6 +206,9 @@ func normalizeSchema(props []map[string]any) ([]map[string]any, error) {
 			}
 		}
 		p["options"] = out
+	}
+	if err := validateSchemaNameMaps(props); err != nil {
+		return nil, err
 	}
 	return props, nil
 }
@@ -465,6 +540,11 @@ func (s *Server) mcpUpdateSchema(pageID string, props json.RawMessage, remove []
 	}
 	if len(added)+len(changed)+len(removed) == 0 {
 		return "", fmt.Errorf("nothing to do: pass properties to add/change or remove_properties")
+	}
+	// A rename can land on an existing name through the merge even when the
+	// incoming list itself is clean.
+	if err := validateSchemaNameMaps(schema); err != nil {
+		return "", err
 	}
 	if err := s.saveCollection(pageID, schema, views); err != nil {
 		return "", err

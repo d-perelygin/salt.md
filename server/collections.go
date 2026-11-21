@@ -133,6 +133,15 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		wfSet = ", workflow = excluded.workflow"
 		wfArgs = []any{workflowJSON}
 	}
+	// Same-named columns break every name-based lookup (process code,
+	// filters), so they never get stored. Reads of older duplicates stay
+	// untouched; the next save renames one side first.
+	if hasSchema {
+		if err := validateSchemaNames(parseSchemaProps(string(body.Schema))); err != nil {
+			httpError(w, 400, err.Error())
+			return
+		}
+	}
 	var err error
 	switch {
 	case hasSchema && hasViews:
