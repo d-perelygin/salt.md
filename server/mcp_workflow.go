@@ -113,7 +113,7 @@ func (s *Server) mcpGetWorkflow(pageID string) (string, error) {
 				conds = append(conds, map[string]any{
 					"property": map[string]any{"id": c.Prop, "name": propName(c.Prop)},
 					"op":       condOpWord(c.Op),
-					"value":     condValueWord(schemaRaw, c.Prop, c.Value),
+					"value":    condValueWord(schemaRaw, c.Prop, c.Value),
 				})
 			}
 			entry["only_if"] = conds
@@ -121,6 +121,18 @@ func (s *Server) mcpGetWorkflow(pageID string) (string, error) {
 		list = append(list, entry)
 	}
 	out["rules"] = list
+	// Code blocks are read-only over MCP: agents see the source and how
+	// many rules it compiled to, and edit it through the interface.
+	blocks := []any{}
+	for _, b := range cfg.Code {
+		blocks = append(blocks, map[string]any{
+			"id":         b.ID,
+			"name":       b.Name,
+			"rule_count": len(b.Rules),
+			"source":     b.Source,
+		})
+	}
+	out["code_blocks"] = blocks
 	b, err := json.Marshal(out)
 	if err != nil {
 		return "", err
@@ -382,6 +394,9 @@ func (s *Server) mcpAddWorkflowRule(raw json.RawMessage) (string, error) {
 func (s *Server) mcpRemoveWorkflowRule(pageID, ruleID string) (string, error) {
 	if ruleID == "" {
 		return "", fmt.Errorf("rule_id is required (get_workflow lists them)")
+	}
+	if strings.HasPrefix(ruleID, "code:") {
+		return "", fmt.Errorf("rule %q lives in a code block — edit its source in the interface, the API cannot change compiled rules", ruleID)
 	}
 	_, _, workflowRaw, err := s.collectionConfig(pageID)
 	if err != nil {

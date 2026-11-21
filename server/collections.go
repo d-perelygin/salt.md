@@ -118,7 +118,19 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 			if !hasSchema {
 				_ = s.db.QueryRow(`SELECT schema FROM collections WHERE page_id = ?`, id).Scan(&effSchema)
 			}
-			if err := validateWorkflow(&cfg, parseSchemaProps(effSchema)); err != nil {
+			schema := parseSchemaProps(effSchema)
+			if err := validateWorkflow(&cfg, schema); err != nil {
+				httpError(w, 400, err.Error())
+				return
+			}
+			// Code blocks compile server-side: the stored rules always match
+			// the stored source, and missing block ids are assigned.
+			members := s.codeMembersOf(id)
+			if err := validateWorkflowCode(&cfg, schema, members); err != nil {
+				httpError(w, 400, err.Error())
+				return
+			}
+			if err := compileWorkflowCode(&cfg, schema, members); err != nil {
 				httpError(w, 400, err.Error())
 				return
 			}
@@ -177,6 +189,46 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		out["workflow"] = json.RawMessage(stored.workflow)
 	}
 	writeJSON(w, out)
+}
+
+// handleValidateWorkflow checks a workflow draft (visual rules plus code
+// blocks) against the stored schema without saving anything. The code tab
+// calls it debounced while the user types; every problem comes back with
+// its block name and line.
+func (s *Server) handleValidateWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !s.canWriteReq(r, id) {
+		httpError(w, 404, "page not found")
+		return
+	}
+	var body struct {
+		Workflow json.RawMessage `json:"workflow"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		httpError(w, 400, "invalid JSON")
+		return
+	}
+	var cfg workflowConfig
+	if err := json.Unmarshal(body.Workflow, &cfg); err != nil {
+		writeJSON(w, map[string]any{"errors": []any{map[string]any{"message": "workflow is not valid JSON"}}})
+		return
+	}
+	var schemaRaw string
+	_ = s.db.QueryRow(`SELECT schema FROM collections WHERE page_id = ?`, id).Scan(&schemaRaw)
+	schema := parseSchemaProps(schemaRaw)
+	type diagJSON struct {
+		Block   string `json:"block"`
+		Line    int    `json:"line"`
+		Message string `json:"message"`
+	}
+	errs := []diagJSON{}
+	if err := validateWorkflow(&cfg, schema); err != nil {
+		errs = append(errs, diagJSON{Message: err.Error()})
+	}
+	for _, d := range checkWorkflowCode(&cfg, schema, s.codeMembersOf(id)) {
+		errs = append(errs, diagJSON{Block: d.Block, Line: d.Line, Message: d.Msg})
+	}
+	writeJSON(w, map[string]any{"errors": errs})
 }
 
 // handleCollectionRows returns a collection's child rows filtered, sorted and

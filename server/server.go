@@ -292,6 +292,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 
 	m.HandleFunc("GET /api/collections/{id}", s.auth(s.handleGetCollection))
 	m.HandleFunc("PUT /api/collections/{id}", s.auth(s.handlePutCollection))
+	m.HandleFunc("POST /api/collections/{id}/workflow/validate", s.auth(s.handleValidateWorkflow))
 	m.HandleFunc("GET /api/collections/{id}/rows", s.auth(s.handleCollectionRows))
 
 	m.HandleFunc("GET /api/favorites", s.auth(s.handleListFavorites))

@@ -37,11 +37,14 @@ type workflowPrecondition struct {
 
 // A row-value condition: the rule fires only when the row's property is
 // (or is not) the value. Selects compare option ids, multiselects contain
-// them, text and numbers compare as written.
+// them, text and numbers compare as written. Values holds an OR list
+// ("is A, B" means A or B); Value stays as the first entry so older
+// readers that only know the single form keep working.
 type workflowPropCond struct {
-	Prop  string `json:"prop"`
-	Op    string `json:"op"`
-	Value string `json:"value"`
+	Prop   string   `json:"prop"`
+	Op     string   `json:"op"`
+	Value  string   `json:"value"`
+	Values []string `json:"values,omitempty"`
 }
 
 type workflowRule struct {
@@ -53,9 +56,40 @@ type workflowRule struct {
 	Do           []workflowAction      `json:"do"`
 }
 
+// A block of process code: source text the user edits, plus the resolved
+// rules it compiled to on the last successful save. The text is the source
+// of truth; the stored rules keep the process running between edits without
+// re-resolving names on every transition.
+type workflowCodeBlock struct {
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	Source string         `json:"source"`
+	Rules  []workflowRule `json:"rules"`
+}
+
 type workflowConfig struct {
-	StatusPropID string         `json:"statusPropId"`
-	Rules        []workflowRule `json:"rules"`
+	StatusPropID string              `json:"statusPropId"`
+	Rules        []workflowRule      `json:"rules"`
+	Code         []workflowCodeBlock `json:"code,omitempty"`
+}
+
+// allRules is the executable rule list: visual rules plus every saved code
+// block's compiled rules, in order. Everything that matches, simulates or
+// draws the process goes through here, so code and clicks can never drift
+// apart at runtime.
+func (cfg *workflowConfig) allRules() []workflowRule {
+	if cfg == nil || len(cfg.Code) == 0 {
+		if cfg == nil {
+			return nil
+		}
+		return cfg.Rules
+	}
+	out := make([]workflowRule, 0, len(cfg.Rules)+len(cfg.Code))
+	out = append(out, cfg.Rules...)
+	for _, b := range cfg.Code {
+		out = append(out, b.Rules...)
+	}
+	return out
 }
 
 func parseWorkflow(raw string) *workflowConfig {
@@ -68,7 +102,7 @@ func parseWorkflow(raw string) *workflowConfig {
 		return nil
 	}
 	cfg.StatusPropID = strings.TrimSpace(cfg.StatusPropID)
-	if cfg.StatusPropID == "" || len(cfg.Rules) == 0 {
+	if cfg.StatusPropID == "" || (len(cfg.Rules) == 0 && len(cfg.Code) == 0) {
 		return nil
 	}
 	return &cfg
@@ -94,6 +128,123 @@ type PropSchema struct {
 	} `json:"options"`
 }
 
+// validateWorkflowRule checks one rule; label names it in errors
+// ("rule 3" for visual rules, "line 12" for code). Apart from the label
+// the messages are identical.
+func validateWorkflowRule(r workflowRule, label string, byID map[string]PropSchema, validOpt map[string]bool) error {
+	if r.When.Type != "status_to" && r.When.Type != "created" {
+		return fmt.Errorf("%s: unknown trigger", label)
+	}
+	if r.When.Type == "status_to" && !validOpt[r.When.To] {
+		return fmt.Errorf("%s: unknown status option", label)
+	}
+	for _, from := range r.AllowFrom {
+		if !validOpt[from] {
+			return fmt.Errorf("%s: unknown source status", label)
+		}
+	}
+	if r.Precondition != nil {
+		if r.Precondition.ChecklistProp != "" {
+			p, ok := byID[r.Precondition.ChecklistProp]
+			if !ok || p.Type != "checklist" {
+				return fmt.Errorf("%s: checklist property must be a checklist", label)
+			}
+		}
+		if r.Precondition.RequiredProp != "" {
+			if _, ok := byID[r.Precondition.RequiredProp]; !ok {
+				return fmt.Errorf("%s: unknown required property", label)
+			}
+		}
+	}
+	for _, c := range r.WhenProps {
+		p, ok := byID[c.Prop]
+		if c.Prop == "" || !ok {
+			return fmt.Errorf("%s: unknown property in condition", label)
+		}
+		switch p.Type {
+		case "select", "multiselect", "text", "number":
+		default:
+			return fmt.Errorf("%s: conditions support select, multiselect, text and number properties", label)
+		}
+		if c.Op != "" && c.Op != "is" && c.Op != "is_not" {
+			return fmt.Errorf("%s: condition operator must be is or is_not", label)
+		}
+		vals := c.Values
+		if len(vals) == 0 {
+			vals = []string{c.Value}
+		}
+		if len(vals) == 0 || (len(vals) == 1 && vals[0] == "") {
+			return fmt.Errorf("%s: condition value is empty", label)
+		}
+		if p.Type == "select" || p.Type == "multiselect" {
+			for _, v := range vals {
+				known := false
+				for _, o := range p.Options {
+					if o.ID == v {
+						known = true
+						break
+					}
+				}
+				if !known {
+					return fmt.Errorf("%s: %q is not an option of %s", label, v, propName(byID, c.Prop))
+				}
+			}
+		}
+	}
+	// A rule with no finished actions is a pure guard: it still restricts
+	// the move (allow-list + precondition) but automates nothing. Blank
+	// actions never reach the server — the editor filters them out.
+	if len(r.Do) == 0 {
+		return nil
+	}
+	for _, a := range r.Do {
+		switch a.Type {
+		case "set_prop":
+			if p, ok := byID[a.Prop]; !ok {
+				return fmt.Errorf("%s: unknown property", label)
+			} else if p.Type == "checklist" {
+				return fmt.Errorf("%s: a checklist cannot be set, only asked for", label)
+			}
+		case "require_prop":
+			p, ok := byID[a.Prop]
+			if !ok {
+				return fmt.Errorf("%s: unknown property", label)
+			}
+			switch p.Type {
+			case "text", "date", "person", "select", "multiselect", "checklist":
+			default:
+				return fmt.Errorf("%s: only text, date, person, select, multiselect or checklist can be asked for", label)
+			}
+			if a.Mode != "" && a.Mode != "always" && a.Mode != "if_empty" {
+				return fmt.Errorf("%s: unknown ask mode", label)
+			}
+		case "require_comment":
+			// UI-only: there is nobody to ask over the API, so nothing to
+			// validate beyond the shape. Agents post comments separately.
+			if a.Mode != "" && a.Mode != "always" && a.Mode != "if_empty" {
+				return fmt.Errorf("%s: unknown ask mode", label)
+			}
+		case "set_today":
+			p, ok := byID[a.Prop]
+			if !ok || p.Type != "date" {
+				return fmt.Errorf("%s: date property required", label)
+			}
+		case "assign_me":
+			p, ok := byID[a.Prop]
+			if !ok || p.Type != "person" {
+				return fmt.Errorf("%s: person property required", label)
+			}
+		case "webhook":
+			if strings.TrimSpace(a.URL) == "" {
+				return fmt.Errorf("%s: webhook URL required", label)
+			}
+		default:
+			return fmt.Errorf("%s: unknown action", label)
+		}
+	}
+	return nil
+}
+
 // validateWorkflow rejects unknown properties, unknown status options and bad
 // action shapes before anything is stored.
 func validateWorkflow(cfg *workflowConfig, schema []PropSchema) error {
@@ -116,110 +267,140 @@ func validateWorkflow(cfg *workflowConfig, schema []PropSchema) error {
 		validOpt[o.ID] = true
 	}
 	for i, r := range cfg.Rules {
-		if r.When.Type != "status_to" && r.When.Type != "created" {
-			return fmt.Errorf("rule %d: unknown trigger", i+1)
+		if err := validateWorkflowRule(r, fmt.Sprintf("rule %d", i+1), byID, validOpt); err != nil {
+			return err
 		}
-		if r.When.Type == "status_to" && !validOpt[r.When.To] {
-			return fmt.Errorf("rule %d: unknown status option", i+1)
+	}
+	return nil
+}
+
+// codeMembersOf lists the workspace members around a page for process-code
+// resolution (person names become user ids). Unknown pages resolve to
+// nobody rather than failing the save.
+func (s *Server) codeMembersOf(pageID string) []codeMember {
+	var ws string
+	if err := s.db.QueryRow(`SELECT workspace_id FROM pages WHERE id = ?`, pageID).Scan(&ws); err != nil || ws == "" {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT u.id, u.name FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? ORDER BY u.name`, ws)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []codeMember
+	for rows.Next() {
+		var m codeMember
+		if err := rows.Scan(&m.ID, &m.Name); err == nil {
+			out = append(out, m)
 		}
-		for _, from := range r.AllowFrom {
-			if !validOpt[from] {
-				return fmt.Errorf("rule %d: unknown source status", i+1)
-			}
+	}
+	return out
+}
+
+// blockLabel names a code block in errors: its name, or its position when
+// unnamed.
+func blockLabel(b workflowCodeBlock, i int) string {
+	if strings.TrimSpace(b.Name) != "" {
+		return b.Name
+	}
+	return fmt.Sprintf("block %d", i+1)
+}
+
+// checkWorkflowCode parses, resolves and validates every code block,
+// returning every problem with its block name and line. The UI's live
+// check shows the whole list; saves refuse on the first one.
+func checkWorkflowCode(cfg *workflowConfig, schema []PropSchema, members []codeMember) []codeDiag {
+	if cfg == nil || len(cfg.Code) == 0 {
+		return nil
+	}
+	byID := map[string]PropSchema{}
+	for _, p := range schema {
+		byID[p.ID] = p
+	}
+	status, ok := byID[cfg.StatusPropID]
+	if !ok {
+		return []codeDiag{{Block: blockLabel(cfg.Code[0], 0), Msg: "unknown status property"}}
+	}
+	if status.Type != "select" && status.Type != "multiselect" {
+		return []codeDiag{{Block: blockLabel(cfg.Code[0], 0), Msg: "status property must be a select"}}
+	}
+	validOpt := map[string]bool{}
+	for _, o := range status.Options {
+		validOpt[o.ID] = true
+	}
+	var out []codeDiag
+	for bi, b := range cfg.Code {
+		label := blockLabel(b, bi)
+		f, diags := parseWorkflowCode(b.Source)
+		for _, d := range diags {
+			d.Block = label
+			out = append(out, d)
 		}
-		if r.Precondition != nil {
-			if r.Precondition.ChecklistProp != "" {
-				p, ok := byID[r.Precondition.ChecklistProp]
-				if !ok || p.Type != "checklist" {
-					return fmt.Errorf("rule %d: checklist property must be a checklist", i+1)
-				}
-			}
-			if r.Precondition.RequiredProp != "" {
-				if _, ok := byID[r.Precondition.RequiredProp]; !ok {
-					return fmt.Errorf("rule %d: unknown required property", i+1)
-				}
-			}
-		}
-		for _, c := range r.WhenProps {
-			p, ok := byID[c.Prop]
-			if c.Prop == "" || !ok {
-				return fmt.Errorf("rule %d: unknown property in condition", i+1)
-			}
-			switch p.Type {
-			case "select", "multiselect", "text", "number":
-			default:
-				return fmt.Errorf("rule %d: conditions support select, multiselect, text and number properties", i+1)
-			}
-			if c.Op != "" && c.Op != "is" && c.Op != "is_not" {
-				return fmt.Errorf("rule %d: condition operator must be is or is_not", i+1)
-			}
-			if c.Value == "" {
-				return fmt.Errorf("rule %d: condition value is empty", i+1)
-			}
-			if p.Type == "select" || p.Type == "multiselect" {
-				known := false
-				for _, o := range p.Options {
-					if o.ID == c.Value {
-						known = true
-						break
-					}
-				}
-				if !known {
-					return fmt.Errorf("rule %d: %q is not an option of %s", i+1, c.Value, propName(byID, c.Prop))
-				}
-			}
-		}
-		// A rule with no finished actions is a pure guard: it still restricts
-		// the move (allow-list + precondition) but automates nothing. Blank
-		// actions never reach the server — the editor filters them out.
-		if len(r.Do) == 0 {
+		if len(diags) > 0 {
 			continue
 		}
-		for _, a := range r.Do {
-			switch a.Type {
-			case "set_prop":
-				if p, ok := byID[a.Prop]; !ok {
-					return fmt.Errorf("rule %d: unknown property", i+1)
-				} else if p.Type == "checklist" {
-					return fmt.Errorf("rule %d: a checklist cannot be set, only asked for", i+1)
-				}
-			case "require_prop":
-				p, ok := byID[a.Prop]
-				if !ok {
-					return fmt.Errorf("rule %d: unknown property", i+1)
-				}
-				switch p.Type {
-				case "text", "date", "person", "select", "multiselect", "checklist":
-				default:
-					return fmt.Errorf("rule %d: only text, date, person, select, multiselect or checklist can be asked for", i+1)
-				}
-				if a.Mode != "" && a.Mode != "always" && a.Mode != "if_empty" {
-					return fmt.Errorf("rule %d: unknown ask mode", i+1)
-				}
-			case "require_comment":
-				// UI-only: there is nobody to ask over the API, so nothing to
-				// validate beyond the shape. Agents post comments separately.
-				if a.Mode != "" && a.Mode != "always" && a.Mode != "if_empty" {
-					return fmt.Errorf("rule %d: unknown ask mode", i+1)
-				}
-			case "set_today":
-				p, ok := byID[a.Prop]
-				if !ok || p.Type != "date" {
-					return fmt.Errorf("rule %d: date property required", i+1)
-				}
-			case "assign_me":
-				p, ok := byID[a.Prop]
-				if !ok || p.Type != "person" {
-					return fmt.Errorf("rule %d: person property required", i+1)
-				}
-			case "webhook":
-				if strings.TrimSpace(a.URL) == "" {
-					return fmt.Errorf("rule %d: webhook URL required", i+1)
-				}
-			default:
-				return fmt.Errorf("rule %d: unknown action", i+1)
+		rules, rdiags := resolveWorkflowCode(b.ID, f, schema, status, members)
+		for _, d := range rdiags {
+			d.Block = label
+			out = append(out, d)
+		}
+		for i, r := range rules {
+			if err := validateWorkflowRule(r, fmt.Sprintf("%s rule %d", label, i+1), byID, validOpt); err != nil {
+				out = append(out, codeDiag{Block: label, Line: bLine(f, i), Msg: err.Error()})
 			}
 		}
+	}
+	return out
+}
+
+// bLine maps a resolved rule back to its source line for error labels.
+func bLine(f *codeFile, i int) int {
+	if f != nil && i < len(f.rules) {
+		return f.rules[i].headLine
+	}
+	return 0
+}
+
+// compileWorkflowCode resolves every code block's source into its stored
+// rules and assigns ids to blocks that lack them. Validation runs first
+// (validateWorkflowCode), so this only maps names that are known good.
+func compileWorkflowCode(cfg *workflowConfig, schema []PropSchema, members []codeMember) error {
+	if cfg == nil || len(cfg.Code) == 0 {
+		return nil
+	}
+	byID := map[string]PropSchema{}
+	for _, p := range schema {
+		byID[p.ID] = p
+	}
+	status := byID[cfg.StatusPropID]
+	for i := range cfg.Code {
+		if strings.TrimSpace(cfg.Code[i].ID) == "" {
+			cfg.Code[i].ID = newID()
+		}
+		f, diags := parseWorkflowCode(cfg.Code[i].Source)
+		if len(diags) > 0 {
+			return fmt.Errorf("code %q line %d: %s", blockLabel(cfg.Code[i], i), diags[0].Line, diags[0].Msg)
+		}
+		rules, rdiags := resolveWorkflowCode(cfg.Code[i].ID, f, schema, status, members)
+		if len(rdiags) > 0 {
+			return fmt.Errorf("code %q line %d: %s", blockLabel(cfg.Code[i], i), rdiags[0].Line, rdiags[0].Msg)
+		}
+		if rules == nil {
+			rules = []workflowRule{}
+		}
+		cfg.Code[i].Rules = rules
+	}
+	return nil
+}
+
+// validateWorkflowCode refuses a save on the first code problem.
+func validateWorkflowCode(cfg *workflowConfig, schema []PropSchema, members []codeMember) error {
+	if diags := checkWorkflowCode(cfg, schema, members); len(diags) > 0 {
+		d := diags[0]
+		if d.Line > 0 {
+			return fmt.Errorf("code %q line %d: %s", d.Block, d.Line, d.Msg)
+		}
+		return fmt.Errorf("code %q: %s", d.Block, d.Msg)
 	}
 	return nil
 }
@@ -278,8 +459,15 @@ func propNonEmpty(props map[string]json.RawMessage, key string) bool {
 // misfiring on a stale column.
 func propCondHolds(schemas map[string]PropSchema, props map[string]json.RawMessage, c workflowPropCond) bool {
 	p, ok := schemas[c.Prop]
-	if !ok || c.Value == "" {
+	if !ok {
 		return false
+	}
+	want := c.Values
+	if len(want) == 0 {
+		if c.Value == "" {
+			return false
+		}
+		want = []string{c.Value}
 	}
 	hit := false
 	if p.Type == "multiselect" {
@@ -287,17 +475,33 @@ func propCondHolds(schemas map[string]PropSchema, props map[string]json.RawMessa
 			var arr []string
 			if json.Unmarshal(raw, &arr) == nil {
 				for _, s := range arr {
-					if s == c.Value {
+					for _, w := range want {
+						if s == w {
+							hit = true
+							break
+						}
+					}
+					if hit {
+						break
+					}
+				}
+			} else if str := propString(props, c.Prop); str != "" {
+				for _, w := range want {
+					if str == w {
 						hit = true
 						break
 					}
 				}
-			} else if propString(props, c.Prop) == c.Value {
-				hit = true
 			}
 		}
 	} else {
-		hit = propString(props, c.Prop) == c.Value
+		got := propString(props, c.Prop)
+		for _, w := range want {
+			if got == w {
+				hit = true
+				break
+			}
+		}
 	}
 	if c.Op == "" || c.Op == "is" {
 		return hit
