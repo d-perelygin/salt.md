@@ -69,9 +69,57 @@ Select options work the same way: each has an id, a name and a colour, and the
 id is what a row stores. An option shown as "In progress" is very likely stored
 as `in-progress`.
 
+Two properties may not share a name, and two options of one select may not
+either — the save is refused until one is renamed. Name-based lookups (filters,
+process code) cannot tell same-named columns apart, so the ambiguity is
+stopped at the door instead of misfiring later. Databases saved before this
+rule keep working; their next save renames one side first.
+
+**A rename propagates into process code.** Rename "In progress" to "Doing and
+a code block that says `when "To do" becomes "In progress"` is rewritten to
+say `"Doing"` on the same save — at the exact places the name occurs, never by
+blind search-and-replace, and announced with a toast saying how many
+references moved. A block that no longer parses is left alone and flagged red
+instead of being rewritten.
+
 This is the single most common source of confusion when writing values from
 outside the interface. Call `get_collection` first; it returns every property
 id, every type and every option id.
+
+## Process code
+
+The schema dialog's Process tab has three views: List, Scheme and Code. List
+edits rules by clicking, Scheme draws where cards can go, and Code edits the
+same process as text. The text is a small flat language — significant
+indentation, no brackets to balance:
+
+```python
+# A comment. Names go in quotes; bare names refer to constants above.
+reviewers = ["Lena", "Max"]
+hook = "https://hooks.example.com/notify"
+
+rule "To review":
+  when "In progress" becomes "To review"
+  only from "To do", "In progress"
+  needs checklist "Ready"
+  if "Type" is "Reel", "Clip"
+  do:
+    assign me to "Owner"
+    set "Watchers" = reviewers
+    ask "Due" if empty
+    webhook hook
+```
+
+One `when` line per rule (created for new rows, any for every source),
+optional gates (`only from`, `needs checklist`, `needs filled`, `if` — several
+values after `is` mean *or*), then actions under `do:`. Every visual rule also
+renders as this text at the top of the tab, so the two never drift apart; code
+blocks appear in the List as locked rows that jump to their source.
+
+While typing, the server checks the draft and underlines problems with the
+block name and line number. Saving compiles the text into the same rules the
+click-built ones produce — one engine runs both. Renaming a property, an
+option or a person rewrites the affected lines automatically.
 
 ## The thirteen types
 
