@@ -62,6 +62,9 @@ const (
 type codeTok struct {
 	kind codeTokKind
 	text string
+	pos  int // byte offset of the token in the trimmed line
+	end  int // byte offset just past the token
+	q    byte // the quote for strings, 0 otherwise
 }
 
 // Tokenize one comment-stripped line. Strings accept \" and \\ escapes;
@@ -79,6 +82,7 @@ func tokenizeCodeLine(s string) ([]codeTok, *codeDiag) {
 		case c == '"' || c == '\'':
 			var b strings.Builder
 			q := c
+			start := i
 			i++
 			closed := false
 			for i < len(s) {
@@ -98,7 +102,7 @@ func tokenizeCodeLine(s string) ([]codeTok, *codeDiag) {
 			if !closed {
 				return nil, &codeDiag{Msg: "unterminated string"}
 			}
-			out = append(out, codeTok{kind: tokString, text: b.String()})
+			out = append(out, codeTok{kind: tokString, text: b.String(), pos: start, end: i, q: q})
 		case c >= '0' && c <= '9' || (c == '-' && i+1 < len(s) && s[i+1] >= '0' && s[i+1] <= '9'):
 			j := i
 			if s[j] == '-' {
@@ -111,7 +115,7 @@ func tokenizeCodeLine(s string) ([]codeTok, *codeDiag) {
 			if _, err := strconv.ParseFloat(text, 64); err != nil {
 				return nil, &codeDiag{Msg: fmt.Sprintf("bad number %q", text)}
 			}
-			out = append(out, codeTok{kind: tokNum, text: text})
+			out = append(out, codeTok{kind: tokNum, text: text, pos: i, end: j})
 			i = j
 		case c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'):
 			j := i
@@ -125,17 +129,18 @@ func tokenizeCodeLine(s string) ([]codeTok, *codeDiag) {
 				j++
 			}
 			w := s[i:j]
+			pos := i
 			if w == "true" || w == "false" {
-				out = append(out, codeTok{kind: tokBool, text: w})
+				out = append(out, codeTok{kind: tokBool, text: w, pos: pos, end: j})
 			} else {
-				out = append(out, codeTok{kind: tokWord, text: w})
+				out = append(out, codeTok{kind: tokWord, text: w, pos: pos, end: j})
 			}
 			i = j
 		case c == '-' && strings.HasPrefix(s[i:], "->"):
-			out = append(out, codeTok{kind: tokOp, text: "->"})
+			out = append(out, codeTok{kind: tokOp, text: "->", pos: i, end: i + 2})
 			i += 2
 		case c == '=' || c == ',' || c == ':' || c == '*' || c == '[' || c == ']':
-			out = append(out, codeTok{kind: tokOp, text: string(c)})
+			out = append(out, codeTok{kind: tokOp, text: string(c), pos: i, end: i + 1})
 			i++
 		default:
 			return nil, &codeDiag{Msg: fmt.Sprintf("unexpected character %q — names go in quotes", string(c))}
@@ -173,8 +178,12 @@ func stripCodeComment(s string) string {
 // ---- raw (unresolved) model ----
 
 type codeNameRef struct {
-	text string
-	line int
+	text  string
+	line  int
+	start int  // token offsets in the trimmed source line
+	end   int
+	quote byte // the quote for quoted names, 0 for constant references
+	dline int  // definition line for constant references, 0 for inline names
 }
 
 type codeValue struct {
@@ -182,6 +191,10 @@ type codeValue struct {
 	text  string // unquoted content, or the number/bool literal
 	items []codeValue
 	line  int
+	start int  // token offsets in the trimmed source line
+	end   int
+	quote byte // the quote for strings, 0 otherwise
+	dline int  // definition line for constant values, 0 for inline ones
 }
 
 // A top-level constant: name = value, defined before its first use.
@@ -203,7 +216,7 @@ type codeAction struct {
 	kind string // set|assign|ask|askcomment|today|webhook
 	prop codeNameRef
 	val  codeValue
-	mode string // ask only: "always" | "if empty"
+	mode string // ask only: "always" | "if_empty" ("if empty" in text)
 	url  string // webhook only
 	line int
 }
@@ -522,7 +535,11 @@ func (p *codeParser) parseSingleName(no int, toks []codeTok, what string) *codeN
 			if !c.expectEnd() {
 				return nil
 			}
-			return &codeNameRef{text: cc.val.text, line: no}
+			dline := cc.val.dline
+			if dline == 0 {
+				dline = cc.line
+			}
+			return &codeNameRef{text: cc.val.text, line: no, start: cc.val.start, end: cc.val.end, quote: cc.val.quote, dline: dline}
 		}
 	}
 	nm := c.expectName("a name in quotes")
@@ -555,10 +572,18 @@ func (p *codeParser) parseNameList(no int, toks []codeTok, what string) []codeNa
 			}
 			c.next()
 			if cc.val.kind == "str" {
-				out = append(out, codeNameRef{text: cc.val.text, line: no})
+				dline := cc.val.dline
+				if dline == 0 {
+					dline = cc.line
+				}
+				out = append(out, codeNameRef{text: cc.val.text, line: no, start: cc.val.start, end: cc.val.end, quote: cc.val.quote, dline: dline})
 			} else if cc.val.kind == "list" {
 				for _, it := range cc.val.items {
-					out = append(out, codeNameRef{text: it.text, line: no})
+					dline := it.dline
+					if dline == 0 {
+						dline = cc.line
+					}
+					out = append(out, codeNameRef{text: it.text, line: no, start: it.start, end: it.end, quote: it.quote, dline: dline})
 				}
 			} else {
 				c.errf("%q is not a name", t.text)
@@ -739,7 +764,7 @@ func (p *codeParser) parseAction(no int, raw string, toks []codeTok, ri int) {
 			if !c.expectWord("empty") {
 				return
 			}
-			mode = "if empty"
+			mode = "if_empty"
 		} else {
 			p.fail(no, `say when to ask: "always" or "if empty"`)
 			return
@@ -869,7 +894,7 @@ func (c *codeCursor) expectName(what string) *codeNameRef {
 		return nil
 	}
 	c.next()
-	return &codeNameRef{text: t.text, line: c.no}
+	return &codeNameRef{text: t.text, line: c.no, start: t.pos, end: t.end, quote: t.q}
 }
 
 // A value: "quoted", number, true/false, today, ["a", "b"] lists of
@@ -883,23 +908,36 @@ func (c *codeCursor) expectValue() *codeValue {
 	switch t.kind {
 	case tokString:
 		c.next()
-		return &codeValue{kind: "str", text: t.text, line: c.no}
+		return &codeValue{kind: "str", text: t.text, line: c.no, start: t.pos, end: t.end, quote: t.q}
 	case tokNum:
 		c.next()
-		return &codeValue{kind: "num", text: t.text, line: c.no}
+		return &codeValue{kind: "num", text: t.text, line: c.no, start: t.pos, end: t.end}
 	case tokBool:
 		c.next()
-		return &codeValue{kind: "bool", text: t.text, line: c.no}
+		return &codeValue{kind: "bool", text: t.text, line: c.no, start: t.pos, end: t.end}
 	case tokWord:
 		if t.text == "today" {
 			c.next()
-			return &codeValue{kind: "today", text: "today", line: c.no}
+			return &codeValue{kind: "today", text: "today", line: c.no, start: t.pos, end: t.end}
 		}
 		if c.p != nil {
 			if cc, ok := c.p.consts[t.text]; ok {
 				c.next()
 				out := cc.val
 				out.line = c.no
+				if out.dline == 0 {
+					out.dline = cc.line
+				}
+				if out.kind == "list" {
+					items := make([]codeValue, len(out.items))
+					for i, it := range out.items {
+						items[i] = it
+						if items[i].dline == 0 {
+							items[i].dline = cc.line
+						}
+					}
+					out.items = items
+				}
 				return &out
 			}
 		}
@@ -932,7 +970,7 @@ func (c *codeCursor) expectList() *codeValue {
 			c.errf("lists hold quoted names, like [\"A\", \"B\"]")
 			return nil
 		}
-		items = append(items, codeValue{kind: "str", text: t.text, line: c.no})
+		items = append(items, codeValue{kind: "str", text: t.text, line: c.no, start: t.pos, end: t.end, quote: t.q})
 		c.next()
 		if c.atOp(",") {
 			c.next()

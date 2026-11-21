@@ -735,7 +735,14 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		s.db.Exec(`UPDATE users SET avatar = ? WHERE id = ?`, newAvatar, id)
 	}
 	if body.Name != nil && strings.TrimSpace(*body.Name) != "" {
+		var oldName string
+		_ = s.db.QueryRow(`SELECT name FROM users WHERE id = ?`, id).Scan(&oldName)
 		s.db.Exec(`UPDATE users SET name = ? WHERE id = ?`, strings.TrimSpace(*body.Name), id)
+		// A renamed member keeps their code references: every process that
+		// names them is rewritten at exact token positions.
+		if nn := strings.TrimSpace(*body.Name); nn != oldName {
+			s.rewriteMemberInCode(id, oldName, nn)
+		}
 	}
 	if body.Color != nil {
 		s.db.Exec(`UPDATE users SET color = ? WHERE id = ?`, *body.Color, id)

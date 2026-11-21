@@ -168,7 +168,7 @@ rule "На проверку":
 		{"set_prop", "tags", `["t1","t2"]`, "", ""},
 		{"set_prop", "own", `["u1"]`, "", ""},
 		{"assign_me", "own", "", "", ""},
-		{"require_prop", "dd", "", "if empty", ""},
+		{"require_prop", "dd", "", "if_empty", ""},
 		{"require_comment", "", "", "always", ""},
 		{"set_today", "dd", "", "", ""},
 		{"webhook", "", "", "", "https://hooks.example/x"},
@@ -359,7 +359,7 @@ rule "B":
 	if got[1].When.Type != "status_to" || got[1].When.To != "s2" || len(got[1].AllowFrom) != 0 {
 		t.Errorf("r1 = %+v", got[1].When)
 	}
-	if len(got[1].Do) != 1 || got[1].Do[0].Type != "require_comment" || got[1].Do[0].Mode != "if empty" {
+	if len(got[1].Do) != 1 || got[1].Do[0].Type != "require_comment" || got[1].Do[0].Mode != "if_empty" {
 		t.Errorf("r1.do = %+v", got[1].Do)
 	}
 }
@@ -367,6 +367,159 @@ rule "B":
 // Code blocks save through the collection PUT: the server compiles the
 // source into stored rules, refuses bad sources, and the live check
 // endpoint reports every problem without saving.
+func TestRewriteCodeNames(t *testing.T) {
+	oldSchema := []PropSchema{
+		{ID: "st", Name: "Статус", Type: "select", Options: []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}{{ID: "s1", Name: "Новое"}, {ID: "s2", Name: "В работе"}}},
+		{ID: "pr", Name: "Проект", Type: "select", Options: []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}{{ID: "p1", Name: "Академ"}}},
+		{ID: "own", Name: "Ответственный", Type: "person"},
+	}
+	newSchema := []PropSchema{
+		{ID: "st", Name: "Статус", Type: "select", Options: []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}{{ID: "s1", Name: "Новое"}, {ID: "s2", Name: "Делается"}}},
+		{ID: "pr", Name: "Шоу", Type: "select", Options: []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}{{ID: "p1", Name: "Академ"}}},
+		{ID: "own", Name: "Ответственный", Type: "person"},
+	}
+	members := []codeMember{{ID: "u1", Name: "Данил"}}
+	ren := diffSchemaNames(oldSchema, newSchema)
+	if len(ren) != 2 {
+		t.Fatalf("renames = %+v", ren)
+	}
+	src := "rule \"X\":\n" +
+		"  when \"Новое\" becomes \"В работе\"\n" +
+		"  if \"Проект\" is \"Академ\"\n" +
+		"  do:\n" +
+		"    set \"Проект\" = \"Академ\"\n" +
+		"    set \"Ответственный\" = \"Данил\"\n"
+	cfg := &workflowConfig{StatusPropID: "st", Code: []workflowCodeBlock{{ID: "b1", Name: "M", Source: src}}}
+	refs, blocks := rewriteCodeWorkflow(cfg, oldSchema, members, ren)
+	if refs != 3 || blocks != 1 {
+		t.Fatalf("refs=%d blocks=%d, source:\n%s", refs, blocks, cfg.Code[0].Source)
+	}
+	got := cfg.Code[0].Source
+	for _, want := range []string{`"Делается"`, `"Шоу"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %s in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "В работе") || strings.Contains(got, "\"Проект\"") {
+		t.Errorf("stale names remain:\n%s", got)
+	}
+	// A member rename rewrites person values but leaves option text alone.
+	mren := []codeRename{{kind: "member", id: "u1", from: "Данил", to: "Даня"}}
+	oldMembers := []codeMember{{ID: "u1", Name: "Данил"}}
+	cfg2 := &workflowConfig{StatusPropID: "st", Code: []workflowCodeBlock{{ID: "b1", Name: "M", Source: src}}}
+	if refs, _ := rewriteCodeWorkflow(cfg2, oldSchema, oldMembers, mren); refs != 1 {
+		t.Fatalf("member refs=%d, source:\n%s", refs, cfg2.Code[0].Source)
+	}
+	if !strings.Contains(cfg2.Code[0].Source, `"Даня"`) {
+		t.Errorf("member not rewritten:\n%s", cfg2.Code[0].Source)
+	}
+	// A constant holding the old option name is rewritten at its definition.
+	constSrc := "tag = \"Академ\"\nrule \"X\":\n  when \"Новое\" becomes \"В работе\"\n  do:\n    set \"Проект\" = tag\n"
+	cfg3 := &workflowConfig{StatusPropID: "st", Code: []workflowCodeBlock{{ID: "b1", Name: "M", Source: constSrc}}}
+	renOpt := []codeRename{{kind: "option", id: "p1", propID: "pr", from: "Академ", to: "Академ Шоу"}}
+	if refs, _ := rewriteCodeWorkflow(cfg3, oldSchema, members, renOpt); refs != 1 {
+		t.Fatalf("const refs=%d, source:\n%s", refs, cfg3.Code[0].Source)
+	}
+	if !strings.Contains(cfg3.Code[0].Source, `tag = "Академ Шоу"`) {
+		t.Errorf("const not rewritten:\n%s", cfg3.Code[0].Source)
+	}
+}
+
+// A rename riding the schema save rewrites code sources at exact token
+// positions and announces it; a schema-only save rewrites stored code.
+func TestCodePutRenamesProp(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "coderename@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+	schemaOf := func(status, owner string) string {
+		return `[{"id":"st","name":"Status","type":"select","options":[{"id":"s1","name":"New"},{"id":"s2","name":"` + status + `"}]},{"id":"own","name":"` + owner + `","type":"person"}]`
+	}
+	col := s.makeCollection(t, ws, uid, "Flow", schemaOf("Done", "Owner"))
+	src := "rule \"Ship\":\n  when \"New\" becomes \"Done\"\n  do:\n    ask \"Owner\" if empty\n"
+	put := func(schema, src string) (int, map[string]any) {
+		wf := map[string]any{"statusPropId": "st", "rules": []any{}}
+		body := map[string]any{"schema": json.RawMessage(schema)}
+		if src != "" {
+			wf["code"] = []any{map[string]any{"id": "b1", "name": "Main", "source": src, "rules": []any{}}}
+			body["workflow"] = wf
+		}
+		b, _ := json.Marshal(body)
+		rec := requestAs(t, s, cookie, "PUT", "/api/collections/"+col, string(b))
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+	if code, _ := put(schemaOf("Done", "Owner"), src); code != 200 {
+		t.Fatalf("seed: %d", code)
+	}
+	code, out := put(schemaOf("Shipped", "Curator"), src)
+	if code != 200 {
+		t.Fatalf("rename: %d %v", code, out)
+	}
+	ren, _ := out["codeRenames"].(map[string]any)
+	if ren == nil || ren["refs"] != 2.0 || ren["blocks"] != 1.0 {
+		t.Errorf("codeRenames = %v", out["codeRenames"])
+	}
+	var stored string
+	s.db.QueryRow(`SELECT workflow FROM collections WHERE page_id = ?`, col).Scan(&stored)
+	if !strings.Contains(stored, "Shipped") || !strings.Contains(stored, "Curator") {
+		t.Errorf("stored code not rewritten: %s", stored)
+	}
+	// Schema-only save rewrites the stored code too.
+	code2, _ := put(schemaOf("Released", "Curator"), "")
+	if code2 != 200 {
+		t.Fatalf("schema-only: %d", code2)
+	}
+	s.db.QueryRow(`SELECT workflow FROM collections WHERE page_id = ?`, col).Scan(&stored)
+	if !strings.Contains(stored, "Released") {
+		t.Errorf("stored code not rewritten on schema-only save: %s", stored)
+	}
+}
+
+// A member rename rewrites person names in every stored process code.
+func TestRewriteMemberInCode(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "memberrename@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+	col := s.makeCollection(t, ws, uid, "Flow", `[{"id":"st","name":"Status","type":"select","options":[{"id":"s1","name":"New"},{"id":"s2","name":"Done"}]},{"id":"own","name":"Owner","type":"person"}]`)
+	src := "rule \"Ship\":\n  when \"New\" becomes \"Done\"\n  do:\n    set \"Owner\" = \"Test\"\n"
+	wf := map[string]any{"statusPropId": "st", "rules": []any{}, "code": []any{map[string]any{"id": "b1", "name": "M", "source": src, "rules": []any{}}}}
+	wfb, _ := json.Marshal(map[string]any{
+		"schema":   json.RawMessage(`[{"id":"st","name":"Status","type":"select","options":[{"id":"s1","name":"New"},{"id":"s2","name":"Done"}]},{"id":"own","name":"Owner","type":"person"}]`),
+		"workflow": wf,
+	})
+	rec := requestAs(t, s, cookie, "PUT", "/api/collections/"+col, string(wfb))
+	if rec.Code != 200 {
+		t.Fatalf("seed: %d %s", rec.Code, rec.Body.String())
+	}
+	s.rewriteMemberInCode(uid, "Test", "Tester")
+	var stored string
+	s.db.QueryRow(`SELECT workflow FROM collections WHERE page_id = ?`, col).Scan(&stored)
+	var cfg workflowConfig
+	if err := json.Unmarshal([]byte(stored), &cfg); err != nil {
+		t.Fatalf("stored workflow: %v", err)
+	}
+	rewritten := ""
+	if len(cfg.Code) > 0 {
+		rewritten = cfg.Code[0].Source
+	}
+	if !strings.Contains(rewritten, `"Tester"`) || strings.Contains(rewritten, `"Test"`) {
+		t.Errorf("member not rewritten: %q", rewritten)
+	}
+}
+
 func TestCodePutAndValidateEndpoint(t *testing.T) {
 	s := testServer(t)
 	uid, cookie := signedIn(t, s, "codeput@example.test")

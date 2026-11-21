@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -105,6 +106,30 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	// one, so a view-only save cannot strand rules pointing nowhere.
 	workflowTouched := sent(body.Workflow)
 	workflowJSON := ""
+	codeRefs, codeBlocks := 0, 0
+	// Renames ride the schema save: the stored schema names the old ones,
+	// the incoming schema the new ones. Draft code is rewritten before it
+	// validates; a schema-only save rewrites the stored code instead, so
+	// the next workflow save never meets new names with old sources.
+	var renames []codeRename
+	var oldSchema []PropSchema
+	if hasSchema {
+		var storedSchema, storedWorkflow string
+		_ = s.db.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, id).Scan(&storedSchema, &storedWorkflow)
+		oldSchema = parseSchemaProps(storedSchema)
+		renames = diffSchemaNames(oldSchema, parseSchemaProps(string(body.Schema)))
+		if len(renames) > 0 && !workflowTouched {
+			if stored := parseWorkflow(storedWorkflow); stored != nil && len(stored.Code) > 0 {
+				members := s.codeMembersOf(id)
+				if r, b := rewriteCodeWorkflow(stored, oldSchema, members, renames); b > 0 {
+					if raw, err := json.Marshal(stored); err == nil {
+						_, _ = s.db.Exec(`UPDATE collections SET workflow = ? WHERE page_id = ?`, string(raw), id)
+					}
+					codeRefs, codeBlocks = r, b
+				}
+			}
+		}
+	}
 	if workflowTouched {
 		var cfg workflowConfig
 		if err := json.Unmarshal(body.Workflow, &cfg); err != nil {
@@ -119,13 +144,18 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 				_ = s.db.QueryRow(`SELECT schema FROM collections WHERE page_id = ?`, id).Scan(&effSchema)
 			}
 			schema := parseSchemaProps(effSchema)
+			members := s.codeMembersOf(id)
+			if len(renames) > 0 {
+				r, b := rewriteCodeWorkflow(&cfg, oldSchema, members, renames)
+				codeRefs += r
+				codeBlocks += b
+			}
 			if err := validateWorkflow(&cfg, schema); err != nil {
 				httpError(w, 400, err.Error())
 				return
 			}
 			// Code blocks compile server-side: the stored rules always match
 			// the stored source, and missing block ids are assigned.
-			members := s.codeMembersOf(id)
 			if err := validateWorkflowCode(&cfg, schema, members); err != nil {
 				httpError(w, 400, err.Error())
 				return
@@ -185,6 +215,11 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	var stored struct{ schema, views, workflow string }
 	s.db.QueryRow(`SELECT schema, views, workflow FROM collections WHERE page_id = ?`, id).Scan(&stored.schema, &stored.views, &stored.workflow)
 	out := map[string]json.RawMessage{"schema": json.RawMessage(stored.schema), "views": json.RawMessage(stored.views)}
+	// A rename that landed in code sources is announced, not silent: the
+	// dialog toasts how many references moved.
+	if codeBlocks > 0 {
+		out["codeRenames"] = json.RawMessage(fmt.Sprintf(`{"refs":%d,"blocks":%d}`, codeRefs, codeBlocks))
+	}
 	if strings.TrimSpace(stored.workflow) != "" {
 		out["workflow"] = json.RawMessage(stored.workflow)
 	}
