@@ -1206,10 +1206,17 @@
   "Delete block": "Eliminar bloque",
   "Delete this code block?": "¿Eliminar este bloque de código?",
   "Line {n}": "Línea {n}",
-  "No visual rules to show.": "No hay reglas visuales.",
   "Rules": "Reglas",
   "Untitled block": "Bloque sin título",
-  "Visual rules as code (read-only)": "Reglas visuales como código (solo lectura)",
   "edited in code": "se edita en el código",
-  "Renamed in code: {refs} references in {blocks} blocks": "Renombrado en el código: {refs} referencias en {blocks} bloques"
+  "Renamed in code: {refs} references in {blocks} blocks": "Renombrado en el código: {refs} referencias en {blocks} bloques",
+  "Don't ask again": "No volver a preguntar",
+  "Fix in Code": "Corregir en el código",
+  "Keep editing": "Seguir editando",
+  "Move to code": "Mover al código",
+  "Moved rule": "Regla movida",
+  "OR conditions": "condiciones O",
+  "Rule moved to code": "Regla movida al código",
+  "Uses {feature}, only available in code": "Usa {feature}, solo disponible en el código",
+  "constants": "constantes"
 }

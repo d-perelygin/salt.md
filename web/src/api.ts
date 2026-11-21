@@ -542,6 +542,19 @@ export const api = {
       `/api/collections/${pageId}/workflow/validate`,
       { method: 'POST', body: JSON.stringify({ workflow }) },
     ),
+  /** Compiles one rule snippet from the code tab into the rule JSON the
+   *  visual editor stores — or reports problems, or flags it as code-only
+   *  (OR value lists, named constants) with the reason. */
+  compileWorkflowRule: (pageId: string, source: string, statusPropId: string) =>
+    req<{
+      rule?: import('./types').WorkflowRule;
+      codeOnly: boolean;
+      reason: string;
+      errors: { line: number; message: string }[];
+    }>(`/api/collections/${pageId}/workflow/compile`, {
+      method: 'POST',
+      body: JSON.stringify({ source, statusPropId }),
+    }),
 
   /** `pageId` narrows the log to one page — "what happened to this row",
    *  which otherwise means scrolling a whole workspace fifty entries at a time. */

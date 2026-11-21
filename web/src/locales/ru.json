@@ -1786,10 +1786,17 @@
   "Delete block": "Удалить блок",
   "Delete this code block?": "Удалить этот блок кода?",
   "Line {n}": "Строка {n}",
-  "No visual rules to show.": "Нет визуальных правил.",
   "Rules": "Правил",
   "Untitled block": "Без названия",
-  "Visual rules as code (read-only)": "Визуальные правила как код (только чтение)",
   "edited in code": "редактируется в коде",
-  "Renamed in code: {refs} references in {blocks} blocks": "Переименовано в коде: {refs} ссылок в {blocks} блоках"
+  "Renamed in code: {refs} references in {blocks} blocks": "Переименовано в коде: {refs} ссылок в {blocks} блоках",
+  "Don't ask again": "Больше не спрашивать",
+  "Fix in Code": "Исправить в коде",
+  "Keep editing": "Продолжить править",
+  "Move to code": "Переместить в код",
+  "Moved rule": "Перемещённое правило",
+  "OR conditions": "ИЛИ-условия",
+  "Rule moved to code": "Правило перемещено в код",
+  "Uses {feature}, only available in code": "Использует {feature}, доступно только в коде",
+  "constants": "константы"
 }

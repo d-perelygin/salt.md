@@ -1210,10 +1210,17 @@
   "Delete block": "删除块",
   "Delete this code block?": "删除此代码块？",
   "Line {n}": "第 {n} 行",
-  "No visual rules to show.": "没有可视化规则。",
   "Rules": "规则",
   "Untitled block": "未命名块",
-  "Visual rules as code (read-only)": "可视化规则的代码视图（只读）",
   "edited in code": "在代码中编辑",
-  "Renamed in code: {refs} references in {blocks} blocks": "已在代码中重命名：{blocks} 个块中的 {refs} 处引用"
+  "Renamed in code: {refs} references in {blocks} blocks": "已在代码中重命名：{blocks} 个块中的 {refs} 处引用",
+  "Don't ask again": "不再询问",
+  "Fix in Code": "在代码中修复",
+  "Keep editing": "继续编辑",
+  "Move to code": "移至代码",
+  "Moved rule": "已移动的规则",
+  "OR conditions": "“或”条件",
+  "Rule moved to code": "规则已移至代码",
+  "Uses {feature}, only available in code": "使用了{feature}，仅在代码中可用",
+  "constants": "常量"
 }

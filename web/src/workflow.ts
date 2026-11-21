@@ -804,6 +804,17 @@ export async function postMoveComment(rowId: string, comment: string | null): Pr
   }
 }
 
+/** Renders one visual rule as process-code text (a per-rule editor's seed).
+ *  The header name is cosmetic: applying the text keeps the visual rule id. */
+export function generateRuleCode(
+  r: WorkflowRule,
+  schema: PropDef[],
+  members: Member[],
+  statusPropId: string,
+): string {
+  return generateWorkflowCode({ statusPropId, rules: [r] }, schema, members);
+}
+
 /** Renders visual rules as process-code text (the Code tab's read-only
  *  preview). Prints exactly the grammar the server parses, so the preview
  *  round-trips: names in quotes, one `if` value per option for OR. The

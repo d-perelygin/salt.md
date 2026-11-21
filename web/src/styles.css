@@ -4517,6 +4517,29 @@ button.workflow-issue {
   cursor: pointer;
   padding: 0;
 }
+/* The "this only lives in code" ask: move the rule or keep editing it. */
+.workflow-code-move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.workflow-code-silence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.workflow-code-move-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
 .workflow-code-add {
   display: flex;
   align-items: center;

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowPropCond, WorkflowRule } from '../types';
-import { Check, Maximize2, TriangleAlert, X } from 'lucide-react';
+import { Check, Lock, Maximize2, TriangleAlert, X } from 'lucide-react';
 import { t } from '../i18n';
 import Portal from './Portal';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
@@ -80,7 +80,11 @@ export default function WorkflowRules({
   // rule list (visual plus the last-saved compiled code), the list edits
   // the visual half only.
   const [view, setView] = useState<'list' | 'scheme' | 'code'>('list');
-  const [codeFocus, setCodeFocus] = useState<{ blockId: string; n: number } | null>(null);
+  const [codeFocus, setCodeFocus] = useState<{ target: string; n: number } | null>(null);
+  // Rules whose code text does not compile: their List rows stay locked
+  // until the text is fixed or reset in the Code tab.
+  const [blockedRuleIds, setBlockedRuleIds] = useState<string[]>([]);
+  const blocked = useMemo(() => new Set(blockedRuleIds), [blockedRuleIds]);
   const united = useMemo(() => {
     if (!workflow) return workflow;
     const codeRules = (workflow.code ?? []).flatMap((b) => b.rules ?? []);
@@ -346,7 +350,7 @@ export default function WorkflowRules({
     if ('ruleId' in target && target.ruleId.startsWith('code:')) {
       // A map click on a code edge lands in the code tab at its block.
       setView('code');
-      setCodeFocus({ blockId: target.ruleId.split(':')[1] ?? '', n: Date.now() });
+      setCodeFocus({ target: target.ruleId.split(':')[1] ?? '', n: Date.now() });
       return;
     }
     if (!fullScheme) setView('list');
@@ -471,6 +475,29 @@ export default function WorkflowRules({
           r.when.type === 'created'
             ? t('a row is created')
             : `${statusProp?.name ?? ''} → ${statusOpts.find((o) => o.id === whenTo)?.name ?? whenTo}`;
+        // A rule whose code text does not compile keeps its List row
+        // locked: editing here would silently discard the draft. Fix or
+        // reset it where it lives — one click away.
+        if (blocked.has(r.id)) {
+          return (
+            <div key={r.id} className="schema-item schema-item-error" data-rule-id={r.id}>
+              <button
+                type="button"
+                className="workflow-code-lock"
+                onClick={() => {
+                  setView('code');
+                  setCodeFocus({ target: `rule:${r.id}`, n: Date.now() });
+                }}
+              >
+                <Lock size={13} />
+                <span className="workflow-code-lock-name">
+                  {t('When')} {whenName}
+                </span>
+                <span className="workflow-code-lock-meta">{t('Fix in Code')}</span>
+              </button>
+            </div>
+          );
+        }
         return (
           <div
             key={r.id}
@@ -643,9 +670,13 @@ export default function WorkflowRules({
                   <label>{t('Only if value')}</label>
                   {(r.whenProps ?? []).map((c, ci) => {
                     const cdef = schema.find((p) => p.id === c.prop);
+                    // The matcher (and the code tab) read `values` first:
+                    // keep the single-value editor and the list in sync.
                     const setCond = (next: WorkflowPropCond) =>
                       updateRule(r.id, {
-                        whenProps: (r.whenProps ?? []).map((x, j) => (j === ci ? next : x)),
+                        whenProps: (r.whenProps ?? []).map((x, j) =>
+                          j === ci ? { ...next, values: next.value ? [next.value] : [] } : x,
+                        ),
                       });
                     return (
                       <div key={ci} className="workflow-row">
@@ -791,7 +822,7 @@ export default function WorkflowRules({
         blocks={workflow?.code ?? []}
         onOpen={(blockId) => {
           setView('code');
-          setCodeFocus({ blockId, n: Date.now() });
+          setCodeFocus({ target: blockId, n: Date.now() });
         }}
       />
 
@@ -908,6 +939,7 @@ export default function WorkflowRules({
         statusPropId={statusPropId}
         focus={codeFocus}
         onChange={commit}
+        onBlockedChange={setBlockedRuleIds}
       />
       ) : (
       <WorkflowScheme
