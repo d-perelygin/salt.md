@@ -520,6 +520,64 @@ func TestRewriteMemberInCode(t *testing.T) {
 	}
 }
 
+// The compile endpoint turns one rule snippet into the JSON the visual
+// editor stores, or reports problems, or flags code-only features.
+func TestCompileEndpoint(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "compile@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+	col := s.makeCollection(t, ws, uid, "Flow", `[{"id":"st","name":"Status","type":"select","options":[{"id":"s1","name":"New"},{"id":"s2","name":"Done"}]},{"id":"own","name":"Owner","type":"person"}]`)
+	compile := func(src string) (int, map[string]any) {
+		b, _ := json.Marshal(map[string]any{"source": src, "statusPropId": "st"})
+		rec := requestAs(t, s, cookie, "POST", "/api/collections/"+col+"/workflow/compile", string(b))
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out
+	}
+	// A plain rule compiles to JSON the List tab stores.
+	code, out := compile("rule \"Ship\":\n  when \"New\" becomes \"Done\"\n  do:\n    ask comment always\n")
+	if code != 200 {
+		t.Fatalf("compile: %d %v", code, out)
+	}
+	if len(out["errors"].([]any)) != 0 {
+		t.Fatalf("errors: %v", out["errors"])
+	}
+	if out["codeOnly"] != false {
+		t.Errorf("plain rule flagged code-only: %v", out)
+	}
+	rule, _ := out["rule"].(map[string]any)
+	when, _ := rule["when"].(map[string]any)
+	if when["to"] != "s2" {
+		t.Errorf("when = %v", when)
+	}
+	// An OR list is valid but List cannot show it.
+	code, out = compile("rule \"Ship\":\n  when \"New\" becomes \"Done\"\n  if \"Status\" is \"New\", \"Done\"\n  do:\n    ask comment always\n")
+	if code != 200 || out["codeOnly"] != true || out["reason"] != "or" {
+		t.Errorf("or: %d %v", code, out)
+	}
+	// A named constant is valid but List cannot show it.
+	code, out = compile("hook = \"https://h.example/x\"\nrule \"Ship\":\n  when \"New\" becomes \"Done\"\n  do:\n    webhook hook\n")
+	if code != 200 || out["codeOnly"] != true || out["reason"] != "constants" {
+		t.Errorf("constants: %d %v", code, out)
+	}
+	// Broken text reports line errors, no rule.
+	code, out = compile("rule \"Ship\":\n  when someday\n")
+	if code != 200 {
+		t.Fatalf("broken: %d", code)
+	}
+	if len(out["errors"].([]any)) == 0 {
+		t.Errorf("broken text reported no errors: %v", out)
+	}
+	if _, has := out["rule"]; has {
+		t.Errorf("broken text returned a rule: %v", out)
+	}
+	// Two rules in one editor are refused.
+	code, out = compile("rule \"A\":\n  when created\nrule \"B\":\n  when created\n")
+	if code != 200 || len(out["errors"].([]any)) == 0 {
+		t.Errorf("two rules: %d %v", code, out)
+	}
+}
+
 func TestCodePutAndValidateEndpoint(t *testing.T) {
 	s := testServer(t)
 	uid, cookie := signedIn(t, s, "codeput@example.test")

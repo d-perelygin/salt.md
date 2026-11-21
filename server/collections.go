@@ -226,6 +226,141 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
+// handleCompileWorkflowRule compiles one rule snippet from the Code tab's
+// per-rule editor into the rule JSON the visual editor stores. The answer
+// is either a rule, a list of problems, or a codeOnly flag: the snippet is
+// valid but uses things the List tab cannot show (OR value lists, named
+// constants), so the rule belongs in a code block.
+func (s *Server) handleCompileWorkflowRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !s.canWriteReq(r, id) {
+		httpError(w, 404, "page not found")
+		return
+	}
+	var body struct {
+		Source       string `json:"source"`
+		StatusPropID string `json:"statusPropId"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		httpError(w, 400, "invalid JSON")
+		return
+	}
+	type diagJSON struct {
+		Line    int    `json:"line"`
+		Message string `json:"message"`
+	}
+	fail := func(diags ...diagJSON) {
+		if diags == nil {
+			diags = []diagJSON{}
+		}
+		writeJSON(w, map[string]any{"errors": diags})
+	}
+	var schemaRaw, workflowRaw string
+	_ = s.db.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, id).Scan(&schemaRaw, &workflowRaw)
+	schema := parseSchemaProps(schemaRaw)
+	stored := parseWorkflow(workflowRaw)
+	statusPropID := strings.TrimSpace(body.StatusPropID)
+	if statusPropID == "" && stored != nil {
+		statusPropID = stored.StatusPropID
+	}
+	if statusPropID == "" {
+		fail(diagJSON{Message: "pick a status property first"})
+		return
+	}
+	members := s.codeMembersOf(id)
+	f, diags := parseWorkflowCode(body.Source)
+	if len(diags) > 0 {
+		out := make([]diagJSON, 0, len(diags))
+		for _, d := range diags {
+			out = append(out, diagJSON{Line: d.Line, Message: d.Msg})
+		}
+		fail(out...)
+		return
+	}
+	if len(f.rules) != 1 {
+		fail(diagJSON{Message: "write one rule here — extra rules belong in a code block below"})
+		return
+	}
+	byID := map[string]PropSchema{}
+	for _, p := range schema {
+		byID[p.ID] = p
+	}
+	status, ok := byID[statusPropID]
+	if !ok {
+		fail(diagJSON{Message: "unknown status property"})
+		return
+	}
+	validOpt := map[string]bool{}
+	for _, o := range status.Options {
+		validOpt[o.ID] = true
+	}
+	rules, rdiags := resolveWorkflowCode("compile", f, schema, status, members)
+	if len(rdiags) > 0 {
+		out := make([]diagJSON, 0, len(rdiags))
+		for _, d := range rdiags {
+			out = append(out, diagJSON{Line: d.Line, Message: d.Msg})
+		}
+		fail(out...)
+		return
+	}
+	if err := validateWorkflowRule(rules[0], "rule", byID, validOpt); err != nil {
+		fail(diagJSON{Message: err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"rule": rules[0], "codeOnly": codeOnlyReason(&f.rules[0]) != "", "reason": codeOnlyReason(&f.rules[0]), "errors": []diagJSON{}})
+}
+
+// codeOnlyReason names the code-only feature a parsed rule uses, or "" when
+// the List tab can show it: OR value lists and named constants have no
+// visual editor.
+func codeOnlyReason(r *codeRule) string {
+	for _, c := range r.conds {
+		if len(c.vals) > 1 {
+			return "or"
+		}
+	}
+	usesConst := r.from != nil && r.from.dline != 0 || r.to.dline != 0
+	if usesConst {
+		return "constants"
+	}
+	for _, a := range r.allowFrom {
+		if a.dline != 0 {
+			return "constants"
+		}
+	}
+	for _, n := range []*codeNameRef{r.checklist, r.required} {
+		if n != nil && n.dline != 0 {
+			return "constants"
+		}
+	}
+	for _, c := range r.conds {
+		if c.prop.dline != 0 {
+			return "constants"
+		}
+		for _, v := range c.vals {
+			if v.dline != 0 {
+				return "constants"
+			}
+		}
+	}
+	for _, a := range r.actions {
+		if a.kind == "webhook" && a.dline != 0 {
+			return "constants"
+		}
+		if a.prop.dline != 0 {
+			return "constants"
+		}
+		if a.val.dline != 0 {
+			return "constants"
+		}
+		for _, it := range a.val.items {
+			if it.dline != 0 {
+				return "constants"
+			}
+		}
+	}
+	return ""
+}
 // handleValidateWorkflow checks a workflow draft (visual rules plus code
 // blocks) against the stored schema without saving anything. The code tab
 // calls it debounced while the user types; every problem comes back with

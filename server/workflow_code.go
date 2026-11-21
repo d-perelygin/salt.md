@@ -218,7 +218,9 @@ type codeAction struct {
 	val  codeValue
 	mode string // ask only: "always" | "if_empty" ("if empty" in text)
 	url  string // webhook only
-	line int
+	// dline marks a webhook URL taken from a constant (its definition line).
+	dline int
+	line  int
 }
 
 type codeRule struct {
@@ -802,12 +804,14 @@ func (p *codeParser) parseAction(no int, raw string, toks []codeTok, ri int) {
 			return
 		}
 		url := rest
+		udline := 0
 		if cc, ok := p.consts[rest]; ok {
 			if cc.val.kind != "str" {
 				p.fail(no, "%q is a list — webhook needs one URL", rest)
 				return
 			}
 			url = cc.val.text
+			udline = cc.line
 		} else if strings.HasPrefix(rest, `"`) || strings.HasPrefix(rest, `'`) {
 			p.fail(no, "webhook takes a bare URL or a constant name, without quotes")
 			return
@@ -819,7 +823,7 @@ func (p *codeParser) parseAction(no int, raw string, toks []codeTok, ri int) {
 				return
 			}
 		}
-		r.actions = append(r.actions, codeAction{kind: "webhook", url: url, line: no})
+		r.actions = append(r.actions, codeAction{kind: "webhook", url: url, dline: udline, line: no})
 	default:
 		p.fail(no, "unknown action %q — expected one of: set, assign, ask, today, webhook", toks[0].text)
 	}
