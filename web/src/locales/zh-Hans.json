@@ -1202,5 +1202,18 @@
   "Tokens out": "输出 Token",
   "No AI usage yet.": "尚未使用 AI。",
   "+ Add sort…": "+ 添加排序…",
-  "Remove sort": "移除排序"
+  "Remove sort": "移除排序",
+  "Add code block": "添加代码块",
+  "Block": "块",
+  "Block name": "块名称",
+  "Code": "代码",
+  "Delete block": "删除块",
+  "Delete this code block?": "删除此代码块？",
+  "Line {n}": "第 {n} 行",
+  "No visual rules to show.": "没有可视化规则。",
+  "Rules": "规则",
+  "Untitled block": "未命名块",
+  "Visual rules as code (read-only)": "可视化规则的代码视图（只读）",
+  "edited in code": "在代码中编辑",
+  "Renamed in code: {refs} references in {blocks} blocks": "已在代码中重命名：{blocks} 个块中的 {refs} 处引用"
 }

@@ -1778,5 +1778,18 @@
   "+ Add sort…": "+ Добавить сортировку…",
   "Remove sort": "Убрать сортировку",
   "Show fewer": "Показывать меньше",
-  "Show more": "Показывать больше"
+  "Show more": "Показывать больше",
+  "Add code block": "Добавить блок кода",
+  "Block": "Блок",
+  "Block name": "Название блока",
+  "Code": "Код",
+  "Delete block": "Удалить блок",
+  "Delete this code block?": "Удалить этот блок кода?",
+  "Line {n}": "Строка {n}",
+  "No visual rules to show.": "Нет визуальных правил.",
+  "Rules": "Правил",
+  "Untitled block": "Без названия",
+  "Visual rules as code (read-only)": "Визуальные правила как код (только чтение)",
+  "edited in code": "редактируется в коде",
+  "Renamed in code: {refs} references in {blocks} blocks": "Переименовано в коде: {refs} ссылок в {blocks} блоках"
 }

@@ -1693,5 +1693,18 @@
   "+ Add sort…": "+ Sortierung hinzufügen…",
   "Remove sort": "Sortierung entfernen",
   "Show fewer": "Weniger anzeigen",
-  "Show more": "Mehr anzeigen"
+  "Show more": "Mehr anzeigen",
+  "Add code block": "Codeblock hinzufügen",
+  "Block": "Block",
+  "Block name": "Blockname",
+  "Code": "Code",
+  "Delete block": "Block löschen",
+  "Delete this code block?": "Diesen Codeblock löschen?",
+  "Line {n}": "Zeile {n}",
+  "No visual rules to show.": "Keine visuellen Regeln vorhanden.",
+  "Rules": "Regeln",
+  "Untitled block": "Unbenannter Block",
+  "Visual rules as code (read-only)": "Visuelle Regeln als Code (schreibgeschützt)",
+  "edited in code": "wird im Code bearbeitet",
+  "Renamed in code: {refs} references in {blocks} blocks": "Im Code umbenannt: {refs} Verweise in {blocks} Blöcken"
 }

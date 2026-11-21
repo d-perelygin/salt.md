@@ -1202,5 +1202,18 @@
   "Tokens out": "輸出 Token",
   "No AI usage yet.": "還沒有使用 AI。",
   "+ Add sort…": "+ 新增排序…",
-  "Remove sort": "移除排序"
+  "Remove sort": "移除排序",
+  "Add code block": "新增程式碼區塊",
+  "Block": "區塊",
+  "Block name": "區塊名稱",
+  "Code": "程式碼",
+  "Delete block": "刪除區塊",
+  "Delete this code block?": "刪除此程式碼區塊？",
+  "Line {n}": "第 {n} 行",
+  "No visual rules to show.": "沒有視覺化規則。",
+  "Rules": "規則",
+  "Untitled block": "未命名區塊",
+  "Visual rules as code (read-only)": "視覺化規則的程式碼檢視（唯讀）",
+  "edited in code": "在程式碼中編輯",
+  "Renamed in code: {refs} references in {blocks} blocks": "已於程式碼中重新命名：{blocks} 個區塊中的 {refs} 處參照"
 }

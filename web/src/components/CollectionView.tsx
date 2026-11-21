@@ -886,7 +886,16 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     if (!config || next.workflow !== config.workflow) patch.workflow = next.workflow;
     setConfig(next);
     if (!patch.schema && !patch.views && !patch.workflow) return;
-    await api.putCollection(collectionId, patch);
+    const saved = await api.putCollection(collectionId, patch);
+    // A rename that landed in code sources is announced, not silent.
+    if (saved.codeRenames && saved.codeRenames.blocks > 0) {
+      toast(
+        t('Renamed in code: {refs} references in {blocks} blocks', {
+          refs: saved.codeRenames.refs,
+          blocks: saved.codeRenames.blocks,
+        }),
+      );
+    }
   };
 
   const addRow = async (
@@ -2051,6 +2060,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       )}
       {schemaOpen && (
         <SchemaEditor
+          collectionId={collectionId}
           initialTab={schemaTab}
           config={config}
           collections={[...pages.values()]

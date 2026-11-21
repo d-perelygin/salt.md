@@ -380,6 +380,10 @@ export interface CollectionConfig {
   /** Lightweight business process: which select property is the status and
    *  which rules run on transitions. Absent = no process, everything allowed. */
   workflow?: WorkflowConfig;
+  /** A save that renamed properties or options through stored process code
+   *  answers how many references moved, so the dialog can toast it. Never
+   *  stored, only on the PUT answer. */
+  codeRenames?: { refs: number; blocks: number };
 }
 
 /** One automation rule in Apple Shortcuts style: When → Then, with an
@@ -414,6 +418,9 @@ export interface WorkflowPropCond {
   prop: string;
   op: 'is' | 'is_not';
   value: string;
+  /** Several values, for is / is_not: "is A, B" means A or B. Empty falls
+   *  back to `value`, so conditions written before this keep working. */
+  values?: string[];
 }
 
 export type WorkflowAction =
@@ -433,6 +440,19 @@ export type WorkflowAction =
 export interface WorkflowConfig {
   /** Select property id driving the process. */
   statusPropId: string;
+  rules: WorkflowRule[];
+  /** Process code blocks: source text the user edits, plus the rules it
+   *  compiled to on the last save. Runs through the same matcher as the
+   *  visual rules above. */
+  code?: WorkflowCodeBlock[];
+}
+
+/** One named block of process code: the source of truth is `source`,
+ *  `rules` is what it compiled to (recomputed server-side on every save). */
+export interface WorkflowCodeBlock {
+  id: string;
+  name: string;
+  source: string;
   rules: WorkflowRule[];
 }
 
@@ -464,6 +484,16 @@ export function normalizeCollectionConfig(cfg: CollectionConfig): CollectionConf
     cfg.workflow.rules = cfg.workflow.rules
       .filter((r) => r && r.when && (Array.isArray(r.do) || hasGate(r)))
       .map((r) => ({ ...r, do: Array.isArray(r.do) ? r.do : [] }));
+    // Code blocks ride along untouched: the server recompiles them on save.
+    if (!Array.isArray(cfg.workflow.code)) cfg.workflow.code = [];
+    cfg.workflow.code = cfg.workflow.code
+      .filter((b) => b && typeof b === 'object')
+      .map((b) => ({
+        id: typeof b.id === 'string' ? b.id : '',
+        name: typeof b.name === 'string' ? b.name : '',
+        source: typeof b.source === 'string' ? b.source : '',
+        rules: Array.isArray(b.rules) ? b.rules : [],
+      }));
   }
   return cfg;
 }

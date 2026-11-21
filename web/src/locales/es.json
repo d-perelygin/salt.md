@@ -1198,5 +1198,18 @@
   "Tokens out": "Tokens de salida",
   "No AI usage yet.": "Aún no se ha usado la IA.",
   "+ Add sort…": "+ Añadir orden…",
-  "Remove sort": "Quitar orden"
+  "Remove sort": "Quitar orden",
+  "Add code block": "Añadir bloque de código",
+  "Block": "Bloque",
+  "Block name": "Nombre del bloque",
+  "Code": "Código",
+  "Delete block": "Eliminar bloque",
+  "Delete this code block?": "¿Eliminar este bloque de código?",
+  "Line {n}": "Línea {n}",
+  "No visual rules to show.": "No hay reglas visuales.",
+  "Rules": "Reglas",
+  "Untitled block": "Bloque sin título",
+  "Visual rules as code (read-only)": "Reglas visuales como código (solo lectura)",
+  "edited in code": "se edita en el código",
+  "Renamed in code: {refs} references in {blocks} blocks": "Renombrado en el código: {refs} referencias en {blocks} bloques"
 }

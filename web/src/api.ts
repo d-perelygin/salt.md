@@ -534,6 +534,14 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(config),
     }),
+  /** Dry-runs a process draft (visual rules plus code blocks) against the
+   *  stored schema. The code tab calls it while the user types; every
+   *  problem comes back with its block name and line. */
+  validateWorkflow: (pageId: string, workflow: import('./types').WorkflowConfig) =>
+    req<{ errors: { block: string; line: number; message: string }[] }>(
+      `/api/collections/${pageId}/workflow/validate`,
+      { method: 'POST', body: JSON.stringify({ workflow }) },
+    ),
 
   /** `pageId` narrows the log to one page — "what happened to this row",
    *  which otherwise means scrolling a whole workspace fifty entries at a time. */

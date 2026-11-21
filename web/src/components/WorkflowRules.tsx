@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowPropCond, WorkflowRule } from '../types';
 import { Check, Maximize2, TriangleAlert, X } from 'lucide-react';
 import { t } from '../i18n';
@@ -6,6 +6,7 @@ import Portal from './Portal';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
 import { confirm } from '../dialog';
 import WorkflowDateInput from './WorkflowDateInput';
+import WorkflowCode, { CodeLockRows } from './WorkflowCode';
 import {
   analyzeWorkflow,
   condDisplay,
@@ -31,11 +32,13 @@ function defaultTargetId(options: { id: string }[] | undefined): string {
 }
 
 export default function WorkflowRules({
+  collectionId,
   schema,
   workflow,
   onChange,
   highlightRuleId,
 }: {
+  collectionId: string;
   schema: PropDef[];
   workflow: WorkflowConfig | undefined;
   highlightRuleId?: string | null;
@@ -72,8 +75,17 @@ export default function WorkflowRules({
   // the reverse direction of clicking a map arrow, which opens the block.
   const [hoverRuleId, setHoverRuleId] = useState<string | null>(null);
   const [newTarget, setNewTarget] = useState('');
-  // List edits the rules; Scheme is a read-only map of where cards can go.
-  const [view, setView] = useState<'list' | 'scheme'>('list');
+  // List edits the rules; Scheme is a read-only map of where cards can go;
+  // Code edits the process as text. The map and the simulator see the united
+  // rule list (visual plus the last-saved compiled code), the list edits
+  // the visual half only.
+  const [view, setView] = useState<'list' | 'scheme' | 'code'>('list');
+  const [codeFocus, setCodeFocus] = useState<{ blockId: string; n: number } | null>(null);
+  const united = useMemo(() => {
+    if (!workflow) return workflow;
+    const codeRules = (workflow.code ?? []).flatMap((b) => b.rules ?? []);
+    return codeRules.length > 0 ? { ...workflow, rules: [...workflow.rules, ...codeRules] } : workflow;
+  }, [workflow]);
   // Fullscreen map: the scheme on the left, the same collapsible rule list
   // on the right. Shares every bit of state with the inline views below.
   const [fullScheme, setFullScheme] = useState(false);
@@ -256,8 +268,8 @@ export default function WorkflowRules({
       const rows: SimRow[] = [];
       for (const o of statusOpts) {
         if (o.id === from) continue;
-        const matched = matchRules(workflow, schema, {}, from, o.id);
-        const targeted = (rules ?? []).filter(
+        const matched = matchRules(united, schema, {}, from, o.id);
+        const targeted = (united?.rules ?? []).filter(
           (r) => r.when.type === 'status_to' && (r.when as { to: string }).to === o.id,
         );
         if (targeted.length > 0 && matched.length === 0) {
@@ -331,6 +343,12 @@ export default function WorkflowRules({
   // and scrolls it into view — in the List tab, or in the fullscreen panel.
   // Two animation frames: one for the state commit, one for the paint.
   const locateOnMap = (target: { ruleId: string } | { groupKey: string }) => {
+    if ('ruleId' in target && target.ruleId.startsWith('code:')) {
+      // A map click on a code edge lands in the code tab at its block.
+      setView('code');
+      setCodeFocus({ blockId: target.ruleId.split(':')[1] ?? '', n: Date.now() });
+      return;
+    }
     if (!fullScheme) setView('list');
     let ruleId: string | null = null;
     let groupKey: string | null = null;
@@ -769,6 +787,14 @@ export default function WorkflowRules({
         );
       })}
 
+      <CodeLockRows
+        blocks={workflow?.code ?? []}
+        onOpen={(blockId) => {
+          setView('code');
+          setCodeFocus({ blockId, n: Date.now() });
+        }}
+      />
+
       <div className="workflow-row">
         <select
           className="prop-select"
@@ -854,6 +880,15 @@ export default function WorkflowRules({
         >
           {t('Scheme')}
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'code'}
+          className={'workflow-view-tab' + (view === 'code' ? ' workflow-view-tab-on' : '')}
+          onClick={() => setView('code')}
+        >
+          {t('Code')}
+        </button>
         <span className="workflow-view-spacer" />
         <button
           type="button"
@@ -865,9 +900,18 @@ export default function WorkflowRules({
           <Maximize2 size={15} />
         </button>
       </div>
-      {view === 'list' ? listView : (
-      <WorkflowScheme
+      {view === 'list' ? listView : view === 'code' ? (
+      <WorkflowCode
+        collectionId={collectionId}
+        schema={schema}
         workflow={workflow}
+        statusPropId={statusPropId}
+        focus={codeFocus}
+        onChange={commit}
+      />
+      ) : (
+      <WorkflowScheme
+        workflow={united}
         schema={schema}
         statusOpts={statusOpts}
         issues={issues}

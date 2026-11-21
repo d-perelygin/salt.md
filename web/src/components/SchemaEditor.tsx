@@ -70,12 +70,14 @@ const slug = (name: string) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `p${++idCounter}`;
 
 export default function SchemaEditor({
+  collectionId,
   config,
   collections,
   onSave,
   onClose,
   initialTab,
 }: {
+  collectionId: string;
   config: CollectionConfig;
   collections?: { id: string; title: string }[];
   /** Which tab the dialog opens on — the block toast jumps straight in. */
@@ -595,7 +597,7 @@ export default function SchemaEditor({
           </button>
         </div>
         {tab === 'process' ? (
-          <WorkflowRules schema={schema} workflow={workflow} onChange={setWorkflow} highlightRuleId={focusRule} />
+          <WorkflowRules collectionId={collectionId} schema={schema} workflow={workflow} onChange={setWorkflow} highlightRuleId={focusRule} />
         ) : (
         <>
         <div className="schema-list">
