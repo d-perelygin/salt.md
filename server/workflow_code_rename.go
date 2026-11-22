@@ -364,6 +364,7 @@ func (s *Server) rewriteMemberInCode(memberID, from, to string) {
 		}
 	}
 }
+
 // rewriteCodeWorkflow rewrites renamed names in a config's code sources,
 // resolving against the pre-rename schema. It returns how many references
 // in how many blocks changed.

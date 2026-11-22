@@ -62,8 +62,8 @@ const (
 type codeTok struct {
 	kind codeTokKind
 	text string
-	pos  int // byte offset of the token in the trimmed line
-	end  int // byte offset just past the token
+	pos  int  // byte offset of the token in the trimmed line
+	end  int  // byte offset just past the token
 	q    byte // the quote for strings, 0 otherwise
 }
 
@@ -180,7 +180,7 @@ func stripCodeComment(s string) string {
 type codeNameRef struct {
 	text  string
 	line  int
-	start int  // token offsets in the trimmed source line
+	start int // token offsets in the trimmed source line
 	end   int
 	quote byte // the quote for quoted names, 0 for constant references
 	dline int  // definition line for constant references, 0 for inline names
@@ -191,7 +191,7 @@ type codeValue struct {
 	text  string // unquoted content, or the number/bool literal
 	items []codeValue
 	line  int
-	start int  // token offsets in the trimmed source line
+	start int // token offsets in the trimmed source line
 	end   int
 	quote byte // the quote for strings, 0 otherwise
 	dline int  // definition line for constant values, 0 for inline ones

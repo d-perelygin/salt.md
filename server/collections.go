@@ -226,12 +226,28 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-// handleCompileWorkflowRule compiles one rule snippet from the Code tab's
-// per-rule editor into the rule JSON the visual editor stores. The answer
-// is either a rule, a list of problems, or a codeOnly flag: the snippet is
-// valid but uses things the List tab cannot show (OR value lists, named
-// constants), so the rule belongs in a code block.
-func (s *Server) handleCompileWorkflowRule(w http.ResponseWriter, r *http.Request) {
+// A compiled rule of a whole-process document: the header as written, the
+// resolved rule when it is clean, or the problems that block it.
+type compiledDocRule struct {
+	Header   string         `json:"header"`
+	Line     int            `json:"line"`
+	Rule     *workflowRule  `json:"rule,omitempty"`
+	CodeOnly bool           `json:"codeOnly"`
+	Reason   string         `json:"reason"`
+	Errors   []codeDiagJSON `json:"errors"`
+}
+
+type codeDiagJSON struct {
+	Line    int    `json:"line"`
+	Message string `json:"message"`
+}
+
+// handleCompileWorkflowText compiles the Code tab's whole-process document:
+// every `rule` section becomes the rule JSON the List tab stores, reports
+// its problems, or flags it as code-only (OR value lists, named constants).
+// The client partitions by header: known headers update visual rules,
+// unknown ones are code or new rules.
+func (s *Server) handleCompileWorkflowText(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !s.canWriteReq(r, id) {
 		httpError(w, 404, "page not found")
@@ -245,16 +261,6 @@ func (s *Server) handleCompileWorkflowRule(w http.ResponseWriter, r *http.Reques
 		httpError(w, 400, "invalid JSON")
 		return
 	}
-	type diagJSON struct {
-		Line    int    `json:"line"`
-		Message string `json:"message"`
-	}
-	fail := func(diags ...diagJSON) {
-		if diags == nil {
-			diags = []diagJSON{}
-		}
-		writeJSON(w, map[string]any{"errors": diags})
-	}
 	var schemaRaw, workflowRaw string
 	_ = s.db.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, id).Scan(&schemaRaw, &workflowRaw)
 	schema := parseSchemaProps(schemaRaw)
@@ -263,22 +269,17 @@ func (s *Server) handleCompileWorkflowRule(w http.ResponseWriter, r *http.Reques
 	if statusPropID == "" && stored != nil {
 		statusPropID = stored.StatusPropID
 	}
-	if statusPropID == "" {
-		fail(diagJSON{Message: "pick a status property first"})
-		return
-	}
-	members := s.codeMembersOf(id)
-	f, diags := parseWorkflowCode(body.Source)
-	if len(diags) > 0 {
-		out := make([]diagJSON, 0, len(diags))
-		for _, d := range diags {
-			out = append(out, diagJSON{Line: d.Line, Message: d.Msg})
+	fail := func(rules []compiledDocRule, errs []codeDiagJSON) {
+		if rules == nil {
+			rules = []compiledDocRule{}
 		}
-		fail(out...)
-		return
+		if errs == nil {
+			errs = []codeDiagJSON{}
+		}
+		writeJSON(w, map[string]any{"rules": rules, "errors": errs})
 	}
-	if len(f.rules) != 1 {
-		fail(diagJSON{Message: "write one rule here — extra rules belong in a code block below"})
+	if statusPropID == "" {
+		fail(nil, []codeDiagJSON{{Message: "pick a status property first"}})
 		return
 	}
 	byID := map[string]PropSchema{}
@@ -287,27 +288,68 @@ func (s *Server) handleCompileWorkflowRule(w http.ResponseWriter, r *http.Reques
 	}
 	status, ok := byID[statusPropID]
 	if !ok {
-		fail(diagJSON{Message: "unknown status property"})
+		fail(nil, []codeDiagJSON{{Message: "unknown status property"}})
 		return
 	}
 	validOpt := map[string]bool{}
 	for _, o := range status.Options {
 		validOpt[o.ID] = true
 	}
-	rules, rdiags := resolveWorkflowCode("compile", f, schema, status, members)
-	if len(rdiags) > 0 {
-		out := make([]diagJSON, 0, len(rdiags))
-		for _, d := range rdiags {
-			out = append(out, diagJSON{Line: d.Line, Message: d.Msg})
+	members := s.codeMembersOf(id)
+	f, diags := parseWorkflowCode(body.Source)
+	// Attribute every diagnostic to its rule by line; anything before the
+	// first header is global.
+	ruleIdxAt := func(line int) int {
+		idx := -1
+		for i := range f.rules {
+			if f.rules[i].headLine <= line {
+				idx = i
+			}
 		}
-		fail(out...)
-		return
+		return idx
 	}
-	if err := validateWorkflowRule(rules[0], "rule", byID, validOpt); err != nil {
-		fail(diagJSON{Message: err.Error()})
-		return
+	perRule := make([][]codeDiagJSON, len(f.rules))
+	var global []codeDiagJSON
+	emit := func(line int, msg string) {
+		d := codeDiagJSON{Line: line, Message: msg}
+		if i := ruleIdxAt(line); i >= 0 {
+			perRule[i] = append(perRule[i], d)
+		} else {
+			global = append(global, d)
+		}
 	}
-	writeJSON(w, map[string]any{"rule": rules[0], "codeOnly": codeOnlyReason(&f.rules[0]) != "", "reason": codeOnlyReason(&f.rules[0]), "errors": []diagJSON{}})
+	for _, d := range diags {
+		emit(d.Line, d.Msg)
+	}
+	out := make([]compiledDocRule, 0, len(f.rules))
+	for i := range f.rules {
+		cr := &f.rules[i]
+		entry := compiledDocRule{Header: cr.name, Line: cr.headLine}
+		rules, rdiags := resolveWorkflowCode("compile", &codeFile{rules: []codeRule{*cr}}, schema, status, members)
+		for _, d := range rdiags {
+			emit(d.Line, d.Msg)
+		}
+		if len(rules) == 0 {
+			entry.Errors = perRule[i]
+			out = append(out, entry)
+			continue
+		}
+		if err := validateWorkflowRule(rules[0], "rule", byID, validOpt); err != nil {
+			perRule[i] = append(perRule[i], codeDiagJSON{Message: err.Error()})
+		}
+		entry.Rule = &rules[0]
+		entry.CodeOnly = codeOnlyReason(cr) != ""
+		entry.Reason = codeOnlyReason(cr)
+		entry.Errors = perRule[i]
+		if entry.Errors == nil {
+			entry.Errors = []codeDiagJSON{}
+		}
+		out = append(out, entry)
+	}
+	if global == nil {
+		global = []codeDiagJSON{}
+	}
+	writeJSON(w, map[string]any{"rules": out, "errors": global})
 }
 
 // codeOnlyReason names the code-only feature a parsed rule uses, or "" when
@@ -361,6 +403,7 @@ func codeOnlyReason(r *codeRule) string {
 	}
 	return ""
 }
+
 // handleValidateWorkflow checks a workflow draft (visual rules plus code
 // blocks) against the stored schema without saving anything. The code tab
 // calls it debounced while the user types; every problem comes back with

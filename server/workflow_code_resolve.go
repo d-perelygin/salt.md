@@ -41,6 +41,17 @@ func resolveWorkflowCode(blockID string, f *codeFile, schema []PropSchema, statu
 			diags = append(diags, *derr)
 			continue
 		}
+		// Never hand null lists to JSON: the List tab reads .length on all
+		// three without guards.
+		if rule.Do == nil {
+			rule.Do = []workflowAction{}
+		}
+		if rule.AllowFrom == nil {
+			rule.AllowFrom = []string{}
+		}
+		if rule.WhenProps == nil {
+			rule.WhenProps = []workflowPropCond{}
+		}
 		out = append(out, *rule)
 	}
 	return out, diags
