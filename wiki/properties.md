@@ -90,9 +90,10 @@ id, every type and every option id.
 
 The schema dialog's Process tab has three views: List, Scheme and Code. List
 edits rules by clicking, Scheme draws where cards can go, and Code edits the
-same rules as text: every visual rule gets its own editor, plus free-form
-code blocks below. Typing valid text applies it to the rule at once; broken
-text reports the line and locks that rule's List row until fixed or reset.
+whole process as one text. Typing valid text applies it at once: known
+headers update visual rules, new headers create some, missing ones delete
+them. Broken text reports the line with a jump, and visual editing pauses
+until it is fixed.
 
 ```python
 # A comment. Names go in quotes; bare names refer to constants above.
