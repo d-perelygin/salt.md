@@ -293,6 +293,8 @@ export default function WorkflowCode({
           invalid={state.kind === 'invalid'}
           rows={16}
           ariaLabel={t('Process as code')}
+          errorLines={state.kind === 'invalid' ? state.errors.map((e) => e.line) : undefined}
+          onJumpToLine={jumpToLine}
         />
         {state.kind === 'invalid' && (
           <div className="workflow-code-errors">

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, type CSSProperties, type RefObject } from 'react';
 
 // Keyword highlighting for the process-code editor: the same grammar the
 // server parses (see server/workflow_code.go), painted into a <pre> that sits
 // under a transparent textarea. Two layers, not a contenteditable: the caret,
 // selection, IME and undo stay the browser's own, which is the whole reason a
-// plain textarea is worth keeping.
+// plain textarea is worth keeping. Lines never wrap — one logical line is one
+// visual line, so the gutter numbers and the server's error lines agree.
 const KEYWORDS = new Set([
   'rule',
   'when',
@@ -102,14 +103,16 @@ export function highlightCode(source: string): string {
     .split('\n')
     .map(highlightLine)
     .join('\n');
-  // A trailing newline has no line box of its own: the overlay would sit one
-  // line short of the textarea and drift as soon as the last line wraps.
+  // A trailing newline has no line box of its own: the caret can sit one line
+  // below the last painted one, and the overlay would scroll short.
   return body.endsWith('\n') ? body + '\n' : body;
 }
 
-/** A textarea with the process grammar painted underneath it. Tab indents by
- *  two spaces and Enter keeps the indentation — this language nests by
- *  leading spaces, so a Tab that jumped to the next control was a trap. */
+/** A textarea with the process grammar painted underneath it and a numbered
+ *  gutter beside it. Tab indents by two spaces and Enter keeps the
+ *  indentation — this language nests by leading spaces, so a Tab that jumped
+ *  to the next control was a trap. Lines with reported problems carry a red
+ *  number the reader can click to jump there. */
 export default function HighlightedCode({
   value,
   onChange,
@@ -118,6 +121,8 @@ export default function HighlightedCode({
   placeholder,
   areaRef,
   ariaLabel,
+  errorLines,
+  onJumpToLine,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -126,19 +131,29 @@ export default function HighlightedCode({
   placeholder?: string;
   areaRef: RefObject<HTMLTextAreaElement>;
   ariaLabel?: string;
+  errorLines?: number[];
+  onJumpToLine?: (line: number) => void;
 }) {
   const preRef = useRef<HTMLPreElement>(null);
+  const gutterRef = useRef<HTMLDivElement>(null);
   const html = useMemo(() => highlightCode(value), [value]);
   const pendingCaret = useRef<number | null>(null);
 
-  // The overlay and the textarea scroll as one, or the colours slide out from
-  // under the words as soon as the document is taller than the box.
+  const lineCount = useMemo(() => value.split('\n').length, [value]);
+  const digits = String(lineCount).length;
+  const badLines = useMemo(() => new Set(errorLines ?? []), [errorLines]);
+
+  // The overlay and the gutter scroll as one with the textarea, or the colours
+  // and the numbers slide out from under the words.
   const syncScroll = () => {
     const ta = areaRef.current;
     const pre = preRef.current;
-    if (!ta || !pre) return;
-    pre.scrollTop = ta.scrollTop;
-    pre.scrollLeft = ta.scrollLeft;
+    if (!ta) return;
+    if (pre) {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    }
+    if (gutterRef.current) gutterRef.current.style.transform = `translateY(${-ta.scrollTop}px)`;
   };
 
   useEffect(() => {
@@ -180,7 +195,23 @@ export default function HighlightedCode({
   };
 
   return (
-    <div className="cw-wrap">
+    <div className="cw-wrap" style={{ '--cw-digits': digits } as CSSProperties}>
+      <div className="cw-gutter" aria-hidden="true">
+        <div className="cw-gutter-inner" ref={gutterRef}>
+          {Array.from({ length: lineCount }, (_, i) => {
+            const n = i + 1;
+            return (
+              <div
+                key={n}
+                className={'cw-ln' + (badLines.has(n) ? ' cw-ln-err' : '')}
+                onClick={onJumpToLine ? () => onJumpToLine(n) : undefined}
+              >
+                {n}
+              </div>
+            );
+          })}
+        </div>
+      </div>
       <pre className="cw-pre" ref={preRef} aria-hidden="true" dangerouslySetInnerHTML={{ __html: html }} />
       {value === '' && placeholder && <div className="cw-placeholder">{placeholder}</div>}
       <textarea

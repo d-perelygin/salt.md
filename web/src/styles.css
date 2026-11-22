@@ -4507,21 +4507,65 @@ button.workflow-issue {
  * textarea to size the box and the <pre> to fill it. */
 .cw-wrap {
   position: relative;
+  /* Gutter width follows the digit count, so 9 lines and 1000 lines both sit
+     flush against the text instead of leaving a ragged gap. */
+  --cw-gutter: calc(var(--cw-digits, 2) * 1ch + 16px);
+  --cw-pad: 8px 10px;
 }
-.cw-pre,
-.cw-area {
+/* One logical line is one visual line: the server reports errors by line, and
+ * a wrapped line would make that number point somewhere else on screen. */
+.cw-wrap .cw-pre,
+.cw-wrap .cw-area {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
-  padding: 8px 10px;
+  padding: var(--cw-pad);
+  padding-left: calc(var(--cw-gutter) + 12px);
   border-width: 1px;
   border-style: solid;
   border-radius: 6px;
   tab-size: 4;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
   letter-spacing: normal;
+}
+.cw-gutter {
+  position: absolute;
+  /* Above the textarea, which fills the box: numbers must stay clickable and
+     the text never reaches into the gutter (padding-left keeps it out). */
+  z-index: 2;
+  top: 1px;
+  bottom: 1px;
+  left: 1px;
+  width: calc(var(--cw-gutter) + 6px);
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  border-radius: 6px 0 0 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  user-select: none;
+  pointer-events: none;
+}
+.cw-gutter-inner {
+  padding-top: 8px;
+  will-change: transform;
+}
+.cw-ln {
+  height: 19.2px;
+  padding-right: 8px;
+  text-align: right;
+  opacity: 0.55;
+  pointer-events: auto;
+  cursor: default;
+}
+.cw-ln-err {
+  color: var(--destructive);
+  opacity: 1;
+  font-weight: 600;
+  cursor: pointer;
 }
 .cw-pre {
   position: absolute;
@@ -4551,7 +4595,7 @@ button.workflow-issue {
 .cw-placeholder {
   position: absolute;
   top: 9px;
-  left: 11px;
+  left: calc(var(--cw-gutter) + 23px);
   right: 11px;
   font-family: var(--font-mono);
   font-size: 12px;
