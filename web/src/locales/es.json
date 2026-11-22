@@ -1216,5 +1216,14 @@
   "Rules moved to code": "Reglas movidas al código",
   "Visual editing is paused until the code errors are fixed": "La edición visual está en pausa hasta que se corrijan los errores del código",
   "Discard code changes": "Descartar cambios del código",
-  "Format": "Formatear"
+  "Format": "Formatear",
+  "AI suggests changes": "La IA sugiere cambios",
+  "Applied the AI suggestion": "Sugerencia de la IA aplicada",
+  "Apply": "Aplicar",
+  "Ask AI": "Preguntar a la IA",
+  "Current errors": "Errores actuales",
+  "Describe here what should change in the process.": "Describe aquí qué debe cambiar en el proceso.",
+  "Fix these errors and call propose_workflow_code with the corrected document.": "Corrige estos errores y llama a propose_workflow_code con el documento corregido.",
+  "Process code of this database": "Código del proceso de esta base",
+  "Undo": "Deshacer"
 }

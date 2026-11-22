@@ -4665,6 +4665,13 @@ button.workflow-issue {
   padding: 0;
 }
 /* The "this only lives in code" ask: move the rule or keep editing it. */
+/* The AI button and the proposal banner read as one affordance: same accent,
+ * so "the agent can change this" is visible without a second colour. */
+.workflow-ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 .workflow-code-move {
   display: flex;
   flex-wrap: wrap;

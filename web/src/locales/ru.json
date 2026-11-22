@@ -1796,5 +1796,11 @@
   "Rules moved to code": "Правила перемещены в код",
   "Visual editing is paused until the code errors are fixed": "Визуальное редактирование приостановлено, пока не исправлены ошибки в коде",
   "Discard code changes": "Отменить правки кода",
-  "Format": "Форматировать"
+  "Format": "Форматировать",
+  "AI suggests changes": "ИИ предлагает изменения",
+  "Applied the AI suggestion": "Предложение ИИ применено",
+  "Current errors": "Текущие ошибки",
+  "Describe here what should change in the process.": "Опиши здесь, что должно измениться в процессе.",
+  "Fix these errors and call propose_workflow_code with the corrected document.": "Исправь эти ошибки и вызови propose_workflow_code с исправленным документом.",
+  "Process code of this database": "Код процесса этой базы"
 }

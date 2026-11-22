@@ -30,6 +30,10 @@ export default function AiChatPanel(props: {
   onSelectThread?: (id: string | null) => void;
   onThreadsChanged?: () => void;
   quote?: string | null;
+  /** A question already phrased by its caller (the Code tab's AI button):
+   *  the composer opens with it instead of an empty box. */
+  draft?: string | null;
+  onDraftConsumed?: () => void;
   onQuoteConsumed?: () => void;
   onClose: () => void;
   onOpenSidebar?: () => void;
@@ -106,6 +110,12 @@ export default function AiChatPanel(props: {
     return () => { alive = false; };
   }, [props.threadId]);
   useEffect(() => { if (props.quote) setQuote(props.quote); }, [props.quote]);
+  // Same for a pre-written task: it lands in the composer once.
+  useEffect(() => {
+    if (!props.draft) return;
+    setInput(props.draft);
+    props.onDraftConsumed?.();
+  }, [props.draft]);
   useEffect(() => {
     api.templates()
       .then((list) => setCollectionTemplates(list.filter((p) => p.type === 'collection' && !p.trashed)))

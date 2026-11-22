@@ -1220,5 +1220,14 @@
   "Rules moved to code": "规则已移至代码",
   "Visual editing is paused until the code errors are fixed": "在代码错误修复之前，暂停可视化编辑",
   "Discard code changes": "放弃代码更改",
-  "Format": "格式化"
+  "Format": "格式化",
+  "AI suggests changes": "AI 建议的修改",
+  "Applied the AI suggestion": "已应用 AI 建议",
+  "Apply": "应用",
+  "Ask AI": "询问 AI",
+  "Current errors": "当前错误",
+  "Describe here what should change in the process.": "在此描述流程需要哪些改动。",
+  "Fix these errors and call propose_workflow_code with the corrected document.": "修复这些错误，并用修正后的文档调用 propose_workflow_code。",
+  "Process code of this database": "此数据库的流程代码",
+  "Undo": "撤销"
 }

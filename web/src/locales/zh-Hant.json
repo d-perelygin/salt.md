@@ -1220,5 +1220,14 @@
   "Rules moved to code": "規則已移至程式碼",
   "Visual editing is paused until the code errors are fixed": "在程式碼錯誤修正之前，暫停視覺化編輯",
   "Discard code changes": "捨棄程式碼變更",
-  "Format": "格式化"
+  "Format": "格式化",
+  "AI suggests changes": "AI 建議的變更",
+  "Applied the AI suggestion": "已套用 AI 建議",
+  "Apply": "套用",
+  "Ask AI": "詢問 AI",
+  "Current errors": "目前錯誤",
+  "Describe here what should change in the process.": "在此描述流程需要哪些變更。",
+  "Fix these errors and call propose_workflow_code with the corrected document.": "修正這些錯誤，並以修正後的檔案呼叫 propose_workflow_code。",
+  "Process code of this database": "此資料庫的流程程式碼",
+  "Undo": "復原"
 }

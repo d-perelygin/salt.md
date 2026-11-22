@@ -1711,5 +1711,11 @@
   "Rules moved to code": "Regeln in Code verschoben",
   "Visual editing is paused until the code errors are fixed": "Visuelles Bearbeiten pausiert, bis die Codefehler behoben sind",
   "Discard code changes": "Codeänderungen verwerfen",
-  "Format": "Formatieren"
+  "Format": "Formatieren",
+  "AI suggests changes": "KI schlägt Änderungen vor",
+  "Applied the AI suggestion": "KI-Vorschlag angewendet",
+  "Current errors": "Aktuelle Fehler",
+  "Describe here what should change in the process.": "Beschreibe hier, was sich im Prozess ändern soll.",
+  "Fix these errors and call propose_workflow_code with the corrected document.": "Behebe diese Fehler und rufe propose_workflow_code mit dem korrigierten Dokument auf.",
+  "Process code of this database": "Prozesscode dieser Datenbank"
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Lock, TriangleAlert } from 'lucide-react';
+import { Lock, Sparkles, TriangleAlert } from 'lucide-react';
 import type { PropDef, WorkflowCodeBlock, WorkflowConfig, WorkflowRule } from '../types';
 import { api } from '../api';
 import { t } from '../i18n';
@@ -292,16 +292,109 @@ export default function WorkflowCode({
   }, [discardTick]);
 
   const [hideAsk, setHideAsk] = useState(false);
+  // A proposal the in-app agent left for this page: shown above the text and
+  // applied by a click, because writing the database behind an open draft
+  // would either be lost on Save or change the process unseen.
+  const [proposal, setProposal] = useState<{ source: string; summary: string } | null>(null);
+  const undoTarget = useRef<string | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+
+  const loadProposal = () => {
+    api
+      .workflowProposal(collectionId)
+      .then((p) => setProposal(p.source ? { source: p.source, summary: p.summary ?? '' } : null))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadProposal();
+    const onProposal = (e: Event) => {
+      if ((e as CustomEvent<string>).detail !== collectionId) return;
+      loadProposal();
+    };
+    window.addEventListener('salt:workflow-code', onProposal);
+    return () => window.removeEventListener('salt:workflow-code', onProposal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectionId]);
+
+  // The Code tab's AI button: hand the agent the document, the errors and the
+  // task, and let it answer with propose_workflow_code.
+  const askAI = () => {
+    const errors = state.kind === 'invalid' ? state.errors.map((e) => `line ${e.line}: ${e.message}`).join('\n') : '';
+    const context = [
+      `${t('Process code of this database')} (page ${collectionId}):`,
+      '',
+      shown,
+      errors ? `\n${t('Current errors')}:\n${errors}` : '',
+    ].join('\n');
+    window.dispatchEvent(
+      new CustomEvent('salt:ai-ask', {
+        detail: {
+          selection: context,
+          draft: errors
+            ? t('Fix these errors and call propose_workflow_code with the corrected document.')
+            : t('Describe here what should change in the process.'),
+        },
+      }),
+    );
+  };
+
+  const applyProposal = () => {
+    if (!proposal) return;
+    undoTarget.current = shown;
+    setCanUndo(true);
+    editDoc(proposal.source);
+    void api.dismissWorkflowProposal(collectionId).catch(() => {});
+    setProposal(null);
+    toast(t('Applied the AI suggestion'));
+  };
+
+  const dismissProposal = () => {
+    void api.dismissWorkflowProposal(collectionId).catch(() => {});
+    setProposal(null);
+  };
+
+  const undoApply = () => {
+    const prev = undoTarget.current;
+    if (prev == null) return;
+    undoTarget.current = null;
+    setCanUndo(false);
+    editDoc(prev);
+  };
 
   return (
     <div className="workflow-code">
       <div className="workflow-code-block" data-code-doc="1">
         <div className="workflow-code-block-bar">
           <span className="workflow-code-name">{t('Process as code')}</span>
+          {canUndo && (
+            <button type="button" className="btn-sm" onClick={undoApply}>
+              {t('Undo')}
+            </button>
+          )}
           <button type="button" className="btn-sm" onClick={formatDoc}>
             {t('Format')}
           </button>
+          <button type="button" className="btn-sm workflow-ai-btn" onClick={askAI}>
+            <Sparkles size={13} /> {t('Ask AI')}
+          </button>
         </div>
+        {proposal && (
+          <div className="workflow-code-move">
+            <span>
+              <strong>{t('AI suggests changes')}</strong>
+              {proposal.summary ? ` · ${proposal.summary}` : ''}
+            </span>
+            <span className="workflow-code-move-actions">
+              <button type="button" className="btn-sm" onClick={applyProposal}>
+                {t('Apply')}
+              </button>
+              <button type="button" className="btn-sm" onClick={dismissProposal}>
+                {t('Dismiss')}
+              </button>
+            </span>
+          </div>
+        )}
         <HighlightedCode
           areaRef={areaRef}
           value={shown}

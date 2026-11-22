@@ -297,12 +297,16 @@ export default function App() {
   // Quote handed to the side panel by in-document Ask AI (selection as a
   // quote — the document itself is never modified).
   const [aiQuote, setAiQuote] = useState<string | null>(null);
+  // A question the caller already phrased (the Code tab's AI button): the
+  // composer opens with it instead of an empty box.
+  const [aiDraft, setAiDraft] = useState<string | null>(null);
   useEffect(() => {
     const onAsk = (e: Event) => {
       if (!aiEnabled) return;
-      const d = (e as CustomEvent<{ selection?: string }>).detail;
+      const d = (e as CustomEvent<{ selection?: string; draft?: string }>).detail;
       if (d?.selection) setAiQuote(d.selection);
       else setAiQuote(null);
+      setAiDraft(d?.draft ?? null);
       setAiChatOpen(true);
     };
     window.addEventListener('salt:ai-ask', onAsk);
@@ -976,6 +980,7 @@ export default function App() {
           type: string;
           version?: string;
           collection?: string;
+          page?: string;
           id?: string;
         };
         if (msg.type === 'hello' && msg.version && msg.version !== BUILD_VERSION && !warnedVersion) {
@@ -996,6 +1001,11 @@ export default function App() {
         // whenever anybody renamed anything.
         if (msg.type === 'rows' && msg.collection) {
           window.dispatchEvent(new CustomEvent('salt:rows', { detail: msg.collection }));
+        }
+        // A process-code proposal is waiting. Names only the page: the text
+        // is fetched through a route that checks read access.
+        if (msg.type === 'workflow-code' && msg.page) {
+          window.dispatchEvent(new CustomEvent('salt:workflow-code', { detail: msg.page }));
         }
         // An agent checked in or out. Content-free on purpose: the list is
         // fetched through a route that checks permissions per page.
@@ -2370,6 +2380,8 @@ export default function App() {
           }}
           onThreadsChanged={() => void loadAiThreads()}
           quote={aiQuote}
+          draft={aiDraft}
+          onDraftConsumed={() => setAiDraft(null)}
           onQuoteConsumed={() => setAiQuote(null)}
           onOpenSidebar={openSidebar}
           onClose={() => {

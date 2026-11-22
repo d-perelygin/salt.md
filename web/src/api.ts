@@ -542,6 +542,15 @@ export const api = {
       `/api/collections/${pageId}/workflow/validate`,
       { method: 'POST', body: JSON.stringify({ workflow }) },
     ),
+  /** A process-code proposal the in-app agent left for this page. Empty when
+   *  nothing is waiting; the Code tab offers Apply/Dismiss. */
+  workflowProposal: (pageId: string) =>
+    req<{ source?: string; summary?: string; at?: string }>(
+      `/api/collections/${pageId}/workflow/proposal`,
+    ),
+  dismissWorkflowProposal: (pageId: string) =>
+    req<{ ok: boolean }>(`/api/collections/${pageId}/workflow/proposal`, { method: 'DELETE' }),
+
   /** Compiles the Code tab's whole-process document into per-rule verdicts:
    *  the rule JSON for clean sections, problems with line numbers, or a
    *  code-only flag (OR value lists, named constants) with the reason. */
