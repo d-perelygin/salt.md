@@ -1,23 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Lock, Plus, Trash2, TriangleAlert } from 'lucide-react';
+import { Lock, TriangleAlert } from 'lucide-react';
 import type { PropDef, WorkflowCodeBlock, WorkflowConfig, WorkflowRule } from '../types';
 import { api } from '../api';
 import { t } from '../i18n';
-import { confirm } from '../dialog';
 import { toast } from '../toast';
 import { loadMembers, type Member } from './PropertyValue';
-import { generateRuleCode } from '../workflow';
+import { generateVisualCode, splitCodeDocument } from '../workflow';
 
-export type CodeDiag = { block: string; line: number; message: string };
+export type CodeDiag = { line: number; message: string };
 
-type CompileDiag = { line: number; message: string };
-
-type RuleState =
+type DocState =
   | { kind: 'clean' }
   | { kind: 'checking' }
   | { kind: 'valid' }
-  | { kind: 'invalid'; errors: CompileDiag[] }
-  | { kind: 'codeOnly'; reason: string };
+  | { kind: 'invalid'; errors: CodeDiag[] }
+  | { kind: 'codeOnly'; reasons: string[] };
 
 const SILENT_MOVE_KEY = 'salt:code-move-silent';
 
@@ -29,184 +26,26 @@ const isSilentMove = () => {
   }
 };
 
-/** One editable rule: the List tab's rule as text. Valid text applies to
- *  the model at once; broken text reports errors and locks its List row;
- *  text using code-only features asks to move (or moves silently). */
-function RuleCodeEditor({
-  rule,
-  title,
-  text,
-  state,
-  banner,
-  registerRef,
-  onEdit,
-  onReset,
-  onMove,
-  onKeep,
-}: {
-  rule: WorkflowRule;
-  title: string;
-  text: string;
-  state: RuleState;
-  banner: boolean;
-  registerRef: (key: string, el: HTMLDivElement | null) => void;
-  onEdit: (source: string) => void;
-  onReset: () => void;
-  onMove: (silent: boolean) => void;
-  onKeep: () => void;
-}) {
-  const areaRef = useRef<HTMLTextAreaElement>(null);
-  const rows = Math.max(6, Math.min(16, text.split('\n').length + 1));
+const newRuleId = () => `rule_${Date.now().toString(36)}`;
 
-  const jumpToLine = (line: number) => {
-    const el = areaRef.current;
-    if (!el) return;
-    const off = el.value.split('\n').slice(0, Math.max(0, line - 1)).join('\n').length + (line > 1 ? 1 : 0);
-    el.focus();
-    el.setSelectionRange(off, off);
-  };
-
-  const [hideAsk, setHideAsk] = useState(false);
-
-  return (
-    <div className="workflow-code-block" data-rule-id={rule.id} ref={(el) => registerRef(`rule:${rule.id}`, el)}>
-      <div className="workflow-code-block-bar">
-        <span className="workflow-code-name">{title}</span>
-        <button type="button" className="btn-sm" onClick={onReset}>
-          {t('Reset')}
-        </button>
-      </div>
-      <textarea
-        ref={areaRef}
-        className={'workflow-code-area' + (state.kind === 'invalid' ? ' workflow-code-area-bad' : '')}
-        value={text}
-        onChange={(e) => onEdit(e.target.value)}
-        spellCheck={false}
-        rows={rows}
-      />
-      {state.kind === 'invalid' && (
-        <div className="workflow-code-errors">
-          {state.errors.map((e, i) => (
-            <button key={i} type="button" className="workflow-code-error" onClick={() => e.line > 0 && jumpToLine(e.line)}>
-              <TriangleAlert size={13} />
-              <span>
-                {e.line > 0 ? `${t('Line {n}', { n: e.line })}: ` : ''}
-                {e.message}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-      {state.kind === 'codeOnly' && banner && (
-        <div className="workflow-code-move">
-          <span>
-            {t('Uses {feature}, only available in code', {
-              feature: state.reason === 'constants' ? t('constants') : t('OR conditions'),
-            })}
-          </span>
-          <label className="workflow-code-silence">
-            <input type="checkbox" checked={hideAsk} onChange={(e) => setHideAsk(e.target.checked)} />
-            {t("Don't ask again")}
-          </label>
-          <span className="workflow-code-move-actions">
-            <button type="button" className="btn-sm" onClick={() => onMove(hideAsk)}>
-              {t('Move to code')}
-            </button>
-            <button type="button" className="btn-sm" onClick={onKeep}>
-              {t('Keep editing')}
-            </button>
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** One named block of process code: name, source textarea, live errors. */
-function CodeBlockEditor({
-  block,
-  errors,
-  autoFocus,
-  registerRef,
-  onRename,
-  onEdit,
-  onDelete,
-}: {
-  block: WorkflowCodeBlock;
+type CompiledRule = {
+  header: string;
+  line: number;
+  rule?: WorkflowRule;
+  codeOnly: boolean;
+  reason: string;
   errors: CodeDiag[];
-  autoFocus: boolean;
-  registerRef: (key: string, el: HTMLDivElement | null) => void;
-  onRename: (name: string) => void;
-  onEdit: (source: string) => void;
-  onDelete: () => void;
-}) {
-  const areaRef = useRef<HTMLTextAreaElement>(null);
-  const mine = errors.filter((e) => e.block === block.name || e.block === '');
+};
 
-  const jumpToLine = (line: number) => {
-    const el = areaRef.current;
-    if (!el) return;
-    const lines = el.value.split('\n');
-    const off = lines.slice(0, Math.max(0, line - 1)).join('\n').length + (line > 1 ? 1 : 0);
-    el.focus();
-    el.setSelectionRange(off, off);
-  };
-
-  return (
-    <div
-      className="workflow-code-block"
-      data-block-id={block.id}
-      ref={(el) => registerRef(block.id, el)}
-    >
-      <div className="workflow-code-block-bar">
-        <input
-          className="workflow-code-name"
-          value={block.name}
-          placeholder={t('Block name')}
-          onChange={(e) => onRename(e.target.value)}
-          aria-label={t('Block name')}
-        />
-        <span className="workflow-code-count">{t('Rules')}: {block.rules.length}</span>
-        <button
-          type="button"
-          className="icon-btn"
-          title={t('Delete block')}
-          aria-label={t('Delete block')}
-          onClick={onDelete}
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
-      <textarea
-        ref={areaRef}
-        className={'workflow-code-area' + (mine.length > 0 ? ' workflow-code-area-bad' : '')}
-        value={block.source}
-        placeholder={'rule "Name":\n  when "New" becomes "Done"\n  do:\n    ask comment always'}
-        onChange={(e) => onEdit(e.target.value)}
-        spellCheck={false}
-        rows={10}
-        autoFocus={autoFocus}
-      />
-      {mine.length > 0 && (
-        <div className="workflow-code-errors">
-          {mine.map((e, i) => (
-            <button key={i} type="button" className="workflow-code-error" onClick={() => e.line > 0 && jumpToLine(e.line)}>
-              <TriangleAlert size={13} />
-              <span>
-                {e.line > 0 ? `${t('Line {n}', { n: e.line })}: ` : ''}
-                {e.message}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function featureName(reason: string) {
+  return reason === 'constants' ? t('constants') : t('OR conditions');
 }
 
-/** The Code tab: every visual rule as editable text plus one editor per
- *  code block with live server validation. Saving happens with the dialog's
- *  Save button, like everything else here. */
+/** The Code tab: the whole process as one text. Valid text applies to the
+ *  model at once — known headers update visual rules, new headers create
+ *  them, missing ones delete them, code-only sections land in one code
+ *  block. Broken text locks the List until fixed or reset. Saving happens
+ *  with the dialog's Save button, like everything else here. */
 export default function WorkflowCode({
   collectionId,
   schema,
@@ -214,7 +53,7 @@ export default function WorkflowCode({
   statusPropId,
   focus,
   onChange,
-  onBlockedChange,
+  onCodeLockedChange,
 }: {
   collectionId: string;
   schema: PropDef[];
@@ -222,23 +61,21 @@ export default function WorkflowCode({
   statusPropId: string;
   focus: { target: string; n: number } | null;
   onChange: (w: WorkflowConfig | undefined) => void;
-  onBlockedChange: (ids: string[]) => void;
+  onCodeLockedChange: (locked: boolean) => void;
 }) {
   const rules = useMemo(() => workflow?.rules ?? [], [workflow]);
   const blocks = useMemo(() => workflow?.code ?? [], [workflow]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [errors, setErrors] = useState<CodeDiag[]>([]);
-  // Draft text per rule: present only while the rule differs from generated.
-  // A visual edit snaps it back — the model is the truth.
-  const [texts, setTexts] = useState<Record<string, string>>({});
-  const [states, setStates] = useState<Record<string, RuleState>>({});
-  // "Keep editing" per rule: the banner stays away until the text turns
-  // compatible again and then code-only once more.
-  const [kept, setKept] = useState<Record<string, boolean>>({});
-  const refs = useRef(new Map<string, HTMLDivElement>());
-  const seqs = useRef<Record<string, number>>({});
-  const applied = useRef<Record<string, WorkflowRule>>({});
-  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // The user draft; undefined means the generated document is shown.
+  const [text, setText] = useState<string | undefined>(undefined);
+  const [state, setState] = useState<DocState>({ kind: 'clean' });
+  // "Keep editing" hides the move banner until the text turns clean again.
+  const [kept, setKept] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+  const seqs = useRef(0);
+  const applied = useRef<WorkflowConfig | undefined>(undefined);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastVerdict = useRef<{ source: string; compiled: CompiledRule[] } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -250,265 +87,267 @@ export default function WorkflowCode({
     };
   }, []);
 
-  // A visual edit snaps that rule's editor back to generated text.
-  useEffect(() => {
-    setTexts((prev) => {
-      if (Object.keys(prev).length === 0) return prev;
-      const next = { ...prev };
-      let changed = false;
-      for (const id of Object.keys(next)) {
-        const cur = rules.find((r) => r.id === id);
-        if (!cur || cur !== applied.current[id]) {
-          delete next[id];
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
+  // The generated document: visual rules in order, then the code sources.
+  const built = useMemo(() => {
+    const v = generateVisualCode(rules, schema, members, statusPropId);
+    const headerToId = new Map<string, string>();
+    rules.forEach((r, i) => {
+      if (!headerToId.has(v.headers[i])) headerToId.set(v.headers[i], r.id);
     });
-    setStates((prev) => {
-      if (Object.keys(prev).length === 0) return prev;
-      const next = { ...prev };
-      let changed = false;
-      for (const id of Object.keys(next)) {
-        const cur = rules.find((r) => r.id === id);
-        if (!cur || cur !== applied.current[id]) {
-          delete next[id];
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [rules]);
+    const codeParts = blocks.map((b) => b.source.trimEnd()).filter((s) => s.length > 0);
+    const visual = v.text.trimEnd();
+    const parts = [visual, ...codeParts].filter((s) => s.length > 0);
+    return { headerToId, doc: parts.length > 0 ? parts.join('\n\n') + '\n' : '' };
+  }, [rules, blocks, schema, members, statusPropId]);
 
-  // Red rules lock their List rows until fixed or reset.
-  const blockedKey = useMemo(
-    () =>
-      Object.entries(states)
-        .filter(([, s]) => s.kind === 'invalid')
-        .map(([id]) => id)
-        .sort()
-        .join('\n'),
-    [states],
-  );
-  const blockedRef = useRef('');
-  useEffect(() => {
-    if (blockedKey === blockedRef.current) return;
-    blockedRef.current = blockedKey;
-    onBlockedChange(blockedKey ? blockedKey.split('\n') : []);
-  });
+  const shown = text ?? built.doc;
 
-  // Live check for code blocks: debounced, against the draft.
+  // A visual edit snaps a draft back to generated text: the model is truth.
   useEffect(() => {
-    if (!workflow) {
-      setErrors([]);
-      return;
+    if (text !== undefined && workflow !== applied.current) {
+      setText(undefined);
+      setState({ kind: 'clean' });
+      setKept(false);
     }
-    let alive = true;
-    const h = setTimeout(() => {
-      api
-        .validateWorkflow(collectionId, workflow)
-        .then((r) => alive && setErrors(r.errors.filter((e) => e.block)))
-        .catch(() => {});
-    }, 500);
-    return () => {
-      alive = false;
-      clearTimeout(h);
-    };
-  }, [workflow, collectionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflow]);
 
-  // A map click lands here with a block id or a rule id.
+  const locked = state.kind === 'invalid';
   useEffect(() => {
-    if (!focus) return;
+    onCodeLockedChange(locked);
+  }, [locked, onCodeLockedChange]);
+
+  // A map click on a code edge lands here.
+  useEffect(() => {
+    if (!focus || focus.target !== 'code') return;
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        refs.current.get(focus.target)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        areaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        areaRef.current?.focus({ preventScroll: true });
       }),
     );
   }, [focus]);
 
-  const ruleTitle = (r: WorkflowRule) => {
-    const status = schema.find((p) => p.id === statusPropId);
-    if (r.when.type === 'created') return t('On creation');
-    const toId = r.when.to;
-    const to = status?.options?.find((o) => o.id === toId)?.name ?? toId;
-    return `${status?.name ?? ''} → ${to}`;
+  const jumpToLine = (line: number) => {
+    const el = areaRef.current;
+    if (!el || line < 1) return;
+    const off = el.value.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0);
+    el.focus();
+    el.setSelectionRange(off, off);
   };
 
-  const generated = (r: WorkflowRule) => generateRuleCode(r, schema, members, statusPropId);
-
-  const applyCompiled = (ruleId: string, rule: WorkflowRule) => {
-    if (!workflow) return;
-    const next = { ...rule, id: ruleId };
-    applied.current[ruleId] = next;
-    onChange({ ...workflow, rules: workflow.rules.map((r) => (r.id === ruleId ? next : r)) });
-  };
-
-  const moveRuleToCode = (ruleId: string, source: string, silent: boolean) => {
-    if (!workflow) return;
-    const m = source.match(/^rule\s+"((?:[^"\\]|\\.)*)":/);
-    const name = m ? m[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\') : t('Moved rule');
-    if (timers.current[ruleId]) clearTimeout(timers.current[ruleId]);
-    seqs.current[ruleId] = (seqs.current[ruleId] ?? 0) + 1;
-    setTexts((p) => {
-      const next = { ...p };
-      delete next[ruleId];
-      return next;
-    });
-    setStates((p) => {
-      const next = { ...p };
-      delete next[ruleId];
-      return next;
-    });
-    delete applied.current[ruleId];
-    onChange({
-      ...workflow,
-      rules: workflow.rules.filter((r) => r.id !== ruleId),
-      code: [...(workflow.code ?? []), { id: `new_${Date.now().toString(36)}`, name, source, rules: [] }],
-    });
-    if (silent) toast(t('Rule moved to code'));
-  };
-
-  const compileRule = (ruleId: string, source: string) => {
-    const seq = (seqs.current[ruleId] ?? 0) + 1;
-    seqs.current[ruleId] = seq;
-    setStates((p) => ({ ...p, [ruleId]: { kind: 'checking' } }));
+  const applyDoc = (source: string, seq: number) => {
     api
-      .compileWorkflowRule(collectionId, source, statusPropId)
+      .compileWorkflowText(collectionId, source, statusPropId)
       .then((r) => {
-        if (seqs.current[ruleId] !== seq) return;
-        if (r.errors.length > 0) {
-          setStates((p) => ({ ...p, [ruleId]: { kind: 'invalid', errors: r.errors } }));
+        if (seqs.current !== seq) return;
+        const errors: CodeDiag[] = [...(r.errors ?? []), ...r.rules.flatMap((e) => e.errors ?? [])];
+        if (errors.length > 0) {
+          setState({ kind: 'invalid', errors });
           return;
         }
-        if (r.codeOnly && r.rule) {
-          setStates((p) => ({ ...p, [ruleId]: { kind: 'codeOnly', reason: r.reason } }));
-          if (isSilentMove()) moveRuleToCode(ruleId, source, true);
+        const codeOnly = r.rules.filter((e) => e.codeOnly);
+        if (codeOnly.length > 0) {
+          setState({ kind: 'codeOnly', reasons: [...new Set(codeOnly.map((e) => e.reason))] });
+          lastVerdict.current = { source, compiled: r.rules };
+          if (isSilentMove()) moveToCode(source, r.rules);
           return;
         }
-        if (r.rule) {
-          applyCompiled(ruleId, r.rule);
-          setStates((p) => ({ ...p, [ruleId]: { kind: 'valid' } }));
-          setKept((p) => {
-            if (!p[ruleId]) return p;
-            const next = { ...p };
-            delete next[ruleId];
-            return next;
-          });
-        }
+        lastVerdict.current = null;
+        applyClean(source, r.rules);
+        setState({ kind: 'valid' });
+        setKept(false);
       })
       .catch(() => {});
   };
 
-  const editRule = (ruleId: string, source: string) => {
-    setTexts((p) => ({ ...p, [ruleId]: source }));
-    if (timers.current[ruleId]) clearTimeout(timers.current[ruleId]);
-    timers.current[ruleId] = setTimeout(() => compileRule(ruleId, source), 500);
-  };
-
-  const resetRule = (ruleId: string) => {
-    if (timers.current[ruleId]) clearTimeout(timers.current[ruleId]);
-    seqs.current[ruleId] = (seqs.current[ruleId] ?? 0) + 1;
-    setTexts((p) => {
-      const next = { ...p };
-      delete next[ruleId];
-      return next;
-    });
-    setStates((p) => {
-      const next = { ...p };
-      delete next[ruleId];
-      return next;
-    });
-  };
-
-  const keepEditing = (ruleId: string) => setKept((p) => ({ ...p, [ruleId]: true }));
-
-  const setBlocks = (next: WorkflowCodeBlock[]) => {
-    if (!workflow) {
-      onChange({ statusPropId, rules: [], code: next });
-      return;
+  // Sections matched greedily in order: the first section for a header
+  // takes its compiled rule, later duplicates fall through to code.
+  const matchSections = (
+    sections: { header: string; text: string }[],
+    compiled: CompiledRule[],
+  ) => {
+    const queue = new Map<string, CompiledRule[]>();
+    for (const c of compiled) {
+      const q = queue.get(c.header) ?? [];
+      q.push(c);
+      queue.set(c.header, q);
     }
-    onChange({ ...workflow, code: next });
+    return sections.map((s) => ({ section: s, compiled: queue.get(s.header)?.shift() }));
   };
 
-  const addBlock = () => {
-    const n = blocks.length + 1;
-    setBlocks([
-      ...blocks,
-      {
-        id: `new_${Date.now().toString(36)}`,
-        name: `${t('Block')} ${n}`,
-        source: '',
-        rules: [],
-      },
-    ]);
+  const singleCodeBlock = (sources: string[]): WorkflowCodeBlock[] => {
+    const parts = sources.map((x) => x.trimEnd()).filter((x) => x.length > 0);
+    if (parts.length === 0) return [];
+    const first = blocks[0];
+    return [{
+      id: first?.id ?? `new_${Date.now().toString(36)}`,
+      name: first?.name || 'Code',
+      source: parts.join('\n\n') + '\n',
+      rules: first?.rules ?? [],
+    }];
   };
 
-  const deleteBlock = async (id: string) => {
-    const ok = await confirm(t('Delete this code block?'), { confirmText: t('Delete block'), danger: true });
-    if (ok) setBlocks(blocks.filter((b) => b.id !== id));
+  const applyClean = (source: string, compiled: CompiledRule[]) => {
+    if (!workflow) return;
+    const seen = new Set<string>();
+    const nextRules: WorkflowRule[] = [];
+    const codeSections: string[] = [];
+    const { preamble, sections } = splitCodeDocument(source);
+    for (const { section: sec, compiled: c } of matchSections(sections, compiled)) {
+      if (!c || !c.rule) {
+        codeSections.push(sec.text);
+        continue;
+      }
+      const id = built.headerToId.get(sec.header);
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        nextRules.push({ ...c.rule, id });
+      } else if (!id) {
+        nextRules.push({ ...c.rule, id: newRuleId() });
+      } else {
+        codeSections.push(sec.text);
+      }
+    }
+    const next = {
+      ...workflow,
+      rules: nextRules,
+      code: singleCodeBlock([preamble, ...codeSections]),
+    };
+    applied.current = next;
+    onChange(next);
   };
+
+  const moveToCode = (source: string, compiled: CompiledRule[]) => {
+    if (!workflow) return;
+    const codeOnlyHeaders = new Set(compiled.filter((c) => c.codeOnly).map((c) => c.header));
+    const { preamble, sections } = splitCodeDocument(source);
+    // Moved sections join the code; the rest applies as the visual rules.
+    const moved = sections.filter((s) => codeOnlyHeaders.has(s.header));
+    const seen = new Set<string>();
+    const nextRules: WorkflowRule[] = [];
+    const matched = matchSections(
+      sections.filter((s) => !codeOnlyHeaders.has(s.header)),
+      compiled.filter((c) => !c.codeOnly && c.rule),
+    );
+    for (const { section: sec, compiled: c } of matched) {
+      if (!c || !c.rule) continue;
+      const id = built.headerToId.get(sec.header);
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        nextRules.push({ ...c.rule, id });
+      } else if (!id) {
+        nextRules.push({ ...c.rule, id: newRuleId() });
+      }
+    }
+    const next = {
+      ...workflow,
+      rules: nextRules,
+      code: singleCodeBlock([preamble, ...moved.map((s) => s.text)]),
+    };
+    applied.current = next;
+    setText(undefined);
+    setState({ kind: 'clean' });
+    setKept(false);
+    onChange(next);
+    const n = moved.length;
+    toast(n === 1 ? t('Rule moved to code') : t('Rules moved to code'));
+  };
+
+  const editDoc = (source: string) => {
+    setText(source);
+    if (timer.current) clearTimeout(timer.current);
+    const seq = ++seqs.current;
+    setState({ kind: 'checking' });
+    timer.current = setTimeout(() => applyDoc(source, seq), 500);
+  };
+
+  const resetDoc = () => {
+    if (timer.current) clearTimeout(timer.current);
+    seqs.current++;
+    lastVerdict.current = null;
+    setText(undefined);
+    setState({ kind: 'clean' });
+    setKept(false);
+  };
+
+  const [hideAsk, setHideAsk] = useState(false);
 
   return (
     <div className="workflow-code">
-      {rules.map((r) => {
-        const text = texts[r.id] ?? generated(r);
-        const state = states[r.id] ?? { kind: 'clean' as const };
-        const banner = state.kind === 'codeOnly' && !kept[r.id] && !isSilentMove();
-        return (
-          <RuleCodeEditor
-            key={r.id}
-            rule={r}
-            title={ruleTitle(r)}
-            text={text}
-            state={state}
-            banner={banner}
-            registerRef={(key, el) => {
-              if (el) refs.current.set(key, el);
-              else refs.current.delete(key);
-            }}
-            onEdit={(source) => editRule(r.id, source)}
-            onReset={() => resetRule(r.id)}
-            onMove={(hide) => {
-              if (hide) {
-                try {
-                  localStorage.setItem(SILENT_MOVE_KEY, '1');
-                } catch {
-                  /* private mode: ask every time */
-                }
-              }
-              moveRuleToCode(r.id, text, false);
-            }}
-            onKeep={() => keepEditing(r.id)}
-          />
-        );
-      })}
-
-      {blocks.map((b, i) => (
-        <CodeBlockEditor
-          key={b.id}
-          block={b}
-          errors={errors}
-          autoFocus={i === blocks.length - 1 && b.source === ''}
-          registerRef={(key, el) => {
-            if (el) refs.current.set(key, el);
-            else refs.current.delete(key);
-          }}
-          onRename={(name) => setBlocks(blocks.map((x) => (x.id === b.id ? { ...x, name } : x)))}
-          onEdit={(source) => setBlocks(blocks.map((x) => (x.id === b.id ? { ...x, source } : x)))}
-          onDelete={() => deleteBlock(b.id)}
+      <div className="workflow-code-block" data-code-doc="1">
+        <div className="workflow-code-block-bar">
+          <span className="workflow-code-name">{t('Process as code')}</span>
+          {text !== undefined && (
+            <button type="button" className="btn-sm" onClick={resetDoc}>
+              {t('Reset')}
+            </button>
+          )}
+        </div>
+        <textarea
+          ref={areaRef}
+          className={'workflow-code-area' + (state.kind === 'invalid' ? ' workflow-code-area-bad' : '')}
+          value={shown}
+          placeholder={'rule "Name":\n  when "New" becomes "Done"\n  do:\n    ask comment always'}
+          onChange={(e) => editDoc(e.target.value)}
+          spellCheck={false}
+          rows={16}
         />
-      ))}
-
-      <button type="button" className="workflow-code-add" onClick={addBlock}>
-        <Plus size={14} />
-        <span>{t('Add code block')}</span>
-      </button>
+        {state.kind === 'invalid' && (
+          <div className="workflow-code-errors">
+            {state.errors.map((e, i) => (
+              <button key={i} type="button" className="workflow-code-error" onClick={() => jumpToLine(e.line)}>
+                <TriangleAlert size={13} />
+                <span>
+                  {e.line > 0 ? `${t('Line {n}', { n: e.line })}: ` : ''}
+                  {e.message}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {state.kind === 'codeOnly' && (
+          <div className="workflow-code-move">
+            <span>
+              {t('Uses {feature}, only available in code', {
+                feature: state.reasons.map(featureName).join(', '),
+              })}
+            </span>
+            <label className="workflow-code-silence">
+              <input type="checkbox" checked={hideAsk} onChange={(e) => setHideAsk(e.target.checked)} />
+              {t("Don't ask again")}
+            </label>
+            <span className="workflow-code-move-actions">
+              <button
+                type="button"
+                className="btn-sm"
+                onClick={() => {
+                  if (hideAsk) {
+                    try {
+                      localStorage.setItem(SILENT_MOVE_KEY, '1');
+                    } catch {
+                      /* private mode: ask every time */
+                    }
+                  }
+                  const v = lastVerdict.current;
+                  if (v && text !== undefined && v.source === text) moveToCode(text, v.compiled);
+                }}
+              >
+                {t('Move to code')}
+              </button>
+              <button type="button" className="btn-sm" onClick={() => setKept(true)}>
+                {t('Keep editing')}
+              </button>
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-/** Locked rows for the List tab: code blocks readable where the visual
- *  rules are edited, edited where the code lives. */
+/** Locked rows for the List tab: rules that live only in code, readable
+ *  where the visual rules are edited, edited where the code lives. */
 export function CodeLockRows({ blocks, onOpen }: { blocks: WorkflowCodeBlock[]; onOpen: (blockId: string) => void }) {
   if (blocks.length === 0) return null;
   return (

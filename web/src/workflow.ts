@@ -804,35 +804,60 @@ export async function postMoveComment(rowId: string, comment: string | null): Pr
   }
 }
 
-/** Renders one visual rule as process-code text (a per-rule editor's seed).
- *  The header name is cosmetic: applying the text keeps the visual rule id. */
-export function generateRuleCode(
-  r: WorkflowRule,
+/** One section of a process document: a generated header plus its text. */
+export interface CodeSection {
+  header: string;
+  text: string;
+}
+
+/** Split a process document into its preamble (constants and comments above
+ *  the first rule) and its rule sections. Mirrors the server's rule headers,
+ *  so the Code tab can partition compiled rules back to visual ones. */
+export function splitCodeDocument(source: string): { preamble: string; sections: CodeSection[] } {
+  const lines = source.split('\n');
+  const headerAt = (i: number) => /^rule\s+"((?:[^"\\]|\\.)*)":\s*$/.exec(lines[i]);
+  let first = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (headerAt(i)) {
+      first = i;
+      break;
+    }
+  }
+  if (first < 0) return { preamble: source, sections: [] };
+  const sections: CodeSection[] = [];
+  let start = first;
+  let m = headerAt(first);
+  for (let i = first + 1; i <= lines.length; i++) {
+    const h = i < lines.length ? headerAt(i) : null;
+    if (h || i === lines.length) {
+      const body = lines.slice(start, i).join('\n').trimEnd();
+      if (m && body) sections.push({ header: unquoteCodeName(m[1]), text: body + '\n' });
+      if (!h) break;
+      start = i;
+      m = h;
+    }
+  }
+  return { preamble: lines.slice(0, first).join('\n'), sections };
+}
+
+function unquoteCodeName(s: string): string {
+  return s.replace(/\\(.)/g, '$1');
+}
+
+/** Headers the Code tab matches parsed rules back to visual ones, plus the
+ *  visual rules rendered as one text with a shared name counter. */
+export function generateVisualCode(
+  rules: WorkflowRule[],
   schema: PropDef[],
   members: Member[],
   statusPropId: string,
-): string {
-  return generateWorkflowCode({ statusPropId, rules: [r] }, schema, members);
-}
-
-/** Renders visual rules as process-code text (the Code tab's read-only
- *  preview). Prints exactly the grammar the server parses, so the preview
- *  round-trips: names in quotes, one `if` value per option for OR. The
- *  generator always inlines literals — it never invents constants. */
-export function generateWorkflowCode(
-  workflow: WorkflowConfig | undefined,
-  schema: PropDef[],
-  members: Member[],
-): string {
-  if (!workflow || workflow.rules.length === 0) return '';
+): { headers: string[]; text: string } {
   const q = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   const prop = (id: string) => schema.find((p) => p.id === id);
   const propName = (id: string) => prop(id)?.name ?? id;
   const optName = (propId: string, optId: string) =>
     prop(propId)?.options?.find((o) => o.id === optId)?.name ?? optId;
   const memberName = (id: string) => members.find((m) => m.userId === id)?.name ?? id;
-  const statusPropId = workflow.statusPropId;
-
   const takenNames = new Map<string, number>();
   const ruleName = (base: string) => {
     const n = takenNames.get(base) ?? 0;
@@ -883,10 +908,12 @@ export function generateWorkflowCode(
     }
   };
 
+  const headers: string[] = [];
   const lines: string[] = [];
-  for (const r of workflow.rules) {
+  for (const r of rules) {
     const base = r.when.type === 'created' ? 'On create' : `To ${optName(statusPropId, r.when.to)}`;
-    lines.push(`rule ${q(ruleName(base))}:`);
+    headers.push(ruleName(base));
+    lines.push(`rule ${q(headers[headers.length - 1])}:`);
     if (r.when.type === 'created') {
       lines.push('  when created');
     } else {
@@ -916,5 +943,5 @@ export function generateWorkflowCode(
     }
     lines.push('');
   }
-  return lines.join('\n').trimEnd() + '\n';
+  return { headers, text: lines.join('\n').trimEnd() + (lines.length > 0 ? '\n' : '') };
 }

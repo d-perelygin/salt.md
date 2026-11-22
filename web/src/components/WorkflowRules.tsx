@@ -81,10 +81,10 @@ export default function WorkflowRules({
   // the visual half only.
   const [view, setView] = useState<'list' | 'scheme' | 'code'>('list');
   const [codeFocus, setCodeFocus] = useState<{ target: string; n: number } | null>(null);
-  // Rules whose code text does not compile: their List rows stay locked
-  // until the text is fixed or reset in the Code tab.
-  const [blockedRuleIds, setBlockedRuleIds] = useState<string[]>([]);
-  const blocked = useMemo(() => new Set(blockedRuleIds), [blockedRuleIds]);
+  // While the Code text has errors, visual editing pauses: applying a List
+  // edit would silently discard the broken draft. The notice below sends
+  // the reader to fix them.
+  const [codeLocked, setCodeLocked] = useState(false);
   const united = useMemo(() => {
     if (!workflow) return workflow;
     const codeRules = (workflow.code ?? []).flatMap((b) => b.rules ?? []);
@@ -348,9 +348,9 @@ export default function WorkflowRules({
   // Two animation frames: one for the state commit, one for the paint.
   const locateOnMap = (target: { ruleId: string } | { groupKey: string }) => {
     if ('ruleId' in target && target.ruleId.startsWith('code:')) {
-      // A map click on a code edge lands in the code tab at its block.
+      // A map click on a code edge lands in the Code tab.
       setView('code');
-      setCodeFocus({ target: target.ruleId.split(':')[1] ?? '', n: Date.now() });
+      setCodeFocus({ target: 'code', n: Date.now() });
       return;
     }
     if (!fullScheme) setView('list');
@@ -377,6 +377,27 @@ export default function WorkflowRules({
       }),
     );
   };
+
+  // Shown instead of the List while the Code text has errors.
+  const lockedNotice = (
+    <div className="workflow-issues">
+      <div className="workflow-issue workflow-issue-error">
+        <span>
+          <TriangleAlert size={13} /> {t('Visual editing is paused until the code errors are fixed')}
+        </span>
+        <button
+          type="button"
+          className="btn-sm"
+          onClick={() => {
+            setView('code');
+            setCodeFocus({ target: 'code', n: Date.now() });
+          }}
+        >
+          {t('Go to Code')}
+        </button>
+      </div>
+    </div>
+  );
 
   // One JSX tree, two mount points: the List tab and the fullscreen right
   // panel render the same element. Safe because every input here is
@@ -475,29 +496,6 @@ export default function WorkflowRules({
           r.when.type === 'created'
             ? t('a row is created')
             : `${statusProp?.name ?? ''} → ${statusOpts.find((o) => o.id === whenTo)?.name ?? whenTo}`;
-        // A rule whose code text does not compile keeps its List row
-        // locked: editing here would silently discard the draft. Fix or
-        // reset it where it lives — one click away.
-        if (blocked.has(r.id)) {
-          return (
-            <div key={r.id} className="schema-item schema-item-error" data-rule-id={r.id}>
-              <button
-                type="button"
-                className="workflow-code-lock"
-                onClick={() => {
-                  setView('code');
-                  setCodeFocus({ target: `rule:${r.id}`, n: Date.now() });
-                }}
-              >
-                <Lock size={13} />
-                <span className="workflow-code-lock-name">
-                  {t('When')} {whenName}
-                </span>
-                <span className="workflow-code-lock-meta">{t('Fix in Code')}</span>
-              </button>
-            </div>
-          );
-        }
         return (
           <div
             key={r.id}
@@ -820,9 +818,9 @@ export default function WorkflowRules({
 
       <CodeLockRows
         blocks={workflow?.code ?? []}
-        onOpen={(blockId) => {
+        onOpen={() => {
           setView('code');
-          setCodeFocus({ target: blockId, n: Date.now() });
+          setCodeFocus({ target: 'code', n: Date.now() });
         }}
       />
 
@@ -931,17 +929,7 @@ export default function WorkflowRules({
           <Maximize2 size={15} />
         </button>
       </div>
-      {view === 'list' ? listView : view === 'code' ? (
-      <WorkflowCode
-        collectionId={collectionId}
-        schema={schema}
-        workflow={workflow}
-        statusPropId={statusPropId}
-        focus={codeFocus}
-        onChange={commit}
-        onBlockedChange={setBlockedRuleIds}
-      />
-      ) : (
+      {view === 'list' ? (codeLocked ? lockedNotice : listView) : view === 'code' ? null : (
       <WorkflowScheme
         workflow={united}
         schema={schema}
@@ -955,6 +943,19 @@ export default function WorkflowRules({
         onToggleFree={() => setShowFree((v) => !v)}
       />
       )}
+      {/* The Code tab stays mounted while hidden: unmounting would wipe an
+        unsaved draft every time the user peeks at the List. */}
+      <div style={view === 'code' ? undefined : { display: 'none' }}>
+        <WorkflowCode
+          collectionId={collectionId}
+          schema={schema}
+          workflow={workflow}
+          statusPropId={statusPropId}
+          focus={codeFocus}
+          onChange={commit}
+          onCodeLockedChange={setCodeLocked}
+        />
+      </div>
       {fullScheme && (
         <Portal>
           <div className="workflow-full" role="dialog" aria-modal="true" aria-label={t('Scheme')}>

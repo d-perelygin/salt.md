@@ -542,16 +542,14 @@ export const api = {
       `/api/collections/${pageId}/workflow/validate`,
       { method: 'POST', body: JSON.stringify({ workflow }) },
     ),
-  /** Compiles one rule snippet from the code tab into the rule JSON the
-   *  visual editor stores — or reports problems, or flags it as code-only
-   *  (OR value lists, named constants) with the reason. */
-  compileWorkflowRule: (pageId: string, source: string, statusPropId: string) =>
+  /** Compiles the Code tab's whole-process document into per-rule verdicts:
+   *  the rule JSON for clean sections, problems with line numbers, or a
+   *  code-only flag (OR value lists, named constants) with the reason. */
+  compileWorkflowText: (pageId: string, source: string, statusPropId: string) =>
     req<{
-      rule?: import('./types').WorkflowRule;
-      codeOnly: boolean;
-      reason: string;
+      rules: { header: string; line: number; rule?: import('./types').WorkflowRule; codeOnly: boolean; reason: string; errors: { line: number; message: string }[] }[];
       errors: { line: number; message: string }[];
-    }>(`/api/collections/${pageId}/workflow/compile`, {
+    }>(`/api/collections/${pageId}/workflow/compile-text`, {
       method: 'POST',
       body: JSON.stringify({ source, statusPropId }),
     }),

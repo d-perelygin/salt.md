@@ -481,9 +481,15 @@ export function normalizeCollectionConfig(cfg: CollectionConfig): CollectionConf
     // stays, with do defaulted for the editor.
     const hasGate = (r: WorkflowRule) =>
       (r.allowFrom ?? []).length > 0 || !!r.precondition || (r.whenProps ?? []).length > 0;
+    const solid = (r: WorkflowRule): WorkflowRule => ({
+      ...r,
+      do: Array.isArray(r.do) ? r.do : [],
+      allowFrom: Array.isArray(r.allowFrom) ? r.allowFrom : [],
+      whenProps: Array.isArray(r.whenProps) ? r.whenProps : [],
+    });
     cfg.workflow.rules = cfg.workflow.rules
       .filter((r) => r && r.when && (Array.isArray(r.do) || hasGate(r)))
-      .map((r) => ({ ...r, do: Array.isArray(r.do) ? r.do : [] }));
+      .map(solid);
     // Code blocks ride along untouched: the server recompiles them on save.
     if (!Array.isArray(cfg.workflow.code)) cfg.workflow.code = [];
     cfg.workflow.code = cfg.workflow.code
@@ -492,7 +498,7 @@ export function normalizeCollectionConfig(cfg: CollectionConfig): CollectionConf
         id: typeof b.id === 'string' ? b.id : '',
         name: typeof b.name === 'string' ? b.name : '',
         source: typeof b.source === 'string' ? b.source : '',
-        rules: Array.isArray(b.rules) ? b.rules : [],
+        rules: (Array.isArray(b.rules) ? b.rules : []).filter((r) => r && r.when).map(solid),
       }));
   }
   return cfg;
