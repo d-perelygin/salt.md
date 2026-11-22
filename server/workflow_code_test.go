@@ -671,3 +671,74 @@ func TestCodePutAndValidateEndpoint(t *testing.T) {
 		t.Errorf("remove_workflow_rule on a code rule should be refused")
 	}
 }
+
+// set_workflow_code replaces the whole process with one code document; the
+// proposal path validates without saving and hands the text to the browser.
+func TestSetWorkflowCodeTool(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "setcode@example.test")
+	u := &user{ID: uid}
+	ws := s.firstWorkspaceOf(t, uid)
+	col := s.makeCollection(t, ws, uid, "Flow", `[{"id":"st","name":"Status","type":"select","options":[{"id":"s1","name":"New"},{"id":"s2","name":"Done"}]},{"id":"own","name":"Owner","type":"person"}]`)
+	// A process has to exist before code can replace it.
+	if _, err := callTool(t, s, u, "add_workflow_rule", `{"page_id":"`+col+`","status_property":"st","when":{"type":"created"},"actions":[]}`); err != nil {
+		t.Fatalf("seed process: %v", err)
+	}
+	src := "rule \"Ship\":\n  when any becomes \"Done\"\n  if \"Status\" is \"New\", \"Done\"\n  do:\n    ask comment always\n"
+	out, err := callTool(t, s, u, "set_workflow_code", `{"page_id":"`+col+`","source":`+`"`+escapeJSON(t, src)+`"`+`}`)
+	if err != nil {
+		t.Fatalf("set_workflow_code: %v", err)
+	}
+	if !strings.Contains(out, "1 rule") {
+		t.Errorf("answer = %q", out)
+	}
+	var stored string
+	s.db.QueryRow(`SELECT workflow FROM collections WHERE page_id = ?`, col).Scan(&stored)
+	var cfg workflowConfig
+	if err := json.Unmarshal([]byte(stored), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	// The visual rules are gone: the document is the process now.
+	if len(cfg.Rules) != 0 {
+		t.Errorf("visual rules survived: %+v", cfg.Rules)
+	}
+	if len(cfg.Code) != 1 || len(cfg.Code[0].Rules) != 1 {
+		t.Fatalf("code = %+v", cfg.Code)
+	}
+	if cfg.Code[0].Rules[0].When.To != "s2" {
+		t.Errorf("compiled rule = %+v", cfg.Code[0].Rules[0])
+	}
+	// Broken code is refused with the line, and nothing is stored.
+	if _, err := callTool(t, s, u, "set_workflow_code", `{"page_id":"`+col+`","source":"rule \"X\":\n  when someday\n"}`); err == nil || !strings.Contains(err.Error(), "line 2") {
+		t.Errorf("broken code: %v", err)
+	}
+	// A proposal validates but does not save; the browser may fetch it, and
+	// dismissing drops it.
+	prop := "rule \"Ship\":\n  when any becomes \"Done\"\n  do:\n    ask comment always\n\nrule \"Second\":\n  when created\n  do:\n    ask \"Owner\" if empty\n"
+	if _, err := s.aiProposeWorkflowCode(u, col, prop, "two rules"); err != nil {
+		t.Fatalf("propose: %v", err)
+	}
+	s.db.QueryRow(`SELECT workflow FROM collections WHERE page_id = ?`, col).Scan(&stored)
+	if err := json.Unmarshal([]byte(stored), &cfg); err != nil || len(cfg.Code[0].Rules) != 1 {
+		t.Errorf("a proposal changed the process: %s", stored)
+	}
+	rec := requestAs(t, s, cookie, "GET", "/api/collections/"+col+"/workflow/proposal", "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "two rules") {
+		t.Fatalf("proposal fetch: %d %s", rec.Code, rec.Body.String())
+	}
+	if code := requestAs(t, s, cookie, "DELETE", "/api/collections/"+col+"/workflow/proposal", "").Code; code != 200 {
+		t.Errorf("dismiss: %d", code)
+	}
+	if rec := requestAs(t, s, cookie, "GET", "/api/collections/"+col+"/workflow/proposal", ""); strings.Contains(rec.Body.String(), "source") {
+		t.Errorf("proposal survived a dismiss: %s", rec.Body.String())
+	}
+}
+
+func escapeJSON(t *testing.T, s string) string {
+	t.Helper()
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b[1 : len(b)-1])
+}

@@ -352,6 +352,16 @@ var mcpTools = []map[string]any{
 			"required": []string{"page_id", "rule_id"}},
 	},
 	{
+		"name":        "set_workflow_code",
+		"annotations": overwrites,
+		"description": "Replace a database's process with a whole code document: `rule \"Name\":` blocks, two-space indentation, `when \"A\" becomes \"B\"`, `only from`, `needs checklist`, `needs filled`, `if \"Prop\" is \"x\", \"y\"`, `do:` with `set`, `assign me to`, `ask`, `webhook`; constants as `name = \"value\"` on top, referenced by their bare name. This REPLACES the process — visual rules included — and the document becomes one code block a person can edit in Process → Code. Reach for it when: a rule needs OR values or constants, several rules change at once, or you rewrite the process. For ONE simple rule with no OR and no constants, add_workflow_rule is better: it is structured and leaves other rules alone. Refusals name the line and the problem — fix and retry.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"page_id": map[string]any{"type": "string", "description": "The database page id"},
+				"source":  map[string]any{"type": "string", "description": "The whole document, as written in Process → Code"}},
+			"required": []string{"page_id", "source"}},
+	},
+	{
 		"name":        "update_schema",
 		"annotations": overwrites,
 		"description": "Add or change properties on a database. MERGES — properties you do not mention stay untouched. Pass an existing id to change that property, omit the id to add a new one. Removing a property keeps the values in the rows, so re-adding it brings them back.",
@@ -732,6 +742,17 @@ var aiAgentExtraTools = []map[string]any{
 			},
 			"required": []string{"question", "options"}},
 	},
+	{
+		"name":        "propose_workflow_code",
+		"description": "Leave a process-code proposal for the person, who has Process → Code open. Use it when they asked you to change the process FROM THAT EDITOR (the request carries the current text and its errors): write the whole corrected document and call this. Nothing is saved — the Code tab shows the four-or-five-line summary and one Apply button, and the person's unsaved draft keeps winning until they press it. Never call set_workflow_code in the same turn: one path or the other.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{
+				"page_id": map[string]any{"type": "string", "description": "The database page id (given with the request)"},
+				"source":  map[string]any{"type": "string", "description": "The whole document, as it should read in Process → Code"},
+				"summary": map[string]any{"type": "string", "description": "One line the person reads above Apply: what changed and why"},
+			},
+			"required": []string{"page_id", "source"}},
+	},
 }
 
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
@@ -980,7 +1001,8 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 		Agent string `json:"agent"`
 		Label string `json:"label"`
 		Note  string `json:"note"`
-		Text  string `json:"text"` // note() — the trail entry itself
+		Text   string `json:"text"`   // note() — the trail entry itself
+		Source string `json:"source"` // process code, set_workflow_code
 
 		ExpectedMinutes int  `json:"expected_minutes"`
 		Done            bool `json:"done"`
@@ -1070,7 +1092,8 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 				return "", fmt.Errorf("page %q not found", args.PageID)
 			}
 		case "write_content", "update_page", "set_trashed", "upload_file", "set_properties", "duplicate_page",
-			"embed_database", "update_schema", "add_workflow_rule", "remove_workflow_rule", "set_view", "delete_view", "create_rows", "set_sharing":
+			"embed_database", "update_schema", "add_workflow_rule", "remove_workflow_rule", "set_workflow_code",
+			"set_view", "delete_view", "create_rows", "set_sharing":
 			// set_trashed comes along here: canWrite checks only workspace and
 			// role, not the trash — so a trashed page stays checkable, or nobody
 			// could ever restore it.
@@ -1317,6 +1340,8 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 			return s.mcpGetWorkflow(args.PageID)
 		case "add_workflow_rule":
 			return s.mcpAddWorkflowRule(rawArgs)
+		case "set_workflow_code":
+			return s.mcpSetWorkflowCode(args.PageID, args.Source)
 		case "remove_workflow_rule":
 			var rm struct {
 				PageID string `json:"page_id"`

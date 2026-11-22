@@ -641,3 +641,68 @@ func wfOptionID(schemaRaw, statusPropID, nameOrID string) (string, error) {
 	}
 	return "", fmt.Errorf("%q is not a status option here — pick one of: %s", want, strings.Join(names, ", "))
 }
+
+// compileWorkflowDocument turns a whole process document (the text of the
+// Code tab) into a configuration holding it as one code block, with every
+// rule resolved. Nothing is stored: the same path serves set_workflow_code
+// and the proposal an in-app agent leaves for a person to apply.
+func (s *Server) compileWorkflowDocument(pageID, statusPropID, source string) (*workflowConfig, error) {
+	if strings.TrimSpace(source) == "" {
+		return nil, fmt.Errorf("source is empty — send the whole document, one `rule \"Name\":` block per rule")
+	}
+	schemaRaw, _, workflowRaw, err := s.collectionConfig(pageID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(statusPropID) == "" {
+		if cfg := parseWorkflow(workflowRaw); cfg != nil {
+			statusPropID = cfg.StatusPropID
+		}
+	}
+	if statusPropID == "" {
+		return nil, fmt.Errorf("this database has no process yet: start one with add_workflow_rule and status_property, then write code")
+	}
+	schema := parseSchemaProps(schemaRaw)
+	blockID := ""
+	if cfg := parseWorkflow(workflowRaw); cfg != nil && len(cfg.Code) > 0 {
+		blockID = cfg.Code[0].ID
+	}
+	if blockID == "" {
+		blockID = newID()
+	}
+	tmp := &workflowConfig{
+		StatusPropID: statusPropID,
+		Code:         []workflowCodeBlock{{ID: blockID, Name: "Code", Source: source}},
+	}
+	members := s.codeMembersOf(pageID)
+	if err := validateWorkflowCode(tmp, schema, members); err != nil {
+		return nil, err
+	}
+	if err := compileWorkflowCode(tmp, schema, members); err != nil {
+		return nil, err
+	}
+	return tmp, nil
+}
+
+// mcpSetWorkflowCode replaces a database's process with a whole code
+// document. The visual rules are cleared and the document becomes the single
+// code block: the text is what the person then sees and edits in the Code
+// tab, and the resolved rules run immediately.
+func (s *Server) mcpSetWorkflowCode(pageID, source string) (string, error) {
+	if pageID == "" {
+		return "", fmt.Errorf("page_id is required")
+	}
+	cfg, err := s.compileWorkflowDocument(pageID, "", source)
+	if err != nil {
+		return "", err
+	}
+	if err := s.saveWorkflow(pageID, cfg); err != nil {
+		return "", err
+	}
+	n := len(cfg.Code[0].Rules)
+	word := "rules"
+	if n == 1 {
+		word = "rule"
+	}
+	return fmt.Sprintf("Process code saved: %d %s in one code block. A person sees and edits it in Process → Code; get_workflow reads it back.", n, word), nil
+}

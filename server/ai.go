@@ -1129,6 +1129,27 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 				if argsStr == "" {
 					argsStr = "{}"
 				}
+				if name == "propose_workflow_code" {
+					// In-app only: the proposal lives in this server's memory
+					// and reaches the open editor through the event stream.
+					var spec struct {
+						PageID  string `json:"page_id"`
+						Source  string `json:"source"`
+						Summary string `json:"summary"`
+					}
+					_ = json.Unmarshal([]byte(argsStr), &spec)
+					out, perr := s.aiProposeWorkflowCode(u, spec.PageID, spec.Source, spec.Summary)
+					if perr != nil {
+						out = "error: " + perr.Error()
+					}
+					input = append(input, it)
+					input = append(input, map[string]any{
+						"type":    "function_call_output",
+						"call_id": callID,
+						"output":  out,
+					})
+					continue
+				}
 				if name == "ask_user" {
 					answer, ok := s.aiAskUser(ctx, u, runID, threadID, argsStr)
 					if !ok {
@@ -1354,7 +1375,7 @@ var aiReadTools = map[string]bool{
 var aiDestructiveTools = map[string]bool{
 	"delete_comment": true, "delete_view": true, "set_trashed": true,
 	"set_sharing": true, "propose_workspace_rules": true,
-	"update_schema": true, "workspace": true,
+	"update_schema": true, "workspace": true, "set_workflow_code": true,
 }
 
 func toolNeedsApproval(name, mode string) bool {
@@ -2061,6 +2082,26 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 				fn, _ := tcm["function"].(map[string]any)
 				name, _ := fn["name"].(string)
 				argsStr, _ := fn["arguments"].(string)
+				if name == "propose_workflow_code" {
+					// In-app only: the proposal lives in this server's memory
+					// and reaches the open editor through the event stream.
+					var spec struct {
+						PageID  string `json:"page_id"`
+						Source  string `json:"source"`
+						Summary string `json:"summary"`
+					}
+					_ = json.Unmarshal([]byte(argsStr), &spec)
+					proposal, perr := s.aiProposeWorkflowCode(u, spec.PageID, spec.Source, spec.Summary)
+					if perr != nil {
+						proposal = "error: " + perr.Error()
+					}
+					messages = append(messages, map[string]any{
+						"role":         "tool",
+						"tool_call_id": id,
+						"content":      proposal,
+					})
+					continue
+				}
 				if name == "ask_user" {
 					answer, ok := s.aiAskUser(ctx, u, runID, threadID, argsStr)
 					if !ok {

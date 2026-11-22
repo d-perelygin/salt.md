@@ -141,8 +141,20 @@ func TestAskUserNotOverMCP(t *testing.T) {
 			t.Fatalf("ask_user must not be in the MCP catalogue")
 		}
 	}
-	if len(aiAgentExtraTools) != 1 || aiAgentExtraTools[0]["name"] != "ask_user" {
-		t.Fatalf("aiAgentExtraTools should hold exactly the ask_user tool")
+	// ask_user and the process-code proposal are in-app only: neither has a
+	// meaning over MCP (nobody to answer, no editor to apply to).
+	extra := map[string]bool{}
+	for _, tool := range aiAgentExtraTools {
+		name, _ := tool["name"].(string)
+		extra[name] = true
+		for _, listed := range mcpTools {
+			if listed["name"] == name {
+				t.Fatalf("%s is in the MCP catalogue and must not be", name)
+			}
+		}
+	}
+	if !extra["ask_user"] || !extra["propose_workflow_code"] || len(extra) != 2 {
+		t.Fatalf("aiAgentExtraTools = %v", extra)
 	}
 	s := testServer(t)
 	uid, _ := signedIn(t, s, "askq@example.com")
@@ -378,6 +390,3 @@ func TestAIDisabledForUser(t *testing.T) {
 		t.Fatalf("expected 403 on /api/ai/settings for aiDisabled user, got %d", r.Code)
 	}
 }
-
-
-
