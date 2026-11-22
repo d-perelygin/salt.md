@@ -4500,6 +4500,97 @@ button.workflow-issue {
 .workflow-code-area-bad {
   border-color: var(--destructive);
 }
+
+/* Two layers over one textarea: the <pre> paints the keywords, the textarea
+ * holds the caret and the real text (transparent), so selection, undo and IME
+ * stay the browser's own. Both children share the same metrics by using the
+ * textarea to size the box and the <pre> to fill it. */
+.cw-wrap {
+  position: relative;
+}
+.cw-pre,
+.cw-area {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 8px 10px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 6px;
+  tab-size: 4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  letter-spacing: normal;
+}
+.cw-pre {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg);
+  overflow: hidden;
+  pointer-events: none;
+}
+.cw-area {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--fg);
+}
+.cw-area::placeholder {
+  color: transparent;
+}
+.cw-area::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.cw-placeholder {
+  position: absolute;
+  top: 9px;
+  left: 11px;
+  right: 11px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+/* Grammar colours: green keywords, warm strings, muted comments. */
+.cw-kw {
+  color: #8b5cf6;
+  font-weight: 600;
+}
+[data-theme='dark'] .cw-kw {
+  color: #b39dff;
+}
+.cw-str {
+  color: #0f7b4f;
+}
+[data-theme='dark'] .cw-str {
+  color: #6fd39b;
+}
+.cw-num {
+  color: #b45309;
+}
+[data-theme='dark'] .cw-num {
+  color: #e2a55b;
+}
+.cw-bi {
+  color: #b45309;
+  font-style: italic;
+}
+[data-theme='dark'] .cw-bi {
+  color: #e2a55b;
+}
+.cw-com {
+  color: var(--muted);
+  font-style: italic;
+}
 .workflow-code-errors {
   display: flex;
   flex-direction: column;

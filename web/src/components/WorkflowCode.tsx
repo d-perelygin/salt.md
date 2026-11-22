@@ -6,6 +6,7 @@ import { t } from '../i18n';
 import { toast } from '../toast';
 import { loadMembers, type Member } from './PropertyValue';
 import { generateVisualCode, splitCodeDocument } from '../workflow';
+import HighlightedCode from './HighlightedCode';
 
 export type CodeDiag = { line: number; message: string };
 
@@ -284,14 +285,14 @@ export default function WorkflowCode({
             </button>
           )}
         </div>
-        <textarea
-          ref={areaRef}
-          className={'workflow-code-area' + (state.kind === 'invalid' ? ' workflow-code-area-bad' : '')}
+        <HighlightedCode
+          areaRef={areaRef}
           value={shown}
           placeholder={'rule "Name":\n  when "New" becomes "Done"\n  do:\n    ask comment always'}
-          onChange={(e) => editDoc(e.target.value)}
-          spellCheck={false}
+          onChange={editDoc}
+          invalid={state.kind === 'invalid'}
           rows={16}
+          ariaLabel={t('Process as code')}
         />
         {state.kind === 'invalid' && (
           <div className="workflow-code-errors">
