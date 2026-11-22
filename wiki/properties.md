@@ -121,6 +121,15 @@ List editor. Writing one moves the rule out of List automatically — the tab
 asks first, and a checkbox makes it move silently from then on. Code blocks
 appear in the List as locked rows that jump to their source.
 
+**Ask AI** in the same header hands the document and its errors to the chat
+beside the page, with the task already typed ("fix these errors" or "describe
+what should change"). The answer never lands in the editor by itself: the
+agent leaves a proposal (`propose_workflow_code`), the tab shows what it
+suggests with **Apply** and **Dismiss**, and applying is one click plus a
+one-step **Undo**. An agent that
+works over MCP instead calls `set_workflow_code`, which replaces the process
+and saves it without asking — there is no open draft there to disagree with.
+
 While typing, the server checks the draft and underlines problems with the
 block name and line number. Saving compiles the text into the same rules the
 click-built ones produce — one engine runs both. Renaming a property, an

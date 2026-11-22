@@ -287,6 +287,7 @@ Three things about those belong here rather than in a parameter list:
 | `get_workflow` | Read the database's business process in plain words. Code blocks come along as read-only source. |
 | `add_workflow_rule` | Add one When/Then rule to the process. |
 | `remove_workflow_rule` | Delete one process rule by id. Rules compiled from code (`code:…`) are refused — edit their source instead. |
+| `set_workflow_code` | Replace the whole process with a code document. Use it for OR values, constants, several rules at once, or a rewrite; one simple rule is `add_workflow_rule`. |
 | `embed_database` | Put an existing collection inside a document. |
 
 `set_properties` also takes many rows at once: instead of one page id and its
