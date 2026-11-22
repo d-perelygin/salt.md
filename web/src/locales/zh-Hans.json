@@ -1218,5 +1218,7 @@
   "Go to Code": "转到代码",
   "Process as code": "流程代码",
   "Rules moved to code": "规则已移至代码",
-  "Visual editing is paused until the code errors are fixed": "在代码错误修复之前，暂停可视化编辑"
+  "Visual editing is paused until the code errors are fixed": "在代码错误修复之前，暂停可视化编辑",
+  "Discard code changes": "放弃代码更改",
+  "Format": "格式化"
 }

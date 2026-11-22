@@ -945,3 +945,56 @@ export function generateVisualCode(
   }
   return { headers, text: lines.join('\n').trimEnd() + (lines.length > 0 ? '\n' : '') };
 }
+
+/** Canonical layout for a process document: two-space indentation by block
+ *  depth, one blank line between rules, no trailing spaces, no blank runs.
+ *  Formatting never changes what a line says — it only moves it — so it is
+ *  safe to press on text that has not compiled yet, and idempotent on text
+ *  that has. Top-level lines (a rule header, a constant, a comment that sat
+ *  at column 0) stay at column 0; everything else takes the block's depth. */
+export function formatCode(source: string): string {
+  const out: string[] = [];
+  let level = 0;
+  let pendingBlank = false;
+
+  const push = (line: string, indent: number) => {
+    if (pendingBlank && out.length > 0 && out[out.length - 1] !== '') out.push('');
+    pendingBlank = false;
+    out.push('  '.repeat(indent) + line);
+  };
+
+  for (const raw of source.split('\n')) {
+    const line = raw.trim();
+    if (line === '') {
+      pendingBlank = true;
+      continue;
+    }
+    const origIndent = raw.length - raw.trimStart().length;
+    const isHeader = /^rule\s+"(?:[^"\\]|\\.)*"\s*:?$/.test(line);
+    const isConstant = /^[A-Za-z_][\w-]*\s*=/.test(line);
+    const isComment = line.startsWith('#');
+
+    if (isHeader) {
+      const head = /:$/.test(line) ? line : line + ':';
+      // One blank line before every rule but the first.
+      if (out.length > 0) pendingBlank = true;
+      push(head, 0);
+      level = 1;
+      continue;
+    }
+    if (isConstant || (isComment && origIndent === 0)) {
+      push(line, 0);
+      continue;
+    }
+    if (/^do\s*:$/.test(line)) {
+      push('do:', Math.max(level, 1));
+      level = Math.max(level, 1) + 1;
+      continue;
+    }
+    push(line, Math.max(level, 1));
+  }
+
+  // A blank line separates rules; the document ends with exactly one newline.
+  const body = out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+  return body === '' ? '' : body + '\n';
+}

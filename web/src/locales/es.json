@@ -1214,5 +1214,7 @@
   "Go to Code": "Ir al código",
   "Process as code": "Proceso como código",
   "Rules moved to code": "Reglas movidas al código",
-  "Visual editing is paused until the code errors are fixed": "La edición visual está en pausa hasta que se corrijan los errores del código"
+  "Visual editing is paused until the code errors are fixed": "La edición visual está en pausa hasta que se corrijan los errores del código",
+  "Discard code changes": "Descartar cambios del código",
+  "Format": "Formatear"
 }

@@ -4449,7 +4449,7 @@ button.workflow-issue {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--sidebar-bg);
-  font-family: var(--font-mono);
+  font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -4486,7 +4486,7 @@ button.workflow-issue {
 .workflow-code-area {
   width: 100%;
   box-sizing: border-box;
-  font-family: var(--font-mono);
+  font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
   line-height: 1.6;
   color: var(--fg);
@@ -4516,7 +4516,13 @@ button.workflow-issue {
  * a wrapped line would make that number point somewhere else on screen. */
 .cw-wrap .cw-pre,
 .cw-wrap .cw-area {
-  font-family: var(--font-mono);
+  /* The two layers must advance character for character: identical family,
+     weight and ligature settings, or the caret drifts into the middle of the
+     painted glyphs. */
+  font-weight: 400;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
   line-height: 1.6;
   padding: var(--cw-pad);
@@ -4542,7 +4548,7 @@ button.workflow-issue {
   overflow: hidden;
   border-right: 1px solid var(--border);
   border-radius: 6px 0 0 6px;
-  font-family: var(--font-mono);
+  font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
   line-height: 1.6;
   color: var(--muted);
@@ -4597,7 +4603,7 @@ button.workflow-issue {
   top: 9px;
   left: calc(var(--cw-gutter) + 23px);
   right: 11px;
-  font-family: var(--font-mono);
+  font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
   line-height: 1.6;
   color: var(--muted);
@@ -4607,7 +4613,6 @@ button.workflow-issue {
 /* Grammar colours: green keywords, warm strings, muted comments. */
 .cw-kw {
   color: #8b5cf6;
-  font-weight: 600;
 }
 [data-theme='dark'] .cw-kw {
   color: #b39dff;
@@ -4639,6 +4644,13 @@ button.workflow-issue {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+/* Escape hatches beside a paused List: fix it where it lives, or throw the
+ * half-written draft away. */
+.workflow-issue-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 .workflow-code-error {
   display: flex;

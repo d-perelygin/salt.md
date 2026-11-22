@@ -85,6 +85,8 @@ export default function WorkflowRules({
   // edit would silently discard the broken draft. The notice below sends
   // the reader to fix them.
   const [codeLocked, setCodeLocked] = useState(false);
+  // Bumped to make the Code tab throw a broken draft away.
+  const [codeDiscard, setCodeDiscard] = useState(0);
   const united = useMemo(() => {
     if (!workflow) return workflow;
     const codeRules = (workflow.code ?? []).flatMap((b) => b.rules ?? []);
@@ -385,16 +387,28 @@ export default function WorkflowRules({
         <span>
           <TriangleAlert size={13} /> {t('Visual editing is paused until the code errors are fixed')}
         </span>
-        <button
-          type="button"
-          className="btn-sm"
-          onClick={() => {
-            setView('code');
-            setCodeFocus({ target: 'code', n: Date.now() });
-          }}
-        >
-          {t('Go to Code')}
-        </button>
+        <span className="workflow-issue-actions">
+          <button
+            type="button"
+            className="btn-sm"
+            onClick={() => {
+              setView('code');
+              setCodeFocus({ target: 'code', n: Date.now() });
+            }}
+          >
+            {t('Go to Code')}
+          </button>
+          <button
+            type="button"
+            className="btn-sm"
+            onClick={() => {
+              setCodeDiscard((n) => n + 1);
+              setCodeLocked(false);
+            }}
+          >
+            {t('Discard code changes')}
+          </button>
+        </span>
       </div>
     </div>
   );
@@ -954,6 +968,7 @@ export default function WorkflowRules({
           focus={codeFocus}
           onChange={commit}
           onCodeLockedChange={setCodeLocked}
+          discardTick={codeDiscard}
         />
       </div>
       {fullScheme && (

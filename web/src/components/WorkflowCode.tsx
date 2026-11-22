@@ -5,7 +5,7 @@ import { api } from '../api';
 import { t } from '../i18n';
 import { toast } from '../toast';
 import { loadMembers, type Member } from './PropertyValue';
-import { generateVisualCode, splitCodeDocument } from '../workflow';
+import { formatCode, generateVisualCode, splitCodeDocument } from '../workflow';
 import HighlightedCode from './HighlightedCode';
 
 export type CodeDiag = { line: number; message: string };
@@ -55,6 +55,7 @@ export default function WorkflowCode({
   focus,
   onChange,
   onCodeLockedChange,
+  discardTick,
 }: {
   collectionId: string;
   schema: PropDef[];
@@ -63,6 +64,8 @@ export default function WorkflowCode({
   focus: { target: string; n: number } | null;
   onChange: (w: WorkflowConfig | undefined) => void;
   onCodeLockedChange: (locked: boolean) => void;
+  /** Incremented by the List's pause notice to throw the draft away. */
+  discardTick: number;
 }) {
   const rules = useMemo(() => workflow?.rules ?? [], [workflow]);
   const blocks = useMemo(() => workflow?.code ?? [], [workflow]);
@@ -263,14 +266,30 @@ export default function WorkflowCode({
     timer.current = setTimeout(() => applyDoc(source, seq), 500);
   };
 
-  const resetDoc = () => {
+  // Canonical layout, in place. Nothing is applied here directly — the
+  // formatted text goes through the same debounced compile as typing, so a
+  // document that does not compile is still left alone.
+  const formatDoc = () => {
+    const next = formatCode(shown);
+    if (next === shown) return;
+    editDoc(next);
+    requestAnimationFrame(() => areaRef.current?.focus({ preventScroll: true }));
+  };
+
+  // Throw the draft away and show the document the model builds. Reached
+  // from the List while the code does not compile: without it, broken text
+  // would have no way back.
+  useEffect(() => {
+    if (discardTick === 0) return;
     if (timer.current) clearTimeout(timer.current);
     seqs.current++;
     lastVerdict.current = null;
     setText(undefined);
     setState({ kind: 'clean' });
     setKept(false);
-  };
+    // Only a new tick should fire; the draft state is not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discardTick]);
 
   const [hideAsk, setHideAsk] = useState(false);
 
@@ -279,11 +298,9 @@ export default function WorkflowCode({
       <div className="workflow-code-block" data-code-doc="1">
         <div className="workflow-code-block-bar">
           <span className="workflow-code-name">{t('Process as code')}</span>
-          {text !== undefined && (
-            <button type="button" className="btn-sm" onClick={resetDoc}>
-              {t('Reset')}
-            </button>
-          )}
+          <button type="button" className="btn-sm" onClick={formatDoc}>
+            {t('Format')}
+          </button>
         </div>
         <HighlightedCode
           areaRef={areaRef}

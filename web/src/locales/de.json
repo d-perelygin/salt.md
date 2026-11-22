@@ -1709,5 +1709,7 @@
   "Go to Code": "Zu Code",
   "Process as code": "Prozess als Code",
   "Rules moved to code": "Regeln in Code verschoben",
-  "Visual editing is paused until the code errors are fixed": "Visuelles Bearbeiten pausiert, bis die Codefehler behoben sind"
+  "Visual editing is paused until the code errors are fixed": "Visuelles Bearbeiten pausiert, bis die Codefehler behoben sind",
+  "Discard code changes": "Codeänderungen verwerfen",
+  "Format": "Formatieren"
 }
