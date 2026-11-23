@@ -33,6 +33,8 @@ export default function AiChatPanel(props: {
   /** A question already phrased by its caller (the Code tab's AI button):
    *  the composer opens with it instead of an empty box. */
   draft?: string | null;
+  /** Open above a modal: the caller sits inside one (Process → Code). */
+  raised?: boolean;
   onDraftConsumed?: () => void;
   onQuoteConsumed?: () => void;
   onClose: () => void;
@@ -661,7 +663,7 @@ export default function AiChatPanel(props: {
   const traceAt = !agentBusy && messages.length > 0 && messages[messages.length - 1].role !== 'user' ? messages.length - 1 : messages.length;
 
   return (
-    <div className="ai-panel" style={props.hidden ? { display: 'none' } : undefined}>
+    <div className={'ai-panel' + (props.raised ? ' ai-panel-raised' : '')} style={props.hidden ? { display: 'none' } : undefined}>
       <div className="ai-panel-head">
         <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }} ref={threadMenuRef}>
           <button

@@ -300,13 +300,17 @@ export default function App() {
   // A question the caller already phrased (the Code tab's AI button): the
   // composer opens with it instead of an empty box.
   const [aiDraft, setAiDraft] = useState<string | null>(null);
+  // A panel summoned from inside a modal must be painted above it. Normal
+  // openings keep the panel below modals, which is deliberate.
+  const [aiRaised, setAiRaised] = useState(false);
   useEffect(() => {
     const onAsk = (e: Event) => {
       if (!aiEnabled) return;
-      const d = (e as CustomEvent<{ selection?: string; draft?: string }>).detail;
+      const d = (e as CustomEvent<{ selection?: string; draft?: string; raised?: boolean }>).detail;
       if (d?.selection) setAiQuote(d.selection);
       else setAiQuote(null);
       setAiDraft(d?.draft ?? null);
+      setAiRaised(!!d?.raised);
       setAiChatOpen(true);
     };
     window.addEventListener('salt:ai-ask', onAsk);
@@ -334,6 +338,13 @@ export default function App() {
       /* best-effort */
     }
   }, [sidebarMode]);
+  // The fullscreen process workspace narrows its code column while the chat
+  // panel is open, so the panel floats beside the text instead of over it.
+  useEffect(() => {
+    const open = aiEnabled && sidebarMode === 'docs' && aiChatOpen;
+    document.body.classList.toggle('ai-panel-open', open);
+    return () => document.body.classList.remove('ai-panel-open');
+  }, [aiEnabled, sidebarMode, aiChatOpen]);
   const [aiThreads, setAiThreads] = useState<AiThread[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(() => {
     try {
@@ -2364,6 +2375,7 @@ export default function App() {
         <button onMouseDown={(e) => e.preventDefault()} onClick={() => {
           const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
           if (sel) setAiQuote(sel);
+          setAiRaised(false);
           setAiChatOpen(true);
         }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 90, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}><Sparkles size={20} /></button>
       )}
@@ -2381,12 +2393,14 @@ export default function App() {
           onThreadsChanged={() => void loadAiThreads()}
           quote={aiQuote}
           draft={aiDraft}
+          raised={aiRaised}
           onDraftConsumed={() => setAiDraft(null)}
           onQuoteConsumed={() => setAiQuote(null)}
           onOpenSidebar={openSidebar}
           onClose={() => {
             setAiChatOpen(false);
             setAiQuote(null);
+            setAiRaised(false);
             void loadAiThreads();
           }}
         />

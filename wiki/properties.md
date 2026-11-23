@@ -130,6 +130,18 @@ one-step **Undo**. An agent that
 works over MCP instead calls `set_workflow_code`, which replaces the process
 and saves it without asking — there is no open draft there to disagree with.
 
+While typing, the editor offers what fits the caret: guard and action words,
+statuses, properties, their options, people and the document's own constants.
+Tab or Enter takes the highlighted entry, the arrow keys move, Escape closes
+the list. **+ Rule** appends a skeleton, **Format** lays the document out, and
+Cmd/Ctrl+S saves without reaching for the dialog's button.
+
+The expand button turns the whole process into a fullscreen workspace. The
+same three tabs stay available there, and the Code tab stays editable with a
+wider editor, its own Save and Cancel, and Ask AI above the map instead of
+behind it. List beside the Scheme gains the same room; a draft survives every
+switch between the dialog and fullscreen.
+
 While typing, the server checks the draft and underlines problems with the
 block name and line number. Saving compiles the text into the same rules the
 click-built ones produce — one engine runs both. Renaming a property, an

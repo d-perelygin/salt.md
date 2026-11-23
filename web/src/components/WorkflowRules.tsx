@@ -2,7 +2,6 @@ import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as R
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowPropCond, WorkflowRule } from '../types';
 import { Check, Lock, Maximize2, TriangleAlert, X } from 'lucide-react';
 import { t } from '../i18n';
-import Portal from './Portal';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
 import { confirm } from '../dialog';
 import WorkflowDateInput from './WorkflowDateInput';
@@ -37,12 +36,22 @@ export default function WorkflowRules({
   workflow,
   onChange,
   highlightRuleId,
+  onSave,
+  onClose,
+  onCodeLockedChange,
 }: {
   collectionId: string;
   schema: PropDef[];
   workflow: WorkflowConfig | undefined;
   highlightRuleId?: string | null;
   onChange: (w: WorkflowConfig | undefined) => void;
+  /** Save and close belong to the dialog; the fullscreen map hides its
+   *  buttons, so it carries its own pair. */
+  onSave?: () => void;
+  onClose?: () => void;
+  /** Telling the dialog that the Code draft does not compile lets Save
+   *  refuse to close on a stale model. */
+  onCodeLockedChange?: (locked: boolean) => void;
 }) {
   const selectProps = schema.filter((p) => p.type === 'select');
   // A stale statusPropId (the property was deleted or retyped since) must not
@@ -52,6 +61,9 @@ export default function WorkflowRules({
       ? workflow.statusPropId
       : selectProps[0]?.id) ?? '';
   const rules = workflow?.rules ?? [];
+  // Visual plus compiled code: the bar counts what runs, not one half.
+  const totalRules =
+    rules.length + (workflow?.code ?? []).reduce((n, b) => n + (b.rules?.length ?? 0), 0);
 
   const statusProp = schema.find((p) => p.id === statusPropId);
   const statusOpts = statusProp?.options ?? [];
@@ -87,6 +99,12 @@ export default function WorkflowRules({
   const [codeLocked, setCodeLocked] = useState(false);
   // Bumped to make the Code tab throw a broken draft away.
   const [codeDiscard, setCodeDiscard] = useState(0);
+  // A proposal can arrive (or already wait) while the reader is on List or
+  // Scheme; the Code tab keeps its own copy, this only points at it.
+  const [codeProposal, setCodeProposal] = useState(false);
+  useEffect(() => {
+    onCodeLockedChange?.(codeLocked);
+  }, [codeLocked, onCodeLockedChange]);
   const united = useMemo(() => {
     if (!workflow) return workflow;
     const codeRules = (workflow.code ?? []).flatMap((b) => b.rules ?? []);
@@ -100,6 +118,13 @@ export default function WorkflowRules({
   // instances, so inline and fullscreen never disagree.
   const [showFree, setShowFree] = useState(true);
   const graphRef = useRef<HTMLDivElement>(null);
+  // The AI panel is deliberately painted below modals; while this fullscreen
+  // map owns the screen it must come back above, or "Ask AI" in the Code tab
+  // answers behind the map.
+  useEffect(() => {
+    document.body.classList.toggle('workflow-full-open', fullScheme);
+    return () => document.body.classList.remove('workflow-full-open');
+  }, [fullScheme]);
   useEffect(() => {
     if (!fullScheme) return;
     const onKey = (e: KeyboardEvent) => {
@@ -370,9 +395,9 @@ export default function WorkflowRules({
     const key = (ruleId ?? groupKey) as string;
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        // In fullscreen the same blocks exist twice (behind the overlay and
-        // in its panel) — scope the search to the visible copy.
-        const scope = fullScheme ? document.querySelector('.workflow-full-side') : document;
+        // In fullscreen, scope the search to the visible list pane; the
+        // inline one is hidden at the same time.
+        const scope = fullScheme ? document.querySelector('.workflow-pane-list') : document;
         scope
           ?.querySelector(`[${attr}="${CSS.escape(key)}"]`)
           ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -383,7 +408,7 @@ export default function WorkflowRules({
   // Shown instead of the List while the Code text has errors.
   const lockedNotice = (
     <div className="workflow-issues">
-      <div className="workflow-issue workflow-issue-error">
+      <div className="workflow-issue workflow-issue-error workflow-locked-notice">
         <span>
           <TriangleAlert size={13} /> {t('Visual editing is paused until the code errors are fixed')}
         </span>
@@ -786,7 +811,6 @@ export default function WorkflowRules({
                 <div className="workflow-row">
                   <select
                     className="prop-select"
-                    defaultValue=""
                     value=""
                     onChange={(e) => {
                       const at = e.target.value as WorkflowAction['type'];
@@ -902,113 +926,130 @@ export default function WorkflowRules({
     </>
   );
 
-  return (
-    <div className="workflow-list">
-      <div className="workflow-view-toggle" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === 'list'}
-          className={'workflow-view-tab' + (view === 'list' ? ' workflow-view-tab-on' : '')}
-          onClick={() => setView('list')}
-        >
-          {t('List')}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === 'scheme'}
-          className={'workflow-view-tab' + (view === 'scheme' ? ' workflow-view-tab-on' : '')}
-          onClick={() => setView('scheme')}
-        >
-          {t('Scheme')}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === 'code'}
-          className={'workflow-view-tab' + (view === 'code' ? ' workflow-view-tab-on' : '')}
-          onClick={() => setView('code')}
-        >
-          {t('Code')}
-        </button>
-        <span className="workflow-view-spacer" />
-        <button
-          type="button"
-          className="icon-btn workflow-full-btn"
-          title={t('Open full screen')}
-          aria-label={t('Open full screen')}
-          onClick={() => setFullScheme(true)}
-        >
-          <Maximize2 size={15} />
-        </button>
-      </div>
-      {view === 'list' ? (codeLocked ? lockedNotice : listView) : view === 'code' ? null : (
-      <WorkflowScheme
-        workflow={united}
-        schema={schema}
-        statusOpts={statusOpts}
-        issues={issues}
-        statusReady={!!statusPropId && statusOpts.length > 0}
-        onLocate={locateOnMap}
-        activeRuleId={openRule}
-        hoverRuleId={hoverRuleId}
-        showFree={showFree}
-        onToggleFree={() => setShowFree((v) => !v)}
-      />
-      )}
-      {/* The Code tab stays mounted while hidden: unmounting would wipe an
-        unsaved draft every time the user peeks at the List. */}
-      <div style={view === 'code' ? undefined : { display: 'none' }}>
-        <WorkflowCode
-          collectionId={collectionId}
-          schema={schema}
-          workflow={workflow}
-          statusPropId={statusPropId}
-          focus={codeFocus}
-          onChange={commit}
-          onCodeLockedChange={setCodeLocked}
-          discardTick={codeDiscard}
-        />
-      </div>
+  // One tab row serves both sizes. In fullscreen it also carries the title,
+  // Save and Close, because the dialog's own footer is behind the overlay.
+  const tabs = (
+    <div className="workflow-view-toggle" role="tablist">
       {fullScheme && (
-        <Portal>
-          <div className="workflow-full" role="dialog" aria-modal="true" aria-label={t('Scheme')}>
-            <div className="workflow-full-bar">
-              <span>
-                {t('Process')}
-                {rules.length > 0 && ` · ${rules.length}`}
-              </span>
-              <button
-                type="button"
-                className="icon-btn"
-                title={t('Close')}
-                aria-label={t('Close')}
-                onClick={() => setFullScheme(false)}
-              >
-                <X size={15} />
-              </button>
-            </div>
-            <div className="workflow-full-body">
-              <div className="workflow-full-graph" ref={graphRef}>
-                <WorkflowScheme
-                  workflow={workflow}
-                  schema={schema}
-                  statusOpts={statusOpts}
-                  issues={issues}
-                  statusReady={!!statusPropId && statusOpts.length > 0}
-                  onLocate={locateOnMap}
-                  activeRuleId={openRule}
-                  hoverRuleId={hoverRuleId}
-                  showFree={showFree}
-                  onToggleFree={() => setShowFree((v) => !v)}
-                />
-              </div>
-              <div className="workflow-full-side">{listView}</div>
-            </div>
-          </div>
-        </Portal>
+        <span className="workflow-full-title">
+          {t('Process')}
+          {totalRules > 0 && ` · ${totalRules}`}
+        </span>
       )}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'list'}
+        className={'workflow-view-tab' + (view === 'list' ? ' workflow-view-tab-on' : '')}
+        onClick={() => setView('list')}
+      >
+        {t('List')}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'scheme'}
+        className={'workflow-view-tab' + (view === 'scheme' ? ' workflow-view-tab-on' : '')}
+        onClick={() => setView('scheme')}
+      >
+        {t('Scheme')}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'code'}
+        className={'workflow-view-tab' + (view === 'code' ? ' workflow-view-tab-on' : '')}
+        onClick={() => {
+          setView('code');
+          setCodeProposal(false);
+        }}
+        title={codeProposal ? t('The AI left a suggestion in Code') : undefined}
+      >
+        {t('Code')}
+        {codeProposal && <span className="workflow-tab-dot" aria-hidden="true" />}
+      </button>
+      <span className="workflow-view-spacer" />
+      {fullScheme && onClose && (
+        <button type="button" className="btn-sm" onClick={onClose}>
+          {t('Cancel')}
+        </button>
+      )}
+      {fullScheme && onSave && (
+        <button type="button" className="btn-sm primary" onClick={onSave}>
+          {t('Save')}
+        </button>
+      )}
+      <button
+        type="button"
+        className="icon-btn workflow-full-btn"
+        title={fullScheme ? t('Close') : t('Open full screen')}
+        aria-label={fullScheme ? t('Close') : t('Open full screen')}
+        onClick={() => setFullScheme((v) => !v)}
+      >
+        {fullScheme ? <X size={15} /> : <Maximize2 size={15} />}
+      </button>
+    </div>
+  );
+
+  // All three views live in the same tree and are hidden with CSS rather than
+  // unmounted. Fullscreen used to mount a second copy, which lost the Code
+  // draft on every toggle; keeping one instance is also why the map and the
+  // list now agree on what is open.
+  const showScheme = view === 'scheme';
+  const showList = view === 'list' || (fullScheme && showScheme);
+  const showCode = view === 'code';
+
+  return (
+    <div
+      className={'workflow-list' + (fullScheme ? ' workflow-full' : '')}
+      role={fullScheme ? 'dialog' : undefined}
+      aria-modal={fullScheme ? 'true' : undefined}
+      aria-label={fullScheme ? t('Process') : undefined}
+    >
+      {tabs}
+      <div className="workflow-canvas" data-view={view}>
+        <div
+          className="workflow-pane workflow-pane-scheme"
+          style={showScheme ? undefined : { display: 'none' }}
+          ref={graphRef}
+        >
+          <WorkflowScheme
+            workflow={united}
+            schema={schema}
+            statusOpts={statusOpts}
+            issues={issues}
+            statusReady={!!statusPropId && statusOpts.length > 0}
+            onLocate={locateOnMap}
+            activeRuleId={openRule}
+            hoverRuleId={hoverRuleId}
+            showFree={showFree}
+            onToggleFree={() => setShowFree((v) => !v)}
+          />
+        </div>
+        <div
+          className="workflow-pane workflow-pane-list"
+          style={showList ? undefined : { display: 'none' }}
+        >
+          {codeLocked ? lockedNotice : listView}
+        </div>
+        <div
+          className="workflow-pane workflow-pane-code"
+          style={showCode ? undefined : { display: 'none' }}
+        >
+          <WorkflowCode
+            collectionId={collectionId}
+            schema={schema}
+            workflow={workflow}
+            statusPropId={statusPropId}
+            focus={codeFocus}
+            onChange={commit}
+            onCodeLockedChange={setCodeLocked}
+            discardTick={codeDiscard}
+            onSave={onSave}
+            onProposalChange={(has) => setCodeProposal(has && view !== 'code')}
+          />
+        </div>
+      </div>
     </div>
   );
 }

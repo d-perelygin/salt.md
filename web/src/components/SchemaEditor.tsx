@@ -93,6 +93,15 @@ export default function SchemaEditor({
   // Lightweight process: absent = no rules. The status defaults to the first
   // select property so opening the tab never shows a dead picker.
   const [workflow, setWorkflow] = useState<WorkflowConfig | undefined>(config.workflow);
+  // Visual rules plus the rules compiled from code: the tab counts the whole
+  // process, not the half the List happens to show.
+  const processRuleCount =
+    (workflow?.rules?.length ?? 0) +
+    (workflow?.code ?? []).reduce((n, b) => n + (b.rules?.length ?? 0), 0);
+  // True while the Code tab's draft does not compile: the visual model is
+  // stale then, and saving would close the dialog on a process the person is
+  // not looking at.
+  const [codeLocked, setCodeLocked] = useState(false);
   // A rule the save-guard wants the reader to look at (broken reference).
   const [focusRule, setFocusRule] = useState<string | null>(null);
   // Whatever the dialog opened with, for the unsaved-changes question.
@@ -243,6 +252,14 @@ export default function SchemaEditor({
   const removeProp = (id: string) => setSchema((prev) => prev.filter((p) => p.id !== id));
 
   const save = async () => {
+    // The Code tab holds a draft that no longer compiles: the stored model
+    // behind it is stale, and closing on it would silently drop what the
+    // person typed. Send them back to the errors instead.
+    if (codeLocked) {
+      setTab('process');
+      toast(t('Fix the code errors before saving'));
+      return;
+    }
     // Every option WITHOUT a colour gets the fallback written in on save.
     // Otherwise the editor shows a colour (the fallback) while the board shows
     // grey — because only the stored colour counts there. After saving the two
@@ -309,6 +326,11 @@ export default function SchemaEditor({
                 return !!a.prop;
               }),
             })),
+            // Process code is content, not a draft of the visual rules: its
+            // source is the truth and the server recompiles it on save.
+            // Dropping it here stored a process with the code silently gone —
+            // and a code-only process came back empty.
+            ...(workflow.code && workflow.code.length > 0 ? { code: workflow.code } : {}),
           }
         : undefined;
     // Broken references never reach the server: it would reject the whole
@@ -331,6 +353,25 @@ export default function SchemaEditor({
     }
     onClose();
   };
+
+  // Cmd/Ctrl+S anywhere in the dialog saves it, the way the same keystroke
+  // saves a document. The code editor calls this first and marks the event
+  // handled, so the two listeners never save twice.
+  const saveRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    saveRef.current = () => void save();
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || !(e.metaKey || e.ctrlKey) || (e.key !== 's' && e.key !== 'S')) return;
+      // A confirm on top owns the keystroke decision, not the dialog below it.
+      if (document.querySelector('.confirm-dialog')) return;
+      e.preventDefault();
+      saveRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const relationProps = schema.filter((p) => p.type === 'relation');
 
@@ -593,11 +634,21 @@ export default function SchemaEditor({
             className={'schema-tab' + (tab === 'process' ? ' schema-tab-on' : '')}
             onClick={() => setTab('process')}
           >
-            {t('Process')}{workflow?.rules?.length ? ` · ${workflow.rules.length}` : ''}
+            {t('Process')}
+            {processRuleCount > 0 ? ` · ${processRuleCount}` : ''}
           </button>
         </div>
         {tab === 'process' ? (
-          <WorkflowRules collectionId={collectionId} schema={schema} workflow={workflow} onChange={setWorkflow} highlightRuleId={focusRule} />
+          <WorkflowRules
+            collectionId={collectionId}
+            schema={schema}
+            workflow={workflow}
+            onChange={setWorkflow}
+            highlightRuleId={focusRule}
+            onSave={() => void save()}
+            onClose={() => void tryClose()}
+            onCodeLockedChange={setCodeLocked}
+          />
         ) : (
         <>
         <div className="schema-list">

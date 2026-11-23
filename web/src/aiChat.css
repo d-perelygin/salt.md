@@ -402,6 +402,17 @@
   z-index: 90;
   overflow: hidden;
 }
+/* Summoned from inside a modal (Process → Code's Ask AI), the panel must be
+ * visible over it. The raised class keeps normal openings below modals, and
+ * a pairing rule sends it back down when a confirm opens on top of both. */
+.ai-panel-raised,
+.workflow-full-open .ai-panel {
+  z-index: 110;
+}
+body:has(.confirm-dialog) .ai-panel-raised,
+body.workflow-full-open:has(.confirm-dialog) .ai-panel {
+  z-index: 80;
+}
 .ai-panel-head {
   display: flex;
   align-items: center;

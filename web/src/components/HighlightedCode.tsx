@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, type CSSProperties, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { t } from '../i18n';
+import type { CodeHint, CompletionState } from '../workflowComplete';
 
 // Keyword highlighting for the process-code editor: the same grammar the
 // server parses (see server/workflow_code.go), painted into a <pre> that sits
@@ -108,11 +110,66 @@ export function highlightCode(source: string): string {
   return body.endsWith('\n') ? body + '\n' : body;
 }
 
+const KIND_CLASS: Record<CodeHint['kind'], string> = {
+  keyword: 'kw',
+  builtin: 'bi',
+  status: 'st',
+  property: 'pr',
+  option: 'op',
+  member: 'me',
+};
+
+/** Caret position in the textarea's own coordinate space, measured against a
+ *  mirror that copies its metrics. The popup must sit where the next letter
+ *  will land, not at the element's corner — the whole point is to type
+ *  without looking away from the caret. */
+function caretPoint(ta: HTMLTextAreaElement, pos: number): { left: number; top: number; lineHeight: number } {
+  const cs = getComputedStyle(ta);
+  const div = document.createElement('div');
+  div.style.cssText = [
+    'position:absolute',
+    'top:0',
+    'left:0',
+    'visibility:hidden',
+    'white-space:pre',
+    'overflow-wrap:normal',
+    'word-break:normal',
+    `box-sizing:${cs.boxSizing}`,
+    `width:${ta.offsetWidth}px`,
+    `font-family:${cs.fontFamily}`,
+    `font-size:${cs.fontSize}`,
+    `font-weight:${cs.fontWeight}`,
+    `font-style:${cs.fontStyle}`,
+    `font-variant-ligatures:${cs.fontVariantLigatures}`,
+    `letter-spacing:${cs.letterSpacing}`,
+    `line-height:${cs.lineHeight}`,
+    `text-transform:${cs.textTransform}`,
+    `tab-size:${cs.tabSize}`,
+    `padding:${cs.padding}`,
+    `border:${cs.border}`,
+  ].join(';');
+  const text = document.createTextNode(ta.value.slice(0, pos));
+  const mark = document.createElement('span');
+  mark.textContent = ta.value.slice(pos, pos + 1) || '.';
+  div.append(text, mark);
+  document.body.appendChild(div);
+  const markRect = mark.getBoundingClientRect();
+  const boxRect = div.getBoundingClientRect();
+  const left = markRect.left - boxRect.left - ta.scrollLeft;
+  const top = markRect.top - boxRect.top - ta.scrollTop;
+  div.remove();
+  return { left, top, lineHeight: parseFloat(cs.lineHeight) || 19.2 };
+}
+
 /** A textarea with the process grammar painted underneath it and a numbered
  *  gutter beside it. Tab indents by two spaces and Enter keeps the
  *  indentation — this language nests by leading spaces, so a Tab that jumped
  *  to the next control was a trap. Lines with reported problems carry a red
- *  number the reader can click to jump there. */
+ *  number the reader can click to jump there.
+ *
+ *  While typing, `suggest` offers the words that fit the caret's slot:
+ *  keywords, statuses, properties and their values. The list opens below the
+ *  caret; Tab or Enter takes the highlighted entry. */
 export default function HighlightedCode({
   value,
   onChange,
@@ -123,6 +180,8 @@ export default function HighlightedCode({
   ariaLabel,
   errorLines,
   onJumpToLine,
+  suggest,
+  onSave,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -133,11 +192,16 @@ export default function HighlightedCode({
   ariaLabel?: string;
   errorLines?: number[];
   onJumpToLine?: (line: number) => void;
+  suggest?: (source: string, caret: number) => CompletionState | null;
+  onSave?: () => void;
 }) {
   const preRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
   const html = useMemo(() => highlightCode(value), [value]);
   const pendingCaret = useRef<number | null>(null);
+  const [completion, setCompletion] = useState<CompletionState | null>(null);
+  const [active, setActive] = useState(0);
+  const [scrollTick, setScrollTick] = useState(0);
 
   const lineCount = useMemo(() => value.split('\n').length, [value]);
   const digits = String(lineCount).length;
@@ -164,6 +228,20 @@ export default function HighlightedCode({
     pendingCaret.current = null;
   }, [value, areaRef]);
 
+  const point = useMemo(() => {
+    const ta = areaRef.current;
+    if (!completion || !ta) return null;
+    void scrollTick;
+    return caretPoint(ta, completion.end);
+  }, [completion, scrollTick, areaRef]);
+
+  const refresh = (source: string, caret: number) => {
+    if (!suggest) return;
+    const next = suggest(source, caret);
+    setCompletion(next);
+    setActive(0);
+  };
+
   const insert = (text: string) => {
     const ta = areaRef.current;
     if (!ta) return;
@@ -173,9 +251,73 @@ export default function HighlightedCode({
     onChange(value.slice(0, start) + text + value.slice(end));
   };
 
+  const accept = (hint: CodeHint) => {
+    const ta = areaRef.current;
+    if (!ta || !completion) return;
+    const { start, end, inQuote, quote } = completion;
+    const nextChar = value[end] ?? '';
+    const quoted = hint.kind !== 'keyword' && hint.kind !== 'builtin';
+    let text: string;
+    if (!quoted) {
+      text = hint.label;
+      if (hint.label.endsWith(':')) {
+        // do: / rule headers open a block; the newline is the user's.
+      } else if (nextChar !== ' ') {
+        text += ' ';
+      }
+    } else if (inQuote) {
+      text = hint.label;
+      const after = value[end] ?? '';
+      if (after !== '' && after !== quote && !/[\s,.]/.test(after)) {
+        // Completing in the middle of an existing quoted name: keep the
+        // closing quote and the rest of the word that is already there.
+      } else {
+        if (after !== quote) text += quote;
+        const tail = after === quote ? (value[end + 1] ?? '') : after;
+        if (tail !== '' && !/[\s,.]/.test(tail)) text += ' ';
+      }
+    } else {
+      text = `${quote}${hint.label}${quote}`;
+      if (nextChar !== '' && !/[\s,.]/.test(nextChar)) text += ' ';
+    }
+    pendingCaret.current = start + text.length;
+    setCompletion(null);
+    onChange(value.slice(0, start) + text + value.slice(end));
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const ta = areaRef.current;
     if (!ta) return;
+    if ((e.key === 's' || e.key === 'S') && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      onSave?.();
+      return;
+    }
+    if (completion) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        setActive((i) => (i + step + completion.items.length) % completion.items.length);
+        return;
+      }
+      if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'Enter') {
+        e.preventDefault();
+        const hint = completion.items[active];
+        if (hint) accept(hint);
+        return;
+      }
+      if (e.key === 'Escape') {
+        // The popup closes first: the dialog (and the fullscreen map) listens
+        // for Escape on the document and must not see this one.
+        e.preventDefault();
+        e.stopPropagation();
+        setCompletion(null);
+        return;
+      }
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+        setCompletion(null);
+      }
+    }
     if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       insert('  ');
@@ -193,6 +335,8 @@ export default function HighlightedCode({
       insert('\n' + indent + extra);
     }
   };
+
+  const listHeight = completion ? Math.min(completion.items.length, 8) * 25 + 28 : 0;
 
   return (
     <div className="cw-wrap" style={{ '--cw-digits': digits } as CSSProperties}>
@@ -218,15 +362,56 @@ export default function HighlightedCode({
         ref={areaRef}
         className={'workflow-code-area cw-area' + (invalid ? ' workflow-code-area-bad' : '')}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onScroll={syncScroll}
+        onChange={(e) => {
+          const next = e.target.value;
+          onChange(next);
+          refresh(next, e.target.selectionStart ?? next.length);
+        }}
+        onScroll={() => {
+          syncScroll();
+          setScrollTick((n) => n + 1);
+        }}
         onKeyDown={onKeyDown}
+        onBlur={() => setCompletion(null)}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
         rows={rows}
         aria-label={ariaLabel}
+        aria-autocomplete={suggest ? 'list' : undefined}
       />
+      {completion && point && (
+        <div
+          className="cw-complete"
+          role="listbox"
+          aria-label={t('Suggestions')}
+          style={{
+            left: Math.max(4, Math.min(point.left, (areaRef.current?.clientWidth ?? 320) - 280)),
+            top:
+              point.top + point.lineHeight + 2 + listHeight > (areaRef.current?.clientHeight ?? 240)
+                ? Math.max(4, point.top - listHeight - 2)
+                : point.top + point.lineHeight + 2,
+          }}
+        >
+          {completion.items.map((h, i) => (
+            <button
+              key={`${h.kind}:${h.label}`}
+              type="button"
+              role="option"
+              aria-selected={i === active}
+              className={'cw-complete-item' + (i === active ? ' is-active' : '')}
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => accept(h)}
+            >
+              <span className={'cw-complete-kind cw-kind-' + KIND_CLASS[h.kind]} aria-hidden="true" />
+              <span className="cw-complete-label">{h.label}</span>
+              {h.detail && <span className="cw-complete-detail">{h.detail}</span>}
+            </button>
+          ))}
+          <div className="cw-complete-foot">{t('Tab accepts · ↑↓ choose · Esc closes')}</div>
+        </div>
+      )}
     </div>
   );
 }

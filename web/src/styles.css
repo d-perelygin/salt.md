@@ -4096,6 +4096,16 @@ body.is-col-resizing {
   color: var(--fg);
   border-color: var(--border);
 }
+/* A proposal waiting in Code while the reader is on another tab. */
+.workflow-tab-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
 /* Read-only process map: statuses left to right, arrows for allowed moves,
  * a dashed box for the on-creation rules. Horizontal scroll when many. */
 .workflow-scheme {
@@ -4230,10 +4240,11 @@ body.is-col-resizing {
   cursor: pointer;
 }
 
-/* Fullscreen process map: the scheme on the left, the collapsible rule
- * list on the right. Portalled to <body> at the modal layer (same z-index,
- * later in the DOM, so above the properties dialog it belongs to) and below
- * toasts and confirms.
+/* Fullscreen process workspace. The same tree as inline, stretched to the
+ * viewport: fixed positioning escapes the dialog's box, and the dialog's
+ * overlay already owns the stacking context. Code stays editable in here —
+ * that is the point of the mode. Below modals that are raised over it
+ * (toasts, confirms) and above everything else.
  */
 .workflow-full {
   position: fixed;
@@ -4243,24 +4254,29 @@ body.is-col-resizing {
   display: flex;
   flex-direction: column;
 }
-.workflow-full-bar {
-  display: flex;
+.workflow-full .workflow-view-toggle {
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  margin: 0;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  font-weight: 600;
   flex: none;
 }
-.workflow-full-bar .icon-btn {
-  margin-left: auto;
+.workflow-full-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-right: 10px;
+  white-space: nowrap;
 }
-.workflow-full-body {
+.workflow-canvas {
+  min-height: 0;
+}
+.workflow-full .workflow-canvas {
   flex: 1;
   min-height: 0;
   display: flex;
 }
-.workflow-full-graph {
+.workflow-full .workflow-pane-scheme {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
@@ -4277,7 +4293,7 @@ body.is-col-resizing {
 /* The map scrolls as one with its on-creation box, in the outer container:
    an inner scroller would trap the mouse wheel (vertical deltas never move
    it sideways) and hide the overflow behind its own box. */
-.workflow-full-graph .workflow-scheme {
+.workflow-full .workflow-pane-scheme .workflow-scheme {
   overflow: visible;
   margin: auto 0;
   flex: none;
@@ -4285,30 +4301,64 @@ body.is-col-resizing {
 /* A scrollbar you can see: overlay scrollbars hide until touched, which
    reads as "not scrollable". Painted only when there is somewhere to go
    (overflow is auto, so no overflow means no bar). */
-.workflow-full-graph::-webkit-scrollbar {
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar {
   height: 10px;
   width: 10px;
 }
-.workflow-full-graph::-webkit-scrollbar-track,
-.workflow-full-graph::-webkit-scrollbar-corner {
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar-track,
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar-corner {
   background: transparent;
 }
-.workflow-full-graph::-webkit-scrollbar-thumb {
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar-thumb {
   background-color: color-mix(in srgb, var(--fg) 30%, transparent);
   background-clip: content-box;
   border: 2px solid transparent;
   border-radius: 6px;
 }
-.workflow-full-graph::-webkit-scrollbar-thumb:hover {
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in srgb, var(--fg) 55%, transparent);
   background-clip: content-box;
 }
-.workflow-full-side {
+/* The list beside the map, or alone. The side width is a reading column,
+ * not a full screen: rules are short rows and would stretch thin. */
+.workflow-full .workflow-pane-list {
   flex: 0 0 400px;
   max-width: min(430px, 44vw);
   border-left: 1px solid var(--border);
   overflow-y: auto;
   padding: 14px;
+}
+.workflow-full .workflow-canvas[data-view='list'] .workflow-pane-list {
+  flex: 1 1 auto;
+  max-width: 900px;
+  margin: 0 auto;
+  border-left: none;
+  padding: 20px;
+  width: 100%;
+}
+/* Code gets the room it never had in the dialog, in a column narrow enough
+ * to read. The AI panel floats over the right edge, as everywhere else. */
+.workflow-full .workflow-pane-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+.workflow-full .workflow-pane-code .workflow-code {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.workflow-full .workflow-pane-code .cw-area {
+  min-height: 52vh;
+}
+/* The chat panel is fixed at the right edge. While it is open, the code
+ * column gives up its width instead of hiding text under the panel; below
+ * 1100px the panel covers most of the screen anyway. */
+@media (min-width: 1100px) {
+  body.ai-panel-open .workflow-full .workflow-pane-code {
+    padding-right: 432px;
+  }
 }
 .workflow-view-spacer {
   flex: 1;
@@ -4326,19 +4376,43 @@ body.is-col-resizing {
   cursor: default;
 }
 @media (max-width: 760px) {
-  .workflow-full-body {
+  .workflow-full .workflow-canvas {
     flex-direction: column;
   }
-  .workflow-full-graph {
+  .workflow-full .workflow-pane-scheme {
     flex: 0 0 42%;
     border-bottom: 1px solid var(--border);
     padding: 12px;
   }
-  .workflow-full-side {
+  .workflow-full .workflow-pane-list,
+  .workflow-full .workflow-canvas[data-view='list'] .workflow-pane-list {
     flex: 1 1 auto;
     min-height: 0;
     max-width: none;
     border-left: none;
+  }
+  .workflow-full .workflow-pane-code {
+    padding: 10px;
+  }
+}
+/* A phone cannot hold the title, three tabs and three actions on one row.
+ * The title takes its own line and the rest wraps; without this the Save
+ * button sat off the right edge of the screen. */
+@media (max-width: 640px) {
+  .workflow-full .workflow-view-toggle {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 10px;
+  }
+  .workflow-full-title {
+    flex: 1 1 100%;
+    margin: 0 0 2px;
+  }
+  .workflow-full .workflow-view-spacer {
+    display: none;
+  }
+  .workflow-full .workflow-view-tab {
+    padding: 4px 10px;
   }
 }
 .workflow-chips {
@@ -4640,6 +4714,83 @@ button.workflow-issue {
   color: var(--muted);
   font-style: italic;
 }
+/* Typing help: the list sits under the caret, above the gutter and the
+ * painted text. Narrow on purpose — one label, one kind, one hint. */
+.cw-complete {
+  position: absolute;
+  z-index: 4;
+  width: 272px;
+  max-height: 228px;
+  overflow-y: auto;
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  font-size: 12.5px;
+}
+.cw-complete-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 4px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cw-complete-item.is-active {
+  background: var(--hover);
+}
+.cw-complete-kind {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--muted);
+}
+.cw-kind-kw {
+  background: #8b5cf6;
+}
+[data-theme='dark'] .cw-kind-kw {
+  background: #b39dff;
+}
+.cw-kind-st {
+  background: var(--accent);
+}
+.cw-kind-pr {
+  background: #0f7b4f;
+}
+[data-theme='dark'] .cw-kind-pr {
+  background: #6fd39b;
+}
+.cw-complete-label {
+  font-family: var(--mono, ui-monospace, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cw-complete-detail {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 136px;
+}
+.cw-complete-foot {
+  margin-top: 2px;
+  padding: 4px 6px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
 .workflow-code-errors {
   display: flex;
   flex-direction: column;
@@ -4651,6 +4802,15 @@ button.workflow-issue {
   display: flex;
   gap: 6px;
   flex: 0 0 auto;
+}
+/* The pause notice also sits in the fullscreen side panel, which is 400px
+ * wide: side-by-side buttons squeezed the sentence to one word per line. */
+.workflow-locked-notice {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.workflow-locked-notice > span:first-child {
+  flex: 1 1 220px;
 }
 .workflow-code-error {
   display: flex;

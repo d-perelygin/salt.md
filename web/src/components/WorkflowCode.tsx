@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Lock, Sparkles, TriangleAlert } from 'lucide-react';
+import { Lock, Plus, Sparkles, TriangleAlert } from 'lucide-react';
 import type { PropDef, WorkflowCodeBlock, WorkflowConfig, WorkflowRule } from '../types';
 import { api } from '../api';
 import { t } from '../i18n';
 import { toast } from '../toast';
 import { loadMembers, type Member } from './PropertyValue';
 import { formatCode, generateVisualCode, splitCodeDocument } from '../workflow';
+import { codeCompletions, type CodeWorld } from '../workflowComplete';
 import HighlightedCode from './HighlightedCode';
 
 export type CodeDiag = { line: number; message: string };
@@ -56,6 +57,8 @@ export default function WorkflowCode({
   onChange,
   onCodeLockedChange,
   discardTick,
+  onSave,
+  onProposalChange,
 }: {
   collectionId: string;
   schema: PropDef[];
@@ -66,6 +69,11 @@ export default function WorkflowCode({
   onCodeLockedChange: (locked: boolean) => void;
   /** Incremented by the List's pause notice to throw the draft away. */
   discardTick: number;
+  /** Cmd/Ctrl+S in the editor: save the whole dialog. */
+  onSave?: () => void;
+  /** Whether a suggestion from the agent is waiting, so the tab can point
+   *  at it while the reader is on another view. */
+  onProposalChange?: (has: boolean) => void;
 }) {
   const rules = useMemo(() => workflow?.rules ?? [], [workflow]);
   const blocks = useMemo(() => workflow?.code ?? [], [workflow]);
@@ -80,6 +88,31 @@ export default function WorkflowCode({
   const applied = useRef<WorkflowConfig | undefined>(undefined);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastVerdict = useRef<{ source: string; compiled: CompiledRule[] } | null>(null);
+  // A document the person already approved (an AI proposal, or an undo of
+  // one) skips the "move to code?" question: they pressed the button, they
+  // do not want a second one for the same change.
+  const autoMove = useRef(false);
+
+  // What the caret may name. Statuses come from the selected property; people
+  // from the workspace member list. Completion reads names, not ids: the code
+  // is written the way the person sees the database.
+  const world = useMemo<CodeWorld>(
+    () => ({
+      statusPropId,
+      props: schema.map((p) => ({
+        id: p.id,
+        name: p.name,
+        type: p.type,
+        options: (p.options ?? []).map((o) => o.name),
+      })),
+      members: members.map((m) => m.name),
+    }),
+    [schema, statusPropId, members],
+  );
+  const suggest = useMemo(
+    () => (source: string, caret: number) => codeCompletions(source, caret, world),
+    [world],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -147,6 +180,7 @@ export default function WorkflowCode({
         if (seqs.current !== seq) return;
         const errors: CodeDiag[] = [...(r.errors ?? []), ...r.rules.flatMap((e) => e.errors ?? [])];
         if (errors.length > 0) {
+          autoMove.current = false;
           setState({ kind: 'invalid', errors });
           return;
         }
@@ -154,9 +188,10 @@ export default function WorkflowCode({
         if (codeOnly.length > 0) {
           setState({ kind: 'codeOnly', reasons: [...new Set(codeOnly.map((e) => e.reason))] });
           lastVerdict.current = { source, compiled: r.rules };
-          if (isSilentMove()) moveToCode(source, r.rules);
+          if (isSilentMove() || autoMove.current) moveToCode(source, r.rules);
           return;
         }
+        autoMove.current = false;
         lastVerdict.current = null;
         applyClean(source, r.rules);
         setState({ kind: 'valid' });
@@ -193,7 +228,11 @@ export default function WorkflowCode({
   };
 
   const applyClean = (source: string, compiled: CompiledRule[]) => {
-    if (!workflow) return;
+    // An empty database has no config yet: the first keystroke starts one.
+    // Without this the Code tab compiled happily and then dropped the text,
+    // and Save stored nothing.
+    if (!workflow && !statusPropId) return;
+    const base: WorkflowConfig = workflow ?? { statusPropId, rules: [], code: [] };
     const seen = new Set<string>();
     const nextRules: WorkflowRule[] = [];
     const codeSections: string[] = [];
@@ -214,7 +253,7 @@ export default function WorkflowCode({
       }
     }
     const next = {
-      ...workflow,
+      ...base,
       rules: nextRules,
       code: singleCodeBlock([preamble, ...codeSections]),
     };
@@ -223,7 +262,8 @@ export default function WorkflowCode({
   };
 
   const moveToCode = (source: string, compiled: CompiledRule[]) => {
-    if (!workflow) return;
+    if (!workflow && !statusPropId) return;
+    const base: WorkflowConfig = workflow ?? { statusPropId, rules: [], code: [] };
     const codeOnlyHeaders = new Set(compiled.filter((c) => c.codeOnly).map((c) => c.header));
     const { preamble, sections } = splitCodeDocument(source);
     // Moved sections join the code; the rest applies as the visual rules.
@@ -245,10 +285,11 @@ export default function WorkflowCode({
       }
     }
     const next = {
-      ...workflow,
+      ...base,
       rules: nextRules,
       code: singleCodeBlock([preamble, ...moved.map((s) => s.text)]),
     };
+    autoMove.current = false;
     applied.current = next;
     setText(undefined);
     setState({ kind: 'clean' });
@@ -292,6 +333,12 @@ export default function WorkflowCode({
   }, [discardTick]);
 
   const [hideAsk, setHideAsk] = useState(false);
+  // Kept in a ref so the first fetch can report without re-running on every
+  // render of the parent.
+  const proposalChange = useRef(onProposalChange);
+  useEffect(() => {
+    proposalChange.current = onProposalChange;
+  });
   // A proposal the in-app agent left for this page: shown above the text and
   // applied by a click, because writing the database behind an open draft
   // would either be lost on Save or change the process unseen.
@@ -302,7 +349,11 @@ export default function WorkflowCode({
   const loadProposal = () => {
     api
       .workflowProposal(collectionId)
-      .then((p) => setProposal(p.source ? { source: p.source, summary: p.summary ?? '' } : null))
+      .then((p) => {
+        const source = p.source ?? '';
+        setProposal(source ? { source, summary: p.summary ?? '' } : null);
+        proposalChange.current?.(!!source);
+      })
       .catch(() => {});
   };
 
@@ -334,24 +385,47 @@ export default function WorkflowCode({
           draft: errors
             ? t('Fix these errors and call propose_workflow_code with the corrected document.')
             : t('Describe here what should change in the process.'),
+          // The panel must sit above this dialog: the person asked for it
+          // from inside Process → Code, and a reply hidden behind the modal
+          // reads as a dead button.
+          raised: true,
         },
       }),
     );
+  };
+
+  // A skeleton at the end of the document, so a new rule starts from the
+  // shape the grammar expects instead of a blank line and a guess.
+  const insertRule = () => {
+    const opts = schema.find((p) => p.id === statusPropId)?.options ?? [];
+    const from = opts[0]?.name;
+    const to = (opts[1] ?? opts[0])?.name;
+    const when = from && to ? `  when "${from}" becomes "${to}"` : '  when created';
+    const base = shown.trimEnd();
+    const next = `${base ? base + '\n\n' : ''}rule "New rule":\n${when}\n  do:\n\n`;
+    editDoc(next);
+    requestAnimationFrame(() => {
+      areaRef.current?.focus({ preventScroll: true });
+      areaRef.current?.setSelectionRange(next.length, next.length);
+    });
   };
 
   const applyProposal = () => {
     if (!proposal) return;
     undoTarget.current = shown;
     setCanUndo(true);
+    autoMove.current = true;
     editDoc(proposal.source);
     void api.dismissWorkflowProposal(collectionId).catch(() => {});
     setProposal(null);
+    proposalChange.current?.(false);
     toast(t('Applied the AI suggestion'));
   };
 
   const dismissProposal = () => {
     void api.dismissWorkflowProposal(collectionId).catch(() => {});
     setProposal(null);
+    proposalChange.current?.(false);
   };
 
   const undoApply = () => {
@@ -359,6 +433,7 @@ export default function WorkflowCode({
     if (prev == null) return;
     undoTarget.current = null;
     setCanUndo(false);
+    autoMove.current = true;
     editDoc(prev);
   };
 
@@ -372,11 +447,14 @@ export default function WorkflowCode({
               {t('Undo')}
             </button>
           )}
+          <button type="button" className="btn-sm workflow-insert-btn" onClick={insertRule} title={t('Add a rule at the end')}>
+            <Plus size={13} /> {t('Rule')}
+          </button>
           <button type="button" className="btn-sm" onClick={formatDoc}>
             {t('Format')}
           </button>
           <button type="button" className="btn-sm workflow-ai-btn" onClick={askAI}>
-            <Sparkles size={13} /> {t('Ask AI')}
+            <Sparkles size={13} /> {state.kind === 'invalid' ? t('Fix with AI') : t('Ask AI')}
           </button>
         </div>
         {proposal && (
@@ -405,6 +483,8 @@ export default function WorkflowCode({
           ariaLabel={t('Process as code')}
           errorLines={state.kind === 'invalid' ? state.errors.map((e) => e.line) : undefined}
           onJumpToLine={jumpToLine}
+          suggest={suggest}
+          onSave={onSave}
         />
         {state.kind === 'invalid' && (
           <div className="workflow-code-errors">
