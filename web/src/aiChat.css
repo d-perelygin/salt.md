@@ -43,6 +43,13 @@
   flex: none;
 }
 .ai-topbar .ai-crumb { opacity: 0.55; white-space: nowrap; }
+/* The + beside the chat title: start an empty chat without opening the list. */
+.ai-newchat-btn {
+  flex: none;
+  padding: 3px 5px;
+  color: var(--muted);
+}
+.ai-newchat-btn:hover { color: var(--fg); }
 .ai-topbar .ai-title {
   font-weight: 600;
   white-space: nowrap;

@@ -2201,6 +2201,7 @@ export default function App() {
               void loadAiThreads();
             }}
             onThreadsChanged={() => void loadAiThreads()}
+            onNewChat={() => setActiveChatId(null)}
           />
         ) : indexOpen ? (
           <IndexView

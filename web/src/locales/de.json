@@ -1752,5 +1752,7 @@
   "When the row is created": "Wenn die Zeile erstellt wird",
   "Workspace member": "Workspace-Mitglied",
   "Fix the code errors before saving": "Behebe zuerst die Codefehler",
-  "The AI left a suggestion in Code": "Die KI hat einen Vorschlag im Code hinterlassen"
+  "The AI left a suggestion in Code": "Die KI hat einen Vorschlag im Code hinterlassen",
+  "The answer did not reach the agent": "Die Antwort hat den Agenten nicht erreicht",
+  "The approval did not reach the agent": "Die Freigabe hat den Agenten nicht erreicht"
 }

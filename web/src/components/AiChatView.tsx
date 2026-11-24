@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
+import { toast } from '../toast';
 import type { PageMeta } from '../types';
 import AiAgentStep, { type AiStep } from './AiAgentStep';
 import AiRunSummary from './AiRunSummary';
@@ -9,7 +10,7 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Brain, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
+import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Brain, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Paperclip, Plus, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import { renderTextWithMentions } from './aiChatHelpers';
 
@@ -35,6 +36,8 @@ export default function AiChatView(props: {
   onOpenPage?: (id: string) => void;
   onThreadCreated: (id: string) => void;
   onThreadsChanged: () => void;
+  /** Start an empty chat without going through the sidebar. */
+  onNewChat?: () => void;
 }) {
   const [threads, setThreads] = useState<AiThread[]>([]);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -565,7 +568,9 @@ export default function AiChatView(props: {
     if (!runId) return;
     try {
       await api.approveAIRun(runId, approved);
-    } catch { /* the run will time out on its own */ }
+    } catch (e) {
+      toast((e as Error).message || t('The approval did not reach the agent'));
+    }
   }
 
   async function submitAnswer() {
@@ -575,7 +580,11 @@ export default function AiChatView(props: {
     if (parts.length === 0) return;
     try {
       await api.answerAIRun(pendingQuestion.runId, parts.join('; '));
-    } catch { /* the run may have timed out or been cancelled */ }
+    } catch (e) {
+      // Silent before: a run left by a previous process rejected the answer
+      // with a 409 and the question simply vanished.
+      toast((e as Error).message || t('The answer did not reach the agent'));
+    }
     setPendingQuestion(null);
     setPicked([]);
     setFreeText('');
@@ -705,6 +714,15 @@ export default function AiChatView(props: {
           <span className="ai-crumb">{t('AI')}</span>
           <span className="ai-crumb">/</span>
           <span className="ai-title">{active?.title || t('New chat')}{pageTitle ? ` · ${pageTitle}` : ''}</span>
+          <button
+            className="ai-iconbtn ai-newchat-btn"
+            type="button"
+            title={t('New chat')}
+            aria-label={t('New chat')}
+            onClick={() => props.onNewChat?.()}
+          >
+            <Plus size={14} />
+          </button>
           <span style={{ flex: 1 }} />
           <span style={{ position: 'relative', display: 'inline-flex' }} ref={memMenuRef}>
             <button
@@ -1106,7 +1124,7 @@ export default function AiChatView(props: {
                 )}
               </div>
               <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.json,.pdf,.docx,.xlsx,.pptx,.odt" style={{ display: 'none' }} onChange={(e) => void attachPicked(e)} />
-              <AiApprovalSelect value={approval} onChange={setApproval} />
+              <AiApprovalSelect value={approval} onChange={setApproval} compact />
               <span className="spacer" />
               <button className="ai-send" onClick={() => void runAsAgent()} disabled={agentBusy} title={t('Send')}>{agentBusy ? '…' : '↑'}</button>
               {agentBusy && runId && (

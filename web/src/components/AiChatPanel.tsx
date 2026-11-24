@@ -2,13 +2,14 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
+import { toast } from '../toast';
 import AiAgentStep, { type AiStep } from './AiAgentStep';
 import AiRunSummary from './AiRunSummary';
 import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Menu, Paperclip, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
+import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Menu, Paperclip, Plus, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
 import {
@@ -576,7 +577,9 @@ export default function AiChatPanel(props: {
     if (!runId) return;
     try {
       await api.approveAIRun(runId, approved);
-    } catch { /* the run will time out on its own */ }
+    } catch (e) {
+      toast((e as Error).message || t('The approval did not reach the agent'));
+    }
   }
 
   async function submitAnswer() {
@@ -586,7 +589,9 @@ export default function AiChatPanel(props: {
     if (parts.length === 0) return;
     try {
       await api.answerAIRun(pendingQuestion.runId, parts.join('; '));
-    } catch { /* the run may have timed out or been cancelled */ }
+    } catch (e) {
+      toast((e as Error).message || t('The answer did not reach the agent'));
+    }
     setPendingQuestion(null);
     setPicked([]);
     setFreeText('');
@@ -718,6 +723,19 @@ export default function AiChatPanel(props: {
             </div>
           )}
         </div>
+        <button
+          className="ai-iconbtn ai-newchat-btn"
+          type="button"
+          title={t('New chat')}
+          aria-label={t('New chat')}
+          onClick={() => {
+            setThreadMenuOpen(false);
+            props.onSelectThread?.(null);
+          }}
+        >
+          <Plus size={14} />
+        </button>
+        <span style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 4 }}>
           {props.onOpenSidebar && (
             <button className="ai-iconbtn ai-panel-sidebarbtn" onClick={props.onOpenSidebar} title={t('Menu')} type="button"><Menu size={14} /></button>
@@ -1133,15 +1151,13 @@ export default function AiChatPanel(props: {
               )}
             </div>
             <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.json,.pdf,.docx,.xlsx,.pptx,.odt" style={{ display: 'none' }} onChange={(e) => void attachPicked(e)} />
+            <AiApprovalSelect value={approval} onChange={setApproval} compact alignRight />
             <span className="spacer" />
             <button className="ai-send" onClick={() => void runAsAgent()} disabled={agentBusy} title={t('Send')}>{agentBusy ? '…' : '↑'}</button>
             {agentBusy && runId && (
               <button className="ai-iconbtn" onClick={() => { void api.cancelAIRun(runId).catch(() => {}); }} title={t('Cancel')}>■</button>
             )}
           </div>
-        </div>
-        <div style={{ paddingTop: 4 }}>
-          <AiApprovalSelect value={approval} onChange={setApproval} />
         </div>
       </div>
     </div>
