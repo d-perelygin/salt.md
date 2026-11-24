@@ -69,11 +69,12 @@ Two limits worth knowing:
 - The picker loads **up to 500 rows** of the target collection. In a collection
   larger than that, a row beyond the first 500 cannot be picked from the list.
 - A chip whose row is not in that list is looked up by id, so the cell names it
-  instead of printing the id. A row **in the trash** shows its title with a
-  trash mark; a row you may not read, or one whose page is gone, reads
-  **Unavailable row**. Both carry a **×** to unlink them, because neither can be
-  reached from the picker — before that control existed, such a link could not
-  be removed by hand at all.
+  instead of printing the id. A row **in the trash** is not shown at all: it is
+  gone from every other reading of the database, and a chip nobody can open only
+  invites a click that goes nowhere. The id stays in the value, so restoring the
+  row brings the chip back on its own. A row you may not read, or one whose page
+  is gone, reads **Unavailable row** with a **×** to unlink it — the picker
+  never listed it, so there was no other way to remove the link.
 
 ### Re-pointing an existing relation
 
@@ -92,8 +93,8 @@ Two cases, deliberately different:
 
 - **Trash.** The ids stay in the rows that point at it — that is what makes
   restoring the row restore the link, with nothing to re-link. Until then the
-  chip shows the title with a trash mark, and **×** unlinks it if you would
-  rather not keep a link to something parked.
+  chip is not drawn: a link to a parked record is not something to read, open or
+  click. Restoring the row makes it appear again.
 - **Delete forever.** The row can never come back, so the dialog says how many
   rows link to it, and the delete clears those ids from them in the same
   transaction. The cleared rows get an entry in the activity log. A link into a
@@ -236,7 +237,7 @@ of them are done.
 | **Max** | the largest of them | `0` |
 | **Percent** | the share of related rows meeting the condition, to one decimal | `0` |
 | **First value** | the first value of the chosen property, as text — see [Lookups](#lookups-a-value-instead-of-a-number) | *(empty)* |
-| **All values** | every value of every related row, in row order, joined with `, ` | *(empty)* |
+| **All values (with repeats)** | every value of every related row, in row order, joined with `, ` | *(empty)* |
 | **Unique values** | the same values, repeats removed | *(empty)* |
 
 Five details that decide what the number means:
@@ -288,6 +289,51 @@ Three things to know before trusting the column:
   Restoring the row brings its value back without touching the rollup.
 - **There is no Display choice.** A bar or a ring needs a number, so the
   **Display** field is not offered for these three.
+
+**Several values are drawn as chips, one per record.** A lookup over two linked
+companies that both hold a contact shows two chips, each naming its record on
+hover — not one line with a comma whose position decides nothing. The stored
+value is still the joined string, which is what exports and agents read; a
+lookup that resolves to a single value stays plain text.
+
+### Editing a lookup where it is read
+
+A value that lives in another record can be edited where you see it, and the
+write goes there. That is the whole rule, and it holds at any number of linked
+rows:
+
+- **one record put the value in the cell** — however many rows are linked — that
+  record is the source. Editing the cell edits it;
+- **nothing is shown and exactly one record could hold it** — that record is the
+  source, so the empty cell can be filled from here;
+- **nothing is shown and several records could hold it** — the cell asks which
+  one (**Fill in…**), because a text box must not guess a record;
+- **several records put values there** — the cell is read-only: it is a join,
+  and a join has no single target.
+
+The cell carries a dotted rule and names the record on hover ("Contact of
+“Acme” — editing here changes that record"). The first write shows a notice at
+the bottom saying where the value went, with **Don't show again**; afterwards
+the dotted rule and the tooltip are the reminder.
+
+What is written is the target field itself: the same validation, the same
+history entry on that record, the same `page.updated`, no copy and no second
+value to keep in step. Two sponsors linked to one company share its contact —
+change it from either and both read the new one.
+
+The cell is not offered when it would be a bad idea:
+
+- a target the interface cannot edit — a checklist (the cell reads `2/5`), a
+  relation, or a computed property;
+- a record you may not write, or one outside the workspace a narrowed API token
+  reaches: the lookup stays readable, it just does not become a way around
+  permission;
+- a record in the trash;
+- the workflow **status** of the target collection. A status moves through a
+  dialog that collects the fields the move requires; a cell in another database
+  would slip past it.
+
+The write lands in the other record, so **undo** returns it there too.
 
 A lookup follows one relation. It does not walk a second one (the reel's own
 project, say), and it cannot read another rollup or formula over there: those

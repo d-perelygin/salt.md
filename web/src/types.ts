@@ -76,9 +76,42 @@ export interface AuditEntry {
   pageTitle?: string;
 }
 
+/** One visible value of a lookup cell and the record it came from. The
+ *  interface draws each as its own chip: the joined string ("Иван, +7…,
+ *  Мария, +7…") reads as more people than the rows hold, and splitting it
+ *  back is impossible — a value may contain a comma. */
+export interface LookupValue {
+  text: string;
+  page: string;
+  title: string;
+}
+
+/** Where a lookup cell's value lives: which record, its property, and the raw
+ *  stored value (an option id, a day) the rendered text cannot give back. */
+export interface LookupWrite {
+  page: string;
+  title: string;
+  value: unknown;
+}
+
+/** The server's reading of a lookup cell for one row (server/lookup_write.go).
+ *  `write` is present only when the shown value belongs to exactly one record
+ *  and the caller may write it; `candidates` only when nothing is shown and
+ *  several records could hold the value. */
+export interface LookupCell {
+  values?: LookupValue[];
+  prop?: string;
+  collection?: string;
+  type?: PropType;
+  write?: LookupWrite;
+  candidates?: { page: string; title: string }[];
+}
+
 export interface Page extends PageMeta {
   content: unknown[];
   createdAt: string;
+  /** Lookup cells, keyed by property id: the same ones the table row carries. */
+  lookup?: Record<string, LookupCell>;
   /** The generation of this body (server/docgen.go); absent from a server
    *  that predates it. */
   docGen?: number;

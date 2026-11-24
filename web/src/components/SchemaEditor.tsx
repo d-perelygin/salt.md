@@ -56,7 +56,12 @@ const rollupAggs = (): { value: NonNullable<PropDef['rollupAgg']>; label: string
   // status of the one reel a task belongs to; "all" and "unique" read the
   // categories of every company a sponsor is linked to.
   { value: 'first', label: t('First value') },
-  { value: 'all', label: t('All values') },
+  // "All" repeats a value once per record that holds it — the honest answer to
+  // "what do the linked rows say", and the wrong one for a column of people:
+  // two companies sharing a contact read as two contacts. The label says so,
+  // because the difference between it and "Unique values" is invisible
+  // otherwise.
+  { value: 'all', label: t('All values (with repeats)') },
   { value: 'unique', label: t('Unique values') },
 ];
 
@@ -517,7 +522,19 @@ export default function SchemaEditor({
           <select
             className="prop-select"
             value={p.rollupTarget ?? ''}
-            onChange={(e) => updateProp(p.id, { rollupTarget: e.target.value })}
+            onChange={(e) => {
+              // A number function over a column of text reads as 0: when the
+              // target is not a number, start from the lookup that collapses
+              // repeats, which is what a list of names or dates wants.
+              const next = targetSchema.find((t) => t.id === e.target.value);
+              const numeric = next?.type === 'number';
+              const agg = p.rollupAgg ?? 'sum';
+              const aggIsNumeric = ['sum', 'count', 'avg', 'min', 'max', 'percent'].includes(agg);
+              updateProp(p.id, {
+                rollupTarget: e.target.value,
+                ...(next && !numeric && aggIsNumeric ? { rollupAgg: 'unique' as const } : {}),
+              });
+            }}
             disabled={!rel}
           >
             <option value="">{rel ? t('Choose…') : t('(pick relation first)')}</option>

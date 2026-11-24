@@ -34,7 +34,7 @@ import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
 import { StatusGateProvider } from '../statusMarks';
-import type { Backlink, CollectionConfig, Comment, CommentAnchor, Page, PageMeta, PropOption, User, Workspace } from '../types';
+import type { Backlink, CollectionConfig, Comment, CommentAnchor, LookupCell, Page, PageMeta, PropOption, User, Workspace } from '../types';
 import { SaltProvider } from '../collab';
 import { getLocale, plural, t } from '../i18n';
 import { formatDay } from '../format';
@@ -822,6 +822,7 @@ function RowProperties({
   pageId,
   parentId,
   initialProps,
+  initialLookup,
   canEdit,
   onOpen,
   openers,
@@ -830,6 +831,7 @@ function RowProperties({
   pageId: string;
   parentId: string;
   initialProps: Record<string, unknown>;
+  initialLookup?: Record<string, LookupCell>;
   canEdit: boolean;
   onOpen?: (id: string) => void;
   openers?: PageOpeners;
@@ -837,10 +839,12 @@ function RowProperties({
 }) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [props, setProps] = useState<Record<string, unknown>>(initialProps ?? {});
+  const [lookup, setLookup] = useState<Record<string, LookupCell>>(initialLookup ?? {});
 
   useEffect(() => {
     setProps(initialProps ?? {});
-  }, [pageId, initialProps]);
+    setLookup(initialLookup ?? {});
+  }, [pageId, initialProps, initialLookup]);
 
   useEffect(() => {
     let alive = true;
@@ -884,6 +888,16 @@ function RowProperties({
       }
     }
   };
+  // A lookup writes through to the record that owns the value. The page has to
+  // be re-read afterwards, because its lookup cells are computed from that
+  // record and this component has no other way to see the new answer.
+  const writeLookup = async (targetPage: string, targetProp: string, value: unknown) => {
+    await api.updatePage(targetPage, { propsPatch: { [targetProp]: value } });
+    const fresh = await api.getPage(pageId);
+    setProps((fresh.props as Record<string, unknown>) ?? {});
+    setLookup(fresh.lookup ?? {});
+  };
+
   const setOptions = async (propId: string, options: PropOption[]) => {
     const next: CollectionConfig = {
       ...config,
@@ -924,6 +938,8 @@ function RowProperties({
                 def={p}
                 value={props[p.id]}
                 rowProps={props}
+                lookup={lookup[p.id]}
+                onLookupWrite={canEdit ? writeLookup : undefined}
                 onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
                 onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
                 readOnly={!canEdit}
@@ -2593,6 +2609,7 @@ function PageHeader({
                 pageId={pageId}
                 parentId={page.parentId}
                 initialProps={page.props}
+                initialLookup={page.lookup}
                 canEdit={canEdit}
                 onOpen={onOpenInNewTab ?? onNavigate}
                 openers={{ onNavigate, onOpenInNewTab }}

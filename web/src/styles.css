@@ -5082,6 +5082,37 @@ button.workflow-issue {
   font-size: 12px;
 }
 
+/* A lookup cell whose value lives in another record. The dotted rule is the
+   whole affordance: this field writes somewhere else, and the tooltip names
+   where. Without it an editable computed cell looks exactly like a stored one,
+   and the edit lands in a table nobody was looking at. */
+.prop-lookup {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border-bottom: 1px dashed var(--border-strong);
+}
+.prop-lookup:focus-within {
+  border-bottom-color: var(--accent);
+}
+.prop-lookup-pick {
+  max-width: 12rem;
+}
+
+/* Several records, one chip each: a contact repeated by two linked rows reads
+   as two values, not as one person listed twice. */
+.prop-lookup-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.prop-lookup-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Relation picker */
 
 .relation-value {

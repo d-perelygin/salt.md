@@ -1756,9 +1756,14 @@
   "The answer did not reach the agent": "Die Antwort hat den Agenten nicht erreicht",
   "The approval did not reach the agent": "Die Freigabe hat den Agenten nicht erreicht",
   "First value": "Erster Wert",
-  "All values": "Alle Werte",
   "Unique values": "Eindeutige Werte",
   "Unavailable row": "Nicht verfügbare Zeile",
   "{n} links in total.": "{n} Verknüpfungen insgesamt.",
-  "{n} rows link to it and will lose the links.": "{n} Zeilen verweisen darauf und verlieren die Verknüpfungen."
+  "{n} rows link to it and will lose the links.": "{n} Zeilen verweisen darauf und verlieren die Verknüpfungen.",
+  "All values (with repeats)": "Alle Werte (mit Wiederholungen)",
+  "Don’t show again": "Nicht mehr anzeigen",
+  "Fill in…": "Eintragen…",
+  "Nothing is shown yet — pick the record to fill in": "Noch nichts da — wähle den Datensatz, in den der Wert soll",
+  "Saved to “{row}” · {prop} — the value lives there": "In „{row}“ gespeichert · {prop} — der Wert liegt dort",
+  "{prop} of “{row}” — editing here changes that record": "{prop} von „{row}“ — eine Änderung hier ändert diesen Datensatz"
 }

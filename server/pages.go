@@ -54,6 +54,9 @@ type page struct {
 	// The generation of this body (docgen.go). An editor seeds a new live
 	// document from Content, so it has to know which document Content was.
 	DocGen int64 `json:"docGen"`
+	// A row opened on its own shows the same lookup cells its table row does,
+	// including which record each value belongs to (see lookup_write.go).
+	Lookup map[string]any `json:"lookup,omitempty"`
 }
 
 func scanMeta(sc interface{ Scan(...any) error }) (pageMeta, error) {

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { confirm } from '../dialog';
-import type { ChecklistItem, PageMeta, PropDef, PropOption } from '../types';
+import type { ChecklistItem, LookupCell, LookupWrite, PageMeta, PropDef, PropOption } from '../types';
 import Portal from './Portal';
 import { PageHoverCard } from './PageHoverCard';
 import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
@@ -15,6 +15,7 @@ import { PageIcon } from '../pageIcon';
 import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
 import { imeComposing } from '../keys';
+import { toast } from '../toast';
 
 interface Props {
   def: PropDef;
@@ -39,6 +40,19 @@ interface Props {
   /** The row's other values. A status select needs them to know which moves
    *  the process refuses right now (see statusMarks.tsx). */
   rowProps?: Record<string, unknown>;
+  /** What the server says about this lookup cell for this row: the records
+   *  behind the value, and the one record a write would land in. Absent for
+   *  every property that is not a lookup (see server/lookup_write.go). */
+  lookup?: LookupCell;
+  /** Write a lookup through to the record that owns the value. Absent = the
+   *  cell stays read-only, which is what every surface that cannot refresh the
+   *  row afterwards gets. */
+  onLookupWrite?: (
+    page: string,
+    prop: string,
+    value: unknown,
+    previous: unknown,
+  ) => Promise<void> | void;
 }
 
 // idList reads a list-shaped value (relation, multiselect). A single id stored
@@ -1092,8 +1106,15 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // A table cell shows the first few and counts the rest. Everything is still
   // there — the picker below lists all of them, and the row itself holds the
   // full column.
-  const shown = maxChips && ids.length > maxChips ? ids.slice(0, maxChips) : ids;
-  const hidden = ids.length - shown.length;
+  // A link to a record in the trash is not shown: the record is gone from
+  // every other reading of the database, and a chip that cannot be opened
+  // invites a click that goes nowhere. The id stays in the value, so restoring
+  // the record brings the chip back on its own.
+  const visible = ids
+    .map((raw, i) => ({ raw, i }))
+    .filter(({ raw }) => !extra[relationValueText(raw)]?.trashed);
+  const shown = maxChips && visible.length > maxChips ? visible.slice(0, maxChips) : visible;
+  const hidden = visible.length - shown.length;
 
   // A row's icon is any of the four kinds a page icon can be, so it goes
   // through PageIcon like everywhere else. Printed raw, a Lucide or MDI icon
@@ -1115,7 +1136,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   const canEdit = !ro && !compact;
   const chips = (
     <span className="prop-multi">
-      {shown.map((raw, i) => {
+      {shown.map(({ raw, i }) => {
         const value = asText(raw);
         const row = rowFor(raw);
         const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
@@ -1141,24 +1162,6 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
           ) : null;
         if (!row) {
           const known = extra[value];
-          // In the trash, and still linked on purpose: restoring the row brings
-          // the link back on its own, so the chip names the row and says where
-          // it is instead of printing the id nobody can act on.
-          if (known && known.trashed) {
-            return (
-              <span key={i} className="relation-chip-wrap">
-                <span
-                  className="prop-chip relation-chip is-trashed"
-                  style={chipStyle}
-                  title={t('In the trash')}
-                >
-                  <Trash2 size={11} />
-                  {known.title || t('Untitled')}
-                </span>
-                {removeBtn}
-              </span>
-            );
-          }
           // Asked, and no readable row answers: the page is gone for good (the
           // cleanup on permanent delete makes this rare), or it belongs to a
           // collection past the first 500 the picker loads. Either way the id
@@ -1402,6 +1405,138 @@ function UrlValue({ def, value, onChange, readOnly, compact }: Props) {
   </div>;
 }
 
+// ---- A lookup, edited where it is read ----
+//
+// The value of a lookup belongs to another record, so this cell has two jobs
+// beyond drawing it: name that record on hover, and say out loud that a write
+// went there. A field that edits a different table has to be honest about it —
+// otherwise the edit looks like it changed nothing, and the next person cannot
+// tell which of two linked records they just corrected.
+
+const lookupDefCache = new Map<string, Promise<PropDef | null>>();
+
+/** The target property of a lookup — its type and options. Loaded once per
+ *  collection; a failure forgets itself, so one bad load does not freeze every
+ *  lookup cell of that collection as read-only for the rest of the session. */
+function loadLookupDef(collection: string, propId: string): Promise<PropDef | null> {
+  const key = collection + '|' + propId;
+  let p = lookupDefCache.get(key);
+  if (!p) {
+    p = api
+      .getCollection(collection)
+      .then((c) => c.schema.find((d) => d.id === propId) ?? null)
+      .catch(() => null);
+    p.then((d) => {
+      if (!d) lookupDefCache.delete(key);
+    });
+    lookupDefCache.set(key, p);
+  }
+  return p;
+}
+
+const LOOKUP_NOTICE_KEY = 'salt.lookupWriteNotice';
+
+/** Sticky, dismissible and shared by every lookup: the first write explains
+ *  where it went, "don't show again" turns the explanation off for good. */
+export function notifyLookupWrite(rowTitle: string, propName: string) {
+  let hidden = false;
+  try {
+    hidden = localStorage.getItem(LOOKUP_NOTICE_KEY) === 'off';
+  } catch {
+    /* private mode: the notice simply keeps showing */
+  }
+  if (hidden) return;
+  toast.info(
+    t('Saved to “{row}” · {prop} — the value lives there', {
+      row: rowTitle || t('Untitled'),
+      prop: propName,
+    }),
+    {
+      sticky: true,
+      action: {
+        label: t('Don’t show again'),
+        run: () => {
+          try {
+            localStorage.setItem(LOOKUP_NOTICE_KEY, 'off');
+          } catch {
+            /* ignore: the notice is not worth failing a write over */
+          }
+        },
+      },
+    },
+  );
+}
+
+/** The editable face of a lookup: an ordinary editor for the target type,
+ *  bound to the record the server named. When nothing is shown and several
+ *  records could hold the value, it asks which one first — a text box must not
+ *  guess which record to write to. */
+function LookupField({
+  cell,
+  onWrite,
+}: {
+  cell: LookupCell;
+  onWrite: (page: string, prop: string, value: unknown, previous: unknown) => Promise<void> | void;
+}) {
+  const [target, setTarget] = useState<PropDef | null>(null);
+  const [picked, setPicked] = useState<LookupWrite | null>(null);
+  const prop = cell.prop ?? '';
+  const collection = cell.collection ?? '';
+  useEffect(() => {
+    if (!prop || !collection) return;
+    let alive = true;
+    void loadLookupDef(collection, prop).then((d) => {
+      if (alive) setTarget(d);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [prop, collection]);
+  const write = cell.write ?? picked;
+  if (!target) return null;
+  if (!write) {
+    const candidates = cell.candidates ?? [];
+    if (candidates.length === 0) return null;
+    return (
+      <select
+        className="prop-input prop-lookup-pick"
+        value=""
+        title={t('Nothing is shown yet — pick the record to fill in')}
+        onChange={(e) => {
+          const c = candidates.find((x) => x.page === e.target.value);
+          if (c) setPicked({ page: c.page, title: c.title, value: undefined });
+        }}
+      >
+        <option value="">{t('Fill in…')}</option>
+        {candidates.map((c) => (
+          <option key={c.page} value={c.page}>
+            {c.title || t('Untitled')}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <span
+      className="prop-lookup"
+      title={t('{prop} of “{row}” — editing here changes that record', {
+        prop: target.name,
+        row: write.title || t('Untitled'),
+      })}
+    >
+      <PropertyValue
+        def={target}
+        value={write.value}
+        onChange={async (v) => {
+          await onWrite(write.page, prop, v, write.value);
+          setPicked(null);
+          notifyLookupWrite(write.title, target.name);
+        }}
+      />
+    </span>
+  );
+}
+
 export default function PropertyValue({
   def,
   value,
@@ -1413,6 +1548,8 @@ export default function PropertyValue({
   onOpen,
   openers,
   rowProps,
+  lookup,
+  onLookupWrite,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const ro = readOnly || !onChange;
@@ -1485,6 +1622,26 @@ export default function PropertyValue({
     }
     case 'rollup':
     case 'formula': {
+      // Several records put a value in this cell: draw one chip per value, so a
+      // repeated contact reads as two linked records rather than one person
+      // listed twice. The joined string is what the field still stores.
+      if (lookup?.values && lookup.values.length > 1) {
+        return (
+          <span className="prop-lookup-chips">
+            {lookup.values.map((v, i) => (
+              <span key={i} className="prop-chip prop-lookup-chip" title={v.title || undefined}>
+                {v.text}
+              </span>
+            ))}
+          </span>
+        );
+      }
+      // A lookup whose value belongs to exactly one record can be edited where
+      // it is read (see server/lookup_write.go); with nothing shown and several
+      // candidates, the cell asks which record to fill first.
+      if (lookup && (lookup.write || lookup.candidates?.length) && onLookupWrite && !ro) {
+        return <LookupField cell={lookup} onWrite={onLookupWrite} />;
+      }
       // Computed server-side; always read-only. Renders the number or an
       // inline "⚠ …" for a bad formula (division by zero, cycle, …).
       const { text, error } = formatComputed(value);

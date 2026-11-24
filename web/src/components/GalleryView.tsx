@@ -1,4 +1,4 @@
-import type { PropDef, PropOption } from '../types';
+import type { LookupCell, PropDef, PropOption } from '../types';
 import PropertyValue from './PropertyValue';
 import { tagColorClass } from '../tags';
 import { PageIcon } from '../pageIcon';
@@ -13,6 +13,7 @@ interface Row {
   cover: string;
   props: Record<string, unknown>;
   tags?: string[];
+  lookup?: Record<string, LookupCell>;
 }
 
 // A Gallery view renders rows as a responsive grid of cards, each showing the
@@ -81,6 +82,7 @@ export default function GalleryView({
                         def={p}
                         value={v}
                         rowProps={r.props}
+                        lookup={r.lookup?.[p.id]}
                         onChange={(nv) => onSetProp(r.id, p.id, nv)}
                         onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                         onOpen={onOpenInNewTab ?? onNavigate}
@@ -89,7 +91,7 @@ export default function GalleryView({
                     </div>
                   );
                 }
-                return <PropertyValue key={p.id} def={p} value={v} rowProps={r.props} readOnly compact onOpen={onOpenInNewTab ?? onNavigate} openers={{ onNavigate, onOpenInNewTab }} />;
+                return <PropertyValue key={p.id} def={p} value={v} rowProps={r.props} lookup={r.lookup?.[p.id]} readOnly compact onOpen={onOpenInNewTab ?? onNavigate} openers={{ onNavigate, onOpenInNewTab }} />;
               })}
             </div>
           </div>

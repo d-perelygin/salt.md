@@ -1,4 +1,4 @@
-import type { PropDef, PropOption } from '../types';
+import type { LookupCell, PropDef, PropOption } from '../types';
 import PropertyValue from './PropertyValue';
 import { tagColorClass } from '../tags';
 import { FileText } from 'lucide-react';
@@ -12,6 +12,7 @@ interface Row {
   icon: string;
   props: Record<string, unknown>;
   tags?: string[];
+  lookup?: Record<string, LookupCell>;
 }
 
 // A list view is deliberately NOT a narrow table: no column grid, no header
@@ -78,6 +79,7 @@ export default function ListView({
                   def={p}
                   value={r.props?.[p.id]}
                   rowProps={r.props}
+                  lookup={r.lookup?.[p.id]}
                   compact
                   readOnly={readOnly}
                   onChange={readOnly ? undefined : (v) => onSetProp(r.id, p.id, v)}

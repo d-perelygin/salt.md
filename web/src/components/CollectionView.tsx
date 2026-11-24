@@ -41,6 +41,7 @@ import type {
   CollectionConfig,
   Filter,
   FilterOp,
+  LookupCell,
   Page,
   PageMeta,
   PropDef,
@@ -180,6 +181,9 @@ interface Row {
    *  not columns (see SORT_CREATED). */
   createdAt?: string;
   updatedAt?: string;
+  /** Lookup cells, keyed by property: which record each shown value belongs
+   *  to, so a lookup can be edited where it is read (server/lookup_write.go). */
+  lookup?: Record<string, LookupCell>;
 }
 
 export function rowToPageMeta(row: Row, pages?: Map<string, PageMeta>): PageMeta {
@@ -255,6 +259,7 @@ type ServerRow = {
   isTemplate?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  lookup?: Record<string, LookupCell>;
 };;
 
 function mapCollectionRow(r: ServerRow): Row {
@@ -269,6 +274,7 @@ function mapCollectionRow(r: ServerRow): Row {
     isTemplate: r.isTemplate === true,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    lookup: r.lookup,
   };
 }
 
@@ -1339,6 +1345,38 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       }
     });
 
+  // A lookup edits the record its value belongs to, not this row: the write
+  // goes to that page, and the view is reloaded because the cell is computed
+  // on the server from that record (see server/lookup_write.go).
+  const writeLookup = async (page: string, prop: string, value: unknown, previous: unknown) => {
+    touchRows();
+    try {
+      await api.updatePage(page, { propsPatch: { [prop]: value } });
+    } catch (e) {
+      if (isOfflineError(e)) {
+        await savePageUpdate(page, { propsPatch: { [prop]: value } }, { label: t('Change') });
+      } else {
+        toast(t('Change not saved'));
+        throw e;
+      }
+    }
+    const v = view;
+    if (v) {
+      pushUndo(v.id, {
+        label: t('Change'),
+        undo: async () => {
+          await api.updatePage(page, { propsPatch: { [prop]: previous } }).catch(() => {});
+          await loadRows();
+        },
+        redo: async () => {
+          await api.updatePage(page, { propsPatch: { [prop]: value } }).catch(() => {});
+          await loadRows();
+        },
+      });
+    }
+    await loadRows();
+  };
+
   // Setting the group property from a drag/preset respects the property type:
   // a multi-select stores an array, a select stores a scalar.
   // Throwing a row away from the board. Asked for by name, because a card
@@ -2096,6 +2134,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onOpenInNewTab={onOpenInNewTab}
           onSetProp={setRowProp}
           onSetOptions={setPropOptions}
+          onLookupWrite={writeLookup}
         />
       )}
       {schemaOpen && (
@@ -3342,6 +3381,7 @@ function BoardCardProps({
           readOnly={!tickable}
           compact
           rowProps={row.props}
+          lookup={row.lookup?.[p.id]}
           onOpen={onOpen}
           openers={openers}
           onChange={(nv) => onSetProp(row.id, p.id, nv)}
@@ -3376,6 +3416,7 @@ function BoardCardProps({
                 def={p}
                 value={row.props[p.id]}
                 rowProps={row.props}
+                lookup={row.lookup?.[p.id]}
                 onChange={(nv) => onSetProp(row.id, p.id, nv)}
                 onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                 onOpen={onOpen}
@@ -3901,6 +3942,7 @@ function TableView({
   onOpenInNewTab,
   onSetProp,
   onSetOptions,
+  onLookupWrite,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -3916,6 +3958,7 @@ function TableView({
   onOpenInNewTab?: (id: string) => void;
   onSetProp: (rowId: string, propId: string, value: unknown) => void;
   onSetOptions: (propId: string, options: PropOption[]) => void;
+  onLookupWrite: (page: string, prop: string, value: unknown, previous: unknown) => Promise<void>;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The row open in the side peek, if it is one of ours: its title stays
@@ -4225,6 +4268,8 @@ function TableView({
                     def={p}
                     value={r.props[p.id]}
                     rowProps={r.props}
+                    lookup={r.lookup?.[p.id]}
+                    onLookupWrite={onLookupWrite}
                     onChange={(v) => onSetProp(r.id, p.id, v)}
                     onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                     maxChips={2}
@@ -6183,6 +6228,7 @@ function TimelineView({
                         def={p}
                         value={row.props[p.id]}
                         rowProps={row.props}
+                        lookup={row.lookup?.[p.id]}
                         onChange={onSetProp ? (v) => onSetProp(row.id, p.id, v) : undefined}
                         onOptionsChange={onSetOptions ? (opts) => onSetOptions(p.id, opts) : undefined}
                         maxChips={1}
