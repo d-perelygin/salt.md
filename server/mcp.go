@@ -1662,7 +1662,12 @@ func (s *Server) mcpSearch(u *user, q, wsID string) (string, error) {
 	}
 	where := func(id string) string {
 		if n := names[id]; n != "" {
-			return fmt.Sprintf(" · workspace: %q", n)
+			// Both halves: a name can repeat, the id cannot, and a caller that
+			// narrows the next search or a write with it needs the id.
+			return fmt.Sprintf(" · workspace: %q (%s)", n, id)
+		}
+		if id != "" {
+			return " · workspace: " + id
 		}
 		return ""
 	}

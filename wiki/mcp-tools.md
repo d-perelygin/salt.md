@@ -271,7 +271,7 @@ line names the workspace it lives in — two workspaces can hold a page with the
 same title, and which one a hit belongs to decides where a later write lands:
 
 ```
-• Contract › Termination (id: 6f1c… · workspace: "Legal")
+• Contract › Termination (id: 6f1c… · workspace: "Legal" (a1b2…))
   …notice period of three months…
 ```
 

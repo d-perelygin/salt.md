@@ -310,7 +310,7 @@ database. See [Collections](collections.md) and [Properties](properties.md).
 | `ai_thread_runs` | List the agent runs of one of your chat threads (status, task, timing, artifacts). Read-only. |
 | `ai_run` | Read one agent run: status, task, progress, error, timing, artifacts. Read-only. |
 | `ai_run_steps` | Read the trace of one agent run: plan, tool calls, results, approvals. Read-only. |
-| `read_page_file` | List the uploads one of your pages references, or read one as text (text and data files, HTML/RTF cleaned, PDF, Word, Excel, PowerPoint, OpenDocument). Read-only. |
+| `read_page_file` | List the uploads one of your pages references, or read one as text: text and data files, HTML/RTF cleaned, PDF, Word, Excel, PowerPoint and OpenDocument — tables and sheets keep their rows and columns, slides keep theirs. Read-only. |
 | `memory_recall` | Recall durable notes the agent stored about you (preferences, context worth keeping across runs). Read-only. |
 | `memory_remember` | Store a durable note about you for future runs. Keep it short — one fact per call. |
 | `memory_forget` | Delete a stored note by id when it is wrong or stale. |
