@@ -5082,38 +5082,140 @@ button.workflow-issue {
   font-size: 12px;
 }
 
-/* A lookup cell whose value lives in another record. The dotted rule is the
-   whole affordance: this field writes somewhere else, and the tooltip names
-   where. Without it an editable computed cell looks exactly like a stored one,
-   and the edit lands in a table nobody was looking at. */
-.prop-lookup {
+/* A lookup cell whose value lives in another record. It reads as text — a
+   column of pills turns a table into a gallery — and the way to the record it
+   comes from sits beside the field. Several records put their values on one
+   line, joined with a semicolon, and open a list on click: a join is never
+   edited as a string, every write lands in its own record. */
+.prop-lookup-inline {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+}
+.prop-lookup-field {
+  flex: 1;
+  min-width: 0;
+}
+.prop-lookup-field .prop-input,
+.prop-lookup-field .prop-textarea {
+  width: 100%;
+}
+.prop-lookup-open {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  max-width: 100%;
-  border-bottom: 1px dashed var(--border-strong);
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.65;
 }
-.prop-lookup:focus-within {
-  border-bottom-color: var(--accent);
+.prop-lookup-open:hover {
+  background: var(--hover);
+  color: var(--fg);
+  opacity: 1;
 }
-.prop-lookup-pick {
-  max-width: 12rem;
-}
-
-/* Several records, one chip each: a contact repeated by two linked rows reads
-   as two values, not as one person listed twice. */
-.prop-lookup-chips {
+.prop-lookup-many {
   display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  width: 100%;
+  min-width: 0;
 }
-.prop-lookup-chip {
-  max-width: 100%;
+.prop-lookup,
+.prop-lookup-plain {
+  display: block;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border: 0;
+  background: none;
+  padding: 1px 2px;
+  margin: -1px -2px;
+  border-radius: 4px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.prop-lookup {
+  cursor: text;
+}
+.prop-lookup:hover {
+  background: var(--hover);
 }
 
-/* Relation picker */
+/* The list behind a multi-record lookup: one block per record, each with its
+   own title, the way to open it, and the field that belongs to it. */
+.lookup-menu {
+  overflow-y: auto;
+}
+.lookup-menu-row {
+  padding: 7px 6px 5px;
+  border-bottom: 1px solid var(--border);
+}
+.lookup-menu-row:last-child {
+  border-bottom: 0;
+}
+.lookup-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.lookup-menu-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+.lookup-menu-open {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.lookup-menu-open:hover {
+  background: var(--hover);
+}
+/* A menu opened to edit is not a cell being read: the field is drawn as a
+   field, so it is obvious where to type without clicking first. */
+.lookup-menu-field {
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.lookup-menu-field:focus-within {
+  border-color: var(--accent);
+}
+.lookup-menu-field .prop-input,
+.lookup-menu-field .prop-textarea {
+  width: 100%;
+}
+
+/* The column that carries linked values says so once, in its header, instead
+   of marking every cell. */
+.th-link {
+  display: inline-flex;
+  margin-left: 4px;
+  color: var(--muted);
+  opacity: 0.75;
+  vertical-align: -2px;
+}
 
 .relation-value {
   position: relative;

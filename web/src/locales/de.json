@@ -1762,8 +1762,8 @@
   "{n} rows link to it and will lose the links.": "{n} Zeilen verweisen darauf und verlieren die Verknüpfungen.",
   "All values (with repeats)": "Alle Werte (mit Wiederholungen)",
   "Don’t show again": "Nicht mehr anzeigen",
-  "Fill in…": "Eintragen…",
-  "Nothing is shown yet — pick the record to fill in": "Noch nichts da — wähle den Datensatz, in den der Wert soll",
   "Saved to “{row}” · {prop} — the value lives there": "In „{row}“ gespeichert · {prop} — der Wert liegt dort",
-  "{prop} of “{row}” — editing here changes that record": "{prop} von „{row}“ — eine Änderung hier ändert diesen Datensatz"
+  "From a linked record — edit it there": "Aus einem verknüpften Datensatz — dort bearbeiten",
+  "Open “{row}”": "„{row}“ öffnen",
+  "{value} — {prop} of “{row}”": "{value} — {prop} von „{row}“"
 }

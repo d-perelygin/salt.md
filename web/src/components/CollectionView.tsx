@@ -3881,12 +3881,16 @@ function BoardView({
  *  while looking entirely correct. */
 function ColHead({
   label,
+  mark,
   onResize,
   onReset,
   stuck,
   onToggleStuck,
 }: {
   label: string;
+  /** A quiet mark after the name. A column of values that lives in another
+   *  table says so here, once, instead of decorating every cell. */
+  mark?: React.ReactNode;
   onResize: (e: React.PointerEvent<HTMLSpanElement>) => void;
   onReset: () => void;
   stuck?: boolean;
@@ -3895,6 +3899,7 @@ function ColHead({
   return (
     <span className="th-inner">
       {label}
+      {mark}
       {onToggleStuck && (
         <button
           className={'col-stick' + (stuck ? ' is-on' : '')}
@@ -3926,6 +3931,18 @@ function ColHead({
  *  then the two columns would share one width. Cosmetic, and not worth a
  *  guard that would have to be kept in step on both sides. */
 const TITLE_COL = '__title';
+
+/** The mark a lookup column carries in its header: its values live in another
+ *  table and are edited there, which is worth saying once and not per row. */
+function lookupColumnMark(p: PropDef) {
+  if (p.type !== 'rollup') return undefined;
+  if (p.rollupAgg !== 'first' && p.rollupAgg !== 'all' && p.rollupAgg !== 'unique') return undefined;
+  return (
+    <span className="th-link" title={t('From a linked record — edit it there')}>
+      <Link2 size={11} />
+    </span>
+  );
+}
 
 function TableView({
   rows,
@@ -4198,6 +4215,7 @@ function TableView({
               >
                 <ColHead
                   label={p.name}
+                  mark={lookupColumnMark(p)}
                   onResize={startResize(p.id)}
                   onReset={resetCol(p.id)}
                   stuck={stuckSet.has(p.id)}

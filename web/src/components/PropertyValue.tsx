@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { confirm } from '../dialog';
-import type { ChecklistItem, LookupCell, LookupWrite, PageMeta, PropDef, PropOption } from '../types';
+import type { ChecklistItem, LookupCell, LookupSource, PageMeta, PropDef, PropOption } from '../types';
 import Portal from './Portal';
 import { PageHoverCard } from './PageHoverCard';
 import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
@@ -1467,21 +1467,46 @@ export function notifyLookupWrite(rowTitle: string, propName: string) {
   );
 }
 
-/** The editable face of a lookup: an ordinary editor for the target type,
- *  bound to the record the server named. When nothing is shown and several
- *  records could hold the value, it asks which one first — a text box must not
- *  guess which record to write to. */
-function LookupField({
+/** The face of a lookup cell.
+ *
+ *  One record behind the value: the field itself, edited in place, with the way
+ *  to that record beside it. Several records: the cell opens a small list, one
+ *  block per record — its title, a button to open it, and the field to change.
+ *  A join is never edited as a string; every write lands in its own record.
+ *
+ *  Until the target schema arrives the cell is plain text, so a slow load never
+ *  turns a table into a column of spinners. */
+function LookupCell({
+  value,
   cell,
+  readOnly,
   onWrite,
+  onOpen,
+  openers,
 }: {
+  value: unknown;
   cell: LookupCell;
-  onWrite: (page: string, prop: string, value: unknown, previous: unknown) => Promise<void> | void;
+  readOnly?: boolean;
+  onWrite?: (page: string, prop: string, value: unknown, previous: unknown) => Promise<void> | void;
+  onOpen?: (id: string) => void;
+  openers?: PageOpeners;
 }) {
   const [target, setTarget] = useState<PropDef | null>(null);
-  const [picked, setPicked] = useState<LookupWrite | null>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const sources = cell.sources ?? [];
+  const text = typeof value === 'string' ? value : value == null ? '' : String(value);
   const prop = cell.prop ?? '';
   const collection = cell.collection ?? '';
+  const canEdit = !readOnly && !!onWrite;
+
   useEffect(() => {
     if (!prop || !collection) return;
     let alive = true;
@@ -1492,47 +1517,154 @@ function LookupField({
       alive = false;
     };
   }, [prop, collection]);
-  const write = cell.write ?? picked;
-  if (!target) return null;
-  if (!write) {
-    const candidates = cell.candidates ?? [];
-    if (candidates.length === 0) return null;
+
+  // The list hangs off the cell, but is positioned in the viewport: a table
+  // cell clips what overflows it, and a menu cut in half is not a menu.
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const width = Math.min(Math.max(r.width, 300), vw - 16);
+    const left = Math.max(8, Math.min(r.left, vw - width - 8));
+    const spaceBelow = vh - r.bottom - 12;
+    const spaceAbove = r.top - 12;
+    const below = spaceBelow >= 220 || spaceBelow >= spaceAbove;
+    setPos({
+      left,
+      width,
+      top: below ? r.bottom + 4 : undefined,
+      bottom: below ? undefined : vh - r.top + 4,
+      maxHeight: Math.max(180, below ? spaceBelow : spaceAbove),
+    });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  const openRecord = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (openers?.onOpenInNewTab) openers.onOpenInNewTab(id);
+    else if (openers?.onNavigate) openers.onNavigate(id);
+    else onOpen?.(id);
+  };
+
+  const save = async (src: LookupSource, v: unknown) => {
+    if (!onWrite) return;
+    await onWrite(src.page, prop, v, src.value);
+    notifyLookupWrite(src.title, target?.name ?? prop);
+  };
+
+  const title = !text
+    ? undefined
+    : sources.length === 1 && target
+      ? t('{value} — {prop} of “{row}”', {
+          value: text,
+          prop: target.name,
+          row: sources[0].title || t('Untitled'),
+        })
+      : text;
+
+  if (!target || sources.length === 0) {
     return (
-      <select
-        className="prop-input prop-lookup-pick"
-        value=""
-        title={t('Nothing is shown yet — pick the record to fill in')}
-        onChange={(e) => {
-          const c = candidates.find((x) => x.page === e.target.value);
-          if (c) setPicked({ page: c.page, title: c.title, value: undefined });
-        }}
-      >
-        <option value="">{t('Fill in…')}</option>
-        {candidates.map((c) => (
-          <option key={c.page} value={c.page}>
-            {c.title || t('Untitled')}
-          </option>
-        ))}
-      </select>
+      <span className="prop-lookup-plain" title={text || undefined}>
+        {text || <span className="prop-empty">—</span>}
+      </span>
     );
   }
+
+  // One record: the ordinary editor for the field, with the way to that record
+  // beside it.
+  if (sources.length === 1) {
+    const src = sources[0];
+    const label = t('Open “{row}”', { row: src.title || t('Untitled') });
+    return (
+      <span className="prop-lookup-inline">
+        <button
+          type="button"
+          className="prop-lookup-open"
+          title={label}
+          aria-label={label}
+          onClick={(e) => openRecord(e, src.page)}
+        >
+          <ExternalLink size={12} />
+        </button>
+        <span className="prop-lookup-field" title={title}>
+          <PropertyValue
+            def={target}
+            value={src.value}
+            onChange={canEdit ? (v) => void save(src, v) : undefined}
+          />
+        </span>
+      </span>
+    );
+  }
+
+  // Several records: the cell names them and edits each one in its own block.
   return (
-    <span
-      className="prop-lookup"
-      title={t('{prop} of “{row}” — editing here changes that record', {
-        prop: target.name,
-        row: write.title || t('Untitled'),
-      })}
-    >
-      <PropertyValue
-        def={target}
-        value={write.value}
-        onChange={async (v) => {
-          await onWrite(write.page, prop, v, write.value);
-          setPicked(null);
-          notifyLookupWrite(write.title, target.name);
-        }}
-      />
+    <span className="prop-lookup-many">
+      {canEdit ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          className="prop-lookup"
+          title={title}
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {text || <span className="prop-empty">—</span>}
+        </button>
+      ) : (
+        <span className="prop-lookup-plain" title={title}>
+          {text || <span className="prop-empty">—</span>}
+        </span>
+      )}
+      {open && pos && (
+        <Portal>
+          <div className="select-backdrop" onClick={() => setOpen(false)} />
+          <div
+            className="select-menu lookup-menu"
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              top: pos.top,
+              bottom: pos.bottom,
+              width: pos.width,
+              maxHeight: pos.maxHeight,
+            }}
+          >
+            {sources.map((src) => (
+              <div key={src.page} className="lookup-menu-row">
+                <div className="lookup-menu-head">
+                  <span className="lookup-menu-title" title={src.title}>
+                    {src.title || t('Untitled')}
+                  </span>
+                  <button
+                    type="button"
+                    className="lookup-menu-open"
+                    onClick={(e) => openRecord(e, src.page)}
+                  >
+                    {t('Open')}
+                  </button>
+                </div>
+                <div className="lookup-menu-field">
+                  <PropertyValue
+                    def={target}
+                    value={src.value}
+                    onChange={canEdit ? (v) => void save(src, v) : undefined}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Portal>
+      )}
     </span>
   );
 }
@@ -1622,25 +1754,21 @@ export default function PropertyValue({
     }
     case 'rollup':
     case 'formula': {
-      // Several records put a value in this cell: draw one chip per value, so a
-      // repeated contact reads as two linked records rather than one person
-      // listed twice. The joined string is what the field still stores.
-      if (lookup?.values && lookup.values.length > 1) {
+      // A lookup carries values from records that can be edited where the cell
+      // is read (see server/lookup_write.go): one record edits in place,
+      // several open a list with a block per record. Anything else computed is
+      // read-only, as it always was.
+      if (lookup?.sources?.length) {
         return (
-          <span className="prop-lookup-chips">
-            {lookup.values.map((v, i) => (
-              <span key={i} className="prop-chip prop-lookup-chip" title={v.title || undefined}>
-                {v.text}
-              </span>
-            ))}
-          </span>
+          <LookupCell
+            value={value}
+            cell={lookup}
+            readOnly={readOnly}
+            onWrite={onLookupWrite}
+            onOpen={onOpen}
+            openers={openers}
+          />
         );
-      }
-      // A lookup whose value belongs to exactly one record can be edited where
-      // it is read (see server/lookup_write.go); with nothing shown and several
-      // candidates, the cell asks which record to fill first.
-      if (lookup && (lookup.write || lookup.candidates?.length) && onLookupWrite && !ro) {
-        return <LookupField cell={lookup} onWrite={onLookupWrite} />;
       }
       // Computed server-side; always read-only. Renders the number or an
       // inline "⚠ …" for a bad formula (division by zero, cycle, …).

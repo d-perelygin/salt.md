@@ -237,7 +237,7 @@ of them are done.
 | **Max** | the largest of them | `0` |
 | **Percent** | the share of related rows meeting the condition, to one decimal | `0` |
 | **First value** | the first value of the chosen property, as text — see [Lookups](#lookups-a-value-instead-of-a-number) | *(empty)* |
-| **All values (with repeats)** | every value of every related row, in row order, joined with `, ` | *(empty)* |
+| **All values (with repeats)** | every value of every related row, in row order, joined with `; ` | *(empty)* |
 | **Unique values** | the same values, repeats removed | *(empty)* |
 
 Five details that decide what the number means:
@@ -274,8 +274,8 @@ collection shows it:
 
 - a **select** is its option's name, never the stored id;
 - a **multi-select** is its option names — and "All values" flattens every row's
-  list, so two companies tagged *еда* give `еда, …, еда`, while **Unique
-  values** gives `еда` once;
+  list, so two companies tagged *еда* give `еда; …; еда`, while **Unique values**
+  gives `еда` once;
 - a **person** is a name, a **checklist** is its progress (`3/5`), a **date**
   and a **number** keep what is stored, a ticked **checkbox** is `✓`;
 - a value the schema no longer knows is shown as stored rather than dropped.
@@ -290,31 +290,34 @@ Three things to know before trusting the column:
 - **There is no Display choice.** A bar or a ring needs a number, so the
   **Display** field is not offered for these three.
 
-**Several values are drawn as chips, one per record.** A lookup over two linked
-companies that both hold a contact shows two chips, each naming its record on
-hover — not one line with a comma whose position decides nothing. The stored
-value is still the joined string, which is what exports and agents read; a
-lookup that resolves to a single value stays plain text.
+**Several values share one quiet line.** They are joined with a semicolon, not
+a comma: a contact reads `Иван, +7…`, so a comma between values would turn one
+person into two. The cell stays one line tall and truncates with an ellipsis;
+the full text is in its tooltip. A lookup column is still plain values, not a
+column of pills — that would turn a table into a gallery.
+
+The column says where its values come from once, in its header: a small link
+mark next to the name. The cell itself carries no decoration.
 
 ### Editing a lookup where it is read
 
 A value that lives in another record can be edited where you see it, and the
-write goes there. That is the whole rule, and it holds at any number of linked
-rows:
+write goes there. How the cell behaves depends on how many records are behind
+the value:
 
-- **one record put the value in the cell** — however many rows are linked — that
-  record is the source. Editing the cell edits it;
-- **nothing is shown and exactly one record could hold it** — that record is the
-  source, so the empty cell can be filled from here;
-- **nothing is shown and several records could hold it** — the cell asks which
-  one (**Fill in…**), because a text box must not guess a record;
-- **several records put values there** — the cell is read-only: it is a join,
-  and a join has no single target.
+- **one record** — the field itself is edited in place, with the way to that
+  record (an arrow) beside it. Click the value, change it, leave the field;
+- **several records** — the cell opens a short list: one block per record, its
+  title, an **Open** button, and the field that belongs to it. Every block
+  writes to its own record, so a join is never edited as one string;
+- **nothing shown and several records could hold it** — the same list, with the
+  fields empty. Type in the one you mean;
+- **nothing shown and one record could hold it** — that record's field, in
+  place.
 
-The cell carries a dotted rule and names the record on hover ("Contact of
-“Acme” — editing here changes that record"). The first write shows a notice at
-the bottom saying where the value went, with **Don't show again**; afterwards
-the dotted rule and the tooltip are the reminder.
+The cell names the record on hover ("Anna — Contact of “Acme”"). The first write
+shows a notice at the bottom saying where the value went, with **Don't show
+again**; afterwards the header mark and the tooltip are the reminder.
 
 What is written is the target field itself: the same validation, the same
 history entry on that record, the same `page.updated`, no copy and no second

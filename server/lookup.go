@@ -64,7 +64,10 @@ func mergeLookup(agg string, vals []string) string {
 	if len(vals) > lookupMaxValues {
 		vals = vals[:lookupMaxValues]
 	}
-	out := strings.Join(vals, ", ")
+	// A semicolon, not a comma: a contact is "Иван, +7…", so a comma between
+	// values turns one person into two. See also mergeLookup's callers — the
+	// interface shows this string as the cell's text.
+	out := strings.Join(vals, "; ")
 	if len(out) > lookupMaxLen {
 		out = out[:lookupMaxLen] + "…"
 	}

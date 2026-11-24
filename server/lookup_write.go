@@ -9,30 +9,27 @@ import "encoding/json"
 // always shown it read-only — even though the value itself lives in a perfectly
 // ordinary field of another row, one keystroke away.
 //
-// The rule here is the smallest one that stays honest at any cardinality: a
-// lookup may be edited where it is read when the shown value belongs to exactly
-// ONE record. The edit then lands in that record — the same field, the same
-// history, the same page.updated, no copy and no second truth.
+// A lookup cell is edited where it is read, but never blindly:
 //
-//   - one related row put a value in the cell (however many rows are linked):
-//     that row is the source;
-//   - nothing is shown and exactly one related row could hold it: that row is
-//     the source, because filling the gap has one place to go;
-//   - nothing is shown and several rows could hold it: the cell offers them by
-//     name ("Fill from …"), because a text box cannot answer "which one".
-//   - several rows put values in the cell: read-only. Editing a join of two
-//     records has no single target; the cell names each value instead.
+//   - ONE record behind the value: the cell edits it in place, next to a button
+//     that opens that record;
+//   - SEVERAL records: the cell opens a small list, one block per record — its
+//     title, a button to open it, and the field to change. Each write lands in
+//     its own record, so a join never has to be edited as a string;
+//   - nothing shown and several records could hold the value: the same list,
+//     with the fields empty.
 //
-// Everything below that is not a matter of taste:
-//   - a type that has an editor: text, number, url, date, checkbox, select,
-//     multi-select, person. A checklist lookup reads "2/5", a relation lookup
-//     reads ids, and a derived property cannot be written at all;
-//   - write permission on the source record, and the workspace boundary of a
-//     narrowed token — a lookup must not become a way around either;
-//   - a trashed source is not offered (it is not read either);
-//   - the workflow status property of a collection is not offered: editing a
-//     status from another table would slip past the dialog that asks for the
-//     fields a move requires.
+// What the interface gets is the list of records the value comes from and may
+// be written to. It never gets a record the caller cannot write, because a
+// lookup must not become a way around permission, and it never gets one whose
+// field has no editor or whose move a workflow governs:
+//
+//   - text, number, url, date, checkbox, select, multi-select, person;
+//   - not a checklist (the cell reads "2/5"), a relation, or a computed field;
+//   - not a record in the trash (it is not read either);
+//   - not the workflow status of the target collection: a status moves through
+//     a dialog that collects the fields the move requires, and a cell in
+//     another database would slip past it.
 
 // editableLookupTargets are the property types a lookup may write through: the
 // ones the interface knows how to edit in place.
@@ -47,24 +44,28 @@ var editableLookupTargets = map[string]bool{
 	"person":      true,
 }
 
-// lookupCellValue is one visible value of a lookup and the row it came from.
-// The cell renders each of them as its own chip, because the joined string —
-// "Иван, +7…, Мария, +7…" — reads as two people who are really four.
-type lookupCellValue struct {
-	Text  string `json:"text"`
+// lookupMaxSources caps the list behind one cell. A lookup over fifty rows is a
+// report, not a field: the cell shows the values, and editing stops naming them
+// at a number a person can still read.
+const lookupMaxSources = 20
+
+// lookupSource is one record behind a lookup cell: which record, what it is
+// called, and the raw value its field holds (a select stores an id, a date a
+// day — the cell shows rendered text that cannot be parsed back reliably).
+type lookupSource struct {
 	Page  string `json:"page"`
 	Title string `json:"title"`
+	Value any    `json:"value"`
 }
 
-// lookupCell computes a lookup's text and everything the interface needs to
-// show it as records rather than a string, and to edit it where that is honest.
-// The second return is nil when there is nothing to say beyond the text.
+// lookupCell computes a lookup's text and, when it can be edited where it is
+// read, the records behind it. The second return is nil when there is nothing
+// to offer, and the cell stays as read-only as it always was.
 func (s *Server) lookupCell(u *user, ru propDef, collectionID string, target propDef, ok bool, related []relatedRow, names map[string]string) (string, map[string]any) {
 	if !ok {
 		return "", nil
 	}
 	vals := make([]string, 0, len(related))
-	shown := make([]lookupCellValue, 0, len(related))
 	var contributors, candidates []relatedRow
 	for _, tr := range related {
 		if !matchesRollupWhere(ru, tr.props) {
@@ -76,113 +77,50 @@ func (s *Server) lookupCell(u *user, ru propDef, collectionID string, target pro
 			continue
 		}
 		contributors = append(contributors, tr)
-		for _, v := range got {
-			vals = append(vals, v)
-			shown = append(shown, lookupCellValue{Text: v, Page: tr.id, Title: tr.title})
-		}
+		vals = append(vals, got...)
 	}
 	text := mergeLookup(ru.RollupAgg, vals)
 
-	// The chips say what the string says: "first" shows one value, "unique"
-	// collapses repeats, and both are capped where mergeLookup caps them.
-	switch ru.RollupAgg {
-	case "first":
-		if len(shown) > 1 {
-			shown = shown[:1]
-		}
-	case "unique":
-		seen := make(map[string]bool, len(shown))
-		uniq := shown[:0]
-		for _, v := range shown {
-			if seen[v.Text] {
-				continue
-			}
-			seen[v.Text] = true
-			uniq = append(uniq, v)
-		}
-		shown = uniq
-	}
-	if len(shown) > lookupMaxValues {
-		shown = shown[:lookupMaxValues]
-	}
-
-	cell := map[string]any{}
-	if len(shown) > 0 {
-		cell["values"] = shown
-	}
-	s.describeLookupWrite(u, cell, ru, collectionID, target, contributors, candidates)
-	if len(cell) == 0 {
-		return text, nil
-	}
-	return text, cell
-}
-
-// describeLookupWrite fills the write half of a lookup cell: which record owns
-// the shown value, which property there holds it, and its raw value (a select
-// stores an id, a date a day — the cell shows rendered text that cannot be
-// parsed back reliably). It writes nothing and never fails: a lookup that
-// cannot be offered simply has no write half, and stays read-only.
-func (s *Server) describeLookupWrite(u *user, cell map[string]any, ru propDef, collectionID string, target propDef, contributors, candidates []relatedRow) {
 	if !editableLookupTargets[target.Type] {
-		return
+		return text, nil
 	}
 	// A status with rules behind it moves through a dialog. Writing it from
 	// here would skip the answers that dialog collects, so a lookup never
 	// offers one — the same move is one click away in its own table.
 	if s.isWorkflowStatus(collectionID, ru.RollupTarget) {
-		return
+		return text, nil
 	}
 
-	// The address of the value travels outside the write half: the fill menu
-	// needs it before there is a record to write to.
-	cell["prop"] = ru.RollupTarget
-	cell["collection"] = collectionID
-	cell["type"] = target.Type
-	write := map[string]any{}
-	writable := func(r relatedRow) bool {
-		return s.canWrite(u.ID, r.id) && s.credentialMayEnter(u, s.pageWorkspace(r.id))
+	// The records the cell edits: the ones that put a value there, or — when
+	// nothing is shown — every record that could hold it. "First value" shows
+	// one record's value, so it edits that record and not the others behind
+	// the cell.
+	behind := contributors
+	if ru.RollupAgg == "first" && len(behind) > 1 {
+		behind = behind[:1]
 	}
-
-	switch {
-	case len(contributors) == 1:
-		src := contributors[0]
-		if !writable(src) {
-			return
-		}
-		write["page"] = src.id
-		write["title"] = src.title
-		write["value"] = src.props[ru.RollupTarget]
-	case len(contributors) == 0 && len(candidates) == 1:
-		src := candidates[0]
-		if !writable(src) {
-			return
-		}
-		write["page"] = src.id
-		write["title"] = src.title
-		write["value"] = src.props[ru.RollupTarget]
-	case len(contributors) == 0 && len(candidates) > 1:
-		// Nothing shown, several records could hold the value. Name them, and
-		// let the person pick before typing: a text box must not guess.
-		list := make([]map[string]any, 0, len(candidates))
-		for _, c := range candidates {
-			if !writable(c) {
-				continue
-			}
-			list = append(list, map[string]any{"page": c.id, "title": c.title})
-			if len(list) == 20 {
-				break
-			}
-		}
-		if len(list) == 0 {
-			return
-		}
-		cell["candidates"] = list
-		return
-	default:
-		// Several rows contributed: the cell is a join, not a field.
-		return
+	if len(behind) == 0 {
+		behind = candidates
 	}
-	cell["write"] = write
+	sources := make([]lookupSource, 0, len(behind))
+	for _, r := range behind {
+		if !s.canWrite(u.ID, r.id) || !s.credentialMayEnter(u, s.pageWorkspace(r.id)) {
+			continue
+		}
+		sources = append(sources, lookupSource{Page: r.id, Title: r.title, Value: r.props[ru.RollupTarget]})
+		if len(sources) == lookupMaxSources {
+			break
+		}
+	}
+	if len(sources) == 0 {
+		return text, nil
+	}
+	return text, map[string]any{
+		"prop":       ru.RollupTarget,
+		"collection": collectionID,
+		"type":       target.Type,
+		"sources":    sources,
+	}
 }
 
 // isWorkflowStatus reports whether propID is the status property a workflow on

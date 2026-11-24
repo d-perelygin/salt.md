@@ -53,10 +53,10 @@ func TestRollupLookupPullsRelatedValues(t *testing.T) {
 	// "All values" keeps every value of every related row, duplicates included:
 	// it says what the rows hold, not how many kinds there are. "Unique" is the
 	// function that collapses them, and the two must not quietly become one.
-	if got, _ := both["cats"].(string); got != "еда, IT, еда" {
+	if got, _ := both["cats"].(string); got != "еда; IT; еда" {
 		t.Errorf("all lookup is %q, want every value in row order", got)
 	}
-	if got, _ := both["cats-unique"].(string); got != "еда, IT" {
+	if got, _ := both["cats-unique"].(string); got != "еда; IT" {
 		t.Errorf("unique lookup is %q, want the same two categories once", got)
 	}
 	// The condition narrows the rows the lookup reads, exactly as it narrows a
@@ -174,7 +174,7 @@ func TestLookupTextFormatsScalars(t *testing.T) {
 func TestLookupValueIsAString(t *testing.T) {
 	vals := []string{"Крупный", "еда", "IT"}
 	out := mergeLookup("all", vals)
-	if out != "Крупный, еда, IT" {
+	if out != "Крупный; еда; IT" {
 		t.Fatalf("all: %q", out)
 	}
 	b, err := json.Marshal(map[string]any{"v": out})
@@ -184,7 +184,7 @@ func TestLookupValueIsAString(t *testing.T) {
 	if got := mergeLookup("first", nil); got != "" {
 		t.Errorf("empty first: %q", got)
 	}
-	if got := mergeLookup("unique", []string{"a", "b", "a"}); got != "a, b" {
+	if got := mergeLookup("unique", []string{"a", "b", "a"}); got != "a; b" {
 		t.Errorf("unique: %q", got)
 	}
 }

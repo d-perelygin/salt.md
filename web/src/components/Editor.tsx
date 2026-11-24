@@ -932,6 +932,11 @@ function RowProperties({
           <div key={p.id} className="row-prop">
             <div className="row-prop-label" title={p.name}>
               {p.name}
+              {(p.rollupAgg === 'first' || p.rollupAgg === 'all' || p.rollupAgg === 'unique') && (
+                <span className="th-link" title={t('From a linked record — edit it there')}>
+                  <Link2 size={11} />
+                </span>
+              )}
             </div>
             <div className="row-prop-value">
               <PropertyValue

@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// A lookup may be edited where it is read when the shown value belongs to
-// exactly one record. These tests pin the rule from the outside: what a row
-// says about the cell, because that is all the interface gets.
-func TestLookupCellNamesItsRecord(t *testing.T) {
+// A lookup cell names the records behind it, so the interface can edit each of
+// them where the value is read. These tests pin what the row says about the
+// cell, because that is all the interface gets.
+func TestLookupCellNamesItsSources(t *testing.T) {
 	s := testServer(t)
 	uid, _ := signedIn(t, s, "lookup-write@example.test")
 	u := &user{ID: uid}
@@ -50,58 +50,49 @@ func TestLookupCellNamesItsRecord(t *testing.T) {
 		t.Fatalf("row %s not in the answer", rowID)
 		return nil
 	}
-	write := func(rowID, prop string) map[string]any {
-		m, _ := cell(rowID, prop)["write"].(map[string]any)
-		return m
+	sources := func(rowID, prop string) []lookupSource {
+		raw, _ := cell(rowID, prop)["sources"].([]lookupSource)
+		return raw
 	}
 
-	// One record put the value there: the cell says which, and carries the raw
-	// value so an editor can show a select id or a day rather than its text.
-	w := write(linked, "lpr")
-	if w == nil || w["page"] != one {
-		t.Fatalf("one-record lookup write is %#v", w)
+	// One record behind the value: the cell edits that record in place, and
+	// carries its raw value so an editor can show a select id or a day.
+	src := sources(linked, "lpr")
+	if len(src) != 1 || src[0].Page != one || src[0].Title != "Чанган" {
+		t.Fatalf("one-record lookup sources are %#v", src)
+	}
+	if src[0].Value != "Анна +7 905 913-67-63" {
+		t.Errorf("raw value is %#v, want the stored text", src[0].Value)
 	}
 	if c := cell(linked, "lpr"); c["prop"] != "contact" || c["collection"] != companies {
 		t.Errorf("the cell does not address the target field: %#v", c)
 	}
-	if w["value"] != "Анна +7 905 913-67-63" {
-		t.Errorf("raw value is %#v, want the stored text", w["value"])
+
+	// Two records behind the value: the cell opens a list, one editable block
+	// per record — never a single string to edit.
+	src = sources(twoLinks, "list")
+	if len(src) != 2 || src[0].Page != one || src[1].Page != two {
+		t.Fatalf("two-record lookup sources are %#v", src)
 	}
-	if w["title"] != "Чанган" {
-		t.Errorf("source title is %#v, want «Чанган»", w["title"])
+	// "First value" shows ONE record's value, so it edits that record and not
+	// the other rows behind the cell.
+	if src = sources(twoLinks, "lpr"); len(src) != 1 || src[0].Page != one {
+		t.Fatalf("a first-value lookup offered %#v", src)
 	}
 
-	// Two records put values there: read-only. A join has no single target.
-	if w := write(twoLinks, "list"); w != nil {
-		t.Errorf("two-record lookup offered a write target: %#v", w)
+	// Nothing shown, one record could hold it: the gap can be filled from here.
+	src = sources(oneEmpty, "lpr")
+	if len(src) != 1 || src[0].Page != empty {
+		t.Fatalf("empty single-candidate lookup offers %#v", src)
 	}
-	if w := write(twoLinks, "lpr"); w != nil {
-		// "first" shows one value, but two rows contributed to the cell — and
-		// the one whose value is shown may change with the order of the links.
-		t.Errorf("a multi-contributor first lookup offered a write target: %#v", w)
-	}
-
-	// Nothing shown, one row could hold it: filling the gap has one place to go.
-	w = write(oneEmpty, "lpr")
-	if w == nil || w["page"] != empty {
-		t.Fatalf("empty single-candidate lookup offers %#v", w)
-	}
-	if v, ok := w["value"]; !ok || v != nil {
-		t.Errorf("an empty source should carry a nil value, got %#v", v)
+	if src[0].Value != nil {
+		t.Errorf("an empty source should carry a nil value, got %#v", src[0].Value)
 	}
 
-	// Nothing shown, several rows could hold it: name them and let the person
-	// choose, rather than guessing a record.
-	cands, _ := cell(twoEmpty, "lpr")["candidates"].([]map[string]any)
-	if len(cands) != 2 {
-		t.Fatalf("ambiguous lookup candidates are %#v", cell(twoEmpty, "lpr")["candidates"])
-	}
-
-	// The cell also names every visible value, so the interface can draw one
-	// chip per record instead of a joined string that reads as more people.
-	vals, _ := cell(twoLinks, "list")["values"].([]lookupCellValue)
-	if len(vals) != 2 || vals[0].Title != "Чанган" || vals[1].Title != "СофтЛаб" {
-		t.Errorf("values are %#v, want one per contributing record", vals)
+	// Nothing shown, several records could hold it: name them all, with empty
+	// fields, rather than guessing.
+	if src = sources(twoEmpty, "lpr"); len(src) != 2 {
+		t.Fatalf("ambiguous lookup sources are %#v", src)
 	}
 }
 
@@ -168,15 +159,9 @@ func TestLookupWriteSkipsTrashedRecords(t *testing.T) {
 	}
 	lookups, _ := rows[0]["lookup"].(map[string]any)
 	cell, _ := lookups["lpr"].(map[string]any)
-	w, _ := cell["write"].(map[string]any)
-	if w == nil || w["page"] != live {
-		t.Fatalf("the trashed row is still a write target: %#v", cell)
-	}
-	vals, _ := cell["values"].([]lookupCellValue)
-	for _, v := range vals {
-		if v.Page == gone {
-			t.Errorf("a trashed record is still a visible value: %#v", v)
-		}
+	src, _ := cell["sources"].([]lookupSource)
+	if len(src) != 1 || src[0].Page != live {
+		t.Fatalf("the trashed row is still a source: %#v", cell)
 	}
 }
 
@@ -211,15 +196,9 @@ func TestLookupWriteRefusesWhatItCannotEdit(t *testing.T) {
 	}
 	lookups, _ := rows[0]["lookup"].(map[string]any)
 	for _, prop := range []string{"steps", "status"} {
-		cell, _ := lookups[prop].(map[string]any)
-		if w, ok := cell["write"]; ok {
-			t.Errorf("%s offered a write target: %#v", prop, w)
+		if cell, ok := lookups[prop]; ok {
+			t.Errorf("%s offered a source to write: %#v", prop, cell)
 		}
-	}
-	// The values still travel, so the cell can draw them: refusing a write must
-	// not make the row less readable.
-	if cell, _ := lookups["status"].(map[string]any); cell["values"] == nil {
-		t.Errorf("the status lookup lost its values")
 	}
 }
 
@@ -251,9 +230,9 @@ func TestLookupWriteTravelsWithThePage(t *testing.T) {
 	if got.Lookup["lpr"] == nil {
 		t.Fatalf("the opened row carries no lookup cell: %s", rec.Body)
 	}
-	w, _ := got.Lookup["lpr"]["write"].(map[string]any)
-	if w == nil || w["page"] != company {
-		t.Errorf("opened row write target is %#v", got.Lookup["lpr"])
+	src, _ := got.Lookup["lpr"]["sources"].([]any)
+	if len(src) != 1 {
+		t.Errorf("opened row sources are %#v", got.Lookup["lpr"]["sources"])
 	}
 	_ = fmt.Sprint(uid)
 }
