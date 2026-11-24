@@ -1917,7 +1917,13 @@ export default function App() {
   // dismiss the peek. Same detached-node reason as downInsideRef above.
   const downKeepsOpenRef = useRef(false);
   const OUTSIDE_OK =
-    '.peek-panel, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
+    // The peek's own surface, and every layer that can float above it. The
+    // select menu is portalled to the body (a table cell clips it), so its
+    // menu and backdrop are NOT inside .peek-panel — without them a click on
+    // the menu's padding, or on its backdrop, read as a click outside the peek
+    // and closed what the select was opened over.
+    '.peek-panel, .menu, .select-menu, .select-backdrop, .fs-popover, .fs-backdrop, ' +
+    '[role="dialog"], [role="listbox"], .dialog, .modal-overlay';
   // Content the peek stays open over: text being read or edited, controls, and
   // every row, card, chip and bar of the collection views. Anything else — the
   // padding of the page and of the views, an empty day cell, the gaps between
