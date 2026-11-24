@@ -526,6 +526,15 @@ func (srv *Server) pageHTML(p *page, printMode bool, o printOptions, pub *pubVie
 	b.WriteString("</title><style>" + style + "</style></head>")
 	b.WriteString(`<body class="` + bodyClass + `">`)
 
+	// A colleague who opened a public link and can edit the page gets one way
+	// out of the read-only view. The href was decided by the handler, which
+	// knows who is asking; an anonymous reader never sees this.
+	if pub != nil && pub.EditHref != "" {
+		b.WriteString(`<a class="pub-edit" href="` + esc(pub.EditHref) + `" target="_blank" rel="noopener">` +
+			`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">` +
+			`<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Edit</a>`)
+	}
+
 	if printMode {
 		b.WriteString(sidePanelHTML())
 	}

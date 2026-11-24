@@ -146,7 +146,13 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 	}
 	opts := publicPrintOptions(s.printOptionsFor(p))
 	docCSP(w, &opts)
-	w.Write([]byte(s.pageHTML(p, false, opts, &pubView{Token: token, View: publicDocView(r), AutoPrint: r.URL.Query().Get("print") == "1"})))
+	// Whoever is signed in and may write this page gets an Edit button; a
+	// public link is otherwise read-only for everyone.
+	editHref := ""
+	if u := s.currentUser(r); u != nil && s.canWrite(u.ID, pageID) {
+		editHref = pageHref(pageID)
+	}
+	w.Write([]byte(s.pageHTML(p, false, opts, &pubView{Token: token, View: publicDocView(r), AutoPrint: r.URL.Query().Get("print") == "1", EditHref: editHref})))
 	// A ?pw= address that just opened must not keep the secret in the bar,
 	// and the tab should remember it like the gates do: the server verified
 	// it to render this page, so staging it into session storage is exact —
@@ -162,6 +168,37 @@ func (s *Server) handlePublicView(w http.ResponseWriter, r *http.Request) {
 				`}catch(e){}})();</script>`))
 		}
 	}
+}
+
+// handlePublicEditAccess answers whether the reader of a share link is also
+// somebody who may EDIT that page — a signed-in colleague who opened a public
+// link, or the owner checking what the link looks like. The public view then
+// offers one way out of it: an Edit button that opens the page in the app.
+//
+// It never leaks anything to an anonymous reader (edit is false, href empty),
+// and the href it does return is the page the caller can already write.
+func (s *Server) handlePublicEditAccess(w http.ResponseWriter, r *http.Request) {
+	u := s.currentUser(r)
+	if u == nil {
+		writeJSON(w, map[string]any{"edit": false, "href": ""})
+		return
+	}
+	var pageID string
+	if s.db.QueryRow(`SELECT page_id FROM share_links WHERE token_hash = ?`, tokenHash(r.PathValue("token"))).Scan(&pageID) != nil {
+		writeJSON(w, map[string]any{"edit": false, "href": ""})
+		return
+	}
+	if !s.canWrite(u.ID, pageID) {
+		writeJSON(w, map[string]any{"edit": false, "href": ""})
+		return
+	}
+	writeJSON(w, map[string]any{"edit": true, "href": pageHref(pageID)})
+}
+
+// pageHref is the internal address of a page. The slug is optional (the id is
+// what the app reads), so a bare /p/<id> is exact and never stale.
+func pageHref(pageID string) string {
+	return "/p/" + pageID
 }
 
 // servePublicAppShell serves index.html for the public collection viewer.

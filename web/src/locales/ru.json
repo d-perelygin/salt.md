@@ -1168,7 +1168,6 @@
   "Tool": "Инструмент",
   "Topic": "Тема",
   "Translate": "Перевести",
-  "Translate this page": "Перевести страницу",
   "Trash": "Корзина",
   "Tray filters": "Фильтры бардачка",
   "Tree · agent view": "Дерево · вид агента",
@@ -1828,5 +1827,13 @@
     "many": "{n} версий",
     "other": "{n} версии"
   },
-  "Changes were not recorded": "Изменения не записывались"
+  "Changes were not recorded": "Изменения не записывались",
+  "Add card at the bottom": "Добавить карточку в конец",
+  "Add card at the top": "Добавить карточку в начало",
+  "Fix grammar, spelling, and punctuation in the following text. Reply with the corrected text only.": "Исправь грамматику, орфографию и пунктуацию в тексте ниже. Ответь только исправленным текстом.",
+  "Fix grammar, spelling, and punctuation on this page. Reply with the corrected text only.": "Исправь грамматику, орфографию и пунктуацию на этой странице. Ответь только исправленным текстом.",
+  "Reopen closed tab": "Открыть закрытую вкладку",
+  "Typed emoji": "Введённый эмодзи",
+  "does not contain": "не содержит",
+  "matches regex": "совпадает с регексом"
 }

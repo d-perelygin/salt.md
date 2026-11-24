@@ -1587,7 +1587,6 @@
   "Tool": "Werkzeug",
   "Topic": "Thema",
   "Translate": "Übersetzen",
-  "Translate this page": "Seite übersetzen",
   "Tray filters": "Filter der Ablage",
   "Triage": "Sichtung",
   "Try a move": "Übergänge prüfen",
@@ -1777,5 +1776,13 @@
     "one": "{n} Version",
     "other": "{n} Versionen"
   },
-  "Changes were not recorded": "Änderungen wurden nicht aufgezeichnet"
+  "Changes were not recorded": "Änderungen wurden nicht aufgezeichnet",
+  "Add card at the bottom": "Karte unten hinzufügen",
+  "Add card at the top": "Karte oben hinzufügen",
+  "Fix grammar, spelling, and punctuation in the following text. Reply with the corrected text only.": "Korrigiere Grammatik, Rechtschreibung und Zeichensetzung im folgenden Text. Antworte nur mit dem korrigierten Text.",
+  "Fix grammar, spelling, and punctuation on this page. Reply with the corrected text only.": "Korrigiere Grammatik, Rechtschreibung und Zeichensetzung auf dieser Seite. Antworte nur mit dem korrigierten Text.",
+  "Reopen closed tab": "Geschlossenen Tab wieder öffnen",
+  "Typed emoji": "Eingetipptes Emoji",
+  "does not contain": "enthält nicht",
+  "matches regex": "passt auf Regex"
 }

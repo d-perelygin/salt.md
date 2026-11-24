@@ -134,6 +134,14 @@ menu:
 | **Move to** → a column | Same as dragging. Only columns the card is not already in are listed, and picking **No …** clears the value. |
 | **Move to trash** | Asks *Move “…” to the trash?* with the row's title first, then moves the row to the trash. Reversible from [Trash](trash-and-recovery.md). |
 
+A column heading carries a `⋯` beside its count, and it is about the column
+rather than the card: **Add card at the top** and **Add card at the bottom**
+create a row already carrying that column's value, at that end of the column,
+and open it in the side peek. Long columns are why it is there — a board grouped
+by status can run to hundreds of cards, and scrolling to the foot of **Done** to
+add one has nothing to recommend it. Both entries otherwise do the same thing
+**＋ New** under the column does.
+
 At the bottom of every column is **＋ New**, which creates a row with that
 column's value already set and opens it in the side peek — a page that slides
 over the right of the screen rather than taking a tab. Under the catch-all
@@ -443,6 +451,7 @@ and the labels change to suit it:
 | person | **is any of** · **is none of** · **contains** · is empty · is not empty |
 | text | is · is not · **contains** · is empty · is not empty |
 | select, multi-select, relation | **is any of** · **is none of** · is empty · is not empty |
+| the row's title | is · is not · **contains** · **does not contain** · **matches regex** · is empty · is not empty |
 | everything else | is · is not · is empty · is not empty |
 
 What they mean:
@@ -464,12 +473,12 @@ person), `is` and `is_not` take **several** values at once and read *is any of* 
 happen to be about the same column: "class is none of A, H" is a single thing to
 read and a single thing to change.
 
-Three conditions are not about a property at all. **Is a template** and **is
-not a template** filter by whether the row is a template; **Created** and
-**Updated** filter by when the row was made and last touched, with the date
-operators. All three are facts about the page rather than about any column, and
-the picker keeps them under their own **System** heading, away from the
-collection's **Columns**.
+Four conditions are not about a property at all. **Title** filters by the row's
+own name — see below; **Is a template** and **is not a template** filter by
+whether the row is a template; **Created** and **Updated** filter by when the row
+was made and last touched, with the date operators. All of them are facts about
+the page rather than about any column, and the picker keeps them under their own
+**System** heading, away from the collection's **Columns**.
 
 **A condition with nothing filled in does not filter.** It waits, and says so.
 It used to compare against the empty string and therefore match nothing, so the
@@ -494,8 +503,19 @@ Three behaviours that surprise people:
   *is none of*; under *contains* it is plain text. An agent filtering with `@me`
   gets the account its key or sign-in belongs to.
 
-The row **title** is not a property and cannot be filtered. To find rows by
-title use [Search](search.md).
+**Title** is the row's name, offerable as a condition of its own: `contains`,
+`does not contain`, `is`, `is not`, `is empty`, `is not empty`, and `matches
+regex`. The regex is case-insensitive and unanchored, so `#1[0-9]{2}\b` finds
+rows mentioning an issue in the hundreds and `draft|todo` finds either word. A
+pattern that does not compile is not a condition yet: it filters nothing, so the
+table keeps its rows while you finish typing. A `contains` on the title is a
+plain substring, which is what you want nine times out of ten; the regex is
+there for the tenth.
+
+Titles used to be unfilterable, and this is not [Search](search.md) wearing a
+condition's clothes: a search looks across the whole workspace and cannot be
+combined with the view's other conditions, while a title filter is one more line
+in the same AND/OR tree and is saved with the view like the rest.
 
 **Filtering happens twice.** The conditions go to the database first, so a
 collection with fifty thousand rows is narrowed before anything is sent; what is

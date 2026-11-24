@@ -761,6 +761,10 @@ export const api = {
 
   // Public collection sharing (anonymous side). Password travels in
   // X-Share-Password, same as the single-page public API.
+  /** Whether the reader of a share link may also EDIT the page behind it.
+   *  A signed-in colleague gets `edit` and the internal address to open. */
+  publicEditAccess: (token: string) =>
+    req<{ edit: boolean; href: string }>(`/api/public/access/${token}`),
   publicCollection: (token: string, password?: string) =>
     req<PublicCollectionConfig>(`/api/public/c/${token}`, {
       headers: password ? { 'X-Share-Password': password } : undefined,

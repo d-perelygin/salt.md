@@ -152,6 +152,13 @@ follows a space, so `my_var_name` stays literal.
 Typing `:` followed by at least two letters opens the **emoji picker**; typing
 `@` or `[[` opens the page-link menu (below).
 
+The picker (also reached from a page's icon) takes a word — *rocket*, *green
+heart* — and it takes the emoji itself: paste 🙂, or type it where an input
+method makes one, and it appears under **Typed emoji** at the top. Nothing about
+an emoji is spelled like its name, so a picker that only understood words made
+you go and find the symbol in some other window to copy from. Pasting a run of
+them puts each one it recognises in that group.
+
 ### The block handles
 
 Hover a block and two controls appear in the left margin: **Add block** (`+`),

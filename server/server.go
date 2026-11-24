@@ -366,6 +366,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("POST /api/public/form/{token}/submit", s.handlePublicFormSubmit)
 	m.HandleFunc("GET /api/public/{token}", s.handlePublicPage)
 	m.HandleFunc("GET /api/public/c/{token}", s.handlePublicCollection)
+	m.HandleFunc("GET /api/public/access/{token}", s.handlePublicEditAccess)
 	m.HandleFunc("GET /api/public/c/{token}/rows", s.handlePublicCollectionRows)
 	m.HandleFunc("GET /api/public/c/{token}/row/{rowId}", s.handlePublicCollectionRow)
 	m.HandleFunc("GET /public/{token}", s.handlePublicView)

@@ -424,6 +424,7 @@ where the document tree would be: the same cards, the same **All** and
 | `⌘K` / `Ctrl+K` | opens the search dialog; pressing it again closes it |
 | `⌥N` / `Alt+N` | a new page at the top level of the current workspace |
 | `Ctrl+Alt+←` / `Ctrl+Alt+→` | previous / next tab, wrapping around. Ignored while you are typing, and needs at least two tabs. `⌘` is deliberately not part of it: that combination belongs to the browser |
+| `Alt+Shift+T` | reopens the last tab you closed, the way a browser does, and again for the one before it. The last twenty are kept; a page since deleted or no longer readable is skipped |
 | `↑` `↓` `Enter` | in the search dialog, once you have typed: move through the results, open the selected one. The recently-opened list is click-only |
 | `Escape` | closes the search dialog, any open menu, an image opened full-screen, a file preview, the icon picker, and a confirmation |
 | `Enter` | confirms a dialog that asks for a single line of text |
