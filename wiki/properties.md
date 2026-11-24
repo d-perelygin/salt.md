@@ -128,7 +128,9 @@ cards from «In progress»", "the «Shooting» checklist isn't finished",
 the same thing in a toast if it is. A status no rule mentions stays open, so
 moving one takes no rule at all. While a card is in the air on a board grouped
 by its status, the same mark moves to the column headings: a column the card
-cannot enter is dimmed and locked, with the reason on hover.
+cannot enter is dimmed and locked, with the reason on hover. The card's own
+⋯ menu is tighter: it lists only the moves that will work, because a menu item
+that can only answer "no" is not an action.
 
 **Ask AI** in the same header hands the document and its errors to the chat
 beside the page, with the task already typed ("fix these errors" or "describe

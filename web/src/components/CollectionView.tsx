@@ -3586,6 +3586,23 @@ function BoardView({
     }
   }
 
+  // Where this card can go from the card's own menu. On a status board the
+  // menu keeps the moves that will actually happen: a drop the process refuses
+  // is not a choice, it is a toast waiting to say no. The catch-all ""no
+  // status"" column goes too — the process describes statuses, and its first
+  // one is the "not set yet" state.
+  const moveTargets = (r: Row) => {
+    const wfStatus = !!workflow?.statusPropId && workflow.statusPropId === groupBy;
+    const raw = r.props[groupBy];
+    const from = Array.isArray(raw) ? String(raw[0] ?? '') : String(raw ?? '');
+    return columns.filter((c) => {
+      if (rowsFor(c.id).some((x) => x.id === r.id)) return false;
+      if (!wfStatus) return true;
+      if (c.id === UNSET) return false;
+      return !workflowBlockReason(workflow, allProps, r.props, from, c.id);
+    });
+  };
+
   const rowsFor = (optId: string) =>
     rows.filter((r) => {
       const v = r.props[groupBy];
@@ -3729,11 +3746,10 @@ function BoardView({
                         >
                           <ExternalLink size={15} /> {t('Open in new tab')}
                         </button>
-                        {columns.filter((c) => !rowsFor(c.id).some((x) => x.id === r.id)).length > 0 && (
+                        {moveTargets(r).length > 0 && (
                           <div className="menu-label">{t('Move to')}</div>
                         )}
-                        {columns
-                          .filter((c) => !rowsFor(c.id).some((x) => x.id === r.id))
+                        {moveTargets(r)
                           .map((c) => (
                             <button
                               key={c.id}
