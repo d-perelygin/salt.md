@@ -14,6 +14,7 @@ import {
 } from '../workflow';
 import { onRefresh } from '../pwa';
 import { clearProcessSession, processTab, readProcessPart, writeProcessPart } from '../processSession';
+import { StatusGateProvider } from '../statusMarks';
 import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
 import { useShortcut } from '../keys';
@@ -1519,6 +1520,15 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     return position;
   };
 
+  // The process travels down to the property cells through this context: the
+  // status select marks the moves it refuses (statusMarks.tsx). Above the
+  // early return below, or the hook count differs between the loading render
+  // and the real one (React #310).
+  const statusGate = useMemo(
+    () => ({ workflow: config?.workflow, schema }),
+    [config?.workflow, schema],
+  );
+
   if (!config || !view) return <div className="editor-loading" />;
 
   // Undo restores a whole view object, not a patch: by the time it runs the
@@ -1927,6 +1937,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   );
 
   return (
+    <StatusGateProvider value={statusGate}>
     <div
       ref={rootRef}
       className={
@@ -2102,6 +2113,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         />
       )}
     </div>
+    </StatusGateProvider>
   );
 }
 
@@ -3327,6 +3339,7 @@ function BoardCardProps({
           value={row.props[p.id]}
           readOnly={!tickable}
           compact
+          rowProps={row.props}
           onOpen={onOpen}
           openers={openers}
           onChange={(nv) => onSetProp(row.id, p.id, nv)}
@@ -3360,6 +3373,7 @@ function BoardCardProps({
               <PropertyValue
                 def={p}
                 value={row.props[p.id]}
+                rowProps={row.props}
                 onChange={(nv) => onSetProp(row.id, p.id, nv)}
                 onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                 onOpen={onOpen}
@@ -4153,6 +4167,7 @@ function TableView({
                   <PropertyValue
                     def={p}
                     value={r.props[p.id]}
+                    rowProps={r.props}
                     onChange={(v) => onSetProp(r.id, p.id, v)}
                     onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                     maxChips={2}
@@ -6110,6 +6125,7 @@ function TimelineView({
                       <PropertyValue
                         def={p}
                         value={row.props[p.id]}
+                        rowProps={row.props}
                         onChange={onSetProp ? (v) => onSetProp(row.id, p.id, v) : undefined}
                         onOptionsChange={onSetOptions ? (opts) => onSetOptions(p.id, opts) : undefined}
                         maxChips={1}

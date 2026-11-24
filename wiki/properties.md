@@ -121,6 +121,13 @@ List editor. Writing one moves the rule out of List automatically — the tab
 asks first, and a checkbox makes it move silently from then on. Code blocks
 appear in the List as locked rows that jump to their source.
 
+The status select reads the process back. Options this row cannot move to are
+dimmed and carry a lock, with the reason on hover — "«On review» only takes
+cards from «In progress»", "the «Shooting» checklist isn't finished",
+"«Deadline» is empty". Nothing is hidden: the option stays pickable and says
+the same thing in a toast if it is. A status no rule mentions stays open, so
+moving one takes no rule at all.
+
 **Ask AI** in the same header hands the document and its errors to the chat
 beside the page, with the task already typed ("fix these errors" or "describe
 what should change"). The answer never lands in the editor by itself: the

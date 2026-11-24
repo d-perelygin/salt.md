@@ -77,6 +77,7 @@ export default function ListView({
                   key={p.id}
                   def={p}
                   value={r.props?.[p.id]}
+                  rowProps={r.props}
                   compact
                   readOnly={readOnly}
                   onChange={readOnly ? undefined : (v) => onSetProp(r.id, p.id, v)}

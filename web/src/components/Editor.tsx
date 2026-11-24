@@ -33,6 +33,7 @@ import {
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
+import { StatusGateProvider } from '../statusMarks';
 import type { Backlink, CollectionConfig, Comment, CommentAnchor, Page, PageMeta, PropOption, User, Workspace } from '../types';
 import { SaltProvider } from '../collab';
 import { getLocale, plural, t } from '../i18n';
@@ -898,6 +899,7 @@ function RowProperties({
   };
 
   return (
+    <StatusGateProvider value={{ workflow: config.workflow, schema: config.schema }}>
     <>
       <BlockedBanner
         pageId={pageId}
@@ -921,6 +923,7 @@ function RowProperties({
               <PropertyValue
                 def={p}
                 value={props[p.id]}
+                rowProps={props}
                 onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
                 onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
                 readOnly={!canEdit}
@@ -932,6 +935,7 @@ function RowProperties({
         ))}
       </div>
     </>
+    </StatusGateProvider>
   );
 }
 

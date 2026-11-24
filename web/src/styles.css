@@ -8432,6 +8432,11 @@ body.is-unsched-carry .tl-end-space {
 .select-back:hover { background: var(--hover); color: var(--fg); }
 .select-editing-name { padding: 4px 6px 8px; }
 .select-option-check { margin-left: auto; color: var(--muted); display: inline-flex; }
+/* A status move the process refuses for this row: marked, never hidden. The
+   chip fades and a lock takes the check's place, with the reason on hover —
+   the option stays pickable and the same reason returns as a toast. */
+.select-option.is-blocked .prop-chip { opacity: 0.5; }
+.select-option.is-blocked .select-option-check { color: var(--muted); opacity: 0.8; }
 .select-option-more {
   padding: 4px 8px;
   color: var(--muted);

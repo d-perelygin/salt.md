@@ -9,7 +9,8 @@ import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
 import { showActivityFor } from './ActivityLogHost';
 import { useChecklistFrac } from '../pageUiState';
 import { initials, nameColor } from './CommentsPanel';
-import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useBlockedStatuses } from '../statusMarks';
 import { PageIcon } from '../pageIcon';
 import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
@@ -35,6 +36,9 @@ interface Props {
    *  decides the plain click). Preferred over onOpen wherever both openers
    *  are in scope; onOpen stays as the fallback for public views. */
   openers?: PageOpeners;
+  /** The row's other values. A status select needs them to know which moves
+   *  the process refuses right now (see statusMarks.tsx). */
+  rowProps?: Record<string, unknown>;
 }
 
 // idList reads a list-shaped value (relation, multiselect). A single id stored
@@ -78,12 +82,17 @@ export function SelectCell({
   multi,
   onChange,
   onOptionsChange,
+  blocked,
 }: {
   def: PropDef;
   value: unknown;
   multi: boolean;
   onChange: (v: unknown) => void;
   onOptionsChange?: (options: PropOption[]) => void;
+  /** Option id → why the process refuses that move for this row. Marked, not
+   *  hidden: the option stays pickable, and the same reason comes back as a
+   *  toast if it is. */
+  blocked?: Record<string, string>;
 }) {
   // Robust against badly written schemas: when an option arrives as a bare
   // string (rather than {id, name}), `o.name.toLowerCase()` used to throw the
@@ -240,13 +249,21 @@ export function SelectCell({
                   }}
                 />
                 <div className="select-options">
-                  {filtered.map((o) => (
-                    <div key={o.id} className={'select-option' + (selected(o.id) ? ' on' : '')}>
+                  {filtered.map((o) => {
+                    const why = blocked?.[o.id];
+                    return (
+                    <div
+                      key={o.id}
+                      className={'select-option' + (selected(o.id) ? ' on' : '') + (why ? ' is-blocked' : '')}
+                      title={why || undefined}
+                    >
                       <button className="select-option-main" onClick={() => pick(o.id)}>
                         <span className="prop-chip" style={{ background: o.color + '2e', color: o.color }}>
                           {o.name}
                         </span>
-                        <span className="select-option-check">{selected(o.id) && <Check size={15} />}</span>
+                        <span className="select-option-check">
+                          {why ? <Lock size={12} aria-label={why} /> : selected(o.id) && <Check size={15} />}
+                        </span>
                       </button>
                       {onOptionsChange && (
                         <button
@@ -258,7 +275,8 @@ export function SelectCell({
                         </button>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {query && !exact && onOptionsChange && (
                     <button className="select-create" onClick={create}>
                       <Plus size={15} /> {t('Create “{name}”', { name: query })}
@@ -1272,9 +1290,13 @@ export default function PropertyValue({
   maxChips,
   onOpen,
   openers,
+  rowProps,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const ro = readOnly || !onChange;
+  // Which status moves the process refuses for this row. Undefined for every
+  // property that is not the process's status property.
+  const blockedStatuses = useBlockedStatuses(def, value, rowProps);
 
   switch (def.type) {
     case 'relation':
@@ -1361,6 +1383,7 @@ export default function PropertyValue({
           multi={false}
           onChange={onChange!}
           onOptionsChange={onOptionsChange}
+          blocked={blockedStatuses}
         />
       );
     }
