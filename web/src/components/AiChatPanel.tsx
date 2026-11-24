@@ -1153,7 +1153,7 @@ export default function AiChatPanel(props: {
                 </div>
               )}
             </div>
-            <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.json,.pdf,.docx,.xlsx,.pptx,.odt" style={{ display: 'none' }} onChange={(e) => void attachPicked(e)} />
+            <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.rtf,.log,.pdf,.docx,.xlsx,.pptx,.odt" style={{ display: 'none' }} onChange={(e) => void attachPicked(e)} />
             <AiApprovalSelect value={approval} onChange={setApproval} compact />
             <span className="spacer" />
             <button className="ai-send" onClick={() => void runAsAgent()} disabled={agentBusy} title={t('Send')}>{agentBusy ? '…' : '↑'}</button>
