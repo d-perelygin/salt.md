@@ -287,6 +287,12 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("POST /api/pages/{id}/restore", s.auth(s.handleRestorePage))
 	m.HandleFunc("POST /api/reindex-siblings", s.auth(s.handleReindexSiblings))
 	m.HandleFunc("GET /api/pages/{id}/backlinks", s.auth(s.handleBacklinks))
+	// What still points at a page through a relation, in numbers the "delete
+	// forever" dialog can say before it deletes anything.
+	m.HandleFunc("GET /api/pages/{id}/references", s.auth(s.handlePageReferences))
+	// Titles and trash state for relation ids the picker's list does not hold:
+	// a chip must name the row it points at, never print its id.
+	m.HandleFunc("POST /api/pages/resolve", s.auth(s.handleResolvePages))
 	m.HandleFunc("GET /api/pages/{id}/preview", s.auth(s.handlePreviewPage))
 	m.HandleFunc("GET /api/graph", s.auth(s.handleGraph))
 	m.HandleFunc("GET /api/tags", s.auth(s.handleListTags))

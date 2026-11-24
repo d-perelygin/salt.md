@@ -68,20 +68,40 @@ Two limits worth knowing:
 
 - The picker loads **up to 500 rows** of the target collection. In a collection
   larger than that, a row beyond the first 500 cannot be picked from the list.
-- A chip shows **Untitled** when the row behind it has been trashed, when you may
-  not read it, **or when it sits beyond those first 500**: the chips take their
-  titles from the same list the picker loads, so a perfectly live row can read
-  *Untitled* purely because the collection is large. The id is stored either way,
-  so restoring a trashed row brings its title back.
+- A chip whose row is not in that list is looked up by id, so the cell names it
+  instead of printing the id. A row **in the trash** shows its title with a
+  trash mark; a row you may not read, or one whose page is gone, reads
+  **Unavailable row**. Both carry a **×** to unlink them, because neither can be
+  reached from the picker — before that control existed, such a link could not
+  be removed by hand at all.
 
 ### Re-pointing an existing relation
 
 Changing **Links to** on a relation that already holds values changes nothing in
 the rows: the stored ids stay exactly as they were, and they now name rows in a
-collection that does not contain them. Every chip turns into **Untitled** and
-every rollup over the relation empties out. It is one click, it is silent, and
-there is no warning. Point a relation somewhere else only while it is empty, or
-expect to re-link every row.
+collection that does not contain them. The chips still resolve those ids to the
+rows they point at — a page id is a page id — but those rows are no longer part
+of what the relation means, the picker will not show them as linked, and every
+rollup over the relation reads nothing. It is one click, it is silent, and there
+is no warning. Point a relation somewhere else only while it is empty, or expect
+to re-link every row.
+
+### When a linked row is deleted
+
+Two cases, deliberately different:
+
+- **Trash.** The ids stay in the rows that point at it — that is what makes
+  restoring the row restore the link, with nothing to re-link. Until then the
+  chip shows the title with a trash mark, and **×** unlinks it if you would
+  rather not keep a link to something parked.
+- **Delete forever.** The row can never come back, so the dialog says how many
+  rows link to it, and the delete clears those ids from them in the same
+  transaction. The cleared rows get an entry in the activity log. A link into a
+  page that no longer exists would otherwise sit in a cell forever, printed as
+  an id the picker could not remove.
+
+The same cleanup runs when the retention period empties the trash, so "forever"
+means the same thing on both paths.
 
 ### On a board
 
@@ -215,6 +235,9 @@ of them are done.
 | **Min** | the smallest of them | `0` |
 | **Max** | the largest of them | `0` |
 | **Percent** | the share of related rows meeting the condition, to one decimal | `0` |
+| **First value** | the first value of the chosen property, as text — see [Lookups](#lookups-a-value-instead-of-a-number) | *(empty)* |
+| **All values** | every value of every related row, in row order, joined with `, ` | *(empty)* |
+| **Unique values** | the same values, repeats removed | *(empty)* |
 
 Five details that decide what the number means:
 
@@ -235,6 +258,40 @@ Five details that decide what the number means:
   the column shows zero on every row rather than an error. Unlike a
   half-configured backrelation over MCP, nothing refuses this; check the
   configuration before believing a column of zeroes.
+
+### Lookups: a value instead of a number
+
+**First value**, **All values** and **Unique values** are the same wiring with a
+different job: they carry text across the relation rather than a number. A
+*Tasks* row linked to a reel can show that reel's **Status**; a sponsor linked
+to a company can show the company's **Scale** and its **Categories**.
+
+They are chosen exactly like any other rollup: **Via relation**, **Of
+property**, **Calculate**. **Only rows where** still applies, and still runs
+before the values are read. What comes back is text, resolved the way the target
+collection shows it:
+
+- a **select** is its option's name, never the stored id;
+- a **multi-select** is its option names — and "All values" flattens every row's
+  list, so two companies tagged *еда* give `еда, …, еда`, while **Unique
+  values** gives `еда` once;
+- a **person** is a name, a **checklist** is its progress (`3/5`), a **date**
+  and a **number** keep what is stored, a ticked **checkbox** is `✓`;
+- a value the schema no longer knows is shown as stored rather than dropped.
+
+Three things to know before trusting the column:
+
+- **An empty lookup is an empty cell, not `0`.** A sponsor with no company has
+  nothing to say, and `0` would be a statement about a value that does not
+  exist. This is the one place a rollup differs from "never blank".
+- **Trashed and unreadable rows are skipped**, exactly as they are for a count.
+  Restoring the row brings its value back without touching the rollup.
+- **There is no Display choice.** A bar or a ring needs a number, so the
+  **Display** field is not offered for these three.
+
+A lookup follows one relation. It does not walk a second one (the reel's own
+project, say), and it cannot read another rollup or formula over there: those
+are worked out on read and are not stored to be read from a distance.
 
 ### One gap in the property pickers
 

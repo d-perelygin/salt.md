@@ -1153,7 +1153,18 @@ func (s *Server) handleDeletePage(w http.ResponseWriter, r *http.Request) {
 		idArgs[i] = v
 	}
 
+	var clearedLinks, clearedRows int
+	var clearedPages []string
 	if r.URL.Query().Get("permanent") == "1" {
+		// Links into the subtree live in OTHER rows and can never be restored
+		// once these pages are gone: clear them in the same transaction, so a
+		// row cannot be left pointing at an id no picker will ever list again.
+		// Trashing deliberately does not do this — see relation_cleanup.go.
+		clearedLinks, clearedRows, clearedPages, err = s.purgeSubtree(tx, ids)
+		if err != nil {
+			httpError(w, 500, err.Error())
+			return
+		}
 		// Explicitly clear extracted file text for the subtree: older DBs may
 		// predate the file_texts foreign key, so CASCADE can't be relied on.
 		if _, err := tx.Exec(`DELETE FROM file_texts WHERE page_id IN (`+placeholders(len(ids))+`)`, idArgs...); err != nil {
@@ -1203,6 +1214,16 @@ func (s *Server) handleDeletePage(w http.ResponseWriter, r *http.Request) {
 	// thrown away.
 	for _, pid := range ids {
 		s.rowChanged(pid)
+	}
+	// The rows whose relations were cleared are still alive and still open on
+	// somebody's board: without this their chips would keep the dead id until a
+	// reload, which is exactly the confusion this change exists to remove.
+	for _, pid := range clearedPages {
+		s.rowChanged(pid)
+	}
+	if clearedLinks > 0 {
+		s.audit("human", requestUser(r).ID, requestUser(r).Name, "relation_cleanup", id, s.pageWorkspace(id),
+			fmt.Sprintf("cleared %d relation link(s) in %d row(s) pointing at the deleted page", clearedLinks, clearedRows))
 	}
 	// One event per page in the subtree: a receiver filtering on a single page
 	// would otherwise never hear that it went, because only the root was named.

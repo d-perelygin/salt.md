@@ -1754,5 +1754,11 @@
   "Fix the code errors before saving": "Behebe zuerst die Codefehler",
   "The AI left a suggestion in Code": "Die KI hat einen Vorschlag im Code hinterlassen",
   "The answer did not reach the agent": "Die Antwort hat den Agenten nicht erreicht",
-  "The approval did not reach the agent": "Die Freigabe hat den Agenten nicht erreicht"
+  "The approval did not reach the agent": "Die Freigabe hat den Agenten nicht erreicht",
+  "First value": "Erster Wert",
+  "All values": "Alle Werte",
+  "Unique values": "Eindeutige Werte",
+  "Unavailable row": "Nicht verfügbare Zeile",
+  "{n} links in total.": "{n} Verknüpfungen insgesamt.",
+  "{n} rows link to it and will lose the links.": "{n} Zeilen verweisen darauf und verlieren die Verknüpfungen."
 }

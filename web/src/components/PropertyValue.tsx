@@ -9,7 +9,7 @@ import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
 import { showActivityFor } from './ActivityLogHost';
 import { useChecklistFrac } from '../pageUiState';
 import { initials, nameColor } from './CommentsPanel';
-import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useBlockedStatuses } from '../statusMarks';
 import { PageIcon } from '../pageIcon';
 import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
@@ -56,6 +56,26 @@ export function idList(value: unknown): string[] {
   // chip whatsoever — not even the empty one.
   if (value && typeof value === 'object') return [value as unknown as string];
   return [];
+}
+
+/** A stored relation value as text. Older rows and hand-written ones may hold
+ *  something other than a page id — the object a read handed back ({"id": …}),
+ *  or a title — and reading one of those must not throw: a value nobody can
+ *  parse is a value to SHOW, not a reason to take the whole view down. */
+export function relationValueText(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'number') return String(raw);
+  if (raw && typeof raw === 'object') {
+    const o = raw as { id?: unknown; title?: unknown };
+    if (typeof o.id === 'string' && o.id) return o.id;
+    if (typeof o.title === 'string' && o.title) return o.title;
+    try {
+      return JSON.stringify(raw) ?? '';
+    } catch {
+      return '';
+    }
+  }
+  return '';
 }
 
 function chip(opt: PropOption | undefined, fallback: string) {
@@ -948,6 +968,13 @@ export function loadRelationOptions(colId: string, force = false): Promise<RelOp
   return relCache.get(colId)!;
 }
 
+/** What the resolver says about a relation id the picker list does not hold:
+ *  its title, and whether it is in the trash. `null` means the resolver was
+ *  asked and the id no longer names a readable row — an id left behind by a
+ *  delete that happened before the cleanup existed. */
+type ResolvedRow = { id: string; title: string; icon: string; trashed: boolean };
+const resolvedCache = new Map<string, ResolvedRow | null>();
+
 function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen, openers }: Props) {
   const targetId = def.relationCollection;
   const ids = idList(value);
@@ -974,6 +1001,53 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
     };
   }, [targetId]);
 
+  // Ids the picker's list does not hold: rows in the trash, rows past the
+  // first 500 the list loads, and rows whose page is gone. Resolving them by id
+  // is what lets the cell print a NAME — the raw 32-character id used to be
+  // shown instead, and for a trashed row it could not even be removed, because
+  // the picker never listed it to toggle off.
+  const valueKey = ids.map(relationValueText).join('|');
+  const [extra, setExtra] = useState<Record<string, ResolvedRow | null>>({});
+  useEffect(() => {
+    if (!targetId) return;
+    let alive = true;
+    const known = new Set(options.map((o) => o.id));
+    const wanted = ids.map(relationValueText).filter((id) => id && !known.has(id));
+    const apply = () => {
+      if (!alive) return;
+      const next: Record<string, ResolvedRow | null> = {};
+      for (const id of wanted) {
+        const hit = resolvedCache.get(id);
+        if (hit !== undefined) next[id] = hit;
+      }
+      setExtra(next);
+    };
+    const fresh = wanted.filter((id) => !resolvedCache.has(id));
+    if (fresh.length === 0) {
+      apply();
+      return;
+    }
+    void api
+      .resolvePages(fresh)
+      .then((r) => {
+        for (const p of r.pages) resolvedCache.set(p.id, p);
+        // Asked and absent: gone for good, or not readable from here. Cached so
+        // a table full of such cells does not ask once per cell per render.
+        for (const id of fresh) if (!resolvedCache.has(id)) resolvedCache.set(id, null);
+        apply();
+      })
+      .catch(() => {
+        // A failed lookup is not an answer: leave the ids uncached so the next
+        // mount asks again rather than freezing every chip as "unavailable".
+      });
+    return () => {
+      alive = false;
+    };
+    // The ids travel through valueKey; `options` arriving is the other half of
+    // "which of them is unknown".
+  }, [targetId, valueKey, options]);
+
+
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -993,26 +1067,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // window: a target collection past the 500 rows fetched here, a row somebody
   // may not read, a relation left pointing at something deleted. None of those
   // is a row called Untitled.
-  // A relation value is a page id. Older rows and hand-written ones may hold
-  // something else — the object a read handed back ({"id": …}), or a title —
-  // and reading one of those must not throw: a value nobody can parse is a
-  // value to SHOW, not a reason to take the whole view down. (It did throw:
-  // `value.trim is not a function` on every view holding one.)
-  const asText = (raw: unknown): string => {
-    if (typeof raw === 'string') return raw;
-    if (typeof raw === 'number') return String(raw);
-    if (raw && typeof raw === 'object') {
-      const o = raw as { id?: unknown; title?: unknown };
-      if (typeof o.id === 'string' && o.id) return o.id;
-      if (typeof o.title === 'string' && o.title) return o.title;
-      try {
-        return JSON.stringify(raw) ?? '';
-      } catch {
-        return '';
-      }
-    }
-    return '';
-  };
+  const asText = relationValueText;
 
   // A value that is not an id but matches exactly ONE row's title is resolved
   // to that row. The stored value is wrong, but the row it names is not
@@ -1063,12 +1118,73 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
       {shown.map((raw, i) => {
         const value = asText(raw);
         const row = rowFor(raw);
-        // Nothing resolves: the chip says what the cell actually holds rather
-        // than showing an empty box. The tooltip says the rest.
-        const title = row ? row.title || t('Untitled') : loaded ? value : '';
+        const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
+        // A link the picker cannot toggle off — a trashed row, a row whose page
+        // is gone — needs its own way out. Without it the id sat in the cell
+        // forever: the picker lists only live rows, so there was nothing to
+        // click.
+        const removeBtn =
+          canEdit && onChange ? (
+            <button
+              type="button"
+              className="relation-remove-btn"
+              aria-label={t('Remove')}
+              title={t('Remove')}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onChange(ids.filter((_, j) => j !== i));
+              }}
+            >
+              <X size={11} />
+            </button>
+          ) : null;
+        if (!row) {
+          const known = extra[value];
+          // In the trash, and still linked on purpose: restoring the row brings
+          // the link back on its own, so the chip names the row and says where
+          // it is instead of printing the id nobody can act on.
+          if (known && known.trashed) {
+            return (
+              <span key={i} className="relation-chip-wrap">
+                <span
+                  className="prop-chip relation-chip is-trashed"
+                  style={chipStyle}
+                  title={t('In the trash')}
+                >
+                  <Trash2 size={11} />
+                  {known.title || t('Untitled')}
+                </span>
+                {removeBtn}
+              </span>
+            );
+          }
+          // Asked, and no readable row answers: the page is gone for good (the
+          // cleanup on permanent delete makes this rare), or it belongs to a
+          // collection past the first 500 the picker loads. Either way the id
+          // is not something to print at somebody.
+          if (known === null) {
+            return (
+              <span key={i} className="relation-chip-wrap">
+                <span
+                  className="prop-chip relation-chip is-unknown"
+                  style={chipStyle}
+                  title={t('This row is not readable from here.')}
+                >
+                  {t('Unavailable row')}
+                </span>
+                {removeBtn}
+              </span>
+            );
+          }
+          // Still resolving, or the lookup failed: a quiet placeholder rather
+          // than a claim about the row.
+          return <span key={i} className="prop-chip relation-chip is-pending" style={chipStyle} />;
+        }
+        const title = row.title || t('Untitled');
         const inner = (
           <>
-            {row?.icon && (
+            {row.icon && (
               <span className="relation-icon">
                 <PageIcon icon={row.icon} size={14} />
               </span>
@@ -1076,14 +1192,12 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
             {title}
           </>
         );
-        const cls =
-          'prop-chip relation-chip' + (row ? '' : loaded ? ' is-unknown' : ' is-pending');
-        const tip = row ? title : loaded ? t('This row is not readable from here.') : undefined;
-        const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
-        // Unknown rows stay plain text: there is nothing to open.
-        if (!row || !canOpen) {
+        const cls = 'prop-chip relation-chip';
+        // Unknown rows and rows in the trash stay plain text: there is nothing
+        // to open (the trash has its own preview, and it is not a link target).
+        if (!canOpen) {
           return (
-            <span key={i} className={cls} title={tip} style={chipStyle}>
+            <span key={i} className={cls} style={chipStyle}>
               {inner}
             </span>
           );
@@ -1168,7 +1282,15 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
       {hidden > 0 && (
         <span
           className="prop-chip relation-more"
-          title={ids.map((v) => rowFor(v)?.title ?? asText(v)).filter(Boolean).join(', ')}
+          // Titles only: the ids that do not resolve are exactly the ones this
+          // change exists to stop printing.
+          title={ids
+            .map((v) => {
+              const id = asText(v);
+              return rowFor(v)?.title ?? extra[id]?.title ?? '';
+            })
+            .filter(Boolean)
+            .join(', ')}
         >
           {t('+{n} more', { n: hidden })}
         </span>
@@ -1367,8 +1489,16 @@ export default function PropertyValue({
       // inline "⚠ …" for a bad formula (division by zero, cycle, …).
       const { text, error } = formatComputed(value);
       if (!text) return compact ? null : <span className="prop-empty">—</span>;
-      // A numeric computed value can display as a progress bar/ring too.
-      if (!error && (def.numberDisplay === 'bar' || def.numberDisplay === 'ring') && isFinite(Number(value))) {
+      // A numeric computed value can display as a progress bar/ring too. The
+      // typeof test matters: a lookup carries a status name, and Number("Done")
+      // is NaN while Number("5000") is 5000 — a lookup that happens to read a
+      // number must still render as the text it is, not as a bar.
+      if (
+        !error &&
+        typeof value === 'number' &&
+        isFinite(value) &&
+        (def.numberDisplay === 'bar' || def.numberDisplay === 'ring')
+      ) {
         return <NumberDisplay value={value} def={def} compact={compact} />;
       }
       return <span className={'prop-computed' + (error ? ' error' : '')}>{text}</span>;

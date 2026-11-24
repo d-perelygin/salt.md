@@ -520,7 +520,7 @@ at. Four answers configure it:
 | --- | --- |
 | **Via relation** | which relation (or backrelation) to follow |
 | **Of property** | which property of the related rows to take |
-| **Calculate** | Sum, Count, Average, Min, Max or Percent |
+| **Calculate** | Sum, Count, Average, Min, Max, Percent, or the lookups First value, All values, Unique values |
 | **Only rows where** | an optional condition; the default is **All rows** |
 
 What each calculation does:
@@ -532,9 +532,12 @@ What each calculation does:
 | Average | the mean of the values that are numbers |
 | Min / Max | the smallest / largest number |
 | Percent | the share of the related rows that meet the condition |
+| First value / All values / Unique values | a value of the chosen property, as text — one, all of them, or all without repeats |
 
 Sum, Average, Min and Max ignore anything that is not a number. With no related
-rows at all they are 0 rather than blank.
+rows at all they are 0 rather than blank. The three lookups are the exception:
+an empty result is an empty cell, and they name select options, people and
+checklist progress instead of printing stored ids.
 
 **The condition is what turns a count into progress.** Pick a property of the
 related rows, then is, is not, contains, is empty or is not empty, then a value.
@@ -559,7 +562,8 @@ column of every newly created row, because zero of zero related rows is a
 perfectly ordinary state.
 
 A rollup can be shown as a plain number, a progress bar or a ring, the same
-three options a number property has.
+three options a number property has. The lookups have no such choice: they
+return text.
 
 **On a board card** it is a labelled fact.
 

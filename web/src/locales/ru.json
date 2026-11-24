@@ -1802,5 +1802,11 @@
   "Current errors": "Текущие ошибки",
   "Describe here what should change in the process.": "Опиши здесь, что должно измениться в процессе.",
   "Fix these errors and call propose_workflow_code with the corrected document.": "Исправь эти ошибки и вызови propose_workflow_code с исправленным документом.",
-  "Process code of this database": "Код процесса этой базы"
+  "Process code of this database": "Код процесса этой базы",
+  "First value": "Первое значение",
+  "All values": "Все значения",
+  "Unique values": "Уникальные значения",
+  "Unavailable row": "Недоступная запись",
+  "{n} links in total.": "Всего связей: {n}.",
+  "{n} rows link to it and will lose the links.": "На неё ссылаются {n} записей и потеряют связи."
 }

@@ -400,6 +400,16 @@ export const api = {
       body: JSON.stringify({ parentId, title, type, props, workspaceId, idempotencyKey }),
     }),
   getPage: (id: string) => req<Page>(`/api/pages/${id}`),
+  // Titles (and trash state) for relation ids the picker's list does not hold.
+  // A chip must name the row it points at; printing the id is not a name.
+  resolvePages: (ids: string[]) =>
+    req<{ pages: { id: string; title: string; icon: string; trashed: boolean }[] }>(
+      '/api/pages/resolve',
+      { method: 'POST', body: JSON.stringify({ ids }) },
+    ),
+  // What a permanent delete would clear: links into the page and its subtree.
+  pageReferences: (id: string) =>
+    req<{ links: number; rows: number }>(`/api/pages/${id}/references`),
   updatePage: (
     id: string,
     patch: Partial<{

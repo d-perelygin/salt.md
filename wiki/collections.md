@@ -203,8 +203,9 @@ and **backrelation** columns. Those are computed on the server and always read
 as text; a backrelation is edited from the side that owns the relation.
 
 The foot of the table is a calculation row: it counts the rows on the left, and
-under each column shows either a sum (`Σ`, for number, rollup and formula
-columns) or how many cells are filled.
+under each column shows either a sum (`Σ`, for number and numeric rollup and
+formula columns) or how many cells are filled. A lookup rollup is text, so it
+gets the filled count rather than a meaningless total.
 
 With a sub-item relation chosen, rows nest: a row that points at other rows in
 the same collection gets a `▾` to fold them away. A relation cycle cannot loop

@@ -5149,6 +5149,36 @@ button.relation-chip:hover {
   background: var(--hover);
 }
 
+/* The way out of a link the picker cannot toggle: a related row that is in the
+   trash, or one whose page is gone. Only those chips render it — the ordinary
+   chip stays as calm as it was, and unlinking a live row is still the picker. */
+.relation-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  border-radius: 4px;
+}
+.relation-remove-btn:hover {
+  color: var(--accent);
+  background: var(--hover);
+}
+
+/* A related row that is in the trash: still linked (restoring brings it back),
+   named rather than printed as an id, and visibly parked. */
+.relation-chip.is-trashed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.75;
+}
+.relation-chip.is-trashed svg {
+  flex: none;
+}
+
 /* On cards a relation chip folds instead of forcing the card wider than its
    column: a related row can be called anything, including a whole sentence.
    Same two-line clamp as card text chips. Tables keep nowrap with ellipsis

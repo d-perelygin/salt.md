@@ -52,7 +52,18 @@ const rollupAggs = (): { value: NonNullable<PropDef['rollupAgg']>; label: string
   // 0 of 0 related rows is a division by zero — an error message in the column
   // of every newly created row.
   { value: 'percent', label: t('Percent') },
+  // Lookups: the same wiring, a value instead of a number. "First value" is the
+  // status of the one reel a task belongs to; "all" and "unique" read the
+  // categories of every company a sponsor is linked to.
+  { value: 'first', label: t('First value') },
+  { value: 'all', label: t('All values') },
+  { value: 'unique', label: t('Unique values') },
 ];
+
+/** The rollup functions that return text rather than a number: they have no
+ *  progress bar to draw, and a "Max (= 100%)" field would mean nothing. */
+const LOOKUP_AGGS = new Set(['first', 'all', 'unique']);
+const isLookupAgg = (agg?: PropDef['rollupAgg']) => !!agg && LOOKUP_AGGS.has(agg);
 
 const OPTION_COLORS = OPTION_HEXES;
 
@@ -586,7 +597,7 @@ export default function SchemaEditor({
               )}
             </div>
           )}
-          {numberDisplayFields(p)}
+          {!isLookupAgg(p.rollupAgg) && numberDisplayFields(p)}
         </div>
       );
     }

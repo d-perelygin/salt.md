@@ -4101,7 +4101,12 @@ function TableView({
   // sum, everything else a count of filled cells — a lightweight Notion-style
   // calc row so a table gives totals at a glance.
   const footer = (p: PropDef): string => {
-    const isNumeric = p.type === 'number' || p.type === 'rollup' || p.type === 'formula';
+    // A lookup rollup carries a status name or a category, not a number: a
+    // sum of it is not a total anybody asked for. Count the filled cells, the
+    // way text columns do.
+    const lookup =
+      p.type === 'rollup' && (p.rollupAgg === 'first' || p.rollupAgg === 'all' || p.rollupAgg === 'unique');
+    const isNumeric = !lookup && (p.type === 'number' || p.type === 'rollup' || p.type === 'formula');
     if (isNumeric) {
       let sum = 0;
       let any = false;

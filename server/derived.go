@@ -16,6 +16,10 @@ type propDef struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Type string `json:"type"`
+	// select / multiselect: the options a stored id names. Kept here because a
+	// lookup rollup has to turn a related row's option id into its name, and a
+	// column of "prop-2" strings is worse than no column at all.
+	Options []propOption `json:"options"`
 	// relation
 	RelationCollection string `json:"relationCollection"`
 	// rollup
@@ -46,6 +50,12 @@ type propDef struct {
 	BackrelationProp       string `json:"backrelationProp"`
 	// formula
 	Formula string `json:"formula"`
+}
+
+// propOption is one choice of a select or multi-select property.
+type propOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // matchesRollupWhere reports whether one related row satisfies a rollup's
@@ -173,11 +183,48 @@ func (s *Server) computeDerived(u *user, schema []propDef, rows []map[string]any
 
 	// Rollups: for each row, aggregate a target property over its related rows,
 	// optionally only those meeting a condition.
+	//
+	// Where the related rows live, and their schema: a lookup has to name an
+	// option rather than print its id, which needs the target collection's
+	// definitions. Loaded once per query, not once per row.
+	targetOf := make(map[string]string, len(relations)+len(backrelations))
+	for _, r := range relations {
+		if r.RelationCollection != "" {
+			targetOf[r.ID] = r.RelationCollection
+		}
+	}
+	for _, b := range backrelations {
+		if b.BackrelationCollection != "" {
+			targetOf[b.ID] = b.BackrelationCollection
+		}
+	}
+	schemas := map[string]map[string]propDef{}
+	names := map[string]string{}
 	for _, ru := range rollups {
 		related := s.relatedRows(u, ru.RollupRelation, rows)
+		var lookupDefs map[string]propDef
+		if isLookupAgg(ru.RollupAgg) {
+			lookupDefs = s.rollupTargetDefs(targetOf[ru.RollupRelation], schemas)
+		}
 		for i, row := range rows {
 			props, _ := row["props"].(map[string]any)
 			if props == nil {
+				continue
+			}
+			// A lookup carries a value across the relation instead of a number:
+			// the status of the linked reel, the scale of the linked company.
+			// Empty values stay out of the answer, so a row with no status does
+			// not blank out the one that has it.
+			if isLookupAgg(ru.RollupAgg) {
+				target, ok := lookupDefs[ru.RollupTarget]
+				vals := make([]string, 0, len(related[i]))
+				for _, tr := range related[i] {
+					if !ok || !matchesRollupWhere(ru, tr) {
+						continue
+					}
+					vals = append(vals, s.lookupValues(target, tr, names)...)
+				}
+				props[ru.ID] = mergeLookup(ru.RollupAgg, vals)
 				continue
 			}
 			vals := make([]any, 0, len(related[i]))

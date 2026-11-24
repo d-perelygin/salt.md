@@ -1707,8 +1707,23 @@ export default function App() {
 
   const deleteForever = useCallback(
     async (id: string) => {
+      // What loses a link, before the question is asked. The cleanup clears
+      // those relations for good, so saying how many is the difference between
+      // a confirmation and a surprise.
+      let note = '';
+      try {
+        const refs = await api.pageReferences(id);
+        if (refs.rows > 0) {
+          note =
+            '\n\n' +
+            plural(refs.rows, 'One row links to it and will lose the link.', '{n} rows link to it and will lose the links.');
+          if (refs.links > refs.rows) note += ' ' + t('{n} links in total.', { n: refs.links });
+        }
+      } catch {
+        // The count is a courtesy; a failed read must not block the delete.
+      }
       if (
-        !(await confirm(t('Delete this page and all its sub-pages forever?'), {
+        !(await confirm(t('Delete this page and all its sub-pages forever?') + note, {
           danger: true,
           confirmText: t('Delete'),
         }))
