@@ -308,8 +308,9 @@ the value:
 - **one record** — the field itself is edited in place, with the way to that
   record (an arrow) beside it. Click the value, change it, leave the field;
 - **several records** — the cell opens a short list: one block per record, its
-  title, an **Open** button, and the field that belongs to it. Every block
-  writes to its own record, so a join is never edited as one string;
+  title, a button that opens that record in the side peek, and the field that
+  belongs to it. Every block writes to its own record, so a join is never
+  edited as one string;
 - **nothing shown and several records could hold it** — the same list, with the
   fields empty. Type in the one you mean;
 - **nothing shown and one record could hold it** — that record's field, in

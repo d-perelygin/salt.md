@@ -12,7 +12,7 @@ import { initials, nameColor } from './CommentsPanel';
 import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useBlockedStatuses } from '../statusMarks';
 import { PageIcon } from '../pageIcon';
-import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
+import { openCollectionRow, peekPage, peekPanel, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
 import { imeComposing } from '../keys';
 import { toast } from '../toast';
@@ -1548,10 +1548,13 @@ function LookupCell({
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
+  // The side peek, so the table stays where it was: a lookup is corrected
+  // while reading the row that carries it. A narrow screen has no peek to
+  // open, and a public view has no app around it — both navigate.
   const openRecord = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (openers?.onOpenInNewTab) openers.onOpenInNewTab(id);
-    else if (openers?.onNavigate) openers.onNavigate(id);
+    if (peekPanel(id)) return;
+    if (openers?.onNavigate) openers.onNavigate(id);
     else onOpen?.(id);
   };
 
@@ -1648,9 +1651,14 @@ function LookupCell({
                   <button
                     type="button"
                     className="lookup-menu-open"
-                    onClick={(e) => openRecord(e, src.page)}
+                    title={t('Open “{row}”', { row: src.title || t('Untitled') })}
+                    aria-label={t('Open “{row}”', { row: src.title || t('Untitled') })}
+                    onClick={(e) => {
+                      setOpen(false);
+                      openRecord(e, src.page);
+                    }}
                   >
-                    {t('Open')}
+                    <ExternalLink size={13} />
                   </button>
                 </div>
                 <div className="lookup-menu-field">

@@ -5102,9 +5102,11 @@ button.workflow-issue {
 .prop-lookup-field .prop-textarea {
   width: 100%;
 }
+/* The way to the record exists while the field is being edited: reading a
+   table should not carry a button in every cell. */
 .prop-lookup-open {
   flex: 0 0 auto;
-  display: inline-flex;
+  display: none;
   align-items: center;
   justify-content: center;
   width: 18px;
@@ -5116,6 +5118,9 @@ button.workflow-issue {
   color: var(--muted);
   cursor: pointer;
   opacity: 0.65;
+}
+.prop-lookup-inline:focus-within .prop-lookup-open {
+  display: inline-flex;
 }
 .prop-lookup-open:hover {
   background: var(--hover);
@@ -5179,14 +5184,18 @@ button.workflow-issue {
   font-size: 12px;
 }
 .lookup-menu-open {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   border: 0;
+  border-radius: 5px;
   background: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: 12px;
+  color: var(--muted);
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
 }
 .lookup-menu-open:hover {
   background: var(--hover);
@@ -5194,17 +5203,31 @@ button.workflow-issue {
 /* A menu opened to edit is not a cell being read: the field is drawn as a
    field, so it is obvious where to type without clicking first. */
 .lookup-menu-field {
-  padding: 4px 7px;
+  padding: 3px 7px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
+  /* The field is a field, at the size every other field in the app uses — not
+     whatever the menu around it happens to inherit. */
+  font-size: 13px;
+  line-height: 1.45;
 }
 .lookup-menu-field:focus-within {
-  border-color: var(--accent);
+  border-color: var(--border-strong);
 }
 .lookup-menu-field .prop-input,
 .lookup-menu-field .prop-textarea {
   width: 100%;
+  font-size: 13px;
+  /* The wrapper is the field here: an inner border (and the accent ring a
+     focused input draws) would read as a box inside a box. */
+  border-color: transparent;
+  background: transparent;
+}
+.lookup-menu-field .prop-input:focus,
+.lookup-menu-field .prop-input:hover {
+  border-color: transparent;
+  background: transparent;
 }
 
 /* The column that carries linked values says so once, in its header, instead
