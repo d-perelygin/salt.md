@@ -287,6 +287,15 @@ pinned by tests: converting it moves it, and a contract then expires a day
 early. It is also why the date is shown in the reader's regional format but not
 in their zone. See [Language and time](language-and-time.md).
 
+**A relative day is an input, not a stored value.** The workflow's date field
+offers *Exact* and *Relative* so a person can answer *Today* or *In a week*
+without opening a calendar; the row stores the calendar day that word named at
+that moment, the same way a row created in a filtered view stores the day its
+filter named. Filters and calendar subscriptions keep their words on purpose —
+a saved *after today-1M* really does mean a month back tomorrow — but a property
+is a fact about one row, and *today* there would mean a different day every
+morning. Writing a relative word through the API resolves it the same way.
+
 **Dates carry urgency where they are read rather than edited**, on a board
 card, on a gallery card, and anywhere the row is read-only: a date in the past
 is drawn in bold orange, today and tomorrow in bold amber, everything else

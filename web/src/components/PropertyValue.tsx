@@ -5,7 +5,7 @@ import type { ChecklistItem, PageMeta, PropDef, PropOption } from '../types';
 import Portal from './Portal';
 import { PageHoverCard } from './PageHoverCard';
 import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
-import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
+import { daysUntil, formatDay, formatMoment, formatNumber, resolveSmartDate } from '../format';
 import { showActivityFor } from './ActivityLogHost';
 import { useChecklistFrac } from '../pageUiState';
 import { initials, nameColor } from './CommentsPanel';
@@ -1570,10 +1570,17 @@ export default function PropertyValue({
         />
       );
     }
-    case 'date':
+    case 'date': {
+      // A row written by the old relative picker holds the word ("today"),
+      // which no date input can show: the field looked empty while the data
+      // said something. Read it as the day it names; editing writes a real
+      // date back, and new writes never store the word at all (see
+      // relative_dates.go on the server).
+      const raw = typeof value === 'string' ? value : value == null ? '' : String(value);
+      const day = resolveSmartDate(raw) ?? raw;
       if (ro)
-        return value ? (
-          <span className={'prop-date' + dateUrgency(String(value))}>{fmtDate(String(value))}</span>
+        return day ? (
+          <span className={'prop-date' + dateUrgency(day)}>{fmtDate(day)}</span>
         ) : compact ? null : (
           <span className="prop-empty" />
         );
@@ -1581,7 +1588,7 @@ export default function PropertyValue({
         <input
           className="prop-input prop-input-date"
           type="date"
-          value={(value as string) || ''}
+          value={day}
           onChange={(e) => onChange!(e.target.value)}
           onClick={(e) => {
             // The whole field opens the calendar: natively only the icon does
@@ -1595,6 +1602,7 @@ export default function PropertyValue({
           }}
         />
       );
+    }
     case 'url': {
       // Without a case of its own a URL landed in the text branch and sat on
       // the card as a full line of raw text ("https://trello.com/c/yksGXxLh")

@@ -702,6 +702,11 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A relative day in a property write becomes the day it names. Before the
+	// transaction: reading the collection's schema needs the one connection,
+	// which an open transaction holds (see loadCollection).
+	s.resolveRelativeDays(id, &body.Props, &body.PropsPatch)
+
 	// Cycle check and update must be atomic: with concurrent moves a
 	// check-then-act on separate statements can persist A<->B cycles.
 	// The transaction holds the single DB connection until commit.

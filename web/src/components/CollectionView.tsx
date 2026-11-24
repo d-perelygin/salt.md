@@ -7050,11 +7050,13 @@ function CalendarView({
   // end as a single day. See isUnscheduledRow: the tray keeps only rows with
   // neither.
   const landingDay = (r: Row): string | undefined => {
+    // A relative word names a day too; rows written before the write paths
+    // resolved it still exist (see relative_dates.go).
     const v = r.props[dateProp];
-    if (typeof v === 'string' && v) return v.slice(0, 10);
+    if (typeof v === 'string' && v) return (resolveSmartDate(v) ?? v).slice(0, 10);
     if (endDateProp) {
       const e = r.props[endDateProp];
-      if (typeof e === 'string' && e) return e.slice(0, 10);
+      if (typeof e === 'string' && e) return (resolveSmartDate(e) ?? e).slice(0, 10);
     }
     return undefined;
   };

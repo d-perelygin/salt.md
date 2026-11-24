@@ -807,6 +807,12 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "users", "ai_disabled", `ai_disabled INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return nil, fmt.Errorf("migrate users.ai_disabled: %w", err)
 	}
+	// Date properties written by the workflow's relative picker hold the word
+	// ("today") instead of the day it named; nothing could display it. Repaired
+	// once, before the version stamp claims the database is current.
+	if err := migrateRelativeDates(db); err != nil {
+		return nil, fmt.Errorf("migrate relative dates: %w", err)
+	}
 	db.Exec(`INSERT INTO schema_meta (key, value) VALUES ('version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, Version)
 	return db, nil

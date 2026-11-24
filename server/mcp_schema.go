@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Agent parity, part 2: databases.
@@ -1100,6 +1101,9 @@ func (s *Server) normalizePropsOf(collectionID string, patch map[string]json.Raw
 	if err != nil {
 		return
 	}
+	// A date property holds a day, not the word a form offered as a shortcut.
+	// See relative_dates.go: the agent may write "today" as easily as a person.
+	resolveDatePatch(schema, patch, time.Now())
 	byProp := map[string]map[string]string{} // propID -> lowercased name or id -> id
 	listShaped := map[string]bool{}
 	relations := map[string]string{} // propID -> the collection its rows live in
