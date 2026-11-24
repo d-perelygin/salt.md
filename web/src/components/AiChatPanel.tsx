@@ -723,18 +723,21 @@ export default function AiChatPanel(props: {
             </div>
           )}
         </div>
-        <button
-          className="ai-iconbtn ai-newchat-btn"
-          type="button"
-          title={t('New chat')}
-          aria-label={t('New chat')}
-          onClick={() => {
-            setThreadMenuOpen(false);
-            props.onSelectThread?.(null);
-          }}
-        >
-          <Plus size={14} />
-        </button>
+        {/* Only next to a chat that exists — see AiChatView. */}
+        {threadId && (
+          <button
+            className="ai-iconbtn ai-newchat-btn"
+            type="button"
+            title={t('New chat')}
+            aria-label={t('New chat')}
+            onClick={() => {
+              setThreadMenuOpen(false);
+              props.onSelectThread?.(null);
+            }}
+          >
+            <Plus size={14} />
+          </button>
+        )}
         <span style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 4 }}>
           {props.onOpenSidebar && (

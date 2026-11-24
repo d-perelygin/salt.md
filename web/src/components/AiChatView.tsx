@@ -714,15 +714,20 @@ export default function AiChatView(props: {
           <span className="ai-crumb">{t('AI')}</span>
           <span className="ai-crumb">/</span>
           <span className="ai-title">{active?.title || t('New chat')}{pageTitle ? ` · ${pageTitle}` : ''}</span>
-          <button
-            className="ai-iconbtn ai-newchat-btn"
-            type="button"
-            title={t('New chat')}
-            aria-label={t('New chat')}
-            onClick={() => props.onNewChat?.()}
-          >
-            <Plus size={14} />
-          </button>
+          {/* Only next to a chat that exists: on an empty one there is nothing
+              to leave, and a plus that starts the chat you are already in is
+              noise. */}
+          {props.threadId && (
+            <button
+              className="ai-iconbtn ai-newchat-btn"
+              type="button"
+              title={t('New chat')}
+              aria-label={t('New chat')}
+              onClick={() => props.onNewChat?.()}
+            >
+              <Plus size={14} />
+            </button>
+          )}
           <span style={{ flex: 1 }} />
           <span style={{ position: 'relative', display: 'inline-flex' }} ref={memMenuRef}>
             <button
