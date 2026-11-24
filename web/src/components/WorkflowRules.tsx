@@ -6,6 +6,7 @@ import { SelectCell, loadMembers, type Member } from './PropertyValue';
 import { confirm } from '../dialog';
 import WorkflowDateInput from './WorkflowDateInput';
 import WorkflowCode, { CodeLockRows } from './WorkflowCode';
+import { processView, readProcessPart, writeProcessPart, type ProcessView } from '../processSession';
 import {
   analyzeWorkflow,
   condDisplay,
@@ -91,7 +92,11 @@ export default function WorkflowRules({
   // Code edits the process as text. The map and the simulator see the united
   // rule list (visual plus the last-saved compiled code), the list edits
   // the visual half only.
-  const [view, setView] = useState<'list' | 'scheme' | 'code'>('list');
+  // Restored after a reload; a normal open starts on the list.
+  const [view, setView] = useState<ProcessView>(() => processView(collectionId) ?? 'list');
+  useEffect(() => {
+    writeProcessPart(collectionId, 'view', view);
+  }, [collectionId, view]);
   const [codeFocus, setCodeFocus] = useState<{ target: string; n: number } | null>(null);
   // While the Code text has errors, visual editing pauses: applying a List
   // edit would silently discard the broken draft. The notice below sends
@@ -112,7 +117,11 @@ export default function WorkflowRules({
   }, [workflow]);
   // Fullscreen map: the scheme on the left, the same collapsible rule list
   // on the right. Shares every bit of state with the inline views below.
-  const [fullScheme, setFullScheme] = useState(false);
+  // Restored after a reload, like the view above.
+  const [fullScheme, setFullScheme] = useState(() => readProcessPart(collectionId, 'full') === '1');
+  useEffect(() => {
+    writeProcessPart(collectionId, 'full', fullScheme ? '1' : null);
+  }, [collectionId, fullScheme]);
   // Open (unguarded) roads are noise next to guarded transitions: shown faint
   // unless the switch below hides them outright. One state for both map
   // instances, so inline and fullscreen never disagree.

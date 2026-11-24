@@ -14,6 +14,7 @@ import { GripVertical, Check, Trash2, X } from 'lucide-react';
 import { t } from '../i18n';
 import { imeComposing } from '../keys';
 import { loadMembers, type Member } from './PropertyValue';
+import { writeProcessPart } from '../processSession';
 
 // Functions, not constants: t() at module level resolves once at import and
 // keeps that language forever.
@@ -90,6 +91,10 @@ export default function SchemaEditor({
   const [dropProperty, setDropProperty] = useState<{ id: string; after: boolean } | null>(null);
   const [views, setViews] = useState<ViewDef[]>(config.views);
   const [tab, setTab] = useState<'props' | 'process'>(initialTab ?? 'props');
+  // Which tab the dialog is on is part of what a reload restores.
+  useEffect(() => {
+    writeProcessPart(collectionId, 'tab', tab);
+  }, [collectionId, tab]);
   // Lightweight process: absent = no rules. The status defaults to the first
   // select property so opening the tab never shows a dead picker.
   const [workflow, setWorkflow] = useState<WorkflowConfig | undefined>(config.workflow);

@@ -142,6 +142,11 @@ wider editor, its own Save and Cancel, and Ask AI above the map instead of
 behind it. List beside the Scheme gains the same room; a draft survives every
 switch between the dialog and fullscreen.
 
+A reload of the page does not throw the work away either: the dialog comes
+back on the same tab, the List/Scheme/Code view and the fullscreen mode
+return, and an unsaved code draft is still in the editor. Closing the dialog
+on purpose still discards the draft as before.
+
 While typing, the server checks the draft and underlines problems with the
 block name and line number. Saving compiles the text into the same rules the
 click-built ones produce — one engine runs both. Renaming a property, an

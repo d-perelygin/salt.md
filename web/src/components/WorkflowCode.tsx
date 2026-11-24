@@ -7,6 +7,7 @@ import { toast } from '../toast';
 import { loadMembers, type Member } from './PropertyValue';
 import { formatCode, generateVisualCode, splitCodeDocument } from '../workflow';
 import { codeCompletions, type CodeWorld } from '../workflowComplete';
+import { readProcessPart, writeProcessPart } from '../processSession';
 import HighlightedCode from './HighlightedCode';
 
 export type CodeDiag = { line: number; message: string };
@@ -78,8 +79,14 @@ export default function WorkflowCode({
   const rules = useMemo(() => workflow?.rules ?? [], [workflow]);
   const blocks = useMemo(() => workflow?.code ?? [], [workflow]);
   const [members, setMembers] = useState<Member[]>([]);
-  // The user draft; undefined means the generated document is shown.
-  const [text, setText] = useState<string | undefined>(undefined);
+  // The user draft; undefined means the generated document is shown. A reload
+  // of the page brings the draft back, or the code someone was in the middle
+  // of writing would be the first thing a rebuild threw away.
+  const [text, setText] = useState<string | undefined>(() => readProcessPart(collectionId, 'draft') ?? undefined);
+  const restoredDraft = useRef(text !== undefined);
+  useEffect(() => {
+    writeProcessPart(collectionId, 'draft', text ?? null);
+  }, [collectionId, text]);
   const [state, setState] = useState<DocState>({ kind: 'clean' });
   // "Keep editing" hides the move banner until the text turns clean again.
   const [kept, setKept] = useState(false);
@@ -140,7 +147,14 @@ export default function WorkflowCode({
   const shown = text ?? built.doc;
 
   // A visual edit snaps a draft back to generated text: the model is truth.
+  // Not on the first render, though: there the draft may be the one a reload
+  // just restored, and the first workflow prop is simply what the page loaded.
+  const firstWorkflowRender = useRef(true);
   useEffect(() => {
+    if (firstWorkflowRender.current) {
+      firstWorkflowRender.current = false;
+      return;
+    }
     if (text !== undefined && workflow !== applied.current) {
       setText(undefined);
       setState({ kind: 'clean' });
@@ -298,6 +312,19 @@ export default function WorkflowCode({
     const n = moved.length;
     toast(n === 1 ? t('Rule moved to code') : t('Rules moved to code'));
   };
+
+  // A restored draft was never typed into this mount: compile it once, so the
+  // errors, the locked List and the move-to-code question match what the
+  // person left behind instead of silently looking clean.
+  useEffect(() => {
+    if (!restoredDraft.current) return;
+    restoredDraft.current = false;
+    if (text === undefined) return;
+    const seq = ++seqs.current;
+    setState({ kind: 'checking' });
+    timer.current = setTimeout(() => applyDoc(text, seq), 200);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const editDoc = (source: string) => {
     setText(source);

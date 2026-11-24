@@ -13,6 +13,7 @@ import {
   workflowBlockReason,
 } from '../workflow';
 import { onRefresh } from '../pwa';
+import { clearProcessSession, processTab, readProcessPart, writeProcessPart } from '../processSession';
 import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
 import { useShortcut } from '../keys';
@@ -421,6 +422,32 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   };
   const [schemaOpen, setSchemaOpen] = useState(false);
   const [schemaTab, setSchemaTab] = useState<'props' | 'process'>('props');
+
+  // The process dialog was open when the page reloaded: put it back on the tab
+  // it was on. The view, the fullscreen mode and the code draft restore
+  // themselves from the same session (see processSession.ts).
+  useEffect(() => {
+    if (readProcessPart(collectionId, 'open') !== '1') return;
+    setSchemaTab(processTab(collectionId) ?? 'process');
+    setSchemaOpen(true);
+  }, [collectionId]);
+
+  // A reload is the one moment the dialog state has to be written down: a
+  // route change inside the app does not fire this, and closing the dialog
+  // clears the keys, so nothing reopens a window somebody closed.
+  const schemaOpenRef = useRef(schemaOpen);
+  schemaOpenRef.current = schemaOpen;
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      if (!schemaOpenRef.current) return;
+      // Only "it was open". The tab belongs to the dialog itself, which keeps
+      // its own key current — this component still holds the tab it was
+      // opened with, and writing that would send a reload back to Properties.
+      writeProcessPart(collectionId, 'open', '1');
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [collectionId]);
 
   // A blocked drag explains itself: what stops the card and where the rule
   // lives — one tap opens the process at the right place.
@@ -2068,7 +2095,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             .filter((p) => p.type === 'collection' && !p.trashed && !p.isTemplate)
             .map((p) => ({ id: p.id, title: p.title }))}
           onSave={saveConfig}
-          onClose={() => setSchemaOpen(false)}
+          onClose={() => {
+            clearProcessSession(collectionId);
+            setSchemaOpen(false);
+          }}
         />
       )}
     </div>
