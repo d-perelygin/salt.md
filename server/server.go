@@ -27,29 +27,34 @@ type Server struct {
 	// name → the markup INSIDE a Lucide <svg>, for the print view.
 	lucide map[string]string
 	// The third-party licence notices, embedded from the repository root.
-	notices     string
-	addr        string
-	tunnel      tunnelState
+	notices string
+	addr    string
+	tunnel  tunnelState
 	// What the settings show about the cloudflared in use (tunnel_update.go).
 	cloudflared cloudflaredUpdates
 	// Agent keys from listed addresses only; see agent_addresses.go.
 	agentAddressList addressList
-	loginMu     sync.Mutex
-	loginSem    chan struct{}
-	events      *eventHub
-	collab      *collabHub
-	mcpRate     *rateLimiter
-	mcpIcon     string          // data URI of the logo for serverInfo.icons (see mcp.go)
-	ingest      *ingestRegistry // bulk imports in flight (see ingest.go)
-	loginRate   *rateLimiter
-	tokenRate   *rateLimiter
-	formRate    *rateLimiter
-	sharePwRate *rateLimiter
+	loginMu          sync.Mutex
+	loginSem         chan struct{}
+	events           *eventHub
+	collab           *collabHub
+	mcpRate          *rateLimiter
+	mcpIcon          string          // data URI of the logo for serverInfo.icons (see mcp.go)
+	ingest           *ingestRegistry // bulk imports in flight (see ingest.go)
+	loginRate        *rateLimiter
+	tokenRate        *rateLimiter
+	formRate         *rateLimiter
+	sharePwRate      *rateLimiter
 	// Refresh tokens replaced a moment ago, by the hash of the old one; see
 	// oauthRefresh.
 	renewMu     sync.Mutex
 	renewals    map[string]oauthRenewal
 	stopCleanup chan struct{}
+	// AI runs whose goroutine lives in THIS process. A question or an approval
+	// left over from a previous process can never be resumed, and answering it
+	// would silently do nothing; see aiInterruptStaleRuns.
+	aiLiveMu sync.Mutex
+	aiLive   map[string]bool
 	// Generic OIDC state (see oidc.go): the discovery and JWKS caches plus a
 	// test override for the HTTP client. Nil in every real build.
 	oidcDiscMu sync.Mutex
@@ -132,14 +137,15 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 		mcpRate:   newRateLimiter(240, 60), // 240 writes/min per token, burst 60
 		loginRate: newRateLimiter(30, 10),  // 30 login attempts/min per IP, burst 10
 		// Fed by REJECTED tokens only, so a working agent never touches it.
-		tokenRate:   newRateLimiter(60, 20),
-		formRate:    newRateLimiter(20, 8), // 20 public form submits/min per IP, burst 8
+		tokenRate: newRateLimiter(60, 20),
+		formRate:  newRateLimiter(20, 8), // 20 public form submits/min per IP, burst 8
 		// Passwords on shared pages, per link and address. A share password was
 		// checked as fast as anybody could send guesses.
 		sharePwRate: newRateLimiter(10, 5),
 		renewals:    map[string]oauthRenewal{},
 		stopCleanup: make(chan struct{}),
 		dist:        dist,
+		aiLive:      map[string]bool{},
 	}
 	if err := s.seed(); err != nil {
 		return nil, err
@@ -162,6 +168,10 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	if err := s.migrateFileIndex(); err != nil {
 		return nil, err
 	}
+	// Runs a previous process left open: their goroutines died with it, so no
+	// answer can ever reach them. Close them here and say why, or the browser
+	// keeps offering a question nothing will ever pick up.
+	s.aiInterruptStaleRuns()
 	// Size the expensive work to the machine we are actually on, and log what
 	// we concluded — an admin wondering why a PDF is not searchable should
 	// find the answer in the startup lines, not by reading the source.

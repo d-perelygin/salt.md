@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -1360,6 +1361,48 @@ func (s *Server) handleGetAIRunEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ---- runs owned by this process ----
+
+// aiMarkRunLive records that this process owns the run's goroutine. The mark
+// is what lets the answer route tell a live question from a leftover: a run row
+// says "waiting_user" long after the goroutine that waits for the answer is
+// gone, and an answer written into that row reaches nobody.
+func (s *Server) aiMarkRunLive(runID string) {
+	s.aiLiveMu.Lock()
+	s.aiLive[runID] = true
+	s.aiLiveMu.Unlock()
+}
+
+func (s *Server) aiMarkRunDone(runID string) {
+	s.aiLiveMu.Lock()
+	delete(s.aiLive, runID)
+	s.aiLiveMu.Unlock()
+}
+
+func (s *Server) aiRunLive(runID string) bool {
+	s.aiLiveMu.Lock()
+	defer s.aiLiveMu.Unlock()
+	return s.aiLive[runID]
+}
+
+// aiInterruptStaleRuns closes every run a previous process left unfinished.
+// Nothing can resume one: the goroutine that would read an answer, an approval
+// or the next model call lived in that process. Left alone, such a row answers
+// "waiting_user" forever, the chat re-offers the same question on every visit,
+// and every answer is written into a column no one reads.
+func (s *Server) aiInterruptStaleRuns() {
+	res, err := s.db.Exec(`UPDATE ai_runs SET status='failed',
+		error='The server restarted while this run was working. Start it again.',
+		progress='interrupted', finished_at=?, pending_tool='', pending_args='', pending_answer='', approved=0
+		WHERE status IN ('queued','running','waiting_approval','waiting_user')`, now())
+	if err != nil {
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		log.Printf("ai: closed %d run(s) interrupted by the restart", n)
+	}
+}
+
 // ---- approvals ----
 
 // Read-only tools never change anything, so they never ask.
@@ -1544,6 +1587,13 @@ func (s *Server) handleApproveAIRun(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "not found")
 		return
 	}
+	if !s.aiRunLive(id) {
+		s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, progress='interrupted', finished_at=?,
+			pending_tool='', pending_args='', approved=0 WHERE id=?`,
+			"The server restarted while this run was working. Start it again.", now(), id)
+		httpError(w, 409, "this run was interrupted by a server restart — start it again")
+		return
+	}
 	var body struct {
 		Approved bool `json:"approved"`
 	}
@@ -1570,6 +1620,16 @@ func (s *Server) handleAnswerAIRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if status != "waiting_user" {
 		httpError(w, 409, "run is not waiting for an answer")
+		return
+	}
+	// A run left "waiting_user" by a previous process has nobody reading the
+	// answer: writing it would look like success and change nothing. Say so,
+	// and close the row so the question stops coming back.
+	if !s.aiRunLive(id) {
+		s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, progress='interrupted', finished_at=?,
+			pending_tool='', pending_args='', pending_answer='' WHERE id=?`,
+			"The server restarted while this run was waiting. Start it again.", now(), id)
+		httpError(w, 409, "this run was interrupted by a server restart — start it again")
 		return
 	}
 	var body struct {
@@ -1954,6 +2014,7 @@ func (s *Server) handleCreateAIRun(w http.ResponseWriter, r *http.Request) {
 	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, task, started_at) VALUES (?,?,?,?,?,?)`,
 		runID, u.ID, threadID, "queued", body.Task, now())
 	// launch
+	s.aiMarkRunLive(runID)
 	go s.runAIBackground(u, runID, threadID, body.Task, body.PageID, userMsgID)
 	writeJSON(w, map[string]string{"id": runID, "threadId": threadID})
 }
@@ -1967,6 +2028,7 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		runMu.Lock()
 		delete(runCancel, runID)
 		runMu.Unlock()
+		s.aiMarkRunDone(runID)
 	}()
 	s.db.Exec(`UPDATE ai_runs SET status='running', started_at=? WHERE id=?`, now(), runID)
 	// presence

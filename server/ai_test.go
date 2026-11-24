@@ -193,6 +193,9 @@ func TestHandleAnswerAIRun(t *testing.T) {
 	run := newID()
 	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, pending_tool, pending_args, started_at) VALUES (?, ?, 't', 'waiting_user', 'ask_user', '{}', ?)`,
 		run, uid, now())
+	// A run this process owns: only these may be answered (see
+	// TestAnswerOrphanedRun below).
+	s.aiMarkRunLive(run)
 	call := func(cookie, method, url, body string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(method, url, strings.NewReader(body))
@@ -218,6 +221,52 @@ func TestHandleAnswerAIRun(t *testing.T) {
 	s.db.Exec(`UPDATE ai_runs SET status='running' WHERE id = ?`, run)
 	if rec := call(cookie, "POST", "/api/ai/runs/"+run+"/answer", `{"answer":"late"}`); rec.Code != 409 {
 		t.Errorf("answer when not waiting: got %d, want 409", rec.Code)
+	}
+}
+
+// A run left waiting by a previous process has nobody reading the answer. The
+// route must say so and close the row, or the question comes back on every
+// visit while every answer is written into a column no one reads.
+func TestAnswerOrphanedRun(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "askq-orphan@example.com")
+	run := newID()
+	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, pending_tool, pending_args, started_at) VALUES (?, ?, 't', 'waiting_user', 'ask_user', '{}', ?)`,
+		run, uid, now())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/ai/runs/"+run+"/answer", strings.NewReader(`{"answer":"A"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", cookie)
+	s.ServeHTTP(rec, req)
+	if rec.Code != 409 {
+		t.Fatalf("orphaned run: got %d (%s), want 409", rec.Code, rec.Body.String())
+	}
+	var status, pending, answer string
+	s.db.QueryRow(`SELECT status, pending_tool, pending_answer FROM ai_runs WHERE id = ?`, run).Scan(&status, &pending, &answer)
+	if status != "failed" || pending != "" || answer != "" {
+		t.Fatalf("orphaned run left as status=%q pending=%q answer=%q, want failed and cleared", status, pending, answer)
+	}
+}
+
+// The startup sweep closes what a previous process left open, so the chat stops
+// offering a question that cannot be answered.
+func TestStartupSweepClosesOpenRuns(t *testing.T) {
+	s := testServer(t)
+	uid, _ := signedIn(t, s, "askq-sweep@example.com")
+	open := newID()
+	done := newID()
+	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, pending_tool, pending_args, started_at) VALUES (?, ?, 't', 'waiting_user', 'ask_user', '{}', ?)`, open, uid, now())
+	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, started_at, finished_at) VALUES (?, ?, 't', 'completed', ?, ?)`, done, uid, now(), now())
+	s.aiInterruptStaleRuns()
+	var status, pending string
+	s.db.QueryRow(`SELECT status, pending_tool FROM ai_runs WHERE id = ?`, open).Scan(&status, &pending)
+	if status != "failed" || pending != "" {
+		t.Fatalf("sweep left the run as status=%q pending=%q, want failed and cleared", status, pending)
+	}
+	var doneStatus string
+	s.db.QueryRow(`SELECT status FROM ai_runs WHERE id = ?`, done).Scan(&doneStatus)
+	if doneStatus != "completed" {
+		t.Fatalf("sweep touched a finished run: %q", doneStatus)
 	}
 }
 
