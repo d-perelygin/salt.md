@@ -262,15 +262,22 @@ PDF attachments.
 | Parameter | Type | Required |
 | --- | --- | --- |
 | **query** | string | yes |
+| `workspace_id` | string | no: search only that workspace |
 
 Search runs over **passages**, not whole pages, so a hit comes back as the
 paragraph that matched together with its heading path, not "something is
-somewhere in this 4000-word page". Up to 20 results, one per line:
+somewhere in this 4000-word page". Up to 20 results, one per line, and every
+line names the workspace it lives in — two workspaces can hold a page with the
+same title, and which one a hit belongs to decides where a later write lands:
 
 ```
-• Contract › Termination (id: 6f1c…)
+• Contract › Termination (id: 6f1c… · workspace: "Legal")
   …notice period of three months…
 ```
+
+`workspace_id` narrows the search to one workspace and is checked against your
+membership like everywhere else. An id you cannot reach is an error, not an
+empty list.
 
 Passages answer first, and a whole-page search fills what is left of the list.
 Empty answer: `No results.` Errors: `query is required`.
@@ -287,9 +294,12 @@ Read one page as Markdown.
 | `include_children` | boolean | no, default false |
 | `include_notes` | boolean | no, default false |
 
-A document comes back as `# Icon Title` followed by the body. A **database**
-comes back as a Markdown table of its rows: a Title column plus one column per
-property, with select option ids resolved to their names.
+A document comes back as `# Icon Title` followed by the body, and the answer
+opens with `Workspace: <name> (workspace_id: <id>)` — the page's home, before
+its text. The title alone does not say where a page lives, and the id in that
+line is what a caller passes back when a write has to name the workspace. A
+**database** comes back as a Markdown table of its rows: a Title column plus one
+column per property, with select option ids resolved to their names.
 
 `include_children` returns the whole sub-tree instead: each page as a heading
 one level deeper than its parent (capped at six), separated by `---`, with
@@ -510,8 +520,19 @@ the whole point of the history:
   needs none: an append takes nothing away.
 
 Snapshots are throttled to one per page every two minutes, so a burst of writes
-leaves one revision rather than ten, and two `replace` calls a minute apart
-leave only the state from before the first.
+leaves one revision rather than ten — **but never for `prepend` and `replace`**.
+Those save the state they are about to overwrite no matter how recent the last
+revision is: two replaces a minute apart used to keep only the state from
+before the first, and the second one's predecessor was gone. The answer names
+the revision it created, so the write can be undone without paging through the
+list:
+
+```
+Replaced content of page 6f1c… (the previous state, 8342 bytes, was saved as
+revision 9a2e… — revisions action=restore brings it back)
+```
+
+An empty page has nothing to save, and the answer stays short.
 
 All three write past the realtime editor and then reset the live document.
 Anyone with the page open at that moment loses unsaved edits from the page; they
@@ -550,9 +571,16 @@ Returns `Duplicated page → new id <id>`.
 | --- | --- | --- |
 | `page_id` | string | yes |
 | `trashed` | boolean | yes |
+| `confirm` | boolean | yes when trashing something that holds content |
 
 One tool rather than two, because neither direction destroys anything: the page
 keeps existing either way. See [Trash and recovery](trash-and-recovery.md).
+
+**Trashing a page that still holds something needs `confirm: true`.** The
+refusal names what would go — the title, the sub-pages and the bytes — because
+a swept sub-tree is a lot of clicks to undo one by one, and the trash restores
+nothing automatically. An empty page goes without the question; restoring never
+asks.
 
 The two directions are not mirror images. **Trashing takes the whole sub-tree**
 and reports how many went with it:
@@ -561,8 +589,10 @@ page you named**: its sub-pages stay in the trash, and if its parent is still
 trashed the restored page has no visible place in the tree. Restore the parent
 first, or restore the page in the browser, where the whole batch comes back.
 
-Errors: `trashed is required (true to move to the trash, false to restore)`;
-`page "…" not found`; `page "…" is not in the trash`.
+Errors: `trashing "…" takes N sub-page(s) and N bytes of content with it; the
+trash keeps them, but nothing is restored automatically. Call again with
+confirm=true to do it`; `trashed is required (true to move to the trash, false
+to restore)`; `page "…" not found`; `page "…" is not in the trash`.
 
 ### save_as_template
 
@@ -904,13 +934,18 @@ ids`.
 | --- | --- | --- |
 | `page_id` | string | yes |
 | `view_id` | string | yes |
+| `confirm` | boolean | yes when deleting |
 
 The last remaining view cannot be deleted: a database needs something to show.
 Deleting is its own tool rather than an action word on `set_view`, so it is a
-deliberate choice and not a value an agent lands on by mistake.
+deliberate choice and not a value an agent lands on by mistake. A view carries
+its filters, sorts and grouping and cannot be recreated from its name, so the
+call is refused without `confirm: true`.
 
-Errors: `cannot delete the last view — a database needs at least one`;
-`view "…" not found — call get_collection for the ids`.
+Errors: `a view carries its filters, sorts and grouping, and deleting it cannot
+be undone — call again with confirm=true`; `cannot delete the last view — a
+database needs at least one`; `view "…" not found — call get_collection for the
+ids`.
 
 ## History, comments and notes
 
@@ -921,14 +956,17 @@ A page's history. See [History and audit](history-and-audit.md).
 | Parameter | Type | Required |
 | --- | --- | --- |
 | `page_id` | string | yes |
-| `action` | string | no: **list** (default), **get**, **restore** |
+| `action` | string | no: **list** (default), **get**, **restore**, **restore_original** |
 | `revision_id` | string | for **get** and **restore** |
 | `limit` | integer | **list** only |
 
-`list` returns `{page_id, revisions:[{id, created_at, author, title,
-content_bytes, by}]}`, newest first. Limit defaults to 20; anything above 100 or
-below 1 falls back to 20. The newest 50 revisions of a page are kept; older ones
-are dropped.
+`list` returns `{page_id, total, oldest_revision_id, revisions:[{id, created_at,
+author, title, content_bytes, by, baseline}]}`, newest first. `baseline` marks
+the **oldest surviving state** — the page before its first recorded change — and
+`oldest_revision_id` names it, so an agent that overwrote a page it never read
+can go back to the beginning without guessing. Limit defaults to 20; anything
+above 100 or below 1 falls back to 20. The newest 50 revisions of a page are
+kept; older ones are dropped.
 
 **`by` is the interesting column**, and the one most easily misread. It is
 `human`, `agent`, or `unknown`. `unknown` does not mean old: it means the
@@ -942,14 +980,18 @@ picture, not a sign of missing data.
 title, markdown}`.
 
 **restore** puts the page back to that state, and **saves the current state as a
-new revision first**, so restoring is itself reversible. That is why it lives
-here rather than behind its own tool.
+new revision first**, so restoring is itself reversible. **restore_original**
+does the same with the oldest surviving revision: one word instead of reading
+the list and picking the id by eye. That is why restoring lives here rather than
+behind its own tool.
 
 Reading counts as a read and restoring as a write, so a read-only token may list
 and get but not restore.
 
-Errors: `unknown action "x" — use list (the default), get or restore`;
-`revision_id is required for action=get`; `revision "…" not found on page …`.
+Errors: `unknown action "x" — use list (the default), get, restore or
+restore_original`; `revision_id is required for action=get`; `revision "…" not
+found on page …`; `page … has no revisions yet — there is no earlier state to
+restore`.
 
 ### comments
 
@@ -997,10 +1039,13 @@ workspace.
 | Parameter | Type | Required |
 | --- | --- | --- |
 | `comment_id` | string | yes |
+| `confirm` | boolean | yes |
 
 Deletes a comment permanently. Its own tool on purpose: destroying should be a
-choice of tool, not an enum value. Errors: `comment "…" not found`, which is
-also the answer for a comment on a page you may not write to.
+choice of tool, not an enum value, and it is refused without `confirm: true`.
+Errors: `deleting a comment is permanent and cannot be undone — call again with
+confirm=true`; `comment "…" not found`, which is also the answer for a comment
+on a page you may not write to.
 
 ### note
 

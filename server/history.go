@@ -29,18 +29,34 @@ func (s *Server) snapshotRevision(pageID, authorID, authorName string) {
 			return
 		}
 	}
+	s.snapshotRevisionForced(pageID, authorID, authorName)
+}
+
+// snapshotRevisionForced records the page as it is now, ignoring the throttle,
+// and returns the new revision's id ("" when there is nothing worth saving).
+//
+// The throttle exists so a burst of edits leaves one revision instead of ten.
+// It must never apply to the state an OVERWRITE is about to throw away: two
+// replaces a minute apart used to keep only the state from before the first,
+// and the second one's predecessor was gone — the exact loss that made an agent
+// report "replace is destructive without a backup".
+func (s *Server) snapshotRevisionForced(pageID, authorID, authorName string) string {
 	var title, content string
 	if s.db.QueryRow(`SELECT title, content FROM pages WHERE id = ?`, pageID).Scan(&title, &content) != nil {
-		return
+		return ""
 	}
 	if strings.TrimSpace(content) == "" || content == "[]" {
-		return // don't snapshot an empty doc
+		return "" // don't snapshot an empty doc
 	}
-	s.db.Exec(`INSERT INTO page_revisions (id, page_id, created_at, author_id, author_name, title, content) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		newID(), pageID, now(), authorID, authorName, title, content)
+	id := newID()
+	if _, err := s.db.Exec(`INSERT INTO page_revisions (id, page_id, created_at, author_id, author_name, title, content) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, pageID, now(), authorID, authorName, title, content); err != nil {
+		return ""
+	}
 	// Prune to the newest revisionKeep for this page.
 	s.db.Exec(`DELETE FROM page_revisions WHERE page_id = ? AND id NOT IN (
 		SELECT id FROM page_revisions WHERE page_id = ? ORDER BY created_at DESC LIMIT ?)`, pageID, pageID, revisionKeep)
+	return id
 }
 
 type revisionJSON struct {

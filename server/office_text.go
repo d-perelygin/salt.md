@@ -97,6 +97,11 @@ func walkOfficeXML(r io.Reader, texts, breaks map[string]bool, budget, capLeft i
 	var b strings.Builder
 	var stack []string
 	read := 0
+	// A spreadsheet cell whose <v> is an index into sharedStrings, not a
+	// value. Writing the index too put "0 1" / "2 3" in the middle of every
+	// table an agent read — the strings were there, but so was the row of
+	// numbers that addresses them.
+	inSharedCell := false
 	dec := xml.NewDecoder(io.LimitReader(r, int64(budget)))
 	dec.Strict = false
 	for b.Len() < capLeft {
@@ -106,10 +111,37 @@ func walkOfficeXML(r io.Reader, texts, breaks map[string]bool, budget, capLeft i
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
-			stack = append(stack, localName(t.Name.Local))
+			name := localName(t.Name.Local)
+			stack = append(stack, name)
+			if name == "c" {
+				for _, a := range t.Attr {
+					if localName(a.Name.Local) == "t" && a.Value == "s" {
+						inSharedCell = true
+					}
+				}
+			}
+			// The sheet's own name is an attribute, and it is the one piece of
+			// context a table needs: which sheet these rows belong to.
+			if name == "sheet" {
+				for _, a := range t.Attr {
+					if localName(a.Name.Local) == "name" && strings.TrimSpace(a.Value) != "" {
+						if b.Len() > 0 {
+							b.WriteString("\n")
+						}
+						b.WriteString("[" + strings.TrimSpace(a.Value) + "]\n")
+					}
+				}
+			}
 		case xml.CharData:
 			read += len(t)
-			if len(stack) > 0 && texts[stack[len(stack)-1]] {
+			top := ""
+			if len(stack) > 0 {
+				top = stack[len(stack)-1]
+			}
+			if inSharedCell && top == "v" {
+				continue // an index, not a value
+			}
+			if texts[top] {
 				s := strings.TrimSpace(string(t))
 				if s != "" {
 					if b.Len() > 0 && !strings.HasSuffix(b.String(), "\n") && !strings.HasSuffix(b.String(), " ") {
@@ -120,6 +152,9 @@ func walkOfficeXML(r io.Reader, texts, breaks map[string]bool, budget, capLeft i
 			}
 		case xml.EndElement:
 			name := localName(t.Name.Local)
+			if name == "c" {
+				inSharedCell = false
+			}
 			if len(stack) > 0 {
 				stack = stack[:len(stack)-1]
 			}

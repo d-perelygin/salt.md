@@ -32,6 +32,11 @@ func (s *Server) mcpPageHistory(pageID string, limit int) (string, error) {
 		Title     string `json:"title"`
 		Size      int    `json:"content_bytes"`
 		By        string `json:"by"` // "human" | "agent" | "unknown"
+		// Baseline marks the oldest state still kept for this page: the page as
+		// it was before its first recorded change. An agent that overwrote a
+		// document it never read can return to exactly that with
+		// action=restore_original, without hunting for the right revision id.
+		Baseline bool `json:"baseline,omitempty"`
 	}
 	var out []rev
 	type raw struct {
@@ -71,11 +76,28 @@ func (s *Server) mcpPageHistory(pageID string, limit int) (string, error) {
 	if out == nil {
 		out = []rev{}
 	}
-	b, err := json.Marshal(map[string]any{"page_id": pageID, "revisions": out})
+	var oldest string
+	s.db.QueryRow(`SELECT id FROM page_revisions WHERE page_id = ? ORDER BY created_at ASC LIMIT 1`, pageID).Scan(&oldest)
+	var total int
+	s.db.QueryRow(`SELECT COUNT(*) FROM page_revisions WHERE page_id = ?`, pageID).Scan(&total)
+	for i := range out {
+		out[i].Baseline = oldest != "" && out[i].ID == oldest
+	}
+	b, err := json.Marshal(map[string]any{
+		"page_id": pageID, "total": total, "oldest_revision_id": oldest, "revisions": out,
+		"note": "baseline marks the oldest surviving state, i.e. the page before its first recorded change; revisions action=restore_original returns to it. Restoring never destroys: the current state is saved as a new revision first.",
+	})
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// oldestRevision returns the earliest state still kept for a page.
+func (s *Server) oldestRevision(pageID string) string {
+	var id string
+	s.db.QueryRow(`SELECT id FROM page_revisions WHERE page_id = ? ORDER BY created_at ASC LIMIT 1`, pageID).Scan(&id)
+	return id
 }
 
 // mcpGetRevision returns an older state as Markdown — "read yesterday's

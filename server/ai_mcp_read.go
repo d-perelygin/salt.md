@@ -237,15 +237,8 @@ func (s *Server) mcpReadPageFile(u *user, pageID, name string) (string, error) {
 		return "", fmt.Errorf("file %q not found", name)
 	}
 	ext := strings.ToLower(filepath.Ext(want.name))
-	var text string
-	switch ext {
-	case ".txt", ".md", ".csv", ".json":
-		text = string(data)
-	case ".pdf":
-		text = extractPDFText(full)
-	case ".docx", ".xlsx", ".pptx", ".odt":
-		text = extractOfficeText(data, ext)
-	default:
+	text := extractFileText(data, full, ext)
+	if text == "" && !isTextExt(ext) {
 		return "", fmt.Errorf("file %q is not readable as text", name)
 	}
 	if strings.TrimSpace(text) == "" {

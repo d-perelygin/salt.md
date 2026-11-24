@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -66,8 +67,18 @@ func (s *Server) mcpRevisions(u *user, pageID, action, revisionID string, limit 
 			return "", fmt.Errorf("revision_id is required for action=restore — call action=list for the ids")
 		}
 		return s.mcpRestoreRevision(u, pageID, revisionID)
+	case "restore_original":
+		// The oldest state still kept: the page before its first recorded
+		// change. Spelled out as an action because an agent that overwrote a
+		// page it never read should not have to page through the list and guess
+		// which id came before it.
+		id := s.oldestRevision(pageID)
+		if id == "" {
+			return "", fmt.Errorf("page %s has no revisions yet — there is no earlier state to restore", pageID)
+		}
+		return s.mcpRestoreRevision(u, pageID, id)
 	}
-	return "", fmt.Errorf("unknown action %q — use list (the default), get or restore", action)
+	return "", fmt.Errorf("unknown action %q — use list (the default), get, restore or restore_original", action)
 }
 
 // --- comments ---------------------------------------------------------------
@@ -149,7 +160,7 @@ func (s *Server) mcpSetSharing(base requestBase, pageID string, public *bool, ex
 // mcpSetTrashed replaces trash_page and restore_page. Both directions are
 // reversible — the trash keeps the page — so this is state, not destruction,
 // and belongs in one tool.
-func (s *Server) mcpSetTrashed(pageID string, trashed *bool) (string, error) {
+func (s *Server) mcpSetTrashed(pageID string, trashed *bool, confirm bool) (string, error) {
 	if trashed == nil {
 		return "", fmt.Errorf("trashed is required (true to move to the trash, false to restore)")
 	}
@@ -159,6 +170,25 @@ func (s *Server) mcpSetTrashed(pageID string, trashed *bool) (string, error) {
 	ids, err := subtreeIDs(s.db, pageID)
 	if err != nil || len(ids) == 0 {
 		return "", fmt.Errorf("page %q not found", pageID)
+	}
+	if !confirm {
+		// A page that still holds something is not a stray empty note. Say what
+		// would go and ask once, rather than sweep a whole sub-tree away on the
+		// strength of a guessed id.
+		var title, content string
+		var trashedAt sql.NullString
+		s.db.QueryRow(`SELECT title, content, trashed_at FROM pages WHERE id = ?`, pageID).Scan(&title, &content, &trashedAt)
+		if trashedAt.Valid {
+			return "", fmt.Errorf("page %q is already in the trash — nothing to do", pageID)
+		}
+		nonEmpty := strings.TrimSpace(content) != "" && content != "[]"
+		if nonEmpty || len(ids) > 1 {
+			label := title
+			if strings.TrimSpace(label) == "" {
+				label = "Untitled"
+			}
+			return "", fmt.Errorf("trashing %q takes %d sub-page(s) and %d bytes of content with it; the trash keeps them, but nothing is restored automatically. Call again with confirm=true to do it", label, len(ids)-1, len(content))
+		}
 	}
 	idArgs := make([]any, len(ids))
 	for i, v := range ids {

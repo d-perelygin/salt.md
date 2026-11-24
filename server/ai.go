@@ -2293,27 +2293,19 @@ func (s *Server) handleUploadAIAttachment(w http.ResponseWriter, r *http.Request
 	os.WriteFile(saved, data, 0o644)
 	s.db.Exec(`INSERT INTO files (file_name, display_name, ext, size, created_at) VALUES (?,?,?,?,?)`,
 		fname, hdr.Filename, filepath.Ext(hdr.Filename), len(data), now())
-	// extract text (best effort)
-	text := ""
+	// extract text (best effort) — one extractor for chat and read_page_file
+	// (filetext.go), so the two paths cannot disagree about a format again.
 	ext := strings.ToLower(filepath.Ext(hdr.Filename))
-	switch ext {
-	case ".txt", ".md", ".csv", ".json":
-		text = string(data)
-	case ".pdf":
-		// The same guarded extractor the indexer uses; pdftotext stays as
-		// a fallback for the files the Go parser cannot read.
-		text = extractPDFText(saved)
-		if text == "" {
-			if out, err := exec.Command("pdftotext", "-layout", saved, "-").Output(); err == nil {
-				text = string(out)
-			}
+	text := extractFileText(data, saved, ext)
+	if text == "" && ext == ".pdf" {
+		// pdftotext stays as a fallback for PDFs the Go parser cannot read.
+		if out, err := exec.Command("pdftotext", "-layout", saved, "-").Output(); err == nil {
+			text = string(out)
 		}
-	case ".docx", ".xlsx", ".pptx", ".odt":
-		text = extractOfficeText(data, ext)
 	}
 	attID := newID()
 	status := "done"
-	if text == "" && ext != ".txt" && ext != ".md" && ext != ".csv" && ext != ".json" {
+	if text == "" && !isTextExt(ext) && ext != ".pdf" {
 		status = "unsupported"
 	}
 	// Cap what travels back to the browser; the full text stays in the DB.

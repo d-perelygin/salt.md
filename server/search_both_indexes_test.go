@@ -74,7 +74,7 @@ func (c *searchCase) wantFound(q string, ids ...string) {
 	for _, h := range c.hits(q) {
 		browser[h.ID]++
 	}
-	agent, err := c.s.mcpSearch(&user{ID: c.uid}, q)
+	agent, err := c.s.mcpSearch(&user{ID: c.uid}, q, "")
 	if err != nil {
 		c.t.Fatalf("mcp %q: %v", q, err)
 	}
@@ -208,7 +208,7 @@ func TestSearchKeepsWholePageHitsBehindThePermissions(t *testing.T) {
 	if hits := m.hits("invoice"); len(hits) != 1 || hits[0].ID != visible {
 		t.Errorf("got %+v, want only the shared page", hits)
 	}
-	agent, err := c.s.mcpSearch(&user{ID: member}, "invoice")
+	agent, err := c.s.mcpSearch(&user{ID: member}, "invoice", "")
 	if err != nil {
 		t.Fatal(err)
 	}
