@@ -4,13 +4,14 @@ import { api } from '../api';
 import { t } from '../i18n';
 import type { PageMeta } from '../types';
 
-type GenKind = 'custom' | 'summarize' | 'points' | 'translate';
+type GenKind = 'custom' | 'summarize' | 'points' | 'translate' | 'grammar';
 
-const KINDS: { id: GenKind }[] = [{ id: 'custom' }, { id: 'summarize' }, { id: 'points' }, { id: 'translate' }];
+const KINDS: { id: GenKind }[] = [{ id: 'custom' }, { id: 'summarize' }, { id: 'points' }, { id: 'grammar' }, { id: 'translate' }];
 
 function kindLabel(k: GenKind): string {
   if (k === 'summarize') return t('Summarize');
   if (k === 'points') return t('Key points');
+  if (k === 'grammar') return t('Fix grammar');
   if (k === 'translate') return t('Translate');
   return t('Custom output');
 }
@@ -63,6 +64,9 @@ export default function AiBlockComposer(props: {
     const sel = props.selection ? `\n\nText to work with:\n${props.selection}` : '';
     if (kind === 'summarize') return 'Summarize the following concisely.' + sel;
     if (kind === 'points') return 'Extract the key points as a short bullet list.' + sel;
+    if (kind === 'grammar') {
+      return 'Fix grammar, spelling, and punctuation in the following. Reply with only the corrected text.' + sel;
+    }
     if (kind === 'translate') return 'Translate the following to English. Reply with only the translation.' + sel;
     return (prompt.trim() || 'Generate content.') + sel;
   }

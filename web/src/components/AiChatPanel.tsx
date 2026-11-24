@@ -9,7 +9,7 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Menu, Paperclip, Plus, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
+import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Menu, Paperclip, SpellCheck, Plus, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
 import {
@@ -797,10 +797,12 @@ export default function AiChatPanel(props: {
                   <button
                     type="button"
                     className="ai-zero-item"
-                    onClick={() => void runAsAgent(t('Translate this page'))}
+                    onClick={() =>
+                      void runAsAgent(t('Fix grammar, spelling, and punctuation on this page. Reply with the corrected text only.'))
+                    }
                   >
-                    <span className="ai-zero-badge"><Globe size={15} /></span>
-                    <span className="ai-zero-label">{t('Translate this page')}</span>
+                    <span className="ai-zero-badge"><SpellCheck size={15} /></span>
+                    <span className="ai-zero-label">{t('Fix grammar')}</span>
                   </button>
                   <button
                     type="button"

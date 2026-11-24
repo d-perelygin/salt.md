@@ -10,7 +10,7 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Brain, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Paperclip, Plus, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
+import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Brain, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Paperclip, Plus, Quote, RefreshCw, Search, Sparkles, SpellCheck, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import { renderTextWithMentions } from './aiChatHelpers';
 
@@ -827,17 +827,17 @@ export default function AiChatView(props: {
                   type="button"
                   className="ai-zero-item"
                   onClick={() => {
+                    const next = t('Fix grammar, spelling, and punctuation in the following text. Reply with the corrected text only.') + '@';
                     if (chipPageId) {
-                      void runAsAgent(t('Translate this page'));
+                      void runAsAgent(t('Fix grammar, spelling, and punctuation on this page. Reply with the corrected text only.'));
                     } else {
-                      const next = t('Translate') + ' @';
                       onInputChange(next);
                       window.setTimeout(() => inputBoxRef.current?.focus(), 0);
                     }
                   }}
                 >
-                  <span className="ai-zero-badge"><Globe size={15} /></span>
-                  <span className="ai-zero-label">{t('Translate this page')}</span>
+                  <span className="ai-zero-badge"><SpellCheck size={15} /></span>
+                  <span className="ai-zero-label">{t('Fix grammar')}</span>
                 </button>
                 <button
                   type="button"

@@ -88,19 +88,30 @@ interface TocEntry {
   text: string;
 }
 
+/** The words of a run of inline nodes. A heading may hold more than plain
+ *  text — a link keeps its words one level down ({"type":"link", "content":
+ *  [{"text":"the handbook"}]}), and reading only the top level dropped them,
+ *  so a heading that was one link read as "Untitled". */
+function inlineWords(nodes: unknown): string {
+  if (!Array.isArray(nodes)) return '';
+  let out = '';
+  for (const n of nodes as { text?: unknown; content?: unknown }[]) {
+    if (typeof n?.text === 'string') out += n.text;
+    if (Array.isArray(n?.content)) out += inlineWords(n.content);
+  }
+  return out;
+}
+
 function collectHeadings(blocks: unknown[], out: TocEntry[]) {
   for (const b of blocks as {
     id?: string;
     type?: string;
     props?: { level?: number };
-    content?: { text?: string }[];
+    content?: unknown[];
     children?: unknown[];
   }[]) {
     if (b?.type === 'heading' && b.id) {
-      const text = (b.content ?? [])
-        .map((c) => c.text ?? '')
-        .join('')
-        .trim();
+      const text = inlineWords(b.content).trim();
       out.push({ id: b.id, level: b.props?.level ?? 1, text: text || t('Untitled') });
     }
     if (b?.children?.length) collectHeadings(b.children, out);

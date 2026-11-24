@@ -190,6 +190,9 @@ export default function App() {
   // Refs mirror the latest values so the stable useCallback handlers below can
   // read them without being re-created on every navigation.
   const activeRef = useRef<string | null>(currentId);
+  // Tabs that were closed, newest first. Shift+Option+T brings the last one
+  // back — a closed tab is a keystroke away, not a memory.
+  const closedTabsRef = useRef<string[]>([]);
   const [pageNonce, setPageNonce] = useState(0);
   const tabsRef = useRef<string[]>(openTabs);
   useEffect(() => {
@@ -1234,6 +1237,8 @@ export default function App() {
       n.delete(id);
       return n;
     });
+    // Remember what was just closed, so Shift+Option+T can bring it back.
+    closedTabsRef.current = [id, ...closedTabsRef.current.filter((x) => x !== id)].slice(0, 20);
     // The remembered scroll positions die with the tab. The chosen VIEW stays:
     // that is a choice about the collection, not about the tab.
     forgetPageScroll(id);
@@ -1330,6 +1335,26 @@ export default function App() {
     label: () => t('Previous tab'),
     group: () => t('Tabs'),
     run: () => cycleTab(-1),
+  });
+
+  // ⇧⌥T reopens the tab that was closed last. Pages that are gone for good —
+  // deleted, no longer readable — are skipped rather than opening an error.
+  useShortcut({
+    id: 'tabs.reopen',
+    keys: ['alt+shift+t'],
+    label: () => t('Reopen closed tab'),
+    group: () => t('Tabs'),
+    run: () => {
+      const stack = closedTabsRef.current;
+      while (stack.length) {
+        const id = stack.shift()!;
+        if (tabsRef.current.includes(id)) continue;
+        if (!pagesByIdRef.current.has(id) && !extraPages.has(id)) continue;
+        openInNewTab(id);
+        return;
+      }
+      return false;
+    },
   });
 
   // Alt+1 .. Alt+9 (or ⌥⌘1..9) jumps directly to tab 1 through 9.
@@ -1507,9 +1532,12 @@ export default function App() {
 
   useEffect(() => {
     if (!pages) return;
-    // Don't hijack the /invite/<token> route: an authenticated invitee must stay
-    // on the invite screen long enough to accept, not get replaced with a page.
-    if (/^\/invite\/[a-f0-9]+$/.test(window.location.pathname)) return;
+    // Don't hijack the public routes: an authenticated invitee must stay on
+    // the invite screen long enough to accept, and a signed-in colleague who
+    // opens a public link (a collection renders in this same app) must see the
+    // share, not be thrown into the page they had open. A public link used to
+    // bounce a logged-in reader straight into the workspace.
+    if (/^\/(invite|form|public)\/[a-f0-9]+$/.test(window.location.pathname)) return;
     // Nor the consent screen. It renders only once `me` has loaded, and by then
     // this effect had already moved the browser to the last page you had open —
     // the agent's sign-in vanished into the app before anyone could answer it.

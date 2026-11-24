@@ -188,9 +188,19 @@ export default function IconPicker({ currentIcon, onPick, onRemove, onClose, pag
   const emojiResults = useMemo(() => {
     const query = q.trim().toLowerCase();
     if (!query) return EMOJI_GROUPS;
-    return EMOJI_GROUPS.map((g) => ({ cat: g.cat, items: g.items.filter(([, n]) => n.includes(query)) })).filter(
-      (g) => g.items.length,
-    );
+    const groups = EMOJI_GROUPS.map((g) => ({
+      cat: g.cat,
+      items: g.items.filter(([, n]) => n.includes(query)),
+    })).filter((g) => g.items.length);
+    // Typed or pasted emoji are an answer of their own: "🎉" is not a word in
+    // any name list, and the picker used to answer it with "No matches" while
+    // the reader was looking at the very icon they wanted. Any emoji in the
+    // query comes back as a result, whether the dataset knows it or not.
+    const typed = [...new Set(q.match(/\p{Extended_Pictographic}[\uFE0F\u200D\p{Extended_Pictographic}\p{Emoji_Modifier}]*/gu) ?? [])];
+    if (typed.length) {
+      groups.unshift({ cat: t('Typed emoji'), items: typed.map((e) => [e, e] as [string, string]) });
+    }
+    return groups;
   }, [q]);
 
   const iconResults = useMemo(() => {
