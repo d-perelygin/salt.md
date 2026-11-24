@@ -49,6 +49,7 @@ import type {
   Sort,
   SpanMode,
   ViewDef,
+  WorkflowConfig,
 } from '../types';
 import type { User as AuthUser } from '../types';
 import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, isSystemRef } from '../types';
@@ -105,7 +106,7 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
-  ArrowRight, ChevronDown, History, Inbox, PanelLeftClose, PanelLeftOpen, Pin, TriangleAlert, X} from 'lucide-react';
+  ArrowRight, ChevronDown, History, Inbox, Lock, PanelLeftClose, PanelLeftOpen, Pin, TriangleAlert, X} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
 function propTypeIcon(t: PropDef['type']) {
@@ -1984,6 +1985,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onDropCard={(rowId, groupBy, optId, _curOrder, newOrder) => {
             void dropCardCrossColumn(rowId, groupBy, optId, newOrder);
           }}
+          workflow={config?.workflow}
           manualOrder={viewSorts(view).length === 0}
           onMoveCard={(rowId, curOrder, newOrder) => {
             void moveCard(rowId, curOrder, newOrder);
@@ -3441,6 +3443,7 @@ function BoardView({
   onDropCard,
   onMoveCard,
   manualOrder,
+  workflow,
 }: {
   rows: Row[];
   /** What the cards show: the view's visible properties. */
@@ -3472,6 +3475,9 @@ function BoardView({
   // in, so there is an order to change. A sorted view keeps its order however
   // the cards are dragged.
   manualOrder: boolean;
+  /** The process, when the board groups by its status: a column the dragged
+   *  card cannot move to is marked while the drag is in the air. */
+  workflow?: WorkflowConfig;
 }) {
   // Keyed by "columnId:rowId" so a card that appears in multiple columns
   // (multiselect grouping) opens only the tapped copy's menu.
@@ -3565,6 +3571,21 @@ function BoardView({
     return !optionIds.has(v as string);
   };
 
+  // Drag-time marks: the same guard a drop goes through (see
+  // dropCardCrossColumn), shown where the card is heading. Only while a drag is
+  // in the air and only on a board grouped by the process's status.
+  const draggedRow = drag ? rows.find((r) => r.id === drag.rowId) : undefined;
+  const blockedCols: Record<string, string> = {};
+  if (workflow?.statusPropId && workflow.statusPropId === groupBy && draggedRow) {
+    const raw = draggedRow.props[groupBy];
+    const from = Array.isArray(raw) ? String(raw[0] ?? '') : String(raw ?? '');
+    for (const col of columns) {
+      if (col.id === UNSET) continue;
+      const why = workflowBlockReason(workflow, allProps, draggedRow.props, from, col.id);
+      if (why) blockedCols[col.id] = why.message;
+    }
+  }
+
   const rowsFor = (optId: string) =>
     rows.filter((r) => {
       const v = r.props[groupBy];
@@ -3592,9 +3613,24 @@ function BoardView({
         >
           <div className="board-col-head">
             <span className="board-col-head-left">
-              <span className="board-chip" style={{ background: col.color + '33', color: col.color }}>
-                {col.name}
-              </span>
+              {(() => {
+                const why = blockedCols[col.id];
+                return (
+                  <>
+                    <span
+                      className={'board-chip' + (why ? ' is-blocked' : '')}
+                      style={{ background: col.color + '33', color: col.color }}
+                    >
+                      {col.name}
+                    </span>
+                    {why && (
+                      <span className="board-col-lock" title={why}>
+                        <Lock size={12} />
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
               <span className="board-count">{rowsFor(col.id).length}</span>
             </span>
             <button className="board-add" title={t('New')} onClick={() => onAddInColumn(groupBy, col.id)}>

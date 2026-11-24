@@ -2969,6 +2969,15 @@ body:has(.icon-picker) .bn-side-menu {
   font-size: 12px;
   color: var(--muted);
 }
+/* While a card is in the air, a column the process refuses for it is dimmed
+   and locked in the header — the same mark the status select shows, at the
+   moment the drop would happen. Drop it there anyway and the toast explains. */
+.board-chip.is-blocked { opacity: 0.5; }
+.board-col-lock {
+  display: inline-flex;
+  color: var(--muted);
+  opacity: 0.85;
+}
 
 .board-cards {
   display: flex;

@@ -126,7 +126,9 @@ dimmed and carry a lock, with the reason on hover — "«On review» only takes
 cards from «In progress»", "the «Shooting» checklist isn't finished",
 "«Deadline» is empty". Nothing is hidden: the option stays pickable and says
 the same thing in a toast if it is. A status no rule mentions stays open, so
-moving one takes no rule at all.
+moving one takes no rule at all. While a card is in the air on a board grouped
+by its status, the same mark moves to the column headings: a column the card
+cannot enter is dimmed and locked, with the reason on hover.
 
 **Ask AI** in the same header hands the document and its errors to the chat
 beside the page, with the task already typed ("fix these errors" or "describe
