@@ -1434,37 +1434,14 @@ function loadLookupDef(collection: string, propId: string): Promise<PropDef | nu
   return p;
 }
 
-const LOOKUP_NOTICE_KEY = 'salt.lookupWriteNotice';
-
-/** Sticky, dismissible and shared by every lookup: the first write explains
- *  where it went, "don't show again" turns the explanation off for good. */
-export function notifyLookupWrite(rowTitle: string, propName: string) {
-  let hidden = false;
-  try {
-    hidden = localStorage.getItem(LOOKUP_NOTICE_KEY) === 'off';
-  } catch {
-    /* private mode: the notice simply keeps showing */
-  }
-  if (hidden) return;
-  toast.info(
-    t('Saved to “{row}” · {prop} — the value lives there', {
-      row: rowTitle || t('Untitled'),
-      prop: propName,
-    }),
-    {
-      sticky: true,
-      action: {
-        label: t('Don’t show again'),
-        run: () => {
-          try {
-            localStorage.setItem(LOOKUP_NOTICE_KEY, 'off');
-          } catch {
-            /* ignore: the notice is not worth failing a write over */
-          }
-        },
-      },
-    },
-  );
+/** A write lands in another record, so it says so — quickly. The notice is a
+ *  plain toast that leaves on its own: a message about a field you just
+ *  changed has done its job in two seconds, and anything that sits there
+ *  asking to be dismissed is worse than no message at all. */
+export function notifyLookupWrite(rowTitle: string) {
+  // 2.5s: long enough to read one line, short enough to be gone by the time
+  // the next field is being changed.
+  toast.info(t('Saved to “{row}”', { row: rowTitle || t('Untitled') }), { duration: 2500 });
 }
 
 /** The face of a lookup cell.
@@ -1561,7 +1538,7 @@ function LookupCell({
   const save = async (src: LookupSource, v: unknown) => {
     if (!onWrite) return;
     await onWrite(src.page, prop, v, src.value);
-    notifyLookupWrite(src.title, target?.name ?? prop);
+    notifyLookupWrite(src.title);
   };
 
   const title = !text

@@ -1761,9 +1761,8 @@
   "{n} links in total.": "{n} Verknüpfungen insgesamt.",
   "{n} rows link to it and will lose the links.": "{n} Zeilen verweisen darauf und verlieren die Verknüpfungen.",
   "All values (with repeats)": "Alle Werte (mit Wiederholungen)",
-  "Don’t show again": "Nicht mehr anzeigen",
-  "Saved to “{row}” · {prop} — the value lives there": "In „{row}“ gespeichert · {prop} — der Wert liegt dort",
   "Open “{row}”": "„{row}“ öffnen",
   "{value} — {prop} of “{row}”": "{value} — {prop} von „{row}“",
-  "The value comes from a linked note — edit it there": "Der Wert kommt aus einer verknüpften Notiz — dort bearbeiten"
+  "The value comes from a linked note — edit it there": "Der Wert kommt aus einer verknüpften Notiz — dort bearbeiten",
+  "Saved to “{row}”": "In „{row}“ gespeichert"
 }

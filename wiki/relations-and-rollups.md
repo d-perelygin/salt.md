@@ -316,9 +316,9 @@ the value:
 - **nothing shown and one record could hold it** — that record's field, in
   place.
 
-The cell names the record on hover ("Anna — Contact of “Acme”"). The first write
-shows a notice at the bottom saying where the value went, with **Don't show
-again**; afterwards the header mark and the tooltip are the reminder.
+The cell names the record on hover ("Anna — Contact of “Acme”"). A write shows
+a short notice at the bottom saying where the value went; it leaves on its own
+after a few seconds, and the header mark and the tooltip stay as the reminder.
 
 What is written is the target field itself: the same validation, the same
 history entry on that record, the same `page.updated`, no copy and no second
