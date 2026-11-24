@@ -28,7 +28,9 @@ export default function AiApprovalSelect(props: {
   value: string;
   onChange: (m: ApprovalMode) => void;
   compact?: boolean;
-  /** Anchored to the right edge (the composer's own button) instead of left. */
+  /** Anchored to the right edge instead of left. Left by default: the icon
+   *  sits at the left of the composer, and a 300px menu opening leftwards
+   *  from there runs out of the panel (which clips it). */
   alignRight?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -62,7 +64,7 @@ export default function AiApprovalSelect(props: {
           style={{
             position: 'absolute', bottom: 'calc(100% + 8px)', left: props.alignRight ? 'auto' : 0,
             right: props.alignRight ? 0 : 'auto', zIndex: 60,
-            width: 300, background: 'var(--card)', color: 'var(--card-foreground)',
+            width: 'min(300px, calc(100vw - 32px))', background: 'var(--card)', color: 'var(--card-foreground)',
             border: '1px solid var(--border)', borderRadius: 12, padding: 12,
             boxShadow: '0 8px 24px rgba(0,0,0,.25)',
           }}
