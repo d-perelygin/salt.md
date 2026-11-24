@@ -1,5 +1,5 @@
 import { compare, isReadableDay, isUnfinishedRelativeDay, resolveSmartDate } from './format';
-import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER } from './types';
+import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, TITLE_FILTER } from './types';
 import type { Filter, FilterOp, User } from './types';
 
 function isEmptyVal(v: unknown): boolean {
@@ -47,7 +47,13 @@ function cellTexts(v: unknown[]): string[] {
 }
 
 export function matchesFilter(
-  row: { props: Record<string, unknown>; isTemplate?: boolean; createdAt?: string; updatedAt?: string },
+  row: {
+    props: Record<string, unknown>;
+    title?: string;
+    isTemplate?: boolean;
+    createdAt?: string;
+    updatedAt?: string;
+  },
   f: Filter,
   isDate: boolean,
   isNumber = false,
@@ -59,6 +65,35 @@ export function matchesFilter(
   if (f.property === TEMPLATE_FILTER) {
     if (!filterIsArmed(f)) return true;
     return String(!!row.isTemplate) === f.value;
+  }
+  // The row's own title, filterable like a column. Words or a regular
+  // expression — the two questions a long table answers badly by eye. An
+  // invalid pattern filters nothing rather than blanking the table while it is
+  // still being typed.
+  if (f.property === TITLE_FILTER) {
+    if (!filterIsArmed(f)) return true;
+    const title = row.title ?? '';
+    const need = f.value ?? '';
+    switch (f.op ?? (need ? 'is' : 'is_not_empty')) {
+      case 'is_empty':
+        return title.trim() === '';
+      case 'is_not_empty':
+        return title.trim() !== '';
+      case 'contains':
+        return title.toLowerCase().includes(need.toLowerCase());
+      case 'not_contains':
+        return !title.toLowerCase().includes(need.toLowerCase());
+      case 'matches':
+        try {
+          return new RegExp(need, 'i').test(title);
+        } catch {
+          return true;
+        }
+      case 'is_not':
+        return title !== need;
+      default:
+        return title === need;
+    }
   }
   // Created and Updated read the row's own timestamps as days — the same days
   // the server compares — and then answer through the shared operators below.

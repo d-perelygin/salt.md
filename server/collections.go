@@ -648,6 +648,12 @@ func (s *Server) privateRowRule(userID, colID string) (string, []any) {
 // the same id — see TEMPLATE_FILTER).
 const templateFilterProp = "@template"
 
+// The row's own title as a filterable column: "title contains …" and "title
+// matches /…/" — the two questions a long table cannot answer by eye. A
+// pseudo-property like the template condition, saved in the same Filter shape
+// (the client uses the same id — see TITLE_FILTER).
+const titleFilterProp = "@title"
+
 // The two orders that are not about a column: when the row was made and when
 // it was last touched. Pseudo-properties, like the template condition — a view
 // saves them in the same Sort shape as any column, and the client offers them
@@ -656,6 +662,42 @@ const sortCreatedProp = "@created"
 const sortUpdatedProp = "@updated"
 
 func (f rowFilter) where() (string, []any) {
+	if f.Prop == titleFilterProp {
+		switch f.Op {
+		case "is_empty":
+			return "TRIM(COALESCE(title, '')) = ''", nil
+		case "is_not_empty":
+			return "TRIM(COALESCE(title, '')) != ''", nil
+		case "matches":
+			// An unfinished pattern is not a filter yet: comparing with it
+			// would empty the table while it is being typed.
+			if compileRegexp(f.Value) == nil {
+				return "", nil
+			}
+			return "regexp(?, title)", []any{f.Value}
+		case "is":
+			if f.Value == "" {
+				return "", nil
+			}
+			return "title = ?", []any{f.Value}
+		case "is_not":
+			if f.Value == "" {
+				return "", nil
+			}
+			return "title != ?", []any{f.Value}
+		case "not_contains":
+			if f.Value == "" {
+				return "", nil
+			}
+			return "title NOT LIKE ?", []any{"%" + f.Value + "%"}
+		case "contains", "":
+			if f.Value == "" {
+				return "", nil
+			}
+			return "title LIKE ?", []any{"%" + f.Value + "%"}
+		}
+		return "", nil
+	}
 	if f.Prop == templateFilterProp {
 		// "is a template" is the checked value; anything else — and "is not a
 		// template" with it — asks for the other half.

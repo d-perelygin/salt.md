@@ -378,6 +378,74 @@ func TestTemplateFilter(t *testing.T) {
 	}
 }
 
+// The row's title as a condition of its own. Titles are not a property, so this
+// is a pseudo-property beside the template one — and the regex is the reason it
+// exists: "contains" is the usual question, and the tenth time it is
+// "draft|todo" or "#1[0-9]{2}".
+func TestTitleFilter(t *testing.T) {
+	s := testServer(t)
+	_, _ = signedIn(t, s, "titlefilter@example.com")
+	var ws string
+	if err := s.db.QueryRow(`SELECT id FROM workspaces LIMIT 1`).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	col := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at)
+		VALUES (?, NULL, ?, 'Notes', 'collection', '{}', ?, ?)`, col, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	schema := `[{"id":"kind","name":"Kind","type":"text"}]`
+	if _, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, '[]')`, col, schema); err != nil {
+		t.Fatal(err)
+	}
+	rows := []struct{ title, kind string }{
+		{"Draft: intro", "draft"},
+		{"Draft: outro", "draft"},
+		{"Release notes", "shipped"},
+		{"", "empty"},
+	}
+	for i, r := range rows {
+		props, _ := json.Marshal(map[string]any{"kind": r.kind})
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'row', ?, ?, ?, ?)`,
+			newID(), col, ws, r.title, string(props), i, now(), now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name string
+		f    rowFilter
+		want int
+	}{
+		{"contains", rowFilter{Prop: titleFilterProp, Op: "contains", Value: "Draft"}, 2},
+		{"contains is case-insensitive", rowFilter{Prop: titleFilterProp, Op: "contains", Value: "draft"}, 2},
+		{"not contains", rowFilter{Prop: titleFilterProp, Op: "not_contains", Value: "Draft"}, 2},
+		{"is", rowFilter{Prop: titleFilterProp, Op: "is", Value: "Release notes"}, 1},
+		{"is not", rowFilter{Prop: titleFilterProp, Op: "is_not", Value: "Release notes"}, 3},
+		{"matches", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "^Draft: (intro|outro)$"}, 2},
+		{"matches is case-insensitive", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "^draft"}, 2},
+		// An unfinished pattern is not a condition yet: comparing with it would
+		// blank the table while it is being typed.
+		{"broken regex does not filter", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "Draft: ("}, 4},
+		{"empty pattern does not filter", rowFilter{Prop: titleFilterProp, Op: "matches"}, 4},
+		{"is empty", rowFilter{Prop: titleFilterProp, Op: "is_empty"}, 1},
+		{"is not empty", rowFilter{Prop: titleFilterProp, Op: "is_not_empty"}, 3},
+		{"empty value does not filter", rowFilter{Prop: titleFilterProp, Op: "contains"}, 4},
+	}
+	for _, c := range cases {
+		if n := count(t, s, col, c.f); n != c.want {
+			t.Errorf("%s: got %d rows, want %d", c.name, n, c.want)
+		}
+	}
+	// A title condition combines with the view's own columns like any other.
+	if n := countGroups(t, s, col, [][]rowFilter{{
+		{Prop: titleFilterProp, Op: "contains", Value: "Draft"},
+		{Prop: "kind", Op: "is", Value: "draft"},
+	}}); n != 2 {
+		t.Errorf("title AND kind: got %d rows, want 2", n)
+	}
+}
+
 // A checklist is an array of objects, not of strings — and every operator was
 // written for the second. `is` compared the filter text against whole elements,
 // so it matched nothing (an object is never equal to "Buy milk"); `is_not`

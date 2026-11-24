@@ -3081,6 +3081,26 @@ body:has(.icon-picker) .bn-side-menu {
 /* Chip + count stay grouped on the left; the add button sits on its own at
    the right end of the row, pushed there by .board-col-head's
    justify-content: space-between. */
+.board-col-head-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.board-col-more {
+  position: relative;
+  display: flex;
+}
+.board-col-more .board-add {
+  font-size: 15px;
+  line-height: 1;
+}
+.board-col-menu {
+  top: 28px;
+  right: 0;
+  min-width: 210px;
+}
+
 .board-col-head-left {
   display: flex;
   align-items: center;
@@ -10218,6 +10238,30 @@ a.btn {
   padding: 0 0 80px;
   overflow-y: auto;
 }
+/* The one way out of a read-only share for a reader who can actually edit:
+   only rendered when the access check says yes (see handlePublicEditAccess). */
+.public-edit-link {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 560;
+  text-decoration: none;
+}
+.public-edit-link:hover {
+  background: var(--hover);
+}
+
 .public-collection {
   max-width: 1100px;
   margin: 0 auto;

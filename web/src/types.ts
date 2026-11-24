@@ -311,6 +311,10 @@ export type FilterOp =
   | 'is'
   | 'is_not'
   | 'contains'
+  | 'not_contains'
+  /** A regular expression, applied to the TITLE (and offered nowhere else —
+   *  a regex over a select's ids would be a puzzle, not a filter). */
+  | 'matches'
   | 'gt'
   | 'lt'
   | 'between'
@@ -346,10 +350,15 @@ export const TEMPLATE_FILTER = '@template';
 export const SORT_CREATED = '@created';
 export const SORT_UPDATED = '@updated';
 
+/** The row's own title as a filterable column. A pseudo-property like the
+ *  ones above: the title is not in the schema, but "title contains …" and
+ *  "title matches /…/" are the two questions people ask of a long table. */
+export const TITLE_FILTER = '@title';
+
 /** A reference to a column or to one of the system pseudo-properties above:
  *  anything a saved view can point at that no schema edit can remove. */
 export const isSystemRef = (id: string) =>
-  id === TEMPLATE_FILTER || id === SORT_CREATED || id === SORT_UPDATED;
+  id === TEMPLATE_FILTER || id === TITLE_FILTER || id === SORT_CREATED || id === SORT_UPDATED;
 
 /** Visible span of calendar and timeline views. */
 export type SpanMode = 'day' | 'week' | 'month' | '2months' | 'year';

@@ -53,7 +53,7 @@ import type {
   WorkflowConfig,
 } from '../types';
 import type { User as AuthUser } from '../types';
-import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, isSystemRef } from '../types';
+import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, TITLE_FILTER, isSystemRef } from '../types';
 import PropertyValue, { PersonChip, PersonStack, idList, loadMembers, loadRelationOptions, type Member, type RelOption } from './PropertyValue';
 import { PageHoverCard } from './PageHoverCard';
 import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, prevWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
@@ -523,6 +523,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const [addViewOpen, setAddViewOpen] = useState(false);
   const addViewBtnRef = useRef<HTMLButtonElement>(null);
   const [viewMenuFor, setViewMenuFor] = useState<string | null>(null);
+  // The view menu is portalled with a computed position: the toolbar scrolls
+  // sideways and hides its vertical overflow, so a menu anchored inside it was
+  // cut off at the bar's edge instead of opening over the view.
+  const viewMenuBtn = useRef<HTMLButtonElement>(null);
+  const [viewMenuPos, setViewMenuPos] = useState<{ left: number; top: number } | null>(null);
   const [addViewPos, setAddViewPos] = useState<React.CSSProperties | null>(null);
   // A right-click on a view's tab opens the same actions the ⋯ holds, for THAT
   // view, at the pointer (#24). The ⋯ only ever acted on the view you are on.
@@ -1927,16 +1932,33 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         {!embed && (
         <div className="view-menu-wrap">
           <button
+            ref={viewMenuBtn}
             className="btn-sm"
             title={t('View options')}
-            onClick={() => setViewMenuFor((cur) => (cur ? null : view.id))}
+            aria-expanded={viewMenuFor === view.id}
+            onClick={() => {
+              if (viewMenuFor === view.id) {
+                setViewMenuFor(null);
+                return;
+              }
+              const r = viewMenuBtn.current?.getBoundingClientRect();
+              if (r) {
+                const width = 216;
+                const left = Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8));
+                setViewMenuPos({ left, top: r.bottom + 6 });
+              }
+              setViewMenuFor(view.id);
+            }}
           >
             <MoreHorizontal size={14} />
           </button>
-          {viewMenuFor === view.id && (
-            <>
+          {viewMenuFor === view.id && viewMenuPos && (
+            <Portal>
               <div className="fs-backdrop" onClick={() => setViewMenuFor(null)} />
-              <div className="menu view-tab-menu">
+              <div
+                className="menu view-tab-menu"
+                style={{ position: 'fixed', left: viewMenuPos.left, top: viewMenuPos.top, right: 'auto' }}
+              >
                 <button onClick={() => void renameView(view)}>
                   <Pencil size={15} /> {t('Rename view')}
                 </button>
@@ -1962,7 +1984,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
                   </button>
                 )}
               </div>
-            </>
+            </Portal>
           )}
         </div>
         )}
@@ -2029,14 +2051,16 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             void moveCard(rowId, curOrder, newOrder);
           }}
           onTrashRow={trashRow}
-          onAddInColumn={(groupBy, optId) => {
+          onAddInColumn={(groupBy, optId, where) => {
             // A board + makes the card for this column, on its top: one less
-            // than the column's lowest position. A sorted view orders by its
-            // sort, so positions stay out of it.
+            // than the column's lowest position. The column's own menu can ask
+            // for the bottom instead, where the server default (MAX+1) lands.
+            // A sorted view orders by its sort, so positions stay out of it.
             const col = viewSorts(view).length === 0 ? boardColumnRows(viewRows, groupBy, optId) : [];
+            const atBottom = where === 'bottom';
             return void addRow(
               optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) },
-              col.length > 0 ? { prependBefore: Math.min(...col.map((r) => r.position)) } : undefined,
+              !atBottom && col.length > 0 ? { prependBefore: Math.min(...col.map((r) => r.position)) } : undefined,
             );
           }}
         />
@@ -2873,6 +2897,17 @@ function FilterSortControls({
   // exactly that reason — they were plain strings, which the checks cannot see
   // inside an object literal.
   const opsFor = (propId: string): { value: FilterOp; label: string }[] => {
+    if (propId === TITLE_FILTER) {
+      return [
+        { value: 'contains', label: t('contains') },
+        { value: 'not_contains', label: t('does not contain') },
+        { value: 'matches', label: t('matches regex') },
+        { value: 'is', label: t('is') },
+        { value: 'is_not', label: t('is not') },
+        { value: 'is_empty', label: t('is empty') },
+        { value: 'is_not_empty', label: t('is not empty') },
+      ];
+    }
     if (propId === SORT_CREATED || propId === SORT_UPDATED) {
       return [
         { value: 'is', label: t('is') },
@@ -3154,6 +3189,7 @@ function FilterSortControls({
                     sits under its own heading so nobody goes looking for it
                     among the properties. */}
                 <optgroup label={t('System')}>
+                  <option value={TITLE_FILTER}>{t('Title')}</option>
                   <option value={TEMPLATE_FILTER}>{t('Template')}</option>
                   <option value={SORT_CREATED}>{t('Created')}</option>
                   <option value={SORT_UPDATED}>{t('Updated')}</option>
@@ -3189,6 +3225,7 @@ function FilterSortControls({
                 ))}
               </optgroup>
               <optgroup label={t('System')}>
+                <option value={TITLE_FILTER}>{t('Title')}</option>
                 <option value={TEMPLATE_FILTER}>{t('Template')}</option>
                 <option value={SORT_CREATED}>{t('Created')}</option>
                 <option value={SORT_UPDATED}>{t('Updated')}</option>
@@ -3503,7 +3540,7 @@ function BoardView({
   onSetOptions: (propId: string, options: PropOption[]) => void;
   onDrop: (rowId: string, groupBy: string, optId: string) => void;
   onTrashRow: (id: string, title: string) => Promise<void>;
-  onAddInColumn: (groupBy: string, optId: string) => void;
+  onAddInColumn: (groupBy: string, optId: string, where?: 'top' | 'bottom') => void;
   // A drag across columns with an explicit spot: the column value and the
   // position land together (one undo step, see dropCardCrossColumn).
   onDropCard: (rowId: string, groupBy: string, optId: string, curOrder: string[], newOrder: string[]) => void;
@@ -3523,6 +3560,8 @@ function BoardView({
   // Keyed by "columnId:rowId" so a card that appears in multiple columns
   // (multiselect grouping) opens only the tapped copy's menu.
   const [moveMenu, setMoveMenu] = useState<string | null>(null);
+  // Which column's ⋯ menu is open (its "add at the top / bottom" choices).
+  const [colMenu, setColMenu] = useState<string | null>(null);
   // Cards whose overflow ("+3") the reader opened. Kept here rather than per
   // card so it survives a re-render, and forgotten on leaving the view — an
   // opened card is a glance, not a setting.
@@ -3583,6 +3622,14 @@ function BoardView({
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
   }, [moveMenu]);
+  useEffect(() => {
+    if (!colMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as Element).closest?.('.board-col-more')) setColMenu(null);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [colMenu]);
   const prop = allProps.find((p) => p.id === groupBy);
   if (!prop || (prop.type !== 'select' && prop.type !== 'multiselect' && prop.type !== 'relation')) {
     return (
@@ -3691,9 +3738,47 @@ function BoardView({
               })()}
               <span className="board-count">{rowsFor(col.id).length}</span>
             </span>
-            <button className="board-add" title={t('New')} onClick={() => onAddInColumn(groupBy, col.id)}>
-              <Plus size={14} />
-            </button>
+            <span className="board-col-head-right">
+              <button className="board-add" title={t('New')} onClick={() => onAddInColumn(groupBy, col.id)}>
+                <Plus size={14} />
+              </button>
+              {/* Where a new card lands is a choice only once a column is
+                  long enough for the top and the bottom to be different
+                  places. Two quiet items behind this mark, rather than two
+                  more buttons competing with the + at the head of every
+                  column. */}
+              <span className="board-col-more">
+                <button
+                  className="board-add"
+                  title={t('More')}
+                  aria-label={t('More')}
+                  aria-expanded={colMenu === col.id}
+                  onClick={() => setColMenu(colMenu === col.id ? null : col.id)}
+                >
+                  ⋯
+                </button>
+                {colMenu === col.id && (
+                  <div className="menu board-col-menu">
+                    <button
+                      onClick={() => {
+                        setColMenu(null);
+                        onAddInColumn(groupBy, col.id, 'top');
+                      }}
+                    >
+                      {t('Add card at the top')}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setColMenu(null);
+                        onAddInColumn(groupBy, col.id, 'bottom');
+                      }}
+                    >
+                      {t('Add card at the bottom')}
+                    </button>
+                  </div>
+                )}
+              </span>
+            </span>
           </div>
           <div className="board-cards">
             {rowsFor(col.id).map((r) => (
