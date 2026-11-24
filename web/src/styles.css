@@ -4250,7 +4250,11 @@ body.is-col-resizing {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: var(--bg);
+  /* The dialog's own surface, not the page's: rule blocks are painted in
+     --sidebar-bg, and on --bg the step was three points in the dark theme
+     (7 vs 11 instead of 7 vs 17) — cards lost their edge in fullscreen
+     while they read fine inline. Same surface, same contrast. */
+  background: var(--card);
   display: flex;
   flex-direction: column;
 }
