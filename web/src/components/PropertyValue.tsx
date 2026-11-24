@@ -1589,6 +1589,13 @@ function LookupCell({
     const label = t('Open “{row}”', { row: src.title || t('Untitled') });
     return (
       <span className="prop-lookup-inline">
+        <span className="prop-lookup-field" title={title}>
+          <PropertyValue
+            def={target}
+            value={src.value}
+            onChange={canEdit ? (v) => void save(src, v) : undefined}
+          />
+        </span>
         <button
           type="button"
           className="prop-lookup-open"
@@ -1598,13 +1605,6 @@ function LookupCell({
         >
           <ExternalLink size={12} />
         </button>
-        <span className="prop-lookup-field" title={title}>
-          <PropertyValue
-            def={target}
-            value={src.value}
-            onChange={canEdit ? (v) => void save(src, v) : undefined}
-          />
-        </span>
       </span>
     );
   }

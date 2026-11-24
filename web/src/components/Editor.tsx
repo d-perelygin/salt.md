@@ -933,7 +933,7 @@ function RowProperties({
             <div className="row-prop-label" title={p.name}>
               {p.name}
               {(p.rollupAgg === 'first' || p.rollupAgg === 'all' || p.rollupAgg === 'unique') && (
-                <span className="th-link" title={t('From a linked record — edit it there')}>
+                <span className="th-link" title={t('The value comes from a linked note — edit it there')}>
                   <Link2 size={11} />
                 </span>
               )}

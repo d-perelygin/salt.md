@@ -3938,7 +3938,7 @@ function lookupColumnMark(p: PropDef) {
   if (p.type !== 'rollup') return undefined;
   if (p.rollupAgg !== 'first' && p.rollupAgg !== 'all' && p.rollupAgg !== 'unique') return undefined;
   return (
-    <span className="th-link" title={t('From a linked record — edit it there')}>
+    <span className="th-link" title={t('The value comes from a linked note — edit it there')}>
       <Link2 size={11} />
     </span>
   );

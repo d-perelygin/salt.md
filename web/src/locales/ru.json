@@ -1808,5 +1808,11 @@
   "Unique values": "Уникальные значения",
   "Unavailable row": "Недоступная запись",
   "{n} links in total.": "Всего связей: {n}.",
-  "{n} rows link to it and will lose the links.": "На неё ссылаются {n} записей и потеряют связи."
+  "{n} rows link to it and will lose the links.": "На неё ссылаются {n} записей и потеряют связи.",
+  "The value comes from a linked note — edit it there": "Значение берётся из связанной заметки — правится там",
+  "Open “{row}”": "Открыть «{row}»",
+  "All values (with repeats)": "Все значения (с повторами)",
+  "Saved to “{row}” · {prop} — the value lives there": "Сохранено в «{row}» · {prop} — значение лежит там",
+  "Don’t show again": "Больше не показывать",
+  "{value} — {prop} of “{row}”": "{value} — {prop} из «{row}»"
 }

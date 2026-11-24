@@ -1763,7 +1763,7 @@
   "All values (with repeats)": "Alle Werte (mit Wiederholungen)",
   "Don’t show again": "Nicht mehr anzeigen",
   "Saved to “{row}” · {prop} — the value lives there": "In „{row}“ gespeichert · {prop} — der Wert liegt dort",
-  "From a linked record — edit it there": "Aus einem verknüpften Datensatz — dort bearbeiten",
   "Open “{row}”": "„{row}“ öffnen",
-  "{value} — {prop} of “{row}”": "{value} — {prop} von „{row}“"
+  "{value} — {prop} of “{row}”": "{value} — {prop} von „{row}“",
+  "The value comes from a linked note — edit it there": "Der Wert kommt aus einer verknüpften Notiz — dort bearbeiten"
 }
