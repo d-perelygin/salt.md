@@ -437,6 +437,9 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit("human", userID, requestUser(r).Name, "create_page", id, workspaceID, body.Title)
+	// The first version: without it the first change has nothing to be
+	// compared with, and the history would start mid-story.
+	s.snapshotRevisionForced(id, userID, requestUser(r).Name)
 	s.pagesChanged()
 	s.rowChanged(id)
 	s.fireWebhook("page.created", id)
@@ -952,6 +955,9 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	if auditProps != "" {
 		u := requestUser(r)
 		s.auditChanges("human", u.ID, u.Name, "set_properties", id, s.pageWorkspace(id), "", auditProps)
+		// A property is part of what a version is: a changed status has to
+		// show up in the history, not only in the audit trail.
+		s.snapshotRevisionProps(id, u.ID, u.Name)
 	}
 	// Per-rule webhooks: fire-and-forget after the write is stored. An
 	// unreachable URL must never roll back the transition or the arrival.

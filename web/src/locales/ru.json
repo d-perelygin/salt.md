@@ -1024,7 +1024,6 @@
   "Skipped — needs {from}": "Пропущено — нужно из: {from}",
   "Skipped — needs {prop} not {value}": "Пропущено — нужно {prop} не {value}",
   "Skipped — needs {prop} {value}": "Пропущено — нужно {prop} {value}",
-  "Snapshots are taken on save (at most every 2 minutes, the latest 50).": "Снимки создаются при сохранении (не чаще раза в 2 минуты, последние 50).",
   "Social": "Соцсети",
   "Something went wrong": "Что-то пошло не так",
   "Sort": "Сортировка",
@@ -1813,5 +1812,21 @@
   "Open “{row}”": "Открыть «{row}»",
   "All values (with repeats)": "Все значения (с повторами)",
   "{value} — {prop} of “{row}”": "{value} — {prop} из «{row}»",
-  "Saved to “{row}”": "Сохранено в «{row}»"
+  "Saved to “{row}”": "Сохранено в «{row}»",
+  "A copy of this version was created": "Копия этой версии создана",
+  "A version is saved on every change (documents at most every 2 minutes; the latest 50 are kept).": "Версия сохраняется при каждом изменении (документы — не чаще раза в 2 минуты; хранятся последние 50).",
+  "Copy this version into a new page": "Скопировать эту версию в новую страницу",
+  "Copying failed": "Не удалось скопировать",
+  "Restore this version": "Восстановить эту версию",
+  "Text changed": "Текст изменён",
+  "The first version": "Первая версия",
+  "Title: {from} → {to}": "Заголовок: {from} → {to}",
+  "empty": "пусто",
+  "{n} versions": {
+    "one": "{n} версия",
+    "few": "{n} версии",
+    "many": "{n} версий",
+    "other": "{n} версии"
+  },
+  "Changes were not recorded": "Изменения не записывались"
 }

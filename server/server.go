@@ -378,6 +378,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("GET /api/pages/{id}/revisions", s.auth(s.handleListRevisions))
 	m.HandleFunc("GET /api/pages/{id}/revisions/{revId}", s.auth(s.handleGetRevision))
 	m.HandleFunc("POST /api/pages/{id}/revisions/{revId}/restore", s.auth(s.handleRestoreRevision))
+	m.HandleFunc("POST /api/pages/{id}/revisions/{revId}/copy", s.auth(s.handleCopyRevision))
 
 	m.HandleFunc("POST /api/pages/{id}/duplicate", s.auth(s.handleDuplicatePage))
 	m.HandleFunc("POST /api/import", s.auth(s.handleImport))

@@ -2415,6 +2415,7 @@ function PageHeader({
                 pageId={pageId}
                 onClose={() => setHistoryOpen(false)}
                 onRestored={onPagesChanged}
+                onOpen={onOpenInNewTab}
               />
             )}
           </div>

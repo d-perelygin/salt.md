@@ -2476,6 +2476,136 @@ body:has(.icon-picker) .bn-side-menu {
   padding: 22px;
 }
 
+/* Version history: a wide dialog that holds a list, not a form. The days are
+   the structure a person remembers work by; a version row says what changed
+   and offers the two things one does with a version. */
+.dialog.history-dialog {
+  width: min(780px, 96vw);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+}
+.history-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 4px 0 12px;
+  border-top: 1px solid var(--border);
+}
+.history-day {
+  border-bottom: 1px solid var(--border);
+}
+.history-day-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 4px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.history-day-head:hover {
+  color: var(--fg);
+}
+.history-day-count {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.history-item {
+  padding: 0 4px;
+}
+.history-item.is-open {
+  background: var(--hover);
+  border-radius: 8px;
+}
+.history-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+}
+.history-item-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 2px;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.history-clock {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.history-time {
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+.history-author {
+  flex: 0 0 auto;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+.history-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.history-item-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+}
+.history-item-detail {
+  padding: 0 8px 10px 26px;
+  font-size: 13px;
+}
+.history-changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.history-change {
+  padding: 2px 0;
+  color: var(--fg);
+  opacity: 0.9;
+}
+.history-excerpt {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+@media (max-width: 640px) {
+  .history-author {
+    display: none;
+  }
+}
+
 .dialog.wide {
   width: min(680px, 94vw);
 }

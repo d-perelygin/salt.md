@@ -729,7 +729,6 @@
   "Sign-in was cancelled.": "Anmeldung abgebrochen.",
   "Signed in as": "Angemeldet als",
   "Signed-in connections": "Angemeldete Verbindungen",
-  "Snapshots are taken on save (at most every 2 minutes, the latest 50).": "Snapshots werden beim Speichern angelegt (max. alle 2 Min., neueste 50).",
   "Something went wrong": "Etwas ist schiefgelaufen",
   "Sort": "Sortieren",
   "Source": "Quelle",
@@ -1764,5 +1763,19 @@
   "Open “{row}”": "„{row}“ öffnen",
   "{value} — {prop} of “{row}”": "{value} — {prop} von „{row}“",
   "The value comes from a linked note — edit it there": "Der Wert kommt aus einer verknüpften Notiz — dort bearbeiten",
-  "Saved to “{row}”": "In „{row}“ gespeichert"
+  "Saved to “{row}”": "In „{row}“ gespeichert",
+  "A copy of this version was created": "Eine Kopie dieser Version wurde erstellt",
+  "A version is saved on every change (documents at most every 2 minutes; the latest 50 are kept).": "Eine Version wird bei jeder Änderung gespeichert (Dokumente höchstens alle 2 Minuten; die letzten 50 bleiben).",
+  "Copy this version into a new page": "Diese Version in eine neue Seite kopieren",
+  "Copying failed": "Kopieren fehlgeschlagen",
+  "Restore this version": "Diese Version wiederherstellen",
+  "Text changed": "Text geändert",
+  "The first version": "Die erste Version",
+  "Title: {from} → {to}": "Titel: {from} → {to}",
+  "empty": "leer",
+  "{n} versions": {
+    "one": "{n} Version",
+    "other": "{n} Versionen"
+  },
+  "Changes were not recorded": "Änderungen wurden nicht aufgezeichnet"
 }

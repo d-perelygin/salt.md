@@ -1,12 +1,12 @@
 package server
 
 import (
-	"strings"
-	"fmt"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -386,6 +386,9 @@ func (s *Server) handleAuditRevert(w http.ResponseWriter, r *http.Request) {
 		s.rowChanged(pageID)
 		s.audit("human", u.ID, u.Name, "revert_change", pageID, s.pageWorkspace(pageID),
 			fmt.Sprintf("%s: %s", s.pageTitle(pageID), strings.Join(reverted, ", ")))
+		// Taking a change back is a change: the version list has to show it,
+		// or the state it produced would appear out of nowhere.
+		s.snapshotRevisionProps(pageID, u.ID, u.Name)
 	}
 	writeJSON(w, map[string]any{"reverted": reverted, "skipped": skipped})
 }

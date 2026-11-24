@@ -660,6 +660,22 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "users", "disabled", `disabled INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return nil, fmt.Errorf("migrate users.disabled: %w", err)
 	}
+	// A version used to hold a document (title + content). A row's properties
+	// and appearance are part of its state too — restoring a version that
+	// ignored a column invented a page nobody had. `full` marks snapshots
+	// written since, so a legacy revision can still be restored without
+	// wiping properties it never saw.
+	for _, c := range [][2]string{
+		{"props", `props TEXT NOT NULL DEFAULT '{}'`},
+		{"icon", `icon TEXT NOT NULL DEFAULT ''`},
+		{"cover", `cover TEXT NOT NULL DEFAULT ''`},
+		{"changes", `changes TEXT NOT NULL DEFAULT ''`},
+		{"full", `full INTEGER NOT NULL DEFAULT 0`},
+	} {
+		if err := ensureColumn(db, "page_revisions", c[0], c[1]); err != nil {
+			return nil, fmt.Errorf("migrate page_revisions.%s: %w", c[0], err)
+		}
+	}
 	// W114: outbound webhooks. Instance-wide and admin-managed: a hook is a
 	// standing arrangement to call a foreign host, which is instance
 	// configuration rather than content.

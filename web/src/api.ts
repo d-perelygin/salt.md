@@ -590,6 +590,8 @@ export const api = {
     ),
   restoreRevision: (pageId: string, revId: string) =>
     req<{ ok: boolean }>(`/api/pages/${pageId}/revisions/${revId}/restore`, { method: 'POST' }),
+  copyRevision: (pageId: string, revId: string) =>
+    req<{ id: string; parentId: string }>(`/api/pages/${pageId}/revisions/${revId}/copy`, { method: 'POST' }),
 
   listComments: (pageId: string) => req<import('./types').Comment[]>(`/api/pages/${pageId}/comments`),
   // Open comments per page of a workspace, in one go — for the counters on

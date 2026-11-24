@@ -16,16 +16,32 @@ import (
 // and restore prior versions. Comments live in their own table, page- or
 // block-scoped, resolvable, and reachable by agents via MCP.
 
-const revisionThrottle = 2 * time.Minute // at most one snapshot per page per window
-const revisionKeep = 50                  // keep the newest N per page
+const (
+	revisionThrottle = 2 * time.Minute // at most one content snapshot per page per window
+	// Property edits are recorded immediately: "the status changed" is the
+	// reason somebody opens this list, and a gate in front of it would hide
+	// exactly that. A write that changes nothing stores nothing (see
+	// snapshotRevisionForced), so a repeated save costs no revision.
+	revisionPropsThrottle = 0
+	revisionKeep          = 50 // keep the newest N per page
+)
 
 // snapshotRevision records the page's current title+content as a revision,
-// unless the newest revision is younger than revisionThrottle. Best-effort:
+// unless the newest revision is younger than the content throttle. Best-effort:
 // history is a convenience, never blocks the write path.
 func (s *Server) snapshotRevision(pageID, authorID, authorName string) {
+	s.snapshotRevisionWithin(pageID, authorID, authorName, revisionThrottle)
+}
+
+// snapshotRevisionProps records a property write on its own short throttle.
+func (s *Server) snapshotRevisionProps(pageID, authorID, authorName string) {
+	s.snapshotRevisionWithin(pageID, authorID, authorName, revisionPropsThrottle)
+}
+
+func (s *Server) snapshotRevisionWithin(pageID, authorID, authorName string, gap time.Duration) {
 	var last string
 	if s.db.QueryRow(`SELECT created_at FROM page_revisions WHERE page_id = ? ORDER BY created_at DESC LIMIT 1`, pageID).Scan(&last) == nil {
-		if t, err := time.Parse(time.RFC3339Nano, last); err == nil && time.Since(t) < revisionThrottle {
+		if t, err := time.Parse(time.RFC3339Nano, last); err == nil && time.Since(t) < gap {
 			return
 		}
 	}
@@ -41,16 +57,27 @@ func (s *Server) snapshotRevision(pageID, authorID, authorName string) {
 // and the second one's predecessor was gone — the exact loss that made an agent
 // report "replace is destructive without a backup".
 func (s *Server) snapshotRevisionForced(pageID, authorID, authorName string) string {
-	var title, content string
-	if s.db.QueryRow(`SELECT title, content FROM pages WHERE id = ?`, pageID).Scan(&title, &content) != nil {
-		return ""
+	state := s.readRevisionState(pageID)
+	emptyDoc := strings.TrimSpace(state.content) == "" || state.content == "[]"
+	emptyProps := strings.TrimSpace(state.props) == "" || state.props == "{}"
+	if emptyDoc && emptyProps {
+		return "" // a blank document with no properties is not a version
 	}
-	if strings.TrimSpace(content) == "" || content == "[]" {
-		return "" // don't snapshot an empty doc
+	changes := ""
+	if prev, ok := s.latestRevisionState(pageID); ok {
+		// A write that changed nothing (a save, a repeated set_properties)
+		// must not grow the list with a copy of the state above it.
+		if prev.title == state.title && prev.content == state.content &&
+			prev.props == state.props && prev.icon == state.icon && prev.cover == state.cover {
+			return ""
+		}
+		changes = s.revisionChanges(pageID, prev, state)
 	}
 	id := newID()
-	if _, err := s.db.Exec(`INSERT INTO page_revisions (id, page_id, created_at, author_id, author_name, title, content) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, pageID, now(), authorID, authorName, title, content); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO page_revisions
+		(id, page_id, created_at, author_id, author_name, title, content, props, icon, cover, changes, full)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+		id, pageID, now(), authorID, authorName, state.title, state.content, state.props, state.icon, state.cover, changes); err != nil {
 		return ""
 	}
 	// Prune to the newest revisionKeep for this page.
@@ -59,11 +86,49 @@ func (s *Server) snapshotRevisionForced(pageID, authorID, authorName string) str
 	return id
 }
 
+func (s *Server) readRevisionState(pageID string) revisionState {
+	var st revisionState
+	if s.db.QueryRow(`SELECT title, content, props, icon, cover FROM pages WHERE id = ?`, pageID).
+		Scan(&st.title, &st.content, &st.props, &st.icon, &st.cover) != nil {
+		return revisionState{}
+	}
+	st.full = true
+	return st
+}
+
+func (s *Server) latestRevisionState(pageID string) (revisionState, bool) {
+	var st revisionState
+	var full int
+	err := s.db.QueryRow(`SELECT title, content, props, icon, cover, full FROM page_revisions
+		WHERE page_id = ? ORDER BY created_at DESC LIMIT 1`, pageID).
+		Scan(&st.title, &st.content, &st.props, &st.icon, &st.cover, &full)
+	if err != nil {
+		return revisionState{}, false
+	}
+	st.full = full != 0
+	return st, true
+}
+
+func (s *Server) revisionStateByID(pageID, revID string) (revisionState, bool) {
+	var st revisionState
+	var full int
+	err := s.db.QueryRow(`SELECT title, content, props, icon, cover, full FROM page_revisions
+		WHERE id = ? AND page_id = ?`, revID, pageID).
+		Scan(&st.title, &st.content, &st.props, &st.icon, &st.cover, &full)
+	if err != nil {
+		return revisionState{}, false
+	}
+	st.full = full != 0
+	return st, true
+}
+
 type revisionJSON struct {
-	ID         string `json:"id"`
-	CreatedAt  string `json:"createdAt"`
-	AuthorName string `json:"authorName"`
-	Title      string `json:"title"`
+	ID         string           `json:"id"`
+	CreatedAt  string           `json:"createdAt"`
+	AuthorName string           `json:"authorName"`
+	Title      string           `json:"title"`
+	Changes    []revisionChange `json:"changes"`
+	Excerpt    string           `json:"excerpt"`
 }
 
 func (s *Server) handleListRevisions(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +137,7 @@ func (s *Server) handleListRevisions(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "page not found")
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, created_at, author_name, title FROM page_revisions WHERE page_id = ? ORDER BY created_at DESC`, pageID)
+	rows, err := s.db.Query(`SELECT id, created_at, author_name, title, changes, content FROM page_revisions WHERE page_id = ? ORDER BY created_at DESC`, pageID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -81,37 +146,59 @@ func (s *Server) handleListRevisions(w http.ResponseWriter, r *http.Request) {
 	list := []revisionJSON{}
 	for rows.Next() {
 		var x revisionJSON
-		rows.Scan(&x.ID, &x.CreatedAt, &x.AuthorName, &x.Title)
+		var changes, content string
+		rows.Scan(&x.ID, &x.CreatedAt, &x.AuthorName, &x.Title, &changes, &content)
+		if changes != "" {
+			json.Unmarshal([]byte(changes), &x.Changes)
+		}
+		if x.Changes == nil {
+			x.Changes = []revisionChange{}
+		}
+		x.Excerpt = pageExcerpt(content, 320)
 		list = append(list, x)
 	}
 	writeJSON(w, list)
 }
 
-// handleGetRevision returns a single revision's full content.
+// handleGetRevision returns a single revision's full state.
 func (s *Server) handleGetRevision(w http.ResponseWriter, r *http.Request) {
 	pageID := r.PathValue("id")
 	if !s.canReadReq(r, pageID) {
 		httpError(w, 404, "page not found")
 		return
 	}
-	var title, content, createdAt, author string
-	err := s.db.QueryRow(`SELECT title, content, created_at, author_name FROM page_revisions WHERE id = ? AND page_id = ?`, r.PathValue("revId"), pageID).Scan(&title, &content, &createdAt, &author)
-	if err == sql.ErrNoRows {
+	st, ok := s.revisionStateByID(pageID, r.PathValue("revId"))
+	if !ok {
 		httpError(w, 404, "revision not found")
 		return
 	}
-	if err != nil {
-		httpError(w, 500, err.Error())
-		return
+	var changes string
+	s.db.QueryRow(`SELECT changes FROM page_revisions WHERE id = ? AND page_id = ?`, r.PathValue("revId"), pageID).Scan(&changes)
+	out := map[string]any{
+		"title":      st.title,
+		"content":    json.RawMessage(st.content),
+		"props":      json.RawMessage(st.props),
+		"icon":       st.icon,
+		"cover":      st.cover,
+		"full":       st.full,
+		"excerpt":    pageExcerpt(st.content, 2000),
+		"createdAt":  "",
+		"authorName": "",
 	}
-	writeJSON(w, map[string]any{
-		"title": title, "content": json.RawMessage(content), "createdAt": createdAt, "authorName": author,
-	})
+	if changes != "" {
+		out["changes"] = json.RawMessage(changes)
+	}
+	var created, author string
+	if s.db.QueryRow(`SELECT created_at, author_name FROM page_revisions WHERE id = ? AND page_id = ?`, r.PathValue("revId"), pageID).Scan(&created, &author) == nil {
+		out["createdAt"] = created
+		out["authorName"] = author
+	}
+	writeJSON(w, out)
 }
 
 // handleRestoreRevision snapshots the current state (so the restore is itself
-// undoable) then overwrites the page's content with the chosen revision and
-// resets the live CRDT doc so open editors reload.
+// undoable) then overwrites the page with the chosen revision and resets the
+// live CRDT doc so open editors reload.
 func (s *Server) handleRestoreRevision(w http.ResponseWriter, r *http.Request) {
 	pageID := r.PathValue("id")
 	u := requestUser(r)
@@ -119,26 +206,85 @@ func (s *Server) handleRestoreRevision(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 403, "forbidden")
 		return
 	}
-	var content string
-	err := s.db.QueryRow(`SELECT content FROM page_revisions WHERE id = ? AND page_id = ?`, r.PathValue("revId"), pageID).Scan(&content)
-	if err == sql.ErrNoRows {
+	st, ok := s.revisionStateByID(pageID, r.PathValue("revId"))
+	if !ok {
 		httpError(w, 404, "revision not found")
 		return
 	}
-	if err != nil {
-		httpError(w, 500, err.Error())
-		return
+	// Capture the pre-restore state first so a restore can be undone. Forced:
+	// the throttle must never swallow the state an overwrite throws away.
+	s.snapshotRevisionForced(pageID, u.ID, u.Name)
+	sets := []string{"title = ?", "content = ?", "updated_at = ?", bumpDocGen}
+	args := []any{st.title, st.content, now()}
+	// A revision written before properties were captured knows nothing about
+	// them; restoring it must not wipe every column of a live row.
+	if st.full {
+		sets = []string{"title = ?", "content = ?", "props = ?", "icon = ?", "cover = ?", "updated_at = ?", bumpDocGen}
+		args = []any{st.title, st.content, st.props, st.icon, st.cover, now()}
 	}
-	// Capture the pre-restore state first so a restore can be undone.
-	s.snapshotRevision(pageID, u.ID, u.Name)
-	if _, err := s.db.Exec(`UPDATE pages SET content = ?, updated_at = ?, `+bumpDocGen+` WHERE id = ?`, content, now(), pageID); err != nil {
+	args = append(args, pageID)
+	if _, err := s.db.Exec(`UPDATE pages SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...); err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}
 	s.reindexPage(pageID)
 	s.resetYjsDoc(pageID)
 	s.pagesChanged()
+	s.rowChanged(pageID)
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleCopyRevision writes a chosen version into a NEW page next to the
+// original, so a version can be kept or worked from without overwriting what
+// is there now. Notion offers exactly this beside Restore.
+func (s *Server) handleCopyRevision(w http.ResponseWriter, r *http.Request) {
+	pageID := r.PathValue("id")
+	u := requestUser(r)
+	if !s.canWriteReq(r, pageID) {
+		httpError(w, 403, "forbidden")
+		return
+	}
+	st, ok := s.revisionStateByID(pageID, r.PathValue("revId"))
+	if !ok {
+		httpError(w, 404, "revision not found")
+		return
+	}
+	var parentID, workspaceID, visibility string
+	var position float64
+	if s.db.QueryRow(`SELECT COALESCE(parent_id, ''), workspace_id, visibility, position FROM pages WHERE id = ?`, pageID).
+		Scan(&parentID, &workspaceID, &visibility, &position) != nil {
+		httpError(w, 404, "page not found")
+		return
+	}
+	// A row's copy lands in the same database, so the caller needs to be able
+	// to add rows there.
+	if parentID != "" && !s.canWrite(u.ID, parentID) {
+		httpError(w, 403, "forbidden")
+		return
+	}
+	var newPos float64
+	s.db.QueryRow(`SELECT COALESCE(MAX(position), 0) + 1 FROM pages WHERE COALESCE(parent_id, '') = ?`, parentID).Scan(&newPos)
+	id := newID()
+	props := "{}"
+	if st.full && strings.TrimSpace(st.props) != "" {
+		props = st.props
+	}
+	_, err := s.db.Exec(`INSERT INTO pages
+		(id, parent_id, title, icon, cover, content, position, created_at, updated_at, type, props, workspace_id, owner_id, visibility)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		// Always a document: a copy of a database's page must not claim to be a
+		// database itself, because nothing would answer for its schema.
+		id, nullIfEmpty(parentID), st.title, st.icon, st.cover, st.content, newPos, now(), now(), "doc", props, workspaceID, u.ID, visibility)
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	s.reindexPage(id)
+	s.pagesChanged()
+	if parentID != "" {
+		s.rowChanged(id)
+	}
+	writeJSON(w, map[string]any{"id": id, "parentId": parentID})
 }
 
 // ---- Comments ----

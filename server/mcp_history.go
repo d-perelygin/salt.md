@@ -20,7 +20,7 @@ func (s *Server) mcpPageHistory(pageID string, limit int) (string, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rows, err := s.db.Query(`SELECT id, created_at, author_id, author_name, title, LENGTH(content)
+	rows, err := s.db.Query(`SELECT id, created_at, author_id, author_name, title, LENGTH(content), changes
 		FROM page_revisions WHERE page_id = ? ORDER BY created_at DESC LIMIT ?`, pageID, limit)
 	if err != nil {
 		return "", err
@@ -37,6 +37,10 @@ func (s *Server) mcpPageHistory(pageID string, limit int) (string, error) {
 		// document it never read can return to exactly that with
 		// action=restore_original, without hunting for the right revision id.
 		Baseline bool `json:"baseline,omitempty"`
+		// Changes is what this version changed against the one above it:
+		// titles, the body, and every property (with the words the collection
+		// uses). Absent on versions written before it was recorded.
+		Changes json.RawMessage `json:"changes,omitempty"`
 	}
 	var out []rev
 	type raw struct {
@@ -46,10 +50,13 @@ func (s *Server) mcpPageHistory(pageID string, limit int) (string, error) {
 	var list []raw
 	for rows.Next() {
 		var r rev
-		var authorID string
-		if err := rows.Scan(&r.ID, &r.CreatedAt, &authorID, &r.Author, &r.Title, &r.Size); err != nil {
+		var authorID, changes string
+		if err := rows.Scan(&r.ID, &r.CreatedAt, &authorID, &r.Author, &r.Title, &r.Size, &changes); err != nil {
 			rows.Close()
 			return "", err
+		}
+		if changes != "" && json.Valid([]byte(changes)) {
+			r.Changes = json.RawMessage(changes)
 		}
 		list = append(list, raw{r, authorID})
 	}
@@ -124,21 +131,26 @@ func (s *Server) mcpGetRevision(pageID, revID string) (string, error) {
 // saved as a new revision first, so that the restore itself stays reversible
 // too.
 func (s *Server) mcpRestoreRevision(u *user, pageID, revID string) (string, error) {
-	var title, content string
-	if err := s.db.QueryRow(`SELECT title, content FROM page_revisions WHERE id = ? AND page_id = ?`,
-		revID, pageID).Scan(&title, &content); err != nil {
+	st, ok := s.revisionStateByID(pageID, revID)
+	if !ok {
 		return "", fmt.Errorf("revision %q not found on page %s", revID, pageID)
 	}
-	var curTitle, curContent string
-	if err := s.db.QueryRow(`SELECT title, content FROM pages WHERE id = ?`, pageID).Scan(&curTitle, &curContent); err != nil {
+	var exists string
+	if err := s.db.QueryRow(`SELECT id FROM pages WHERE id = ?`, pageID).Scan(&exists); err != nil {
 		return "", fmt.Errorf("page %q not found", pageID)
 	}
-	if _, err := s.db.Exec(`INSERT INTO page_revisions (id, page_id, created_at, author_id, author_name, title, content)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, newID(), pageID, now(), u.ID, u.Name, curTitle, curContent); err != nil {
-		return "", err
+	// The current state, properties included, becomes a revision first — the
+	// same forced snapshot the browser restore takes, so both paths are
+	// reversible in the same way.
+	s.snapshotRevisionForced(pageID, u.ID, u.Name)
+	sets := "title = ?, content = ?, updated_at = ?, " + bumpDocGen
+	args := []any{st.title, st.content, now()}
+	if st.full {
+		sets = "title = ?, content = ?, props = ?, icon = ?, cover = ?, updated_at = ?, " + bumpDocGen
+		args = []any{st.title, st.content, st.props, st.icon, st.cover, now()}
 	}
-	if _, err := s.db.Exec(`UPDATE pages SET title = ?, content = ?, updated_at = ?, `+bumpDocGen+` WHERE id = ?`,
-		title, content, now(), pageID); err != nil {
+	args = append(args, pageID)
+	if _, err := s.db.Exec(`UPDATE pages SET `+sets+` WHERE id = ?`, args...); err != nil {
 		return "", err
 	}
 	s.resetYjsDoc(pageID)

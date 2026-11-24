@@ -168,11 +168,28 @@ export interface Webhook {
   secret?: string;
 }
 
+/** One thing a version changed, as the server read it when the snapshot was
+ *  written: the difference from the version above it. */
+export interface RevisionChange {
+  kind: 'title' | 'content' | 'prop';
+  /** For a property: its id, name and stored type, so a date can be formatted
+   *  the way every other date in the app is. */
+  prop?: string;
+  name?: string;
+  type?: string;
+  from?: string;
+  to?: string;
+}
+
 export interface Revision {
   id: string;
   createdAt: string;
   authorName: string;
   title: string;
+  /** Absent on versions written before changes were recorded. */
+  changes?: RevisionChange[];
+  /** The first stretch of the document's text: enough to recognise the state. */
+  excerpt?: string;
 }
 
 export interface CommentAnchor {

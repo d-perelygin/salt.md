@@ -203,6 +203,7 @@ func (s *Server) mcpSetPropertiesEx(pageID string, properties json.RawMessage, a
 				s.pageWorkspace(pageID),
 				fmt.Sprintf("%s: %s", title, strings.Join(changed, ", ")), string(blob))
 		}
+		s.snapshotRevisionProps(pageID, actor.ID, actor.Name+" (MCP)")
 	}
 	return fmt.Sprintf("Set %d propert%s on row %s", len(changed), plural(len(changed), "y", "ies"), pageID), nil
 }
