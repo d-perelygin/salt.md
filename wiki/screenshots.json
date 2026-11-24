@@ -345,7 +345,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "4705e123041b",
+        "web/src/components/CollectionView.tsx": "77379f67dfd6",
         "web/src/theme.css": "0318c08bf9ba"
       }
     },
@@ -379,7 +379,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "4705e123041b",
+        "web/src/components/CollectionView.tsx": "77379f67dfd6",
         "web/src/cardLayout.ts": "eb7f92584275",
         "web/src/theme.css": "0318c08bf9ba"
       }
@@ -413,7 +413,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "4705e123041b",
+        "web/src/components/CollectionView.tsx": "77379f67dfd6",
         "web/src/theme.css": "0318c08bf9ba"
       }
     },
