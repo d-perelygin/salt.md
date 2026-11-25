@@ -152,6 +152,55 @@ func TestRevisionCopyCreatesAPage(t *testing.T) {
 	}
 }
 
+// A version written before changes were recorded has no stored diff — and for
+// years the list answered "Changes were not recorded" about every one of them,
+// which is not a history but an excuse. Both states are in the database, so the
+// difference is worked out when the list is read.
+func TestLegacyRevisionChangesAreReadFromTheStates(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "history-backfill@example.test")
+	ws := s.firstWorkspaceOf(t, uid)
+
+	doc := s.makePage(t, ws, uid, "", "Doc", "{}")
+	setContent := func(text string) {
+		content := `[{"id":"p1","type":"paragraph","props":{},"content":[{"type":"text","text":"` + text + `","styles":{}}],"children":[]}]`
+		if _, err := s.db.Exec(`UPDATE pages SET content = ? WHERE id = ?`, content, doc); err != nil {
+			t.Fatalf("content: %v", err)
+		}
+	}
+	setContent("first")
+	if id := s.snapshotRevisionForced(doc, uid, "Ada"); id == "" {
+		t.Fatal("the first version was not written")
+	}
+	setContent("second")
+	if id := s.snapshotRevisionForced(doc, uid, "Ada"); id == "" {
+		t.Fatal("the second version was not written")
+	}
+	// The shape older builds left behind: states, no stored difference.
+	if _, err := s.db.Exec(`UPDATE page_revisions SET changes = '' WHERE page_id = ?`, doc); err != nil {
+		t.Fatalf("blank changes: %v", err)
+	}
+
+	revs := s.revisionsJSON(t, doc, cookie)
+	if len(revs) != 2 {
+		t.Fatalf("got %d versions, want 2", len(revs))
+	}
+	latest := revs[0]
+	found := false
+	for _, c := range latest.Changes {
+		if c.Kind == "content" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the newest legacy version reports no change: %#v", latest.Changes)
+	}
+	// The oldest differs from nothing, and must not invent a change.
+	if len(revs[1].Changes) != 0 {
+		t.Errorf("the oldest version claims changes: %#v", revs[1].Changes)
+	}
+}
+
 // A no-op save must not grow the list with a copy of the version above it.
 func TestRevisionSkipsUnchangedState(t *testing.T) {
 	s := testServer(t)

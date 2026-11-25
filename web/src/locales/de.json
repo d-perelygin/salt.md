@@ -1763,10 +1763,7 @@
   "{value} — {prop} of “{row}”": "{value} — {prop} von „{row}“",
   "The value comes from a linked note — edit it there": "Der Wert kommt aus einer verknüpften Notiz — dort bearbeiten",
   "Saved to “{row}”": "In „{row}“ gespeichert",
-  "A copy of this version was created": "Eine Kopie dieser Version wurde erstellt",
   "A version is saved on every change (documents at most every 2 minutes; the latest 50 are kept).": "Eine Version wird bei jeder Änderung gespeichert (Dokumente höchstens alle 2 Minuten; die letzten 50 bleiben).",
-  "Copy this version into a new page": "Diese Version in eine neue Seite kopieren",
-  "Copying failed": "Kopieren fehlgeschlagen",
   "Restore this version": "Diese Version wiederherstellen",
   "Text changed": "Text geändert",
   "The first version": "Die erste Version",
@@ -1776,7 +1773,6 @@
     "one": "{n} Version",
     "other": "{n} Versionen"
   },
-  "Changes were not recorded": "Änderungen wurden nicht aufgezeichnet",
   "Add card at the bottom": "Karte unten hinzufügen",
   "Add card at the top": "Karte oben hinzufügen",
   "Fix grammar, spelling, and punctuation in the following text. Reply with the corrected text only.": "Korrigiere Grammatik, Rechtschreibung und Zeichensetzung im folgenden Text. Antworte nur mit dem korrigierten Text.",
@@ -1784,5 +1780,24 @@
   "Reopen closed tab": "Geschlossenen Tab wieder öffnen",
   "Typed emoji": "Eingetipptes Emoji",
   "does not contain": "enthält nicht",
-  "matches regex": "passt auf Regex"
+  "matches regex": "passt auf Regex",
+  "Group by": "Gruppieren nach",
+  "15 minutes": "15 Minuten",
+  "1 hour": "1 Stunde",
+  "1 day": "1 Tag",
+  "1 week": "1 Woche",
+  "1 month": "1 Monat",
+  "Week of {date}": "Woche ab {date}",
+  "{day} at {time}": "{day} um {time}",
+  "No visible change": "Keine sichtbare Änderung",
+  "Previous change": "Vorherige Änderung",
+  "Next change": "Nächste Änderung",
+  "Version duplicated": "Version dupliziert",
+  "Duplicating failed": "Duplizieren fehlgeschlagen",
+  "Duplicate this version into a new page": "Diese Version in eine neue Seite duplizieren",
+  "{n} changes": {
+    "one": "{n} Änderung",
+    "other": "{n} Änderungen"
+  },
+  "No changes in the text": "Keine Änderungen im Text"
 }

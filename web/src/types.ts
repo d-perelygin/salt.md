@@ -186,7 +186,8 @@ export interface Revision {
   createdAt: string;
   authorName: string;
   title: string;
-  /** Absent on versions written before changes were recorded. */
+  /** What this version changed, against the one above it. A version written
+   *  before that was recorded has it worked out on read, from the two states. */
   changes?: RevisionChange[];
   /** The first stretch of the document's text: enough to recognise the state. */
   excerpt?: string;

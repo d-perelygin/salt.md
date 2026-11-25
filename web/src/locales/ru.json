@@ -1812,10 +1812,7 @@
   "All values (with repeats)": "Все значения (с повторами)",
   "{value} — {prop} of “{row}”": "{value} — {prop} из «{row}»",
   "Saved to “{row}”": "Сохранено в «{row}»",
-  "A copy of this version was created": "Копия этой версии создана",
   "A version is saved on every change (documents at most every 2 minutes; the latest 50 are kept).": "Версия сохраняется при каждом изменении (документы — не чаще раза в 2 минуты; хранятся последние 50).",
-  "Copy this version into a new page": "Скопировать эту версию в новую страницу",
-  "Copying failed": "Не удалось скопировать",
   "Restore this version": "Восстановить эту версию",
   "Text changed": "Текст изменён",
   "The first version": "Первая версия",
@@ -1827,7 +1824,6 @@
     "many": "{n} версий",
     "other": "{n} версии"
   },
-  "Changes were not recorded": "Изменения не записывались",
   "Add card at the bottom": "Добавить карточку в конец",
   "Add card at the top": "Добавить карточку в начало",
   "Fix grammar, spelling, and punctuation in the following text. Reply with the corrected text only.": "Исправь грамматику, орфографию и пунктуацию в тексте ниже. Ответь только исправленным текстом.",
@@ -1835,5 +1831,26 @@
   "Reopen closed tab": "Открыть закрытую вкладку",
   "Typed emoji": "Введённый эмодзи",
   "does not contain": "не содержит",
-  "matches regex": "совпадает с регексом"
+  "matches regex": "совпадает с регексом",
+  "Group by": "Группировать по",
+  "15 minutes": "15 минут",
+  "1 hour": "1 час",
+  "1 day": "1 день",
+  "1 week": "1 неделя",
+  "1 month": "1 месяц",
+  "Week of {date}": "Неделя с {date}",
+  "{day} at {time}": "{day}, {time}",
+  "No visible change": "Видимых изменений нет",
+  "Previous change": "Предыдущее изменение",
+  "Next change": "Следующее изменение",
+  "Version duplicated": "Версия дублирована",
+  "Duplicating failed": "Не удалось дублировать",
+  "Duplicate this version into a new page": "Дублировать версию в новую страницу",
+  "{n} changes": {
+    "one": "{n} изменение",
+    "few": "{n} изменения",
+    "many": "{n} изменений",
+    "other": "{n} изменения"
+  },
+  "No changes in the text": "Изменений в тексте нет"
 }

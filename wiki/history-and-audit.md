@@ -54,6 +54,11 @@ a checklist's progress (`2/5`), a date, a number. A relation is a count rather
 than titles, because a history dialog is readable by anyone who can read the
 row, and the linked rows are a separate permission.
 
+**Versions written before that was recorded still answer the question.** Their
+difference from the version above is not stored — but both states are, so it is
+worked out when the list is read. The row says "Text changed" rather than
+"Changes were not recorded", and the preview marks the changed words.
+
 **Which moment gets recorded differs by route**, and it decides what *Restore*
 hands you back:
 
@@ -91,21 +96,33 @@ away rather than gone.
 ### Reading and restoring
 
 1. Open the page and click the ⋯ button in the topbar (*More*).
-2. Choose **Version history**.
-3. The dialog groups the kept versions **by day**; open a day to see its
-   versions. Today is open; the others are folded away.
-4. Every version shows the time, who wrote it, and one line of what changed
-   ("Status: In progress → Done"). Click it to see the full list and the first
-   stretch of the text at that moment.
-5. **Restore** puts that version back; salt.md asks first: *Restore the version
+2. Choose **Version history**. The dialog is two panes: the versions on the
+   left, the page as it looked on the right.
+3. The list groups versions by time, and **Group by** sets how wide a group is:
+   15 minutes, 1 hour, 1 day, 1 week or 1 month. A page saved twenty times in
+   one morning is one entry to read by the hour and twenty by the minute; a day
+   is the default because it is the unit people remember work by. Groups fold
+   and unfold; each version shows its time, who wrote it and one line of what
+   changed ("Status: In progress → Done").
+4. Click a version and the right pane shows **that page as it was**, rendered:
+   headings, lists, checkboxes, quotes, code, tables, images. What changed is
+   marked in place — a reworded paragraph has its changed words highlighted, a
+   block that was added is shaded green, a block that was deleted is shown
+   struck through where it stood, and the title is marked when it changed.
+   Changed properties appear as chips above the document ("Status: To do →
+   Done").
+5. The footer steps through the changes: **3 / 7 changes** with the two arrows,
+   or click a version and the first change is scrolled to. Added, changed and
+   deleted blocks each count once.
+6. **Restore** puts that version back; salt.md asks first: *Restore the version
    from …? The current state is saved as a version first.* On success a
    *Version restored* message appears, the dialog closes, and the live document
    is reset: anybody with that page open in an editor gets the restored text
    rather than carrying on from the old one.
-6. **Copy** writes that version into a **new page** beside the original, with
-   its title, text and properties. Inside a database the copy is a new row. It
-   changes nothing about the page you are on, so it is the safe way to keep an
-   old version while the current one moves on.
+7. **Duplicate** writes that version into a **new page** beside the original,
+   with its title, text and properties. Inside a database the duplicate is a new
+   row. It changes nothing about the page you are on, so it is the safe way to
+   keep an old version while the current one moves on.
 
 If a page has no revisions yet the dialog says *No versions yet.*
 
@@ -127,10 +144,10 @@ Two things about restoring that are easy to be surprised by:
   rather than emptying them from a state that never knew about them.
 
 **Who may do what.** Anyone who can read the page can open its history.
-Restoring and copying need write access, the same permission as editing; a
-copy of a row also needs the right to add rows to its database. The buttons are
-shown to viewers as well, and the server refuses, so the click ends in an error
-rather than a change. See [Permissions](permissions.md).
+Restoring and duplicating need write access, the same permission as editing; a
+duplicate of a row also needs the right to add rows to its database. The buttons
+are shown to viewers as well, and the server refuses, so the click ends in an
+error rather than a change. See [Permissions](permissions.md).
 
 **How long it survives.** As long as the page does. A page in the trash keeps its
 full history and gets it back on restore; when the trash empties itself the page

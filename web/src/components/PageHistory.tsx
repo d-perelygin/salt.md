@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Clock } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, ChevronUp, Copy, RotateCcw, X } from 'lucide-react';
 import { api } from '../api';
 import type { Comment, Revision, RevisionChange } from '../types';
 import Portal from './Portal';
 import { confirm } from '../dialog';
 import { useExclusiveModal } from '../modal';
 import { toast } from '../toast';
-import { formatDay, formatMoment } from '../format';
+import { formatDay, formatMoment, formatMonthYear } from '../format';
 import { plural, t } from '../i18n';
+import { RevisionBody, diffRevision, parseRevisionContent, wordDiff, type Seg } from './RevisionDiff';
 
 const when = (iso: string) => formatMoment(iso, 'full');
 
@@ -33,6 +34,64 @@ function dayLabel(key: string): string {
   return formatDay(key);
 }
 
+/** How wide a group is. Notion offers this as a pill above the list, and the
+ *  reason is plain: a page saved ten times this morning is one thing to read
+ *  by the hour and ten things by the minute. A day is the default because it is
+ *  the unit people remember a work session in. */
+type GroupBy = '15m' | '1h' | '1d' | '1w' | '1m';
+
+const GROUP_MODES: GroupBy[] = ['15m', '1h', '1d', '1w', '1m'];
+
+function groupModeLabel(mode: GroupBy): string {
+  switch (mode) {
+    case '15m':
+      return t('15 minutes');
+    case '1h':
+      return t('1 hour');
+    case '1w':
+      return t('1 week');
+    case '1m':
+      return t('1 month');
+    default:
+      return t('1 day');
+  }
+}
+
+/** The first moment of the group a version belongs to, in the reader's zone. */
+function groupStart(iso: string, mode: GroupBy): Date | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setSeconds(0, 0);
+  if (mode === '1m') {
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  if (mode === '1w') {
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  if (mode === '1d') {
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  if (mode === '1h') {
+    d.setMinutes(0, 0, 0);
+    return d;
+  }
+  d.setMinutes(Math.floor(d.getMinutes() / 15) * 15, 0, 0);
+  return d;
+}
+
+function groupLabel(start: Date, mode: GroupBy): string {
+  if (mode === '1m') return formatMonthYear(start.getFullYear(), start.getMonth());
+  const day = dayLabel(dayKey(start.toISOString()));
+  if (mode === '1w') return t('Week of {date}', { date: day });
+  if (mode === '1d') return day;
+  return t('{day} at {time}', { day, time: formatMoment(start.toISOString(), 'time') });
+}
+
 /** One line of a version: what actually changed. Values are already the words
  *  the collection uses (an option's name, a person's name), so the line reads
  *  like the cell did. */
@@ -48,14 +107,9 @@ function changeLine(c: RevisionChange): string {
 
 function summaryLine(changes: RevisionChange[] | undefined, oldest: boolean): string {
   if (!changes || changes.length === 0) {
-    // A revision from before changes were recorded says nothing about what it
-    // changed. Only the oldest version is allowed to be "the first" — calling
-    // thirty old snapshots that would be a lie.
-    return oldest ? t('The first version') : t('Changes were not recorded');
+    return oldest ? t('The first version') : t('No visible change');
   }
-  const shown = changes.slice(0, 2).map(changeLine);
-  if (changes.length > 2) shown.push(t('+{n} more', { n: changes.length - 2 }));
-  return shown.join('; ');
+  return changes.slice(0, 2).map(changeLine).join('; ');
 }
 
 export function HistoryModal({
@@ -67,37 +121,107 @@ export function HistoryModal({
   pageId: string;
   onClose: () => void;
   onRestored: () => void;
-  /** Where a copy opens: the caller's own opener, so the new page lands in a
-   *  tab (or the current one) exactly as any other page would. */
+  /** Where a duplicate opens: the caller's own opener, so the new page lands
+   *  in a tab (or the current one) exactly as any other page would. */
   onOpen?: (id: string) => void;
 }) {
   const [revisions, setRevisions] = useState<Revision[]>([]);
-  const [openRows, setOpenRows] = useState<Set<string>>(new Set());
-  const [closedDays, setClosedDays] = useState<Set<string>>(new Set());
+  const [groupBy, setGroupBy] = useState<GroupBy>('1d');
+  const [closedGroups, setClosedGroups] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<string | null>(null);
+  // The full state of the versions being looked at: the one selected and the
+  // one above it, because a diff needs both. Fetched on demand and kept, so
+  // stepping up and down the list costs one request per version.
+  const [states, setStates] = useState<Record<string, { title: string; content: string }>>({});
+  const inFlight = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
+  const [active, setActive] = useState(1);
+  const bodyRef = useRef<HTMLDivElement>(null);
   useExclusiveModal(onClose);
-  const load = () => void api.listRevisions(pageId).then(setRevisions).catch(() => {});
-  useEffect(load, [pageId]);
 
-  // Grouped by the day the reader saw it happen: "today" is the unit people
-  // remember a work session in, not an exact timestamp.
-  const days: { key: string; items: Revision[] }[] = [];
-  for (const r of revisions) {
-    const key = dayKey(r.createdAt);
-    const last = days[days.length - 1];
-    if (last && last.key === key) last.items.push(r);
-    else days.push({ key, items: [r] });
-  }
+  const load = useCallback(
+    () =>
+      void api
+        .listRevisions(pageId)
+        .then((list) => {
+          setRevisions(list);
+          setSelected((cur) => (cur && list.some((r) => r.id === cur) ? cur : (list[0]?.id ?? null)));
+        })
+        .catch(() => {}),
+    [pageId],
+  );
+  useEffect(load, [load]);
 
-  const toggleRow = (id: string) =>
-    setOpenRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const toggleDay = (key: string) =>
-    setClosedDays((prev) => {
+  const selectedIndex = revisions.findIndex((r) => r.id === selected);
+  const older = selectedIndex >= 0 ? revisions[selectedIndex + 1] : undefined;
+
+  const ensure = useCallback(
+    (id: string | undefined) => {
+      if (!id || states[id] || inFlight.current.has(id)) return;
+      inFlight.current.add(id);
+      void api
+        .getRevision(pageId, id)
+        .then((r) => {
+          const content = JSON.stringify(r.content ?? []);
+          setStates((prev) => (prev[id] ? prev : { ...prev, [id]: { title: r.title, content } }));
+        })
+        .catch(() => {})
+        .finally(() => inFlight.current.delete(id));
+    },
+    [pageId, states],
+  );
+
+  useEffect(() => {
+    ensure(selected ?? undefined);
+    ensure(older?.id);
+  }, [ensure, selected, older?.id]);
+
+  const current = selected ? states[selected] : undefined;
+  const previous = older ? states[older.id] : undefined;
+
+  const lines = useMemo(() => {
+    if (!current) return [];
+    const after = parseRevisionContent(current.content);
+    if (!previous) return diffRevision([], after).map((l) => ({ ...l, kind: 'same' as const }));
+    return diffRevision(parseRevisionContent(previous.content), after);
+  }, [current, previous]);
+
+  const titleChanged = !!(current && previous && current.title !== previous.title);
+  const titleSegs: Seg[] | undefined =
+    titleChanged && previous ? wordDiff(previous.title, current!.title) : undefined;
+
+  // The title, when it changed, is the first thing to look at; every changed
+  // block after it. The footer steps through these numbers.
+  const ranks = useMemo(() => {
+    let n = titleChanged ? 1 : 0;
+    return lines.map((l) => (l.kind === 'same' ? 0 : ++n));
+  }, [lines, titleChanged]);
+  const total = ranks.reduce((m, r) => Math.max(m, r), titleChanged ? 1 : 0);
+
+  useEffect(() => {
+    setActive(1);
+  }, [selected]);
+
+  useEffect(() => {
+    if (!total) return;
+    const el = bodyRef.current?.querySelector(`[data-change="${active}"]`);
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' });
+  }, [active, total, selected, lines]);
+
+  const grouped = useMemo(() => {
+    const groups: { key: number; start: Date; items: Revision[] }[] = [];
+    for (const r of revisions) {
+      const start = groupStart(r.createdAt, groupBy);
+      const key = start ? start.getTime() : 0;
+      const last = groups[groups.length - 1];
+      if (last && last.key === key) last.items.push(r);
+      else groups.push({ key, start: start ?? new Date(0), items: [r] });
+    }
+    return groups;
+  }, [revisions, groupBy]);
+
+  const toggleGroup = (key: number) =>
+    setClosedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -124,115 +248,188 @@ export function HistoryModal({
     }
   };
 
-  const copyVersion = async (rev: Revision) => {
+  const duplicate = async (rev: Revision) => {
     setBusy(rev.id);
     try {
       const out = await api.copyRevision(pageId, rev.id);
-      toast.success(t('A copy of this version was created'));
+      toast.success(t('Version duplicated'));
       if (onOpen) onOpen(out.id);
       onClose();
     } catch (e) {
-      toast((e as Error).message || t('Copying failed'));
+      toast((e as Error).message || t('Duplicating failed'));
     } finally {
       setBusy(null);
     }
   };
 
+  const rev = selectedIndex >= 0 ? revisions[selectedIndex] : undefined;
+  const oldest = selectedIndex >= 0 && selectedIndex === revisions.length - 1;
+  const propChanges = (rev?.changes ?? []).filter((c) => c.kind === 'prop');
+
   return (
     <Portal>
-      <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-        <div className="dialog history-dialog" role="dialog" aria-modal="true" aria-label={t('Version history')}>
-          <h2>{t('Version history')}</h2>
-          <p className="dialog-hint">
-            {t('A version is saved on every change (documents at most every 2 minutes; the latest 50 are kept).')}
-          </p>
-          <div className="history-body">
-            {days.map((day) => {
-              const closed = closedDays.has(day.key);
-              return (
-                <section key={day.key} className="history-day">
-                  <button
-                    type="button"
-                    className="history-day-head"
-                    aria-expanded={!closed}
-                    onClick={() => toggleDay(day.key)}
-                  >
-                    {closed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                    <span className="history-day-label">{dayLabel(day.key)}</span>
-                    <span className="history-day-count">
-                      {plural(day.items.length, '{n} version', '{n} versions')}
-                    </span>
-                  </button>
-                  {!closed &&
-                    day.items.map((r) => {
-                      const open = openRows.has(r.id);
-                      const changes = r.changes ?? [];
-                      const oldest = r.id === revisions[revisions.length - 1]?.id;
-                      return (
-                        <article key={r.id} className={'history-item' + (open ? ' is-open' : '')}>
-                          <div className="history-item-head">
-                            <button
-                              type="button"
-                              className="history-item-toggle"
-                              aria-expanded={open}
-                              onClick={() => toggleRow(r.id)}
-                            >
-                              <Clock size={13} className="history-clock" />
-                              <span className="history-time">{formatMoment(r.createdAt, 'time')}</span>
-                              <span className="history-author">{r.authorName || t('unknown')}</span>
-                              <span className="history-summary" title={changes.map(changeLine).join('; ')}>
-                                {summaryLine(changes, oldest)}
+      <div
+        className="modal-overlay"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        <div className="rev-dialog" role="dialog" aria-modal="true" aria-label={t('Version history')}>
+          <aside className="rev-list-pane">
+            <div className="rev-list-head">
+              <h2>{t('Version history')}</h2>
+              <label className="rev-group">
+                <span>{t('Group by')}</span>
+                <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
+                  {GROUP_MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {groupModeLabel(m)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="rev-list">
+              {grouped.map((g) => {
+                const closed = closedGroups.has(g.key);
+                return (
+                  <section key={g.key} className="rev-group-block">
+                    <button
+                      type="button"
+                      className="rev-group-head"
+                      aria-expanded={!closed}
+                      onClick={() => toggleGroup(g.key)}
+                    >
+                      {closed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                      <span className="rev-group-label">{groupLabel(g.start, groupBy)}</span>
+                      <span className="rev-group-count">
+                        {plural(g.items.length, '{n} version', '{n} versions')}
+                      </span>
+                    </button>
+                    {!closed &&
+                      g.items.map((r) => {
+                        const index = revisions.findIndex((x) => x.id === r.id);
+                        const isOldest = index === revisions.length - 1;
+                        const summary = summaryLine(r.changes, isOldest);
+                        return (
+                          <button
+                            key={r.id}
+                            type="button"
+                            className={'rev-item' + (r.id === selected ? ' is-active' : '')}
+                            aria-current={r.id === selected}
+                            onClick={() => setSelected(r.id)}
+                          >
+                            <span className="rev-item-dot" aria-hidden="true" />
+                            <span className="rev-item-main">
+                              <span className="rev-item-top">
+                                <span className="rev-item-time">{formatMoment(r.createdAt, 'time')}</span>
+                                <span className="rev-item-author">{r.authorName || t('unknown')}</span>
                               </span>
-                              {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                            </button>
-                            <span className="history-item-actions">
-                              <button
-                                type="button"
-                                className="btn-sm"
-                                disabled={busy === r.id}
-                                title={t('Restore this version')}
-                                onClick={() => void restore(r)}
-                              >
-                                {t('Restore')}
-                              </button>
-                              <button
-                                type="button"
-                                className="btn-sm"
-                                disabled={busy === r.id}
-                                title={t('Copy this version into a new page')}
-                                onClick={() => void copyVersion(r)}
-                              >
-                                {t('Copy')}
-                              </button>
+                              <span className="rev-item-summary" title={summary}>
+                                {summary}
+                              </span>
                             </span>
-                          </div>
-                          {open && (
-                            <div className="history-item-detail">
-                              {changes.length > 0 ? (
-                                <ul className="history-changes">
-                                  {changes.map((c, i) => (
-                                    <li key={i} className="history-change">
-                                      {changeLine(c)}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="history-change">
-                                  {oldest ? t('The first version') : t('Changes were not recorded')}
-                                </p>
-                              )}
-                              {r.excerpt && <p className="history-excerpt">{r.excerpt}</p>}
-                            </div>
-                          )}
-                        </article>
-                      );
-                    })}
-                </section>
-              );
-            })}
-            {revisions.length === 0 && <div className="dialog-hint">{t('No versions yet.')}</div>}
-          </div>
-          <button className="btn dialog-close" onClick={onClose}>{t('Close')}</button>
+                          </button>
+                        );
+                      })}
+                  </section>
+                );
+              })}
+              {revisions.length === 0 && <div className="dialog-hint">{t('No versions yet.')}</div>}
+            </div>
+            <p className="rev-list-foot">
+              {t('A version is saved on every change (documents at most every 2 minutes; the latest 50 are kept).')}
+            </p>
+          </aside>
+
+          <section className="rev-doc-pane">
+            {!rev ? (
+              <div className="rev-doc-empty" />
+            ) : (
+              <>
+                <div className="rev-doc-head">
+                  <div className="rev-doc-when">
+                    <span className="rev-doc-moment">{when(rev.createdAt)}</span>
+                    <span className="rev-doc-author">{rev.authorName || t('unknown')}</span>
+                  </div>
+                  <div className="rev-doc-actions">
+                    <button
+                      className="btn"
+                      disabled={busy === rev.id}
+                      title={t('Restore this version')}
+                      onClick={() => void restore(rev)}
+                    >
+                      <RotateCcw size={14} /> {t('Restore')}
+                    </button>
+                    <button
+                      className="btn"
+                      disabled={busy === rev.id}
+                      title={t('Duplicate this version into a new page')}
+                      onClick={() => void duplicate(rev)}
+                    >
+                      <Copy size={14} /> {t('Duplicate')}
+                    </button>
+                    <button className="btn-sm rev-close" onClick={onClose} aria-label={t('Close')}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+                {propChanges.length > 0 && (
+                  <div className="rev-props">
+                    {propChanges.map((c, i) => (
+                      <span key={i} className="rev-prop">
+                        {changeLine(c)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {current ? (
+                  <RevisionBody
+                    lines={lines}
+                    ranks={ranks}
+                    title={current.title}
+                    titleSegs={titleSegs}
+                    titleChange={titleChanged ? 1 : 0}
+                    activeChange={active}
+                    bodyRef={bodyRef}
+                  />
+                ) : (
+                  <div className="rev-doc-loading" />
+                )}
+                <div className="rev-doc-foot">
+                  {total > 0 ? (
+                    <>
+                      <span className="rev-doc-count">
+                        {active} / {plural(total, '{n} change', '{n} changes')}
+                      </span>
+                      <span className="rev-doc-nav">
+                        <button
+                          className="btn-sm"
+                          disabled={active <= 1}
+                          title={t('Previous change')}
+                          onClick={() => setActive((n) => Math.max(1, n - 1))}
+                        >
+                          <ChevronUp size={15} />
+                        </button>
+                        <button
+                          className="btn-sm"
+                          disabled={active >= total}
+                          title={t('Next change')}
+                          onClick={() => setActive((n) => Math.min(total, n + 1))}
+                        >
+                          <ChevronDown size={15} />
+                        </button>
+                      </span>
+                    </>
+                  ) : (
+                    <span className="rev-doc-count">
+                      {oldest ? t('The first version') : t('No changes in the text')}
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
         </div>
       </div>
     </Portal>

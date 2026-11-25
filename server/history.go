@@ -137,25 +137,51 @@ func (s *Server) handleListRevisions(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "page not found")
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, created_at, author_name, title, changes, content FROM page_revisions WHERE page_id = ? ORDER BY created_at DESC`, pageID)
+	rows, err := s.db.Query(`SELECT id, created_at, author_name, title, content, props, icon, cover, changes, full
+		FROM page_revisions WHERE page_id = ? ORDER BY created_at DESC`, pageID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}
 	defer rows.Close()
-	list := []revisionJSON{}
+	type listed struct {
+		x  revisionJSON
+		st revisionState
+	}
+	kept := []listed{}
 	for rows.Next() {
-		var x revisionJSON
-		var changes, content string
-		rows.Scan(&x.ID, &x.CreatedAt, &x.AuthorName, &x.Title, &changes, &content)
+		var it listed
+		var changes string
+		var full int
+		if err := rows.Scan(&it.x.ID, &it.x.CreatedAt, &it.x.AuthorName, &it.x.Title,
+			&it.st.content, &it.st.props, &it.st.icon, &it.st.cover, &changes, &full); err != nil {
+			httpError(w, 500, err.Error())
+			return
+		}
+		it.st.title = it.x.Title
+		it.st.full = full != 0
 		if changes != "" {
-			json.Unmarshal([]byte(changes), &x.Changes)
+			json.Unmarshal([]byte(changes), &it.x.Changes)
 		}
-		if x.Changes == nil {
-			x.Changes = []revisionChange{}
+		it.x.Excerpt = pageExcerpt(it.st.content, 320)
+		kept = append(kept, it)
+	}
+	// A version written before changes were recorded carries none — but the
+	// two states are both here, so the difference can be worked out on the way
+	// out instead of leaving every older version saying "Changes were not
+	// recorded". That answer is an excuse, not a history: the reader came to
+	// see what changed.
+	list := []revisionJSON{}
+	for i, it := range kept {
+		if len(it.x.Changes) == 0 && i+1 < len(kept) {
+			if raw := s.revisionChanges(pageID, kept[i+1].st, it.st); raw != "" {
+				json.Unmarshal([]byte(raw), &it.x.Changes)
+			}
 		}
-		x.Excerpt = pageExcerpt(content, 320)
-		list = append(list, x)
+		if it.x.Changes == nil {
+			it.x.Changes = []revisionChange{}
+		}
+		list = append(list, it.x)
 	}
 	writeJSON(w, list)
 }
