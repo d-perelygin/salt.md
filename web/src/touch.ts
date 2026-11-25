@@ -1,9 +1,9 @@
 // A surface a hold can move: board cards, calendar entries, Gantt bars, the
-// unscheduled tray, and the tabs sheet. The stylesheet marks the same classes
-// (see mobile.css) to stop the browser from starting a text selection; this
-// list covers the devices where that alone is not enough.
+// unscheduled tray, the tabs sheet and the sidebar's rows. The stylesheet marks
+// the same classes (see mobile.css) to stop the browser from starting a text
+// selection; this list covers the devices where that alone is not enough.
 const TOUCH_DRAG_SURFACES =
-  '.board-card, .calendar-event, .cal-span, .tl-bar, .unsched-card, .tabs-sheet-card';
+  '.board-card, .calendar-event, .cal-span, .tl-bar, .unsched-card, .tabs-sheet-card, .tree-item';
 
 /**
  * A phone's long press on a draggable thing is the beginning of a drag, not a

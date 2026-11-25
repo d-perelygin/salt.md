@@ -279,6 +279,44 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   assert.equal(await p.locator('.user-menu-popup .user-menu-theme .theme-switch').count(), 1);
   await p.locator('.sidebar-account .user-menu-btn').click();
   await eventually(async () => (await p.locator('.user-menu-popup').count()) === 0);
+
+  // --- carrying a row with a finger ---------------------------------------
+  // HTML5 drag never starts on a phone, so the same move is a hold: the row
+  // lifts after ~300 ms, follows the finger and lands by the same rules the
+  // mouse uses. Phone B goes onto the middle of Phone A — inside it.
+  const rowA = p.locator('.tree-item', { hasText: 'Phone A' }).first();
+  const rowB = p.locator('.tree-item', { hasText: 'Phone B' }).first();
+  const aBox = await rowA.boundingBox();
+  const bBox = await rowB.boundingBox();
+  assert(aBox && bBox, 'both rows are on screen');
+  const cdp = await phone.newCDPSession(p);
+  const touch = (type, x, y) =>
+    cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: type === 'touchEnd' ? [] : [{ x: Math.round(x), y: Math.round(y) }],
+    });
+  const from = { x: bBox.x + 40, y: bBox.y + bBox.height / 2 };
+  const to = { x: aBox.x + 40, y: aBox.y + aBox.height / 2 };
+  await touch('touchStart', from.x, from.y);
+  await p.waitForTimeout(420);
+  await touch('touchMove', from.x, from.y - 10);
+  await eventually(async () => (await p.locator('.tree-drag-ghost').count()) === 1);
+  for (let i = 1; i <= 6; i++) {
+    await touch('touchMove', from.x + ((to.x - from.x) * i) / 6, from.y + ((to.y - from.y) * i) / 6);
+    await p.waitForTimeout(30);
+  }
+  await eventually(async () => (await p.locator('.tree-item.drop-inside').count()) === 1);
+  await touch('touchEnd');
+  await eventually(async () => {
+    const moved = await api('GET', `/api/pages/${docB.id}`);
+    return moved.parentId === docA.id;
+  });
+  assert.equal(await p.locator('.tree-drag-ghost').count(), 0, 'the carried card goes away');
+  assert(
+    p.url().includes(docA.id) && !p.url().includes(docB.id),
+    'the click that ends the drag does not open the page',
+  );
+
   // The drawer covers the left two thirds of the screen, so the tap that closes
   // it has to be on the part of the backdrop its own edges leave free.
   // The drawer gives a long page title room for more than two words, and still

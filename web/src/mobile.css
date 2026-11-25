@@ -1451,6 +1451,37 @@ body.tabs-dragging .tabs-sheet-card {
     -webkit-user-select: none;
     user-select: none;
   }
+
+  /* The row a finger is carrying, and the card that follows it. The row dims
+     so the caret between rows reads as the destination rather than a second
+     copy of what is already in hand. */
+  .tree-item.is-touch-carry {
+    opacity: 0.45;
+  }
+
+  .tree-drag-ghost {
+    position: fixed;
+    z-index: 340;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 220px;
+    padding: 7px 12px;
+    border-radius: 10px;
+    background: var(--card);
+    border: 1px solid var(--accent);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color: var(--fg);
+    font-size: 13.5px;
+    pointer-events: none;
+    transform: translate(12px, -46px);
+  }
+
+  .tree-drag-ghost-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 /* --- handles are a phone thing -------------------------------------------- */
