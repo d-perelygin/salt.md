@@ -457,6 +457,12 @@
   flex-direction: column;
   gap: 2px;
   padding: 2px 0 0;
+  /* A long group scrolls inside its own shelf: the grid below it — the tabs
+     that are open, which is what the sheet is for — must not be pushed out of
+     the sheet by a month of unvisited pages. */
+  max-height: 38dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* The group-wide action lives inside the plaque it applies to. Sentence case,

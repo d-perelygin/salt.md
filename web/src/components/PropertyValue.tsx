@@ -843,6 +843,7 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
   const multiple = !!def.personMultiple;
   const [members, setMembers] = useState<Member[]>([]);
   const [open, setOpen] = useState(false);
+  const [menuUp, setMenuUp] = useState(false);
   const [query, setQuery] = useState('');
   const boxRef = useRef<HTMLDivElement>(null);
   const ro = readOnly || !onChange;
@@ -899,11 +900,23 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
     <div className="relation-value" ref={boxRef}>
       {/* Always a real hit target: an empty cell says "＋ Person" instead of
           being an invisible nothing. */}
-      <button type="button" className="relation-open" onClick={() => setOpen((v) => !v)}>
+      <button
+        type="button"
+        className="relation-open"
+        onClick={() => {
+          // Near the bottom of a phone the menu would land under the dock;
+          // there it opens upward instead.
+          if (!open) {
+            const box = boxRef.current?.getBoundingClientRect();
+            setMenuUp(!!box && window.innerWidth <= 768 && box.top > window.innerHeight / 2);
+          }
+          setOpen((v) => !v);
+        }}
+      >
         {shown ?? <span className="prop-empty">{t('＋ Person')}</span>}
       </button>
       {open && (
-        <div className="menu relation-menu">
+        <div className={'menu relation-menu' + (menuUp ? ' relation-menu-up' : '')}>
           <input
             className="prop-input"
             autoFocus
@@ -1002,6 +1015,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // in the answer" — two states that both used to render as the word "Untitled".
   const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
+  const [menuUp, setMenuUp] = useState(false);
   const [query, setQuery] = useState('');
   const boxRef = useRef<HTMLDivElement>(null);
   const ro = readOnly || !onChange;
@@ -1324,7 +1338,13 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
           type="button"
           className="relation-open"
           onClick={() => {
-            if (!open && targetId) void loadRelationOptions(targetId, true).then(setOptions);
+            if (!open) {
+              if (targetId) void loadRelationOptions(targetId, true).then(setOptions);
+              // Same rule as the person picker: a cell near the bottom of a
+              // phone opens its menu upward, clear of the dock.
+              const box = boxRef.current?.getBoundingClientRect();
+              setMenuUp(!!box && window.innerWidth <= 768 && box.top > window.innerHeight / 2);
+            }
             setOpen((v) => !v);
           }}
         >
@@ -1332,7 +1352,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
         </button>
       )}
       {open && (
-        <div className="menu relation-menu">
+        <div className={'menu relation-menu' + (menuUp ? ' relation-menu-up' : '')}>
           <input
             className="prop-input"
             autoFocus

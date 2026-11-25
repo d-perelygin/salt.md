@@ -5842,6 +5842,14 @@ button.relation-chip:hover {
   gap: 6px;
 }
 
+/* Near the bottom of a phone, under a cell whose menu would run off the
+   screen, the menu hangs upward from the same edge. PropertyValue decides
+   which way (it knows the cell's position); this only draws it. */
+.relation-menu-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
 .relation-menu .prop-input {
   width: 100%;
   border: 1px solid var(--border);
