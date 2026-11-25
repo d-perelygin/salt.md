@@ -45,9 +45,19 @@ func (s *Server) mcpWriteContent(u *user, pageID, markdown, mode string) (string
 // Restoring is in here rather than standalone because it does not destroy
 // anything: it saves the current state as a new revision first, so the restore
 // is itself reversible.
-func (s *Server) mcpRevisions(u *user, pageID, action, revisionID string, limit int) (string, error) {
+//
+// A database page answers with its STRUCTURE history instead of a document's:
+// scope and itemID pick one column, one view or the process to put back.
+func (s *Server) mcpRevisions(u *user, pageID, action, revisionID string, limit int, scope, itemID string) (string, error) {
 	switch action {
 	case "", "list":
+		if s.isCollection(pageID) {
+			out, err := s.mcpCollectionHistory(pageID, limit)
+			if err != nil {
+				return "", err
+			}
+			return wrapUntrusted(out), nil
+		}
 		out, err := s.mcpPageHistory(pageID, limit)
 		if err != nil {
 			return "", err
@@ -56,6 +66,13 @@ func (s *Server) mcpRevisions(u *user, pageID, action, revisionID string, limit 
 	case "get":
 		if revisionID == "" {
 			return "", fmt.Errorf("revision_id is required for action=get — call action=list for the ids")
+		}
+		if s.isCollection(pageID) {
+			out, err := s.mcpGetCollectionRevision(pageID, revisionID)
+			if err != nil {
+				return "", err
+			}
+			return wrapUntrusted(out), nil
 		}
 		out, err := s.mcpGetRevision(pageID, revisionID)
 		if err != nil {
@@ -66,12 +83,30 @@ func (s *Server) mcpRevisions(u *user, pageID, action, revisionID string, limit 
 		if revisionID == "" {
 			return "", fmt.Errorf("revision_id is required for action=restore — call action=list for the ids")
 		}
+		if s.isCollection(pageID) {
+			msg, err := s.restoreCollectionRevision(pageID, revisionID, scope, itemID, u)
+			if err != nil {
+				return "", err
+			}
+			return msg, nil
+		}
 		return s.mcpRestoreRevision(u, pageID, revisionID)
 	case "restore_original":
 		// The oldest state still kept: the page before its first recorded
 		// change. Spelled out as an action because an agent that overwrote a
 		// page it never read should not have to page through the list and guess
 		// which id came before it.
+		if s.isCollection(pageID) {
+			id := s.oldestCollectionRevision(pageID)
+			if id == "" {
+				return "", fmt.Errorf("database %s has no revisions yet — there is no earlier state to restore", pageID)
+			}
+			msg, err := s.restoreCollectionRevision(pageID, id, "all", "", u)
+			if err != nil {
+				return "", err
+			}
+			return msg, nil
+		}
 		id := s.oldestRevision(pageID)
 		if id == "" {
 			return "", fmt.Errorf("page %s has no revisions yet — there is no earlier state to restore", pageID)

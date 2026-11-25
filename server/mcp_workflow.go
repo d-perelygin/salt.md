@@ -121,6 +121,16 @@ func (s *Server) mcpGetWorkflow(pageID string) (string, error) {
 		list = append(list, entry)
 	}
 	out["rules"] = list
+	// People are named by their handle in code. The legend tells an agent who
+	// @ada-lovelace is without making it join three more calls.
+	members := []any{}
+	for _, m := range s.codeMembersOf(pageID) {
+		if m.Handle == "" {
+			continue
+		}
+		members = append(members, map[string]any{"id": m.ID, "handle": "@" + m.Handle, "name": m.Name})
+	}
+	out["members"] = members
 	// Code blocks are read-only over MCP: agents see the source and how
 	// many rules it compiled to, and edit it through the interface.
 	blocks := []any{}

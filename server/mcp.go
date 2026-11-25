@@ -322,7 +322,7 @@ var mcpTools = []map[string]any{
 	},
 	{
 		"name":        "get_workflow",
-		"description": "Read a database's business process: the status property and every When/Then rule in plain words (what triggers, who may enter from where, what is asked or set), with rule ids. No process stored means every move is allowed.",
+		"description": "Read a database's business process: the status property and every When/Then rule in plain words (what triggers, who may enter from where, what is asked or set), with rule ids. No process stored means every move is allowed. Code blocks come back as source, and `members` maps every @handle in it to the person's current name.",
 		"inputSchema": map[string]any{"type": "object",
 			"properties": map[string]any{
 				"page_id": map[string]any{"type": "string", "description": "The database page id"}},
@@ -357,7 +357,7 @@ var mcpTools = []map[string]any{
 	{
 		"name":        "set_workflow_code",
 		"annotations": overwrites,
-		"description": "Replace a database's process with a whole code document: `rule \"Name\":` blocks, two-space indentation, `when \"A\" becomes \"B\"`, `only from`, `needs checklist`, `needs filled`, `if \"Prop\" is \"x\", \"y\"`, `do:` with `set`, `assign me to`, `ask`, `webhook`; constants as `name = \"value\"` on top, referenced by their bare name. This REPLACES the process — visual rules included — and the document becomes one code block a person can edit in Process → Code. Reach for it when: a rule needs OR values or constants, several rules change at once, or you rewrite the process. For ONE simple rule with no OR and no constants, add_workflow_rule is better: it is structured and leaves other rules alone. Refusals name the line and the problem — fix and retry.",
+		"description": "Replace a database's process with a whole code document: `rule \"Name\":` blocks, two-space indentation, `when \"A\" becomes \"B\"`, `only from`, `needs checklist`, `needs filled`, `if \"Prop\" is \"x\", \"y\"`, `do:` with `set`, `assign me to`, `ask`, `webhook`; people are written by their stable handle (`set \"Owner\" = @ada-lovelace`, see get_workflow's `members`), and a display name in quotes still reads; constants as `name = \"value\"` on top, referenced by their bare name. This REPLACES the process — visual rules included — and the document becomes one code block a person can edit in Process → Code. Reach for it when: a rule needs OR values or constants, several rules change at once, or you rewrite the process. For ONE simple rule with no OR and no constants, add_workflow_rule is better: it is structured and leaves other rules alone. Refusals name the line and the problem — fix and retry.",
 		"inputSchema": map[string]any{"type": "object",
 			"properties": map[string]any{
 				"page_id": map[string]any{"type": "string", "description": "The database page id"},
@@ -437,13 +437,15 @@ var mcpTools = []map[string]any{
 	{
 		"name":        "revisions",
 		"annotations": overwrites,
-		"description": "A page's history. action: list (the default — every revision with author, time, whether a HUMAN or an AGENT made it, and baseline on the oldest surviving state) | get (one older state as Markdown) | restore (put the page back to a revision id) | restore_original (put it back to the oldest surviving state, i.e. before its first recorded change). Restoring saves the CURRENT state as a new revision first, so it is itself reversible.",
+		"description": "A page's history. action: list (the default — every revision with author, time, whether a HUMAN or an AGENT made it, and baseline on the oldest surviving state) | get (one older state as Markdown) | restore (put the page back to a revision id) | restore_original (put it back to the oldest surviving state, i.e. before its first recorded change). When the page is a DATABASE (a collection), the revisions are its STRUCTURE — columns, views and process, not a document body; restoring takes scope (all, schema, views, workflow, property, view) and item_id for the last two, and never touches row values. Restoring saves the CURRENT state as a new revision first, so it is itself reversible.",
 		"inputSchema": map[string]any{"type": "object",
 			"properties": map[string]any{
 				"page_id":     map[string]any{"type": "string"},
 				"action":      map[string]any{"type": "string", "description": "list (default) | get | restore | restore_original"},
 				"revision_id": map[string]any{"type": "string", "description": "Required for get and restore — call action=list for the ids."},
 				"limit":       map[string]any{"type": "integer", "description": "list only: how many revisions (default 20, max 100)."},
+				"scope":       map[string]any{"type": "string", "description": "restore on a database only: all (default) | schema | views | workflow | property | view. A page ignores it."},
+				"item_id":     map[string]any{"type": "string", "description": "restore with scope=property or scope=view: the property or view id, as carried by the changes of the version — call action=get for the full state."},
 			},
 			"required": []string{"page_id"}},
 	},
@@ -984,8 +986,13 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 		Updates json.RawMessage   `json:"updates"`
 		// Agent parity A3.
 		RevisionID string `json:"revision_id"`
-		CommentID  string `json:"comment_id"`
-		Resolved   *bool  `json:"resolved"`
+		// revisions, when the page is a database: which part of the structure
+		// to put back (all, schema, views, workflow, property, view) and, for
+		// the last two, which column or view.
+		Scope     string `json:"scope"`
+		ItemID    string `json:"item_id"`
+		CommentID string `json:"comment_id"`
+		Resolved  *bool  `json:"resolved"`
 		// Agent parity A4.
 		WorkspaceID   string `json:"workspace_id"`
 		DatabaseID    string `json:"database_id"`
@@ -1518,7 +1525,7 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 		case "write_content":
 			return s.mcpWriteContent(u, args.PageID, args.Markdown, args.Mode)
 		case "revisions":
-			return s.mcpRevisions(u, args.PageID, args.Action, args.RevisionID, args.Limit)
+			return s.mcpRevisions(u, args.PageID, args.Action, args.RevisionID, args.Limit, args.Scope, args.ItemID)
 		case "comments":
 			return s.mcpComments(u, args.PageID, args.Action, args.Body, args.BlockID, args.CommentID, args.Agent, args.Label, args.Resolved)
 		case "set_sharing":
@@ -1556,7 +1563,18 @@ func (s *Server) mcpCall(u *user, name string, rawArgs json.RawMessage, publicBa
 		}
 	}
 
+	// A structure write is a version in its own history: capture the state it
+	// replaces before anything is written. Which of schema, views and process
+	// arrives is decided below; whatever stays as it is stays out of the diff.
+	var structureBefore collectionState
+	structureTracked := collectionStructureTool(name) && args.PageID != ""
+	if structureTracked {
+		structureBefore, structureTracked = s.readRawCollectionState(args.PageID)
+	}
 	result, err := run()
+	if err == nil && structureTracked {
+		s.recordCollectionRevision(args.PageID, userID, u.Name, structureBefore)
+	}
 	// Record who did what (agent vs human) and cache for idempotent retries.
 	//
 	// working_on is excluded: it writes its own entry, with the NOTE as the

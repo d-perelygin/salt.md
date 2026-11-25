@@ -312,7 +312,11 @@ func diffSchemaNames(old, fresh []PropSchema) []codeRename {
 
 // rewriteMemberInCode renames one member across every stored process code
 // that names them. Quiet when nothing references them.
-func (s *Server) rewriteMemberInCode(memberID, from, to string) {
+//
+// actor is the person whose rename caused this: the change to each database's
+// process is real and lands in its structure history under their name, rather
+// than appearing there later as a change nobody made.
+func (s *Server) rewriteMemberInCode(memberID, from, to, actorID, actorName string) {
 	if strings.TrimSpace(from) == "" || from == to {
 		return
 	}
@@ -360,7 +364,10 @@ func (s *Server) rewriteMemberInCode(memberID, from, to string) {
 			}
 		}
 		if refs, blocks := rewriteCodeWorkflow(cfg, schema, oldMembers, ren); blocks > 0 && refs > 0 {
-			_ = s.saveWorkflow(j.pageID, cfg)
+			before, hasBefore := s.readRawCollectionState(j.pageID)
+			if err := s.saveWorkflow(j.pageID, cfg); err == nil && hasBefore {
+				s.recordCollectionRevisionForced(j.pageID, actorID, actorName, before)
+			}
 		}
 	}
 }

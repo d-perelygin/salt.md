@@ -745,6 +745,7 @@ func (s *Server) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 			httpError(w, 500, err.Error())
 			return
 		}
+		s.assignUserHandle(uid, useEmail)
 		s.addOrgMember(uid, false)
 		// Somebody who was invited gets their own area too — otherwise their account
 		// hangs entirely on the goodwill of the inviting team. Only for a NEW account:
@@ -839,6 +840,7 @@ func (s *Server) handleSelfSignup(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
+	s.assignUserHandle(uid, email)
 	s.addOrgMember(uid, false)
 	s.onboardUser(uid, body.Name)
 	sessTok, err := s.createSession(uid)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, ChevronUp, Copy, RotateCcw, X } from 'lucide-react';
 import { api } from '../api';
-import type { Comment, Revision, RevisionChange } from '../types';
+import type { CollectionRevisionState, Comment, Revision, RevisionChange } from '../types';
 import Portal from './Portal';
 import { confirm } from '../dialog';
 import { useExclusiveModal } from '../modal';
@@ -9,6 +9,7 @@ import { toast } from '../toast';
 import { formatDay, formatMoment, formatMonthYear } from '../format';
 import { plural, t } from '../i18n';
 import { RevisionBody, diffRevision, parseRevisionContent, wordDiff, type Seg } from './RevisionDiff';
+import { CollectionHistory, revisionChangeLine } from './CollectionHistory';
 
 const when = (iso: string) => formatMoment(iso, 'full');
 
@@ -100,6 +101,7 @@ function changeLine(c: RevisionChange): string {
     return t('Title: {from} → {to}', { from: c.from || t('empty'), to: c.to || t('empty') });
   }
   if (c.kind === 'content') return t('Text changed');
+  if (c.kind !== 'prop') return revisionChangeLine(c);
   const from = c.type === 'date' ? formatDay(c.from) : c.from;
   const to = c.type === 'date' ? formatDay(c.to) : c.to;
   return `${c.name || c.prop || '?'}: ${from || '—'} → ${to || '—'}`;
@@ -114,11 +116,14 @@ function summaryLine(changes: RevisionChange[] | undefined, oldest: boolean): st
 
 export function HistoryModal({
   pageId,
+  collection = false,
   onClose,
   onRestored,
   onOpen,
 }: {
   pageId: string;
+  /** The page is a database: this dialog shows its structure, not a body. */
+  collection?: boolean;
   onClose: () => void;
   onRestored: () => void;
   /** Where a duplicate opens: the caller's own opener, so the new page lands
@@ -132,7 +137,9 @@ export function HistoryModal({
   // The full state of the versions being looked at: the one selected and the
   // one above it, because a diff needs both. Fetched on demand and kept, so
   // stepping up and down the list costs one request per version.
-  const [states, setStates] = useState<Record<string, { title: string; content: string }>>({});
+  const [states, setStates] = useState<
+    Record<string, { title: string; content: string; collection?: CollectionRevisionState }>
+  >({});
   const inFlight = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [active, setActive] = useState(1);
@@ -152,6 +159,18 @@ export function HistoryModal({
   );
   useEffect(load, [load]);
 
+  // After a partial restore the newest version is the result: show it, so the
+  // pane answers "what is it now" rather than staying on the old one.
+  const loadNewest = useCallback(() => {
+    void api
+      .listRevisions(pageId)
+      .then((list) => {
+        setRevisions(list);
+        setSelected(list[0]?.id ?? null);
+      })
+      .catch(() => {});
+  }, [pageId]);
+
   const selectedIndex = revisions.findIndex((r) => r.id === selected);
   const older = selectedIndex >= 0 ? revisions[selectedIndex + 1] : undefined;
 
@@ -162,8 +181,25 @@ export function HistoryModal({
       void api
         .getRevision(pageId, id)
         .then((r) => {
+          const collectionState: CollectionRevisionState | undefined =
+            r.kind === 'collection'
+              ? {
+                  kind: 'collection',
+                  schema: r.schema ?? [],
+                  views: r.views ?? [],
+                  workflow: r.workflow,
+                  newFromTemplate: r.newFromTemplate,
+                  createdAt: r.createdAt,
+                  authorName: r.authorName,
+                  changes: r.changes,
+                }
+              : undefined;
           const content = JSON.stringify(r.content ?? []);
-          setStates((prev) => (prev[id] ? prev : { ...prev, [id]: { title: r.title, content } }));
+          setStates((prev) =>
+            prev[id]
+              ? prev
+              : { ...prev, [id]: { title: r.title ?? '', content, collection: collectionState } },
+          );
         })
         .catch(() => {})
         .finally(() => inFlight.current.delete(id));
@@ -228,19 +264,42 @@ export function HistoryModal({
       return next;
     });
 
+  const isCollection = collection || revisions.some((r) => r.kind === 'collection');
+
   const restore = async (rev: Revision) => {
     const ok = await confirm(
-      t('Restore the version from {when}? The current state is saved as a version first.', {
-        when: when(rev.createdAt),
-      }),
+      isCollection
+        ? t('Restore the structure from {when}? The current structure is saved as a version first.', {
+            when: when(rev.createdAt),
+          })
+        : t('Restore the version from {when}? The current state is saved as a version first.', {
+            when: when(rev.createdAt),
+          }),
     );
     if (!ok) return;
     setBusy(rev.id);
     try {
-      await api.restoreRevision(pageId, rev.id);
-      toast.success(t('Version restored'));
+      await api.restoreRevision(pageId, rev.id, isCollection ? { scope: 'all' } : undefined);
+      toast.success(isCollection ? t('Structure restored') : t('Version restored'));
       onRestored();
       onClose();
+    } catch (e) {
+      toast((e as Error).message || t('Restoring failed'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // One column, one view, the process: no confirmation, because it is exactly
+  // as reversible as a whole restore and the dialog stays open to show the
+  // result.
+  const restorePart = async (rev: Revision, scope: 'property' | 'view' | 'workflow', itemId?: string) => {
+    setBusy(rev.id);
+    try {
+      await api.restoreRevision(pageId, rev.id, { scope, itemId });
+      toast.success(t('Structure restored'));
+      onRestored();
+      loadNewest();
     } catch (e) {
       toast((e as Error).message || t('Restoring failed'));
     } finally {
@@ -274,10 +333,10 @@ export function HistoryModal({
           if (e.target === e.currentTarget) onClose();
         }}
       >
-        <div className="rev-dialog" role="dialog" aria-modal="true" aria-label={t('Version history')}>
+        <div className="rev-dialog" role="dialog" aria-modal="true" aria-label={isCollection ? t('Structure history') : t('Version history')}>
           <aside className="rev-list-pane">
             <div className="rev-list-head">
-              <h2>{t('Version history')}</h2>
+              <h2>{isCollection ? t('Structure history') : t('Version history')}</h2>
               <label className="rev-group">
                 <span>{t('Group by')}</span>
                 <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
@@ -338,7 +397,9 @@ export function HistoryModal({
               {revisions.length === 0 && <div className="dialog-hint">{t('No versions yet.')}</div>}
             </div>
             <p className="rev-list-foot">
-              {t('A version is saved on every change (documents at most every 2 minutes; the latest 50 are kept).')}
+              {isCollection
+                ? t('A version is saved on every structure change (at most every 2 minutes for layout edits; the latest 50 are kept).')
+                : t('A version is saved on every change (documents at most every 2 minutes; the latest 50 are kept).')}
             </p>
           </aside>
 
@@ -361,72 +422,87 @@ export function HistoryModal({
                     >
                       <RotateCcw size={14} /> {t('Restore')}
                     </button>
-                    <button
-                      className="btn"
-                      disabled={busy === rev.id}
-                      title={t('Duplicate this version into a new page')}
-                      onClick={() => void duplicate(rev)}
-                    >
-                      <Copy size={14} /> {t('Duplicate')}
-                    </button>
+                    {!isCollection && (
+                      <button
+                        className="btn"
+                        disabled={busy === rev.id}
+                        title={t('Duplicate this version into a new page')}
+                        onClick={() => void duplicate(rev)}
+                      >
+                        <Copy size={14} /> {t('Duplicate')}
+                      </button>
+                    )}
                     <button className="btn-sm rev-close" onClick={onClose} aria-label={t('Close')}>
                       <X size={16} />
                     </button>
                   </div>
                 </div>
-                {propChanges.length > 0 && (
-                  <div className="rev-props">
-                    {propChanges.map((c, i) => (
-                      <span key={i} className="rev-prop">
-                        {changeLine(c)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {current ? (
-                  <RevisionBody
-                    lines={lines}
-                    ranks={ranks}
-                    title={current.title}
-                    titleSegs={titleSegs}
-                    titleChange={titleChanged ? 1 : 0}
-                    activeChange={active}
-                    bodyRef={bodyRef}
+                {isCollection ? (
+                  <CollectionHistory
+                    state={current?.collection}
+                    changes={rev.changes}
+                    busy={busy === rev.id}
+                    onRestore={(scope, itemId, fromPrevious) =>
+                      void restorePart(fromPrevious && older ? older : rev, scope, itemId)
+                    }
                   />
                 ) : (
-                  <div className="rev-doc-loading" />
+                  <>
+                    {propChanges.length > 0 && (
+                      <div className="rev-props">
+                        {propChanges.map((c, i) => (
+                          <span key={i} className="rev-prop">
+                            {changeLine(c)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {current ? (
+                      <RevisionBody
+                        lines={lines}
+                        ranks={ranks}
+                        title={current.title}
+                        titleSegs={titleSegs}
+                        titleChange={titleChanged ? 1 : 0}
+                        activeChange={active}
+                        bodyRef={bodyRef}
+                      />
+                    ) : (
+                      <div className="rev-doc-loading" />
+                    )}
+                    <div className="rev-doc-foot">
+                      {total > 0 ? (
+                        <>
+                          <span className="rev-doc-count">
+                            {active} / {plural(total, '{n} change', '{n} changes')}
+                          </span>
+                          <span className="rev-doc-nav">
+                            <button
+                              className="btn-sm"
+                              disabled={active <= 1}
+                              title={t('Previous change')}
+                              onClick={() => setActive((n) => Math.max(1, n - 1))}
+                            >
+                              <ChevronUp size={15} />
+                            </button>
+                            <button
+                              className="btn-sm"
+                              disabled={active >= total}
+                              title={t('Next change')}
+                              onClick={() => setActive((n) => Math.min(total, n + 1))}
+                            >
+                              <ChevronDown size={15} />
+                            </button>
+                          </span>
+                        </>
+                      ) : (
+                        <span className="rev-doc-count">
+                          {oldest ? t('The first version') : t('No changes in the text')}
+                        </span>
+                      )}
+                    </div>
+                  </>
                 )}
-                <div className="rev-doc-foot">
-                  {total > 0 ? (
-                    <>
-                      <span className="rev-doc-count">
-                        {active} / {plural(total, '{n} change', '{n} changes')}
-                      </span>
-                      <span className="rev-doc-nav">
-                        <button
-                          className="btn-sm"
-                          disabled={active <= 1}
-                          title={t('Previous change')}
-                          onClick={() => setActive((n) => Math.max(1, n - 1))}
-                        >
-                          <ChevronUp size={15} />
-                        </button>
-                        <button
-                          className="btn-sm"
-                          disabled={active >= total}
-                          title={t('Next change')}
-                          onClick={() => setActive((n) => Math.min(total, n + 1))}
-                        >
-                          <ChevronDown size={15} />
-                        </button>
-                      </span>
-                    </>
-                  ) : (
-                    <span className="rev-doc-count">
-                      {oldest ? t('The first version') : t('No changes in the text')}
-                    </span>
-                  )}
-                </div>
               </>
             )}
           </section>

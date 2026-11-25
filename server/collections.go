@@ -86,6 +86,9 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "page not found")
 		return
 	}
+	// Structure history: the state this save replaces is filed after the write,
+	// so the newest version is always what the database is now.
+	structureBefore, structureBeforeOK := s.readRawCollectionState(id)
 	tplCol, tplHolder, tplSet := "", "", ""
 	tplArgs := []any{}
 	if body.NewFromTemplate != nil {
@@ -206,6 +209,9 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.db.Exec(`UPDATE pages SET type = 'collection', updated_at = ? WHERE id = ?`, now(), id); err != nil {
 		httpError(w, 500, err.Error())
 		return
+	}
+	if structureBeforeOK {
+		s.recordCollectionRevision(id, requestUser(r).ID, requestUser(r).Name, structureBefore)
 	}
 	s.pagesChanged()
 	// The schema and the views ARE the database: adding a column or removing a

@@ -489,6 +489,14 @@ history. Restoring snapshots the current state first, which makes the restore
 itself reversible. [Comments and notes](comments-and-notes.md) and
 [History and audit](history-and-audit.md) go into both.
 
+**A database's page answers with its structure.** For a collection the same
+three routes return the schema, views and process instead of a document body:
+list items carry `kind: "collection"` and a `changes` array, and the restore
+route takes an optional body — `{"scope":"all"}`, `"schema"`, `"views"`,
+`"workflow"`, or `"property"`/`"view"` with `"itemId"`. A restore that would
+break the process answers `409` with `code: "structure_conflict"` and writes
+nothing. Row values are not part of this history.
+
 ## Workspaces, members and sharing
 
 | Method and path | What it does |

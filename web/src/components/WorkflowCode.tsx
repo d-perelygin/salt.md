@@ -112,7 +112,7 @@ export default function WorkflowCode({
         type: p.type,
         options: (p.options ?? []).map((o) => o.name),
       })),
-      members: members.map((m) => m.name),
+      members: members.flatMap((m) => (m.handle ? [`@${m.handle}`] : [m.name])),
     }),
     [schema, statusPropId, members],
   );
@@ -526,6 +526,9 @@ export default function WorkflowCode({
             ))}
           </div>
         )}
+        <p className="workflow-code-hint">
+          {t('People are written by their handle, like @ada-lovelace. Renaming an account does not touch this code; the rules above still show their name.')}
+        </p>
         {state.kind === 'codeOnly' && (
           <div className="workflow-code-move">
             <span>

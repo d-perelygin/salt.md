@@ -137,6 +137,11 @@ func (s *Server) handleListRevisions(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "page not found")
 		return
 	}
+	// A database page has no body to version; its structure has its own store.
+	if s.isCollection(pageID) {
+		s.serveCollectionRevisions(w, pageID)
+		return
+	}
 	rows, err := s.db.Query(`SELECT id, created_at, author_name, title, content, props, icon, cover, changes, full
 		FROM page_revisions WHERE page_id = ? ORDER BY created_at DESC`, pageID)
 	if err != nil {
@@ -193,6 +198,10 @@ func (s *Server) handleGetRevision(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "page not found")
 		return
 	}
+	if s.isCollection(pageID) {
+		s.serveCollectionRevision(w, pageID, r.PathValue("revId"))
+		return
+	}
 	st, ok := s.revisionStateByID(pageID, r.PathValue("revId"))
 	if !ok {
 		httpError(w, 404, "revision not found")
@@ -230,6 +239,10 @@ func (s *Server) handleRestoreRevision(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	if !s.canWriteReq(r, pageID) {
 		httpError(w, 403, "forbidden")
+		return
+	}
+	if s.isCollection(pageID) {
+		s.handleRestoreCollectionRevision(w, r, pageID)
 		return
 	}
 	st, ok := s.revisionStateByID(pageID, r.PathValue("revId"))

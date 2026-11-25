@@ -726,7 +726,7 @@ function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
 // person value written as a name (by hand or by an agent) still finds its face.
 // One request per workspace, shared by every cell — a table with 200 person
 // cells must not make 200 calls.
-export type Member = { userId: string; name: string; color: string; avatar: string };
+export type Member = { userId: string; name: string; color: string; avatar: string; handle: string };
 let memberCache: Promise<Member[]> | null = null;
 
 export function loadMembers(): Promise<Member[]> {
@@ -737,7 +737,7 @@ export function loadMembers(): Promise<Member[]> {
       .then((lists) => {
         const byID = new Map<string, Member>();
         for (const m of lists.flat()) {
-          byID.set(m.userId, { userId: m.userId, name: m.name, color: m.color, avatar: m.avatar });
+          byID.set(m.userId, { userId: m.userId, name: m.name, color: m.color, avatar: m.avatar, handle: m.handle ?? '' });
         }
         return [...byID.values()];
       })

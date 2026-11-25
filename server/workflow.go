@@ -282,7 +282,7 @@ func (s *Server) codeMembersOf(pageID string) []codeMember {
 	if err := s.db.QueryRow(`SELECT workspace_id FROM pages WHERE id = ?`, pageID).Scan(&ws); err != nil || ws == "" {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT u.id, u.name FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? ORDER BY u.name`, ws)
+	rows, err := s.db.Query(`SELECT u.id, u.name, COALESCE(u.handle, '') FROM workspace_members m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ? ORDER BY u.name`, ws)
 	if err != nil {
 		return nil
 	}
@@ -290,7 +290,7 @@ func (s *Server) codeMembersOf(pageID string) []codeMember {
 	var out []codeMember
 	for rows.Next() {
 		var m codeMember
-		if err := rows.Scan(&m.ID, &m.Name); err == nil {
+		if err := rows.Scan(&m.ID, &m.Name, &m.Handle); err == nil {
 			out = append(out, m)
 		}
 	}

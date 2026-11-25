@@ -82,6 +82,10 @@ blind search-and-replace, and announced with a toast saying how many
 references moved. A block that no longer parses is left alone and flagged red
 instead of being rewritten.
 
+**People are the exception**, and deliberately so: code names a person by their
+stable handle rather than their display name, which is why renaming an account
+rewrites no process at all. See [Process code](#process-code) below.
+
 This is the single most common source of confusion when writing values from
 outside the interface. Call `get_collection` first; it returns every property
 id, every type and every option id.
@@ -96,8 +100,9 @@ them. Broken text reports the line with a jump, and visual editing pauses
 until it is fixed.
 
 ```python
-# A comment. Names go in quotes; bare names refer to constants above.
-reviewers = ["Lena", "Max"]
+# A comment. Names go in quotes; people are handles, bare names refer to
+# constants above.
+reviewers = ["@lena", "@max"]
 hook = "https://hooks.example.com/notify"
 
 rule "To review":
@@ -115,6 +120,16 @@ rule "To review":
 One `when` line per rule (created for new rows, any for every source),
 optional gates (`only from`, `needs checklist`, `needs filled`, `if` — several
 values after `is` mean *or*), then actions under `do:`.
+
+**A person is written by their handle**, `@` and the name they already use,
+not by their display name: `set "Owner" = @ada-lovelace`, or a list
+`[@ada-lovelace, @grace-hopper]`. A handle is assigned once, from the account's
+email, and never changes — so renaming an account, or somebody changing their
+own name, leaves every process alone. A display name in quotes still reads,
+which is what older code and anything an agent wrote by hand does; the next save
+of that block turns it into the handle. The completions offer handles too. Over
+MCP, `get_workflow` returns a `members` list that maps each handle in the code
+to the person's current name.
 
 Two things exist only in code: OR value lists and named constants have no
 List editor. Writing one moves the rule out of List automatically — the tab

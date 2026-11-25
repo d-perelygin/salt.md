@@ -937,6 +937,10 @@ type memberJSON struct {
 	// disclosed: both are visible to fellow members wherever a person appears.
 	Color  string `json:"color"`
 	Avatar string `json:"avatar"`
+	// Handle is the stable, readable name process code uses (@ada-lovelace).
+	// It is what an agent writes in `set "Owner" = @...`; the display name is
+	// only what people read.
+	Handle string `json:"handle"`
 }
 
 // handleListMembers lists a workspace's members. Any member may view the roster.
@@ -947,7 +951,7 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.db.Query(`
-		SELECT u.id, u.name, u.email, m.role, COALESCE(u.color, ''), COALESCE(u.avatar, '')
+		SELECT u.id, u.name, u.email, m.role, COALESCE(u.color, ''), COALESCE(u.avatar, ''), COALESCE(u.handle, '')
 		FROM workspace_members m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.workspace_id = ? ORDER BY m.role, u.name`, wsID)
@@ -959,7 +963,7 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 	list := []memberJSON{}
 	for rows.Next() {
 		var m memberJSON
-		rows.Scan(&m.UserID, &m.Name, &m.Email, &m.Role, &m.Color, &m.Avatar)
+		rows.Scan(&m.UserID, &m.Name, &m.Email, &m.Role, &m.Color, &m.Avatar, &m.Handle)
 		list = append(list, m)
 	}
 	writeJSON(w, list)

@@ -159,6 +159,39 @@ Self-hosters can set the same number with `SALT_TRASH_DAYS`, and the admin
 setting wins over it. See [Trash and recovery](trash-and-recovery.md) and
 [Administration](administration.md).
 
+### A database's structure
+
+A collection's page has no body to version: its shape is the columns, the views
+and the process, stored beside the page. Those keep **their own history**, under
+the same rules — a version is the whole structure at one moment, what changed is
+recorded with it, the newest 50 are kept, and restoring files the current state
+first.
+
+The dialog says **Structure history** on such a page, and it lists the changes
+in the database's own words: "Column “Status” added", "View “Calendar” removed",
+"Option “Done” renamed". Types, options, filters, grouping, sorting, the process
+and the order of columns and views are all part of it. **Column widths are not**
+— those are the reader's layout, so changing only widths writes no version and a
+restore leaves today's widths alone. Typing a column name is held to the same
+two-minute window as a document; adding or removing a column, a view or a rule
+is recorded at once.
+
+**Restoring is reversible and can be partial.** Beside the whole version, each
+changed column and view carries its own **Restore** — a column that was deleted
+comes back at its old place, and its values were never removed from the rows, so
+they reappear with it. The process has a restore of its own. A restore that
+would leave the process naming a column or option that no longer exists is
+refused with a structure conflict rather than applied, because a broken process
+is worse than an old one.
+
+**Row values are not in this history.** Each row is a page and has its own
+version history, properties included; a structure restore never writes one. The
+dialog says so, because "history of the database" is easy to read as "history of
+the data".
+
+A database created before this feature starts with one version, filed when the
+instance was updated, so the first edit has something to be compared with.
+
 ### Over MCP
 
 The `revisions` tool covers all three moves on one page:

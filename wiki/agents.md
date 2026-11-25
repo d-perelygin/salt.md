@@ -245,7 +245,10 @@ every page as a node as well, off by default, because it is large and because th
 returns anyway already answer "what is connected to nothing". And `revisions`
 lists 20 by default and 100 at most, but the part worth knowing is that restoring
 saves the CURRENT state as a new revision first: putting a page back is itself
-reversible.
+reversible. On a **database** page it lists the structure instead — columns,
+views and process — and `restore` takes a scope (`schema`, `views`, `workflow`,
+`property`, `view`) so one column can come back without touching the rest. Row
+values are not in that history.
 
 ### Writing
 
@@ -284,7 +287,7 @@ Three things about those belong here rather than in a parameter list:
 | `update_schema` | Add or change properties, including relations, backrelations and rollups. |
 | `set_view` | Create a view or change one: grouping, filters, sort, hidden columns. |
 | `delete_view` | Remove a view. The last one cannot be deleted. |
-| `get_workflow` | Read the database's business process in plain words. Code blocks come along as read-only source. |
+| `get_workflow` | Read the database's business process in plain words. Code blocks come along as read-only source, with `members` mapping every `@handle` to the person's current name. |
 | `add_workflow_rule` | Add one When/Then rule to the process. |
 | `remove_workflow_rule` | Delete one process rule by id. Rules compiled from code (`code:…`) are refused — edit their source instead. |
 | `set_workflow_code` | Replace the whole process with a code document. Use it for OR values, constants, several rules at once, or a rewrite; one simple rule is `add_workflow_rule`. |

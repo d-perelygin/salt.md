@@ -425,6 +425,23 @@ CREATE TABLE IF NOT EXISTS page_revisions (
 	content TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rev_page ON page_revisions(page_id, created_at);
+-- A database's shape has its own history (collection_history.go): schema,
+-- views and process live in the collections table, not in a page's body, so
+-- page revisions can never answer "what did this column look like before".
+CREATE TABLE IF NOT EXISTS collection_revisions (
+	id TEXT PRIMARY KEY,
+	page_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+	seq INTEGER NOT NULL,
+	created_at TEXT NOT NULL,
+	author_id TEXT NOT NULL DEFAULT '',
+	author_name TEXT NOT NULL DEFAULT '',
+	schema TEXT NOT NULL DEFAULT '[]',
+	views TEXT NOT NULL DEFAULT '[]',
+	workflow TEXT NOT NULL DEFAULT '',
+	new_from_template TEXT NOT NULL DEFAULT '',
+	changes TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_colrev_page ON collection_revisions(page_id, seq);
 CREATE TABLE IF NOT EXISTS comments (
 	id TEXT PRIMARY KEY,
 	page_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
@@ -828,6 +845,25 @@ func openDB(path string) (*sql.DB, error) {
 	// once, before the version stamp claims the database is current.
 	if err := migrateRelativeDates(db); err != nil {
 		return nil, fmt.Errorf("migrate relative dates: %w", err)
+	}
+	// Every database that existed before structure history gets one baseline
+	// version, so its first real edit has a state to compare with.
+	if err := backfillCollectionRevisions(db); err != nil {
+		return nil, fmt.Errorf("migrate collection revisions: %w", err)
+	}
+	// Process code names people by a stable handle; accounts that predate that
+	// get one here, and stored code that still spells a name is rewritten once.
+	if err := ensureColumn(db, "users", "handle", `handle TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate users.handle: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_handle ON users(handle) WHERE handle <> ''`); err != nil {
+		return nil, fmt.Errorf("index users.handle: %w", err)
+	}
+	if err := assignUserHandles(db); err != nil {
+		return nil, fmt.Errorf("assign user handles: %w", err)
+	}
+	if err := migrateProcessHandles(db); err != nil {
+		return nil, fmt.Errorf("migrate process handles: %w", err)
 	}
 	db.Exec(`INSERT INTO schema_meta (key, value) VALUES ('version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, Version)
