@@ -30,21 +30,37 @@ export async function withFixture(test) {
       cwd: root, encoding: 'utf8',
     });
     assert.equal(build.status, 0, build.stderr || String(build.error || 'Build failed'));
-    const listener = createServer();
-    listener.listen(0, '127.0.0.1');
-    await once(listener, 'listening');
-    const port = listener.address().port;
-    await new Promise(resolve => listener.close(resolve));
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SALT_')));
-    server = spawn(binary, [], {
-      env: { ...env, SALT_DATA: join(temp, 'data'), SALT_ADDR: `127.0.0.1:${port}` },
-      stdio: 'ignore',
-    });
-    const base = `http://127.0.0.1:${port}`;
-    await eventually(async () => {
-      if (server.exitCode !== null) throw new Error('Test server exited before becoming ready');
-      try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; }
-    });
+    // Two workers can pick the same free port in the gap between closing the
+    // probe listener and the server binding it, and a run.mjs worker pool makes
+    // that gap matter. Retry with a fresh port and data directory instead of
+    // failing a test over the race.
+    let base = '';
+    for (let attempt = 1; ; attempt++) {
+      const listener = createServer();
+      listener.listen(0, '127.0.0.1');
+      await once(listener, 'listening');
+      const port = listener.address().port;
+      await new Promise(resolve => listener.close(resolve));
+      server = spawn(binary, [], {
+        env: { ...env, SALT_DATA: join(temp, `data-${attempt}`), SALT_ADDR: `127.0.0.1:${port}` },
+        stdio: 'ignore',
+      });
+      base = `http://127.0.0.1:${port}`;
+      try {
+        await eventually(async () => {
+          if (server.exitCode !== null) throw new Error('Test server exited before becoming ready');
+          try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; }
+        });
+        break;
+      } catch (err) {
+        if (attempt >= 4) throw err;
+        if (server.exitCode === null) {
+          server.kill('SIGKILL');
+          await new Promise(resolve => server.once('exit', resolve));
+        }
+      }
+    }
     browser = await chromium.launch({
       headless: true,
       ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),

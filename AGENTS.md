@@ -10,6 +10,27 @@
 - `cd web && npm run check` (tsc + `check-*.mjs`; runs inside `npm run build`, unskippable)
 - Source + comments in English only; source text is the translation key
 
+### Test gates (what to run when)
+
+- **Every edit**: `go test ./...` (cached unless `web/dist` changed), `cd web && npx tsc
+  --noEmit`, and only the browser tests the change touches:
+  `cd web/tests && node run.mjs mobile-shell board-edge-scroll`.
+- **Before a push**: `cd web && npm run check` (~25s), `go test ./...`, then the whole
+  browser suite: `cd web/tests && npm test` — parallel, four workers, about three and a
+  half minutes instead of ~12 serially. Ten tests are currently red against merged
+  upstream UI and are listed at the end of a run; run the files around your change by
+  name until they are repaired. Security or concurrency changes also get
+  `go test -race -run TestSecurity_ ./server/...`.
+- Screenshots: `npm run check` names the stale ones; retake exactly those ids with
+  `node scripts/shoot-wiki.mjs <id> …`.
+- The browser suite is not in CI; it is the local pre-push gate. CI runs `make frontend`
+  (the check chain + Vite build) and `go test ./...`.
+- `npx vite build` rewrites hashed assets, so the embedded-dist hash changes and Go's
+  test cache misses: `salt/server` re-runs (about a minute). Run the Go tests before a
+  build when both are due in one cycle.
+- `node run.mjs --serial` restores the one-at-a-time order when a failure needs a clean,
+  uncluttered log.
+
 ## Architecture
 - Single `server/` Go package, entry `server.New()` in `server/server.go`
 - SQLite `salt.db` + `files/`; no external services
