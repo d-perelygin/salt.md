@@ -32,6 +32,7 @@ export default function TabsSheet({
   onCloseUnused,
   onReopen,
   onTogglePin,
+  onMove,
   onDismiss,
 }: {
   open: boolean;
@@ -53,18 +54,96 @@ export default function TabsSheet({
   onCloseUnused: () => void;
   onReopen: (id: string) => void;
   onTogglePin: (id: string) => void;
+  /** Drop `id` at the slot of `to` (an index in the full tabs array). */
+  onMove: (id: string, to: number) => void;
   onDismiss: () => void;
 }) {
   const nav = useNavArrows();
   const sheetRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   // The unused group is a plaque, not a shelf: it sits above the grid and
   // stays closed until asked, so the tabs actually open keep the room. Every
   // open starts closed — the count is what says whether to look.
   const [unusedOpen, setUnusedOpen] = useState(false);
+  // Dragging a card over another one: the one under the finger is marked and
+  // the order changes on release. Live reordering while the finger moves
+  // makes the grid chase itself — the card under the finger becomes the
+  // dragged card and the two trade places twice a frame.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const suppressClick = useRef(0);
   useEffect(() => {
     if (open) setUnusedOpen(false);
   }, [open]);
   if (!open) return null;
+
+  /** Press a card to pick it up. A mouse lifts at once; a finger after a short
+   *  hold, so a swipe still scrolls the grid. Release over another card moves
+   *  the tab there (within its pinned or unpinned block, as the strip does). */
+  const startDrag = (e: React.PointerEvent, id: string) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const touch = e.pointerType !== 'mouse';
+    let active = false;
+    let timer = 0;
+    let over: string | null = null;
+    // touch-action is read when the gesture begins, so a hold that turns into
+    // a drag cannot switch it off retroactively: the sheet would scroll under
+    // the finger. A non-passive touchmove is the only way to stop it now.
+    const stopScroll = (ev: TouchEvent) => ev.preventDefault();
+    const arm = () => {
+      active = true;
+      setDragId(id);
+      document.body.classList.add('tabs-dragging');
+      window.addEventListener('touchmove', stopScroll, { passive: false });
+    };
+    const move = (ev: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 6) return;
+        // A mouse has no hold to wait for; a finger that moves before the hold
+        // is scrolling the grid, not carrying a card.
+        if (touch) cleanup();
+        else arm();
+        if (!active) return;
+      }
+      ev.preventDefault();
+      const card = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)
+        ?.closest?.('.tabs-sheet-card[data-tab-id]') as HTMLElement | null;
+      const next = card?.dataset.tabId ?? null;
+      if (next !== over) {
+        over = next && next !== id ? next : null;
+        setOverId(over);
+      }
+      const body = bodyRef.current;
+      if (body) {
+        const r = body.getBoundingClientRect();
+        if (ev.clientY < r.top + 56) body.scrollTop -= 14;
+        else if (ev.clientY > r.bottom - 56) body.scrollTop += 14;
+      }
+    };
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      window.removeEventListener('touchmove', stopScroll);
+    };
+    const up = () => {
+      if (active) {
+        suppressClick.current = Date.now();
+        if (over) onMove(id, tabs.indexOf(over));
+        setDragId(null);
+        setOverId(null);
+        document.body.classList.remove('tabs-dragging');
+      }
+      cleanup();
+    };
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    if (touch) timer = window.setTimeout(arm, 280);
+  };
   const unusedSet = new Set(unused);
   const recent = tabs.filter((id) => !unusedSet.has(id));
   /** The pin sits on every card and every unused row: it is the one control
@@ -104,7 +183,7 @@ export default function TabsSheet({
             <X size={17} />
           </button>
         </div>
-        <div className="tabs-sheet-body">
+        <div className="tabs-sheet-body" ref={bodyRef}>
           {/* Above the grid, not below it: the group is a thing to decide
               about before picking a tab, and a shelf under a wall of cards is
               reached only by scrolling past them. Closed by default, then it
@@ -185,13 +264,21 @@ export default function TabsSheet({
                   key={id}
                   role="button"
                   tabIndex={0}
+                  data-tab-id={id}
                   aria-current={id === activeId}
                   className={
                     'tabs-sheet-card' +
                     (id === activeId ? ' active' : '') +
-                    (isPinned ? ' pinned' : '')
+                    (isPinned ? ' pinned' : '') +
+                    (id === dragId ? ' is-dragging' : '') +
+                    (id === overId ? ' is-drop' : '')
                   }
-                  onClick={() => onSelect(id)}
+                  onPointerDown={(e) => startDrag(e, id)}
+                  onClick={() => {
+                    // The click that ends a drag is the drag's, not a select.
+                    if (Date.now() - suppressClick.current < 400) return;
+                    onSelect(id);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();

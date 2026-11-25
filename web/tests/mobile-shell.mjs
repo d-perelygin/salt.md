@@ -156,6 +156,21 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await eventually(async () => (await pinButton('Phone A').getAttribute('aria-label')) === 'Pin tab');
   assert.equal(await sheetCard('Phone A').evaluate((el) => el.classList.contains('pinned')), false);
 
+  // Drag reordering: the same moveTabTo the desktop strip uses. Drop the
+  // first card on the second and the order flips in storage.
+  const beforeDrag = await p.evaluate(() => JSON.parse(localStorage.getItem('salt-tabs') ?? '[]'));
+  const cardA = await sheetCard('Phone A').boundingBox();
+  const cardB = await sheetCard('Phone B').boundingBox();
+  await p.mouse.move(cardA.x + cardA.width / 2, cardA.y + cardA.height / 2);
+  await p.mouse.down();
+  await p.mouse.move(cardB.x + cardB.width / 2, cardB.y + cardB.height / 2, { steps: 10 });
+  await p.waitForTimeout(120);
+  await p.mouse.up();
+  await eventually(async () => {
+    const now = await p.evaluate(() => JSON.parse(localStorage.getItem('salt-tabs') ?? '[]'));
+    return now[0] === beforeDrag[1] && now[1] === beforeDrag[0];
+  });
+
   // Closing by hand is not deleting: the tab lands in "Recently closed" and
   // one tap brings it back.
   await sheetCard('Phone B').locator('.tabs-sheet-card-close').click();

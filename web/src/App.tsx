@@ -2668,6 +2668,7 @@ export default function App() {
           // are not filed under "Recently closed".
         }}
         onTogglePin={togglePinTab}
+        onMove={moveTabTo}
         onReopen={(id) => {
           setTabArchive((prev) => prev.filter((entry) => entry.id !== id));
           if (!pagesById.has(id)) return;

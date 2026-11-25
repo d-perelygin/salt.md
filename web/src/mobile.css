@@ -293,6 +293,27 @@
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
+/* A card being moved and the one it would land on. The drag changes the order
+   on release, not live: a grid that reflows under the finger swaps the card
+   with its own reflection and the two fight for the same frame. */
+.tabs-sheet-card.is-dragging {
+  opacity: 0.55;
+}
+
+.tabs-sheet-card.is-drop {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+body.tabs-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body.tabs-dragging .tabs-sheet-card {
+  touch-action: none;
+}
+
 .tabs-sheet-card-top {
   display: flex;
   align-items: flex-start;
