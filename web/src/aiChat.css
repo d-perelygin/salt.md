@@ -285,7 +285,14 @@
 }
 .ai-search:hover { background: var(--active); }
 .ai-search .kbd { margin-left: auto; }
-.ai-side-tabs { display: flex; gap: 2px; padding: 2px 12px 6px; }
+/* Sits above the sidebar footer, not under the search field: the two modes are
+   a place you switch between, not a filter for what the tree shows. */
+.ai-side-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 12px 6px;
+  border-top: 1px solid var(--border);
+}
 .ai-side-tab {
   flex: 1;
   display: flex;
