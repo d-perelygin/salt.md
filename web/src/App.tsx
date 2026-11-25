@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from './api';
 import { serverMessage } from './serverErrors';
 import { WifiOff } from 'lucide-react';
@@ -134,7 +134,11 @@ type Theme = 'light' | 'dark';
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const aiEnabled = me?.aiEnabled !== false && !me?.user?.aiDisabled;
-  setAiEnabledState(aiEnabled);
+  const aiEnabledRef = useRef(aiEnabled);
+  aiEnabledRef.current = aiEnabled;
+  useLayoutEffect(() => {
+    setAiEnabledState(aiEnabled);
+  }, [aiEnabled]);
   const [pages, setPages] = useState<PageMeta[] | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -277,12 +281,13 @@ export default function App() {
     }
   });
   useEffect(() => {
+    if (!me?.authenticated) return;
     try {
       localStorage.setItem('salt-ai-panel-open', aiChatOpen ? '1' : '0');
     } catch {
       /* best-effort */
     }
-  }, [aiChatOpen]);
+  }, [me?.authenticated, aiChatOpen]);
   // Last non-empty document selection, so opening the panel from the floating
   // button can hand it over as a quote right away.
   const lastSelRef = useRef('');
@@ -323,12 +328,13 @@ export default function App() {
     }
   });
   useEffect(() => {
+    if (!me?.authenticated) return;
     try {
       localStorage.setItem('salt-sidebar-mode', sidebarMode);
     } catch {
       /* best-effort */
     }
-  }, [sidebarMode]);
+  }, [me?.authenticated, sidebarMode]);
   const [aiThreads, setAiThreads] = useState<AiThread[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(() => {
     try {
@@ -344,13 +350,14 @@ export default function App() {
     }
   });
   useEffect(() => {
+    if (!me?.authenticated) return;
     try {
       if (activeChatId) localStorage.setItem('salt-ai-active-chat', activeChatId);
       else localStorage.removeItem('salt-ai-active-chat');
     } catch {
       /* best-effort */
     }
-  }, [activeChatId]);
+  }, [me?.authenticated, activeChatId]);
   const sidebarModeRef = useRef<'docs' | 'chats'>(sidebarMode);
   const activeChatRef = useRef<string | null>(activeChatId);
   useEffect(() => {
@@ -358,15 +365,21 @@ export default function App() {
     activeChatRef.current = activeChatId;
   }, [sidebarMode, activeChatId]);
   useEffect(() => {
+    if (!me?.authenticated) return;
     if (!aiEnabled) {
       if (sidebarMode === 'chats') setSidebarMode('docs');
       if (aiChatOpen) setAiChatOpen(false);
     }
-  }, [aiEnabled, sidebarMode, aiChatOpen]);
+  }, [me?.authenticated, aiEnabled, sidebarMode, aiChatOpen]);
+  const threadsReqSeqRef = useRef(0);
   const loadAiThreads = useCallback(async () => {
     if (!aiEnabled) return;
+    const seq = ++threadsReqSeqRef.current;
     try {
-      setAiThreads((await api.listAIThreads()) as AiThread[]);
+      const threads = (await api.listAIThreads()) as AiThread[];
+      if (seq !== threadsReqSeqRef.current) return;
+      setAiThreads(threads);
+      setActiveChatId((cur) => (cur && !threads.some((th) => th.id === cur) ? null : cur));
     } catch {
       /* keep current */
     }
@@ -377,7 +390,7 @@ export default function App() {
   // Deep links to a chat (?chat=<id>, from "Copy link" / "Open in new tab"):
   // land straight in the Chats view with that thread selected.
   useEffect(() => {
-    if (!me?.authenticated) return;
+    if (!me?.authenticated || !aiEnabled) return;
     try {
       const id = new URLSearchParams(window.location.search).get('chat');
       if (id) {
@@ -387,7 +400,7 @@ export default function App() {
     } catch {
       /* no deep link */
     }
-  }, [me?.authenticated]);
+  }, [me?.authenticated, aiEnabled]);
   // The list must notice work that finished elsewhere (a background run in
   // another tab, or the agent answering while you read a document): refresh
   // when the window regains focus and every 20s while chats are visible.
@@ -638,7 +651,7 @@ export default function App() {
       const qChat = qs.get('chat');
       const chatMatch = window.location.pathname.match(/^\/chat(?:\/([^/]+))?\/?$/);
       const st = e.state as { tabs?: string[]; active?: string | null; mode?: 'docs' | 'chats'; chatId?: string | null } | null;
-      if (st?.mode === 'chats' || qChat !== null || chatMatch) {
+      if ((st?.mode === 'chats' || qChat !== null || chatMatch) && aiEnabledRef.current) {
         setSidebarMode('chats');
         const cid = st?.chatId !== undefined ? st.chatId : (qChat || (chatMatch?.[1] ? decodeURIComponent(chatMatch[1]) : null));
         setActiveChatId(cid || null);
@@ -669,37 +682,36 @@ export default function App() {
       const id = typeof detail === 'string' ? detail : detail?.id;
       const newTab = typeof detail === 'object' && !!detail?.newTab;
       if (!id) return;
-      history.pushState({ tabs: tabsRef.current, active: id, mode: 'docs' }, '', pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))));
-      setSidebarMode('docs');
-      setCurrentId(id);
-      setSidebarOpen(false);
       // Computed from refs, not in a setOpenTabs updater: updater functions
       // must stay pure (React may run them twice), and reading activeRef in
       // one gave a stale second run that appended after a pinned tab instead
       // of beside it. navigate/openInNewTab compute the same way.
       const prev = tabsRef.current;
-      // Open in a tab already: land on it, the way a browser focuses the
-      // tab a link is already open in.
-      if (prev.includes(id)) return;
-      let next: string[];
-      // A new tab slides in right after the active one (see openInNewTab).
-      if (newTab) {
-        const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
-        next = i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
-      } else {
-        const active = activeRef.current;
-        if (active && prev.includes(active) && !pinnedRef.current.includes(active)) {
-          next = prev.map((t) => (t === active ? id : t));
-        } else if (active && prev.includes(active)) {
-          // A pinned active tab is never navigated in place (see navigate):
-          // the page opens right after it instead.
-          const i = prev.indexOf(active);
-          next = [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+      let next = prev;
+      if (!prev.includes(id)) {
+        // A new tab slides in right after the active one (see openInNewTab).
+        if (newTab) {
+          const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
+          next = i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
         } else {
-          next = [...prev, id];
+          const active = activeRef.current;
+          if (active && prev.includes(active) && !pinnedRef.current.includes(active)) {
+            next = prev.map((t) => (t === active ? id : t));
+          } else if (active && prev.includes(active)) {
+            // A pinned active tab is never navigated in place (see navigate):
+            // the page opens right after it instead.
+            const i = prev.indexOf(active);
+            next = [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+          } else {
+            next = [...prev, id];
+          }
         }
       }
-      setOpenTabs(next);
+      history.pushState({ tabs: next, active: id, mode: 'docs' }, '', pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))));
+      setSidebarMode('docs');
+      setCurrentId(id);
+      setSidebarOpen(false);
+      if (next !== prev) setOpenTabs(next);
     };
     window.addEventListener('salt:unauthorized', onUnauthorized);
     window.addEventListener('popstate', onPop);
@@ -798,7 +810,9 @@ export default function App() {
     label: () => t('New note'),
     group: () => t('General'),
     run: (e) => {
-      if (e.key === 'Dead' || (e.key.length === 1 && e.key.toLowerCase() !== 'n')) return false;
+      if (isTypingTarget(document.activeElement) && !e.metaKey && !e.ctrlKey) {
+        if (e.key === 'Dead' || (e.key.length === 1 && e.key.toLowerCase() !== 'n')) return false;
+      }
       void createPageRef.current?.(null);
     },
   });
@@ -1323,8 +1337,9 @@ export default function App() {
     group: () => t('Tabs'),
     run: (e) => {
       if (modalOpen()) return false;
-      const num = parseInt(e.key, 10);
-      if (isNaN(num)) return false;
+      const m = /^Digit([1-9])$/.exec(e.code);
+      if (!m) return false;
+      const num = Number(m[1]);
       const tabs = tabsRef.current;
       if (tabs[num - 1]) {
         navigate(tabs[num - 1]);
@@ -1762,29 +1777,36 @@ export default function App() {
   // Keep the address bar in sync with the AI Chats tab (?chat=<id> or ?chat=
   // for a new chat), and restore the active document's /p/<slug>-<id> URL when
   // switching back to the Home tab.
+  const urlSyncInitRef = useRef(false);
   useEffect(() => {
-    if (!me?.authenticated) return;
+    if (!me?.authenticated) {
+      urlSyncInitRef.current = false;
+      return;
+    }
     if (/^\/(invite|form|public)\/[a-f0-9]+$/.test(window.location.pathname)) return;
     if (window.location.pathname === '/oauth/consent') return;
-    if (sidebarMode === 'chats') {
+    const isInitialSync = !urlSyncInitRef.current;
+    urlSyncInitRef.current = true;
+    const isChatAlias = window.location.pathname === '/chat' || window.location.pathname.startsWith('/chat/');
+    if (sidebarMode === 'chats' && aiEnabled) {
       const want = activeChatId ? `/?chat=${encodeURIComponent(activeChatId)}` : '/?chat=';
       const cur = window.location.pathname + window.location.search;
       if (cur !== want) {
-        history.pushState(
-          { tabs: tabsRef.current, active: activeRef.current, mode: 'chats', chatId: activeChatId },
-          '',
-          want,
-        );
+        const state = { tabs: tabsRef.current, active: activeRef.current, mode: 'chats' as const, chatId: activeChatId };
+        if (isInitialSync || isChatAlias) history.replaceState(state, '', want);
+        else history.pushState(state, '', want);
       }
     } else {
       const curSearch = new URLSearchParams(window.location.search);
-      if (curSearch.has('chat') || window.location.pathname === '/chat' || window.location.pathname.startsWith('/chat/')) {
+      if (curSearch.has('chat') || isChatAlias) {
         const id = activeRef.current;
         const want = id ? pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))) : '/';
-        history.pushState({ tabs: tabsRef.current, active: id, mode: 'docs' }, '', want);
+        const state = { tabs: tabsRef.current, active: id, mode: 'docs' as const };
+        if (isInitialSync || isChatAlias) history.replaceState(state, '', want);
+        else history.pushState(state, '', want);
       }
     }
-  }, [me?.authenticated, sidebarMode, activeChatId]);
+  }, [me?.authenticated, aiEnabled, sidebarMode, activeChatId]);
 
   // A viewer (read-only workspace role) may not edit; the doc editor renders
   // read-only so a viewer isn't teased with an editable-looking page whose
@@ -1854,7 +1876,7 @@ export default function App() {
   // dismiss the peek. Same detached-node reason as downInsideRef above.
   const downKeepsOpenRef = useRef(false);
   const OUTSIDE_OK =
-    '.peek-panel, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
+    '.peek-panel, .ai-panel, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
   // Content the peek stays open over: text being read or edited, controls, and
   // every row, card, chip and bar of the collection views. Anything else — the
   // padding of the page and of the views, an empty day cell, the gaps between
@@ -1936,8 +1958,23 @@ export default function App() {
 
   const onAuthed = useCallback(
     (user: User) => {
-      setMe({ setupRequired: false, authenticated: true, user, version: BUILD_VERSION });
+      setMe((prev) => ({
+        setupRequired: false,
+        authenticated: true,
+        user,
+        version: BUILD_VERSION,
+        aiEnabled: prev?.aiEnabled,
+      }));
       setSearchOpen(false);
+      void api
+        .me()
+        .then((m) => {
+          setMe(m);
+          setOfflineAccount(m.authenticated && m.user ? m.user.id : null);
+          setUiAccount(m.authenticated && m.user ? m.user.id : null);
+          if (m.authenticated && m.prefs) void applyPrefs(m.prefs);
+        })
+        .catch(() => {});
       void loadAll();
     },
     [loadAll],
@@ -2077,6 +2114,21 @@ export default function App() {
           // responses): they belong to this account, and the next person on
           // this browser must not inherit them. Best-effort, before leaving.
           await clearOfflineData().catch(() => {});
+          try {
+            const aiKeys: string[] = [];
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i);
+              if (k && k.startsWith('salt-ai-')) aiKeys.push(k);
+            }
+            for (const k of aiKeys) localStorage.removeItem(k);
+            localStorage.removeItem('salt-ai-active-chat');
+            localStorage.removeItem('salt-ai-open');
+            localStorage.removeItem('salt-ai-panel-open');
+            localStorage.removeItem('salt-sidebar-mode');
+            localStorage.removeItem('salt-pinned-chats');
+          } catch {
+            /* best-effort */
+          }
           await api.logout();
           // Inside the marketing site's demo frame, '/' is the marketing home
           // page — loaded into the frame, with no way back to the application.
@@ -2332,6 +2384,7 @@ export default function App() {
       {aiEnabled && sidebarMode === 'docs' && (
         <AiChatPanel
           pageId={currentId ?? undefined}
+          canEdit={canEditCurrent}
           threadId={activeChatId}
           threads={aiThreads}
           pagesById={pagesById}

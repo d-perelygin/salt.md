@@ -195,6 +195,13 @@ export function nothingBefore(surface: Element): boolean {
   r.setEnd(sel.anchorNode, sel.anchorOffset);
   if (r.toString().length > 0) return false;
   const anchor = sel.anchorNode;
+  const anchorEl = anchor.nodeType === Node.ELEMENT_NODE ? (anchor as Element) : anchor.parentElement;
+  const cell = anchorEl?.closest?.('td, th') as HTMLTableCellElement | null;
+  if (cell && surface.contains(cell)) {
+    const row = cell.closest('tr') as HTMLTableRowElement | null;
+    const table = cell.closest('table');
+    if (!row || !table || row.rowIndex !== 0 || cell.cellIndex !== 0) return false;
+  }
   for (const block of surface.querySelectorAll('[data-content-type]')) {
     if (block.contains(anchor) || block.getAttribute('data-content-type') === 'columns') continue;
     if (block.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_FOLLOWING) return false;

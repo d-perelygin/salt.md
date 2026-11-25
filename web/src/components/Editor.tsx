@@ -12,14 +12,21 @@ import {
   NestBlockButton,
   UnnestBlockButton,
   CreateLinkButton,
+  FileCaptionButton,
+  FileDeleteButton,
+  FileDownloadButton,
+  FilePreviewButton,
+  FileRenameButton,
+  FileReplaceButton,
+  TableCellMergeButton,
   SideMenuController,
 } from '@blocknote/react';
 import { CustomSideMenu } from './CustomDragHandleMenu';
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmentToHTML } from '@blocknote/core';
 import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
-import { TextSelection } from 'prosemirror-state';
-import { api, ApiError, materializeQuery } from '../api';
+import { Selection, TextSelection } from 'prosemirror-state';
+import { api, ApiError, materializeQuery, type PageDetail } from '../api';
 import * as Y from 'yjs';
 import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
 import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
@@ -38,7 +45,7 @@ import { SaltProvider } from '../collab';
 import { plural, t } from '../i18n';
 import { formatDay } from '../format';
 import { blockedByMap, dayNum, depListOf, isoDay, nextWorkday, prevWorkday, shiftTarget, type DepNode } from '../depUtils';
-import PropertyValue from './PropertyValue';
+import PropertyValue, { idList } from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import AnchoredMenu from './AnchoredMenu';
 import AiEmptyLine from './AiEmptyLine';
@@ -494,6 +501,7 @@ function BlockedBanner({
   canEdit,
   onShift,
   onPagesChanged,
+  onConfigViewsChange,
 }: {
   pageId: string;
   parentId: string;
@@ -502,16 +510,46 @@ function BlockedBanner({
   canEdit: boolean;
   onShift: (startProp: string, endProp: string, startIso: string, endIso: string | null) => void;
   onPagesChanged?: () => void;
+  onConfigViewsChange?: (views: CollectionConfig['views']) => void;
 }) {
   const [rows, setRows] = useState<{ id: string; title: string; props: Record<string, unknown> }[] | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [skipWeekendsOverride, setSkipWeekendsOverride] = useState<boolean | null>(null);
+  const tlSkipWeekends = config.views.find((v) => v.type === 'timeline')?.tlSkipWeekends;
   const loadRows = useCallback(() => {
     api
       .collectionRows(parentId, { limit: 500 })
       .then((r) => setRows(r.rows))
       .catch(() => setRows([]));
   }, [parentId]);
+
+  useEffect(() => {
+    setSkipWeekendsOverride(null);
+  }, [tlSkipWeekends, parentId, pageId]);
+
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [pageId]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setMoreOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [moreOpen]);
+
+  useEffect(() => {
+    const onRows = (e: Event) => {
+      if ((e as CustomEvent<string>).detail === parentId) loadRows();
+    };
+    window.addEventListener('salt:rows', onRows);
+    return () => window.removeEventListener('salt:rows', onRows);
+  }, [parentId, loadRows]);
 
   useEffect(() => {
     let alive = true;
@@ -537,6 +575,16 @@ function BlockedBanner({
     tlView?.dateProp && dateIds.includes(tlView.dateProp) ? tlView.dateProp : (dateIds[0] ?? '');
   if (!startProp) return null;
   const endProp = tlView?.endDateProp && dateIds.includes(tlView.endDateProp) ? tlView.endDateProp : '';
+
+  const isoDayKeepTime = (props: Record<string, unknown> | undefined, propId: string, n: number) => {
+    const raw = props?.[propId];
+    const day = isoDay(n);
+    return typeof raw === 'string' && raw.length > 10 ? day + raw.slice(10) : day;
+  };
+  const hasEndValue = (props: Record<string, unknown> | undefined, dur: number) =>
+    !!(endProp && (dur > 0 || (typeof props?.[endProp] === 'string' && props[endProp])));
+
+  const rawById = new Map(rows.map((r) => [r.id, r]));
 
   const toNode = (id: string, props: Record<string, unknown>, known: Set<string>): DepNode | null => {
     const sv = props[startProp];
@@ -591,17 +639,23 @@ function BlockedBanner({
   const target = rawTarget !== null ? shiftDay(rawTarget) : null;
 
   const onToggleSkipWeekends = async (checked: boolean) => {
+    if (!config || !tlView) return;
     setSkipWeekendsOverride(checked);
-    if (!config) return;
-    const views = config.views.map((v) => {
-      if (tlView && v.id === tlView.id) {
-        return { ...v, tlSkipWeekends: checked };
-      }
-      return v;
-    });
     try {
+      const fresh = await api.getCollection(parentId);
+      const freshTl =
+        fresh.views.find((v) => v.id === tlView.id) ?? fresh.views.find((v) => v.type === 'timeline');
+      if (!freshTl) {
+        setSkipWeekendsOverride(null);
+        return;
+      }
+      const views = fresh.views.map((v) =>
+        v.id === freshTl.id ? { ...v, tlSkipWeekends: checked } : v,
+      );
       await api.putCollection(parentId, { views });
+      onConfigViewsChange?.(views);
     } catch {
+      setSkipWeekendsOverride(null);
       toast(t('Could not save settings'));
     }
   };
@@ -620,7 +674,14 @@ function BlockedBanner({
           <button
             className="btn-sm primary"
             onClick={() =>
-              onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null)
+              onShift(
+                startProp,
+                endProp,
+                isoDayKeepTime(liveProps, startProp, target),
+                hasEndValue(liveProps, self.end - self.start)
+                  ? isoDayKeepTime(liveProps, endProp, target + (self.end - self.start))
+                  : null,
+              )
             }
           >
             {t('Shift to {d}, keep duration', { d: formatDay(isoDay(target), 'dayMonth') })}
@@ -657,13 +718,20 @@ function BlockedBanner({
                         className="menu-item"
                         onClick={async () => {
                           setMoreOpen(false);
+                          const bProps = rawById.get(b.id)?.props;
                           const patch: Record<string, string> = {
-                            [startProp]: isoDay(predTargetStart),
-                            ...(endProp ? { [endProp]: isoDay(predTargetEnd) } : {}),
+                            [startProp]: isoDayKeepTime(bProps, startProp, predTargetStart),
+                            ...(hasEndValue(bProps, dur)
+                              ? { [endProp]: isoDayKeepTime(bProps, endProp, predTargetEnd) }
+                              : {}),
                           };
-                          await api.updatePage(b.id, { propsPatch: patch });
-                          loadRows();
-                          onPagesChanged?.();
+                          try {
+                            await api.updatePage(b.id, { propsPatch: patch });
+                            loadRows();
+                            onPagesChanged?.();
+                          } catch {
+                            toast(t('Property not saved'));
+                          }
                         }}
                       >
                         {blockers.length === 1
@@ -683,32 +751,48 @@ function BlockedBanner({
                       setMoreOpen(false);
                       const delta = target - self.start;
                       if (delta <= 0) return;
-                      onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null);
-                      const chain = new Set<string>();
+                      onShift(
+                        startProp,
+                        endProp,
+                        isoDayKeepTime(liveProps, startProp, target),
+                        hasEndValue(liveProps, self.end - self.start)
+                          ? isoDayKeepTime(liveProps, endProp, target + (self.end - self.start))
+                          : null,
+                      );
+                      const visited = new Set<string>([pageId]);
+                      const chain: string[] = [];
                       const queue = [pageId];
                       while (queue.length) {
                         const cur = queue.shift()!;
                         const it = byId.get(cur);
                         for (const next of it?.deps ?? []) {
-                          if (!chain.has(next)) {
-                            chain.add(next);
+                          if (!visited.has(next)) {
+                            visited.add(next);
+                            chain.push(next);
                             queue.push(next);
                           }
                         }
                       }
-                      for (const succId of chain) {
-                        const it = byId.get(succId);
-                        if (!it) continue;
-                        const itDur = it.end - it.start;
-                        const newStart = it.start + delta;
-                        const patch: Record<string, string> = {
-                          [startProp]: isoDay(newStart),
-                          ...(endProp ? { [endProp]: isoDay(newStart + itDur) } : {}),
-                        };
-                        await api.updatePage(succId, { propsPatch: patch });
+                      try {
+                        for (const succId of chain) {
+                          const it = byId.get(succId);
+                          if (!it) continue;
+                          const itDur = it.end - it.start;
+                          const newStart = shiftDay(it.start + delta);
+                          const succProps = rawById.get(succId)?.props;
+                          const patch: Record<string, string> = {
+                            [startProp]: isoDayKeepTime(succProps, startProp, newStart),
+                            ...(hasEndValue(succProps, itDur)
+                              ? { [endProp]: isoDayKeepTime(succProps, endProp, newStart + itDur) }
+                              : {}),
+                          };
+                          await api.updatePage(succId, { propsPatch: patch });
+                        }
+                        loadRows();
+                        onPagesChanged?.();
+                      } catch {
+                        toast(t('Property not saved'));
                       }
-                      loadRows();
-                      onPagesChanged?.();
                     }}
                   >
                     {t('Shift task and chain forward')}
@@ -720,10 +804,16 @@ function BlockedBanner({
                       className="menu-item danger"
                       onClick={async () => {
                         setMoreOpen(false);
-                        const cur = b.deps.filter((id) => id !== pageId);
-                        await api.updatePage(b.id, { propsPatch: { [effDep]: cur } });
-                        loadRows();
-                        onPagesChanged?.();
+                        const rawProps = rawById.get(b.id)?.props;
+                        const rawDeps = rawProps ? idList(rawProps[effDep]) : b.deps;
+                        const cur = rawDeps.filter((id) => id !== pageId);
+                        try {
+                          await api.updatePage(b.id, { propsPatch: { [effDep]: cur } });
+                          loadRows();
+                          onPagesChanged?.();
+                        } catch {
+                          toast(t('Property not saved'));
+                        }
                       }}
                     >
                       {blockers.length === 1
@@ -733,18 +823,22 @@ function BlockedBanner({
                           })}
                     </button>
                   ))}
-                  <div className="menu-sep" />
-                  <label className="tl-settings-row tl-checkbox-row">
-                    <span>{t('Skip weekends')}</span>
-                    <input
-                      type="checkbox"
-                      checked={!!skipWeekends}
-                      onChange={(e) => void onToggleSkipWeekends(e.target.checked)}
-                    />
-                  </label>
-                  <div className="tl-menu-hint">
-                    {t("Shifting a task out of its blockers' way lands on a working day.")}
-                  </div>
+                  {tlView && (
+                    <>
+                      <div className="menu-sep" />
+                      <label className="tl-settings-row tl-checkbox-row">
+                        <span>{t('Skip weekends')}</span>
+                        <input
+                          type="checkbox"
+                          checked={!!skipWeekends}
+                          onChange={(e) => void onToggleSkipWeekends(e.target.checked)}
+                        />
+                      </label>
+                      <div className="tl-menu-hint">
+                        {t("Shifting a task out of its blockers' way lands on a working day.")}
+                      </div>
+                    </>
+                  )}
                 </AnchoredMenu>
               </>
             )}
@@ -783,12 +877,20 @@ function RowProperties({
 
   useEffect(() => {
     let alive = true;
-    api
-      .getCollection(parentId)
-      .then((c) => alive && setConfig(c))
-      .catch(() => { });
+    const loadConfig = () => {
+      api
+        .getCollection(parentId)
+        .then((c) => alive && setConfig(c))
+        .catch(() => { });
+    };
+    loadConfig();
+    const onRows = (e: Event) => {
+      if ((e as CustomEvent<string>).detail === parentId) loadConfig();
+    };
+    window.addEventListener('salt:rows', onRows);
     return () => {
       alive = false;
+      window.removeEventListener('salt:rows', onRows);
     };
   }, [parentId]);
 
@@ -846,6 +948,7 @@ function RowProperties({
         config={config}
         canEdit={canEdit}
         onPagesChanged={onPagesChanged}
+        onConfigViewsChange={(views) => setConfig((c) => (c ? { ...c, views } : c))}
         onShift={(sp, ep, sIso, eIso) => {
           void setProp(sp, sIso);
           if (ep && eIso) void setProp(ep, eIso);
@@ -899,8 +1002,8 @@ interface PageTitleContextType {
   title: string;
   setTitleAndSave: (newTitle: string) => void;
   titleRef: React.RefObject<HTMLTextAreaElement | null>;
-  registerFocusBodyStart: (fn: () => void) => void;
-  registerSplitTitle: (fn: (afterText: string) => void) => void;
+  registerFocusBodyStart: (fn: (() => void) | null) => void;
+  registerSplitTitle: (fn: ((afterText: string) => void) | null) => void;
 }
 const PageTitleContext = createContext<PageTitleContextType | null>(null);
 
@@ -953,11 +1056,11 @@ function PageHeader({
 }) {
   const [title, setTitle] = useState(page.title);
   const focusBodyStartRef = useRef<(() => void) | null>(null);
-  const registerFocusBodyStart = useCallback((fn: () => void) => {
+  const registerFocusBodyStart = useCallback((fn: (() => void) | null) => {
     focusBodyStartRef.current = fn;
   }, []);
   const splitTitleRef = useRef<((afterText: string) => void) | null>(null);
-  const registerSplitTitle = useCallback((fn: (afterText: string) => void) => {
+  const registerSplitTitle = useCallback((fn: ((afterText: string) => void) | null) => {
     splitTitleRef.current = fn;
   }, []);
   const focusBodyStart = () => {
@@ -1365,8 +1468,10 @@ function PageHeader({
   }, [pageId]);
 
   const togglePrivate = () => {
-    const next = visibility === 'private' ? 'workspace' : 'private';
+    const next = visibility === 'private' || visibility === 'restricted' ? 'workspace' : 'private';
     setVisibility(next);
+    onMetaChange(pageId, { visibility: next });
+    onLocalMeta({ visibility: next });
     api.updatePage(pageId, { visibility: next }).catch((e) => {
       if (isTempId(pageId) || isOfflineError(e)) {
         void savePageUpdate(pageId, { visibility: next }, { label: t('Visibility') });
@@ -1703,15 +1808,25 @@ function PageHeader({
     return chain;
   }, [pagesById, pageId, page]);
 
+  const serverInherited = (page as PageDetail).inheritedAccess;
   const inheritedAccess = useMemo(() => {
+    if (serverInherited !== undefined) {
+      return serverInherited
+        ? { title: serverInherited.fromTitle, visibility: serverInherited.visibility }
+        : null;
+    }
+    let fallback: { title: string; visibility: 'private' | 'restricted' } | null = null;
     for (let i = 0; i < breadcrumbs.length - 1; i++) {
       const a = breadcrumbs[i];
-      if (a.visibility === 'private' || a.visibility === 'restricted') {
-        return { title: a.title, visibility: a.visibility };
+      if (a.visibility === 'private') {
+        return { title: a.title, visibility: 'private' as const };
+      }
+      if (a.visibility === 'restricted' && !fallback) {
+        fallback = { title: a.title, visibility: 'restricted' as const };
       }
     }
-    return null;
-  }, [breadcrumbs]);
+    return fallback;
+  }, [serverInherited, breadcrumbs]);
   const isAccessRestricted = visibility !== 'workspace' || !!inheritedAccess;
 
   return (
@@ -1876,7 +1991,11 @@ function PageHeader({
                 visibility={visibility}
                 inheritedFrom={inheritedAccess}
                 onClose={() => setSharesOpen(false)}
-                onVisibilityChange={setVisibility}
+                onVisibilityChange={(v) => {
+                  setVisibility(v);
+                  onMetaChange(pageId, { visibility: v });
+                  onLocalMeta({ visibility: v });
+                }}
               />
             )}
           </div>
@@ -2117,8 +2236,10 @@ function PageHeader({
                     togglePrivate();
                   }}
                 >
-                  {visibility === 'private' ? <Lock size={15} /> : <LockOpen size={15} />}{' '}
-                  {visibility === 'private' ? t('Make it visible to the workspace') : t('Make it private')}
+                  {visibility === 'private' || visibility === 'restricted' ? <Lock size={15} /> : <LockOpen size={15} />}{' '}
+                  {visibility === 'private' || visibility === 'restricted'
+                    ? t('Make it visible to the workspace')
+                    : t('Make it private')}
                 </button>
                 <button
                   className="menu-item"
@@ -2138,7 +2259,7 @@ function PageHeader({
                 >
                   <Globe size={15} /> {t('Share to web (read-only link)')}
                 </button>
-                {onDuplicate && (
+                {canEdit && onDuplicate && (
                   <button
                     className="menu-item"
                     onClick={() => {
@@ -2296,17 +2417,20 @@ function PageHeader({
               {...navItem('title', { keepTabOrder: true })}
               className="page-title"
               value={title}
+              readOnly={!canEdit}
               placeholder={t('Untitled')}
               rows={1}
               onChange={(e) => {
+                if (!canEdit) return;
                 setTitle(e.target.value);
                 saveMeta({ title: e.target.value });
               }}
               onKeyDown={(e) => {
                 // A title is a single line of text: Enter never inserts a newline.
                 // If cursor is in the title, part after cursor is split into the start of body.
-                if (e.key === 'Enter' && !e.altKey && !e.metaKey && !e.ctrlKey) {
+                if (e.key === 'Enter' && !e.altKey && !e.metaKey && !e.ctrlKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
+                  if (!canEdit) return;
                   const ta = titleRef.current;
                   if (!ta) {
                     focusBodyStart();
@@ -2315,19 +2439,16 @@ function PageHeader({
                   const selStart = ta.selectionStart;
                   const selEnd = ta.selectionEnd;
                   const fullVal = ta.value;
-                  let before = fullVal.slice(0, selStart);
-                  let after = fullVal.slice(selEnd);
-
-                  if (!before.endsWith(' ') && after.startsWith(' ')) {
-                    before += ' ';
-                    after = after.slice(1);
-                  }
+                  const before = fullVal.slice(0, selStart);
+                  const after = fullVal.slice(selEnd);
 
                   if (after.length > 0) {
+                    const splitFn = splitTitleRef.current;
+                    if (!splitFn) return;
                     setTitle(before);
                     saveMeta({ title: before });
                     ta.value = before;
-                    splitTitleRef.current?.(after);
+                    splitFn(after);
                     focusKey(regionId, 'body');
                   } else {
                     focusBodyStart();
@@ -2723,11 +2844,60 @@ function inlineContentToText(content: unknown): string {
   return content
     .map((item: any) => {
       if (typeof item === 'string') return item;
+      if (item?.type === 'pageLink') return item.props?.label || '';
       if (typeof item?.text === 'string') return item.text;
       if (Array.isArray(item?.content)) return inlineContentToText(item.content);
       return '';
     })
     .join('');
+}
+
+function cloneValue<T>(v: T): T {
+  if (v === undefined || v === null || typeof v !== 'object') return v;
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(v);
+    } catch {
+      /* fallback */
+    }
+  }
+  return JSON.parse(JSON.stringify(v));
+}
+
+function cloneBlockWithoutIds(b: any): any {
+  return {
+    type: b.type,
+    ...(b.props !== undefined ? { props: cloneValue(b.props) } : {}),
+    ...(b.content !== undefined ? { content: cloneValue(b.content) } : {}),
+    ...(Array.isArray(b.children) ? { children: b.children.map(cloneBlockWithoutIds) } : {}),
+  };
+}
+
+function plainLinesToMarkdown(normPlain: string): string {
+  if (normPlain.includes('\n\n')) return normPlain;
+  const rawLines = normPlain.split('\n').map((l) => l.trimEnd());
+  let out = '';
+  let inFence = false;
+  let prevWasTable = false;
+  for (const line of rawLines) {
+    if (!line.trim()) {
+      if (inFence) out += '\n';
+      prevWasTable = false;
+      continue;
+    }
+    const isFenceLine = /^\s*(?:```|~~~)/.test(line);
+    const isTableLine = !inFence && /^\s*\|/.test(line);
+    if (!out) {
+      out = line;
+    } else if (inFence || (prevWasTable && isTableLine)) {
+      out += '\n' + line;
+    } else {
+      out += '\n\n' + line;
+    }
+    if (isFenceLine) inFence = !inFence;
+    prevWasTable = isTableLine;
+  }
+  return out;
 }
 
 function BlockContent({
@@ -2800,27 +2970,39 @@ function BlockContent({
         return defaultPasteHandler();
       }
 
+      const view = (ed as any)._tiptapEditor?.view;
+      if (ed.getSelection() || (view && !view.state.selection.empty)) {
+        return defaultPasteHandler();
+      }
+
+      let currentBlock: any;
+      try {
+        currentBlock = ed.getTextCursorPosition()?.block;
+      } catch {
+        // cursor outside or unknown
+      }
+      const currentType = currentBlock?.type;
+      if (currentType === 'codeBlock' || currentType === 'table') {
+        return defaultPasteHandler();
+      }
+
       const plain = event.clipboardData?.getData('text/plain') ?? '';
+      const normPlain = plain.replace(/\r\n?/g, '\n');
       const html = event.clipboardData?.getData('text/html') ?? '';
 
-      // Complex structural elements (tables, code blocks, quotes) belong to HTML parser
-      const hasComplexHtml = /<(?:table|thead|tbody|tr|td|th|pre|code|blockquote)\b/i.test(html);
+      // Rich formatting, links, headings, lists, tables, code blocks, quotes belong to HTML parser
+      const hasComplexHtml =
+        /<(?:table|thead|tbody|tr|td|th|pre|code|blockquote|a|h[1-6]|strong|b|em|i|u|s|ul|ol|li)\b/i.test(
+          html,
+        );
       if (hasComplexHtml) {
         return defaultPasteHandler();
       }
 
-      const lines = plain.split(/\r?\n/).map((l) => l.trimEnd());
+      const lines = normPlain.split('\n').map((l) => l.trimEnd());
       const nonEmptyLines = lines.filter((l) => l.trim().length > 0);
 
       if (nonEmptyLines.length > 1) {
-        let currentBlock: any;
-        try {
-          currentBlock = ed.getTextCursorPosition()?.block;
-        } catch {
-          // cursor outside or unknown
-        }
-
-        const currentType = currentBlock?.type;
         let blocksToInsert: any[] = [];
 
         if (currentType === 'checkListItem') {
@@ -2833,9 +3015,12 @@ function BlockContent({
           const md = nonEmptyLines.map((l, i) => `${i + 1}. ${l.replace(/^\d+[.)]\s*/, '')}`).join('\n');
           blocksToInsert = ed.tryParseMarkdownToBlocks(md);
         } else {
-          const md = plain.includes('\n\n') ? plain : nonEmptyLines.join('\n\n');
+          const md = plainLinesToMarkdown(normPlain);
           blocksToInsert = ed.tryParseMarkdownToBlocks(md);
-          if (blocksToInsert.length <= 1) {
+          if (
+            blocksToInsert.length === 0 ||
+            (blocksToInsert.length === 1 && blocksToInsert[0]?.type === 'paragraph')
+          ) {
             blocksToInsert = nonEmptyLines.map((l) => ({
               type: 'paragraph',
               content: [l],
@@ -2853,6 +3038,16 @@ function BlockContent({
                 !currentBlock.content[0].text);
 
             if (isCurrentEmpty) {
+              if (Array.isArray(currentBlock.children) && currentBlock.children.length > 0) {
+                const first = blocksToInsert[0];
+                blocksToInsert = [
+                  {
+                    ...first,
+                    children: [...(first.children ?? []), ...currentBlock.children],
+                  },
+                  ...blocksToInsert.slice(1),
+                ];
+              }
               const res = ed.replaceBlocks([currentBlock.id], blocksToInsert);
               const last = res.insertedBlocks[res.insertedBlocks.length - 1];
               if (last) ed.setTextCursorPosition(last, 'end');
@@ -2880,8 +3075,8 @@ function BlockContent({
       // Fall back to plain text so the paste is never silently dropped.
       if (html) {
         const parsedHtmlBlocks = ed.tryParseHTMLToBlocks(html);
-        if (parsedHtmlBlocks.length === 0 && plain) {
-          ed.pasteText(plain);
+        if (parsedHtmlBlocks.length === 0 && normPlain) {
+          ed.pasteText(normPlain);
           return true;
         }
       }
@@ -2985,19 +3180,24 @@ function BlockContent({
 
   // Mod+Shift+↑/↓: extend text selection to start/end of document (macOS standard).
   // Overrides BlockNote's default moveBlocksUp/Down hijacking.
+  const isNativeInputFocused = () => {
+    const tag = document.activeElement?.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  };
   useShortcut({
     id: 'block.selectToStart',
     keys: ['mod+shift+arrowup'],
     scope: 'editor',
     whileTyping: true,
-    when: () => focusedKey(regionId) === 'body',
+    when: () => focusedKey(regionId) === 'body' && !isNativeInputFocused(),
     run: () => {
       const tiptap = (editor as any)._tiptapEditor;
       if (!tiptap) return false;
       const { state, view } = tiptap;
       const { selection, doc } = state;
       try {
-        const sel = TextSelection.create(doc, selection.anchor, 0);
+        const startSel = Selection.atStart(doc);
+        const sel = TextSelection.between(selection.$anchor, startSel.$head, -1);
         view.dispatch(state.tr.setSelection(sel).scrollIntoView());
         return true;
       } catch {
@@ -3010,14 +3210,15 @@ function BlockContent({
     keys: ['mod+shift+arrowdown'],
     scope: 'editor',
     whileTyping: true,
-    when: () => focusedKey(regionId) === 'body',
+    when: () => focusedKey(regionId) === 'body' && !isNativeInputFocused(),
     run: () => {
       const tiptap = (editor as any)._tiptapEditor;
       if (!tiptap) return false;
       const { state, view } = tiptap;
       const { selection, doc } = state;
       try {
-        const sel = TextSelection.create(doc, selection.anchor, doc.content.size);
+        const endSel = Selection.atEnd(doc);
+        const sel = TextSelection.between(selection.$anchor, endSel.$head, 1);
         view.dispatch(state.tr.setSelection(sel).scrollIntoView());
         return true;
       } catch {
@@ -3041,16 +3242,7 @@ function BlockContent({
       if (!blocks || blocks.length === 0) return false;
       const last = blocks[blocks.length - 1];
       if (!last) return false;
-      editor.insertBlocks(
-        blocks.map((b) => ({
-          type: b.type,
-          props: { ...b.props },
-          content: b.content,
-          children: b.children,
-        })) as any,
-        last.id,
-        'after',
-      );
+      editor.insertBlocks(blocks.map(cloneBlockWithoutIds) as any, last.id, 'after');
     },
   });
 
@@ -3156,6 +3348,7 @@ function BlockContent({
   // Insert generated markdown below the cursor (AI Block / chat "Insert").
   useEffect(() => {
     const onInsert = (e: Event) => {
+      if (!canEdit) return;
       const d = (e as CustomEvent<{ pageId?: string; markdown?: string }>).detail;
       if (!d || (d.pageId && d.pageId !== pageId) || !d.markdown) return;
       void (async () => {
@@ -3182,7 +3375,7 @@ function BlockContent({
     window.addEventListener('salt:ai-insert', onInsert);
     return () => window.removeEventListener('salt:ai-insert', onInsert);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, pageId]);
+  }, [editor, pageId, canEdit]);
 
   const getSlashItems = async (query: string) => {
     const aiItems = aiEnabled
@@ -3587,6 +3780,9 @@ function BlockContent({
         // ignore
       }
     });
+    return () => {
+      titleCtx?.registerFocusBodyStart(null);
+    };
   }, [editor, titleCtx]);
 
   useEffect(() => {
@@ -3623,6 +3819,9 @@ function BlockContent({
         console.error('Failed to split title into body', e);
       }
     });
+    return () => {
+      titleCtx?.registerSplitTitle(null);
+    };
   }, [editor, titleCtx]);
 
   const onDragEnter = (e: React.DragEvent) => {
@@ -3732,8 +3931,22 @@ function BlockContent({
       if (!view || view.state.selection.empty || !e.clipboardData) return;
       if (!view.dom.contains(e.target as Node)) return;
 
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          activeEl.tagName === 'SELECT')
+      ) {
+        return;
+      }
+      const targetEl = e.target instanceof Element ? e.target : (e.target as Node | null)?.parentElement;
+      if (targetEl?.closest?.('input, textarea, select')) return;
+      const ceFalse = targetEl?.closest?.('[contenteditable="false"]');
+      if (ceFalse && ceFalse !== view.dom && !ceFalse.contains(view.dom)) return;
+
       const sel = view.state.selection;
-      if (sel.constructor.name === 'CellSelection') return;
+      if ('$anchorCell' in sel) return;
 
       const { from, to } = sel;
       const fragment = view.state.doc.slice(from, to, false).content;
@@ -3756,7 +3969,11 @@ function BlockContent({
         e.clipboardData.clearData();
 
         const { clipboardHTML, externalHTML } = selectedFragmentToHTML(view, editor as any);
-        const plainText = view.state.doc.textBetween(from, to, '\n', (node: any) => (node.type.name === 'hardBreak' ? '\n' : ''));
+        const plainText = view.state.doc.textBetween(from, to, '\n', (node: any) => {
+          if (node.type.name === 'hardBreak') return '\n';
+          if (node.type.name === 'pageLink') return node.attrs?.label || '';
+          return '';
+        });
 
         e.clipboardData.setData('blocknote/html', clipboardHTML);
         e.clipboardData.setData('text/html', externalHTML);
@@ -3788,24 +4005,34 @@ function BlockContent({
         className="editor-inner"
         onClickCapture={onFileClick}
         onKeyDownCapture={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          const targetEl = e.target instanceof Element ? e.target : (e.target as Node | null)?.parentElement;
+          if (!targetEl) return;
+          if (targetEl.tagName === 'INPUT' || targetEl.tagName === 'TEXTAREA' || targetEl.tagName === 'SELECT') return;
+          const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+          if (!surface || !surface.contains(e.target as Node)) return;
+
           if (e.key === 'Backspace' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
-            if (surface && nothingBefore(surface)) {
+            if (!canEdit) return;
+            if (targetEl.closest?.('[data-content-type="columns"]')) return;
+            if (nothingBefore(surface)) {
               let curBlock: any = null;
               try {
                 curBlock = editor.getTextCursorPosition()?.block;
               } catch {
                 // ignore
               }
-              const curType = curBlock?.type ?? '';
+              if (!curBlock || curBlock.id !== editor.document?.[0]?.id) return;
+              if (Array.isArray(curBlock.children) && curBlock.children.length > 0) return;
+
+              const curType = curBlock.type ?? '';
               // If it's a list item, heading, etc., let BlockNote revert it to paragraph first
               if (curType && curType !== 'paragraph') {
                 return;
               }
 
-              const content = curBlock?.content;
+              const content = curBlock.content;
               const isEmpty =
-                !curBlock ||
                 !content ||
                 (Array.isArray(content) &&
                   (content.length === 0 ||
@@ -3874,8 +4101,7 @@ function BlockContent({
               }
             }
           } else if (e.key === 'ArrowLeft' && e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
-            if (surface && nothingBefore(surface)) {
+            if (nothingBefore(surface)) {
               e.preventDefault();
               e.stopPropagation();
               if (regionId === 'content') {
@@ -3883,8 +4109,7 @@ function BlockContent({
               }
             }
           } else if (e.key === 'ArrowLeft' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
-            if (surface && nothingBefore(surface)) {
+            if (nothingBefore(surface)) {
               e.preventDefault();
               e.stopPropagation();
               focusKey(regionId, 'title');
@@ -3925,6 +4150,13 @@ function BlockContent({
                 <FormattingToolbar>
                   <BlockTypeSelect key="blockTypeSelect" />
                   <AiFormattingDropdown key="aiDropdown" editor={editor} pageId={provider.pageId} />
+                  <TableCellMergeButton key="tableCellMergeButton" />
+                  <FileCaptionButton key="fileCaptionButton" />
+                  <FileReplaceButton key="replaceFileButton" />
+                  <FileRenameButton key="fileRenameButton" />
+                  <FileDeleteButton key="fileDeleteButton" />
+                  <FileDownloadButton key="fileDownloadButton" />
+                  <FilePreviewButton key="filePreviewButton" />
                   <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
                   <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
                   <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />

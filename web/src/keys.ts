@@ -74,6 +74,8 @@ function baseKey(e: KeyEventLike): string {
   const code = e.code ?? '';
   if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
   if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (code === 'BracketLeft') return '[';
+  if (code === 'BracketRight') return ']';
   const k = (e.key ?? '').toLowerCase();
   return k === ' ' ? 'space' : k;
 }
