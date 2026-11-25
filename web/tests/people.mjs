@@ -60,6 +60,15 @@ await withFixture(async ({ page, api, workspace, path, read }) => {
   await eventually(async () => (await team()) === ana.id);
   await page.locator('.relation-menu').waitFor({ state: 'hidden' });
 
+  // The face beside a name in the picker opens that person's account page.
+  await cell().locator('.relation-open').click();
+  const anaRow = page.locator('.relation-option-row').filter({ hasText: 'Ana' });
+  await anaRow.locator('.relation-profile-btn').click();
+  await page.locator('.person-page').waitFor();
+  assert.match(await page.locator('.person-name').innerText(), /Ana/);
+  await page.locator('.person-close').click();
+  await page.locator('.person-page').waitFor({ state: 'detached' });
+
   // --- a person's two names ------------------------------------------------
   // The instance default is the nickname; a reader may choose the formal name
   // for their own screen. Neither changes what the account's record says.

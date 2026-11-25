@@ -297,6 +297,15 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   const personBox = await p.locator('.person-page').boundingBox();
   assert(personBox && personBox.width === 390, `the account page spans the phone (${personBox?.width})`);
   assert(personBox.height >= 840, `and takes its height (${personBox?.height})`);
+  // The two actions are one bar: the same square each, and the label is an
+  // icon on a phone.
+  const editBox = await p.locator('.person-edit').boundingBox();
+  const closeBox = await p.locator('.person-close').boundingBox();
+  assert(
+    editBox && closeBox && editBox.width === closeBox.width && editBox.height === closeBox.height,
+    'the edit and close buttons are the same size',
+  );
+  assert.equal(await p.locator('.person-edit-label').isVisible(), false);
   await p.locator('.person-close').click();
   await eventually(async () => (await p.locator('.person-page').count()) === 0);
   // A modal opening folds the drawer away on purpose; back to it for the drag.

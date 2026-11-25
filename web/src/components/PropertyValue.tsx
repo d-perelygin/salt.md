@@ -9,7 +9,7 @@ import { daysUntil, formatDay, formatMoment, formatNumber, resolveSmartDate } fr
 import { showActivityFor } from './ActivityLogHost';
 import { useChecklistFrac } from '../pageUiState';
 import { initials, nameColor } from './CommentsPanel';
-import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Lock, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
 import { useBlockedStatuses } from '../statusMarks';
 import { PageIcon } from '../pageIcon';
 import { openCollectionRow, peekPage, peekPanel, type PageOpeners } from '../pageOpen';
@@ -18,6 +18,7 @@ import { isDesktopPointer } from '../pwa';
 import { imeComposing } from '../keys';
 import { toast } from '../toast';
 import { displayName, useNameDisplay } from '../personName';
+import PersonPage from './PersonPage';
 
 interface Props {
   def: PropDef;
@@ -880,6 +881,9 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
   const multiple = !!def.personMultiple;
   const [members, setMembers] = useState<Member[]>([]);
   const [open, setOpen] = useState(false);
+  // Whose account page is open from the picker: a name in a list is a person,
+  // and the face beside it is the way to find out who that person is.
+  const [personFor, setPersonFor] = useState<string | null>(null);
   const [menuUp, setMenuUp] = useState(false);
   const [query, setQuery] = useState('');
   const boxRef = useRef<HTMLDivElement>(null);
@@ -974,15 +978,30 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
           />
           <div className="relation-options">
             {filtered.map((m) => (
-              <button
-                key={m.userId}
-                type="button"
-                className={'relation-option' + (holds(m) ? ' on' : '')}
-                onClick={() => choose(m.userId)}
-              >
-                <span className="relation-check">{holds(m) ? <Check size={12} /> : ''}</span>
-                <PersonChip raw={m.userId} members={members} />
-              </button>
+              // A row, not one button: the account-page button beside the
+              // option cannot be nested inside it.
+              <div key={m.userId} className="relation-option-row">
+                <button
+                  type="button"
+                  className={'relation-option' + (holds(m) ? ' on' : '')}
+                  onClick={() => choose(m.userId)}
+                >
+                  <span className="relation-check">{holds(m) ? <Check size={12} /> : ''}</span>
+                  <PersonChip raw={m.userId} members={members} />
+                </button>
+                <button
+                  type="button"
+                  className="relation-profile-btn"
+                  title={t('Account page')}
+                  aria-label={t('Account page')}
+                  onClick={() => {
+                    setOpen(false);
+                    setPersonFor(m.userId);
+                  }}
+                >
+                  <UserRound size={13} />
+                </button>
+              </div>
             ))}
             {q && !pool && !filtered.some((m) => m.name.toLowerCase() === q) && (
               <button type="button" className="relation-option" onClick={() => choose(query.trim())}>
@@ -1007,6 +1026,7 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
           </div>
         </div>
       )}
+      {personFor && <PersonPage userId={personFor} onClose={() => setPersonFor(null)} />}
     </div>
   );
 }

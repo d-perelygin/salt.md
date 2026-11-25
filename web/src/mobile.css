@@ -1558,6 +1558,18 @@ body.tabs-dragging .tabs-sheet-card {
     top: 10px;
     right: 10px;
   }
+
+  /* The label has no room beside a name on a phone: the pencil alone, the same
+     square as the close beside it. */
+  .person-edit-label {
+    display: none;
+  }
+
+  .person-actions .btn {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
 }
 
 /* --- handles are a phone thing -------------------------------------------- */

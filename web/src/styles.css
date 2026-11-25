@@ -6017,6 +6017,39 @@ button.relation-chip:hover {
   gap: 1px;
 }
 
+.relation-option-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.relation-option-row .relation-option {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Opening somebody's account page from the roster: the face beside a name is
+   the way to find out who that person is. */
+.relation-profile-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.relation-profile-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
 .relation-option {
   display: flex;
   align-items: center;
@@ -13184,6 +13217,25 @@ a,
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
 }
 
+/* One row, one size: the label button and the icon button share a height, so
+   the pair reads as a bar rather than two unrelated pills. */
+.person-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+}
+
+.person-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+}
+
 .person-cover {
   height: 148px;
   border-radius: 15px 15px 0 0;
@@ -14210,15 +14262,28 @@ body:has(.confirm-dialog) .dialog:not(.confirm-dialog) {
    it. Who a card belongs to is the people; who is touching it right now is the
    agent, and right-now goes on top. Five people still fan the way they always
    did — the agent is simply the first face in the row. */
+/* The move button floats on its own layer above the card corner — it never
+   pushes text or marks aside. The marks slide left as the button fades in so
+   the faces and the ⋯ never sit on top of each other; at rest they keep the
+   corner exactly as they were. */
 .card-marks {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
+  transition: transform 120ms ease;
 }
 
-/* The move button floats on its own layer above the card corner — it never
-   pushes text or marks aside. The button carries its own card-coloured
-   backdrop so it stays readable when it overlaps them. */
+.board-card:hover .card-marks {
+  transform: translateX(-23px);
+}
+
+/* No hover to reveal the button: it is always there, so the room for it is
+   always needed. */
+@media (hover: none) {
+  .card-marks {
+    transform: translateX(-23px);
+  }
+}
 
 .agent-dot {
   display: inline-flex;

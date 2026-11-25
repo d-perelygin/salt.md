@@ -87,8 +87,14 @@ export default function PersonPage({
         <div className="person-page" role="dialog" aria-modal="true" aria-label={user ? user.name : t('Account')}>
           <div className="person-actions">
             {profile?.isYou && onEditSelf && (
-              <button className="btn person-edit" onClick={onEditSelf}>
-                <Pencil size={14} /> {t('Edit profile')}
+              <button
+                className="btn person-edit"
+                onClick={onEditSelf}
+                title={t('Edit profile')}
+                aria-label={t('Edit profile')}
+              >
+                <Pencil size={14} />
+                <span className="person-edit-label">{t('Edit profile')}</span>
               </button>
             )}
             <button className="person-close icon-btn" onClick={onClose} aria-label={t('Close')} title={t('Close')}>
