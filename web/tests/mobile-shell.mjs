@@ -53,15 +53,20 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   await eventually(async () => (await p.locator('.tabs-sheet').count()) === 1);
 
   // Swipe down on the handle: a short pull springs back, a long one closes.
-  const grab = await p.locator('.tabs-sheet .sheet-grab').boundingBox();
   const dragTo = async (dy) => {
-    const from = { x: grab.x + grab.width / 2, y: grab.y + grab.height / 2 };
+    // Re-measured every time: the sheet rises into place when it opens, and a
+    // box taken before that lands on the cards instead of the handle.
+    const now = await p.locator('.tabs-sheet .sheet-grab').boundingBox();
+    const from = { x: now.x + now.width / 2, y: now.y + now.height / 2 };
     // Released inside the viewport, clear of the dock: a pointerup over the
     // dock's own tabs slot would reopen the sheet the drag just closed.
     const to = { x: from.x, y: Math.min(from.y + dy, 844 - 90) };
     await p.mouse.move(from.x, from.y);
     await p.mouse.down();
     await p.mouse.move(to.x, to.y, { steps: 12 });
+    // A finger pauses before letting go; without this the twelve synthetic
+    // moves arrive inside one frame and the gesture is not what a person does.
+    await p.waitForTimeout(80);
     await p.mouse.up();
     await p.waitForTimeout(320);
   };
@@ -123,6 +128,11 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   await eventually(async () => (await p.locator('.tree-actions .menu').count()) === 0);
   // The drawer covers the left two thirds of the screen, so the tap that closes
   // it has to be on the part of the backdrop its own edges leave free.
+  // The drawer gives a long page title room for more than two words, and still
+  // leaves a strip of the page to tap it shut.
+  const drawer = await p.locator('.sidebar.open').boundingBox();
+  assert(drawer && drawer.width > 330, `the drawer uses the width (${drawer?.width})`);
+  assert(drawer.width < 390 - 24, 'a strip of the page stays tappable');
   await p.locator('.sidebar-backdrop').click({ position: { x: 370, y: 400 } });
   await eventually(async () => (await p.locator('.sidebar.open').count()) === 0);
 
