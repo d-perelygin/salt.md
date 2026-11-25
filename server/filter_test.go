@@ -444,6 +444,35 @@ func TestTitleFilter(t *testing.T) {
 	}}); n != 2 {
 		t.Errorf("title AND kind: got %d rows, want 2", n)
 	}
+
+	// Case: SQLite's LIKE folds ASCII alone, so "АвШк" never found "авшк" —
+	// the database answered no about a row the browser then found. The
+	// reader's switch decides, and both halves agree in every alphabet.
+	for i, title := range []string{"АвШк раз", "авшк два"} {
+		props, _ := json.Marshal(map[string]any{"kind": "cyr"})
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'row', ?, ?, ?, ?)`,
+			newID(), col, ws, title, string(props), 10+i, now(), now()); err != nil {
+			t.Fatalf("cyrillic row: %v", err)
+		}
+	}
+	caseCases := []struct {
+		name string
+		f    rowFilter
+		want int
+	}{
+		{"contains folds case", rowFilter{Prop: titleFilterProp, Op: "contains", Value: "АвШк"}, 2},
+		{"contains exact", rowFilter{Prop: titleFilterProp, Op: "contains", Value: "АвШк", CaseSensitive: true}, 1},
+		{"is folds case", rowFilter{Prop: titleFilterProp, Op: "is", Value: "авшк раз"}, 1},
+		{"is exact", rowFilter{Prop: titleFilterProp, Op: "is", Value: "авшк раз", CaseSensitive: true}, 0},
+		{"regex folds case", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "^АВШК"}, 2},
+		{"regex exact", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "^АВШК", CaseSensitive: true}, 0},
+	}
+	for _, c := range caseCases {
+		if n := count(t, s, col, c.f); n != c.want {
+			t.Errorf("%s: got %d rows, want %d", c.name, n, c.want)
+		}
+	}
 }
 
 // A checklist is an array of objects, not of strings — and every operator was

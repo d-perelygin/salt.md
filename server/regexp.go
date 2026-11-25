@@ -37,8 +37,10 @@ var (
 	regexpCache = map[string]*regexp.Regexp{}
 )
 
-// compileRegexp returns nil for a pattern that does not compile. The cache is
-// small and bounded: a person types a handful of patterns, not thousands.
+// compileRegexp returns nil for a pattern that does not compile. The pattern
+// carries its own flags ("(?i)" for a case-insensitive question), so the cache
+// key is the pattern as written. The cache is small and bounded: a person types
+// a handful of patterns, not thousands.
 func compileRegexp(pat string) *regexp.Regexp {
 	if pat == "" {
 		return nil
@@ -49,7 +51,7 @@ func compileRegexp(pat string) *regexp.Regexp {
 		return re
 	}
 	regexpMu.Unlock()
-	re, err := regexp.Compile("(?i)" + pat)
+	re, err := regexp.Compile(pat)
 	if err != nil {
 		return nil
 	}

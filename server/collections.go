@@ -499,6 +499,10 @@ type rowFilter struct {
 	// "number" or "checkbox", and empty otherwise. Set per query by
 	// typeFilters, because where() has no schema.
 	Kind string
+	// CaseSensitive is the reader's choice on the title condition. Off — the
+	// default — means "contains" folds case, in every alphabet: SQLite's LIKE
+	// folds ASCII alone, so "АвШк" never found "авшк".
+	CaseSensitive bool
 }
 
 // typeFilters tells each condition what kind of property it is on, where
@@ -663,6 +667,14 @@ const sortUpdatedProp = "@updated"
 
 func (f rowFilter) where() (string, []any) {
 	if f.Prop == titleFilterProp {
+		// A title is text, so the literal comparison is INSTR, not LIKE:
+		// SQLite's LIKE folds ASCII case behind the reader's back, which made
+		// "Match case" a promise the database did not keep. lower_u folds the
+		// alphabet properly when the reader asked to ignore case.
+		lt, lv := "title", "?"
+		if !f.CaseSensitive {
+			lt, lv = "lower_u(title)", "lower_u(?)"
+		}
 		switch f.Op {
 		case "is_empty":
 			return "TRIM(COALESCE(title, '')) = ''", nil
@@ -671,30 +683,34 @@ func (f rowFilter) where() (string, []any) {
 		case "matches":
 			// An unfinished pattern is not a filter yet: comparing with it
 			// would empty the table while it is being typed.
-			if compileRegexp(f.Value) == nil {
+			pat := f.Value
+			if !f.CaseSensitive {
+				pat = "(?i)" + pat
+			}
+			if compileRegexp(pat) == nil {
 				return "", nil
 			}
-			return "regexp(?, title)", []any{f.Value}
+			return "regexp(?, title)", []any{pat}
 		case "is":
 			if f.Value == "" {
 				return "", nil
 			}
-			return "title = ?", []any{f.Value}
+			return lt + " = " + lv, []any{f.Value}
 		case "is_not":
 			if f.Value == "" {
 				return "", nil
 			}
-			return "title != ?", []any{f.Value}
+			return lt + " != " + lv, []any{f.Value}
 		case "not_contains":
 			if f.Value == "" {
 				return "", nil
 			}
-			return "title NOT LIKE ?", []any{"%" + f.Value + "%"}
+			return "INSTR(" + lt + ", " + lv + ") = 0", []any{f.Value}
 		case "contains", "":
 			if f.Value == "" {
 				return "", nil
 			}
-			return "title LIKE ?", []any{"%" + f.Value + "%"}
+			return "INSTR(" + lt + ", " + lv + ") > 0", []any{f.Value}
 		}
 		return "", nil
 	}
@@ -819,8 +835,11 @@ func (f rowFilter) where() (string, []any) {
 		// so "true" found every row with a ticked box. A scalar yields itself
 		// from json_each, so plain text columns answer through the same
 		// expression — no separate branch.
+		//
+		// Case is folded by lower_u rather than by LIKE, which folds ASCII
+		// alone: "авшк" found nothing where the browser found the row.
 		like := "%" + f.Value + "%"
-		return "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE " + textOf + " LIKE ?)", []any{like}
+		return "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE lower_u(" + textOf + ") LIKE lower_u(?))", []any{like}
 	case "gt", "lt":
 		cmp := ">"
 		if op == "lt" {
@@ -1079,10 +1098,14 @@ type filterJSON struct {
 	Value    string   `json:"value"`
 	Values   []string `json:"values"`
 	Value2   string   `json:"value2"`
+	// CaseSensitive is only sent by the condition on a row's title, where the
+	// reader can ask for it. Everywhere else the comparison is what it was.
+	CaseSensitive bool `json:"caseSensitive"`
 }
 
 func (f filterJSON) rowFilter() rowFilter {
-	return rowFilter{Prop: f.Property, Op: f.Op, Value: f.Value, Values: f.Values, Value2: f.Value2}
+	return rowFilter{Prop: f.Property, Op: f.Op, Value: f.Value, Values: f.Values,
+		Value2: f.Value2, CaseSensitive: f.CaseSensitive}
 }
 
 // parseFilterGroups reads repeatable filter_group params: one JSON array of
