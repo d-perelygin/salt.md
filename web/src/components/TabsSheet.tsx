@@ -27,6 +27,7 @@ export default function TabsSheet({
   unused,
   onSelect,
   onClose,
+  onDiscard,
   onCreate,
   onCloseUnused,
   onReopen,
@@ -45,6 +46,9 @@ export default function TabsSheet({
   unused: string[];
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  /** Remove an unused tab. Unlike onClose it files nothing: the tab was
+   *  already unwanted, so it simply goes. */
+  onDiscard: (id: string) => void;
   onCreate: () => void;
   onCloseUnused: () => void;
   onReopen: (id: string) => void;
@@ -158,7 +162,7 @@ export default function TabsSheet({
                           aria-label={t('Close tab {title}', { title })}
                           onClick={(e) => {
                             e.stopPropagation();
-                            onClose(id);
+                            onDiscard(id);
                           }}
                         >
                           <X size={13} />

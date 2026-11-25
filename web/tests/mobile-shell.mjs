@@ -203,11 +203,12 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   assert.equal(await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count(), 1);
   assert.equal(await sheetCard('Phone A').evaluate((el) => el.classList.contains('pinned')), true);
 
-  // "Close all" empties the group into the archive beneath it.
+  // "Close all" throws the unused tabs away: they were the ones nobody
+  // wanted, so they do not reappear under "Recently closed".
   await p.locator('.tabs-sheet-group-close').click();
   await eventually(async () => (await p.locator('.tabs-sheet-unused').count()) === 0);
-  await eventually(async () => (await p.locator('.tabs-sheet-archive-row').count()) === 1);
-  assert.equal(await p.locator('.tabs-sheet-archive-name').first().innerText(), 'Phone B');
+  assert.equal(await p.locator('.tabs-sheet-archive-row').count(), 0);
+  assert.equal(await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count(), 1);
   await p.locator('.tabs-sheet-dismiss').click();
   await eventually(async () => (await p.locator('.tabs-sheet').count()) === 0);
 

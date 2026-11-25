@@ -1314,8 +1314,10 @@ export default function App() {
   );
 
   // closeTab removes a tab; if it was active, the neighbour that slides into its
-  // slot (else the previous one, else nothing) becomes active.
-  const closeTab = useCallback((id: string) => {
+  // slot (else the previous one, else nothing) becomes active. `archive: false`
+  // is for the tabs sheet's unused group: throwing away a tab nobody wanted is
+  // not a close worth remembering.
+  const closeTab = useCallback((id: string, opts?: { archive?: boolean }) => {
     const prev = tabsRef.current;
     const i = prev.indexOf(id);
     if (i < 0) return;
@@ -1336,7 +1338,9 @@ export default function App() {
     closedTabsRef.current = [id, ...closedTabsRef.current.filter((x) => x !== id)].slice(0, 20);
     // The phone's tabs sheet keeps the same thing as a visible row: closing a
     // tab by hand is not deleting the page, and one tap brings it back.
-    setTabArchive((prev) => archiveTabs(prev, [id], pagesByIdRef.current));
+    if (opts?.archive !== false) {
+      setTabArchive((prev) => archiveTabs(prev, [id], pagesByIdRef.current));
+    }
     // The remembered scroll positions die with the tab. The chosen VIEW stays:
     // that is a choice about the collection, not about the tab.
     forgetPageScroll(id);
@@ -1969,7 +1973,9 @@ export default function App() {
       pinned: pinnedRef.current,
     });
     if (stale.length === 0) return;
-    setTabArchive((prev) => archiveTabs(prev, stale, pagesByIdRef.current));
+    // Unused tabs are thrown away, not filed: they were already the ones
+    // nobody wanted, and offering them back under "Recently closed" is the
+    // sheet arguing with the person who just cleared it.
     replaceTabs(tabsRef.current.filter((id) => !stale.includes(id)));
   }, [replaceTabs]);
   // The tabs nobody has opened for a week. They are not closed: the sheet
@@ -2645,6 +2651,10 @@ export default function App() {
           // the last document leaves nothing to show.
           if (openTabs.length <= 1) setTabsSheetOpen(false);
         }}
+        onDiscard={(id) => {
+          closeTab(id, { archive: false });
+          if (openTabs.length <= 1) setTabsSheetOpen(false);
+        }}
         onCreate={() => {
           setTabsSheetOpen(false);
           // A page asked for from the tabs sheet opens as its own tab, the way
@@ -2654,7 +2664,8 @@ export default function App() {
         onCloseUnused={() => {
           closeAgedTabs();
           // The whole point of the button is what happened to the sheet, so it
-          // stays open: the group is gone and its rows are in the archive.
+          // stays open: the group is gone and the tabs with it — unused tabs
+          // are not filed under "Recently closed".
         }}
         onTogglePin={togglePinTab}
         onReopen={(id) => {
