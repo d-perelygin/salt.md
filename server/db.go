@@ -775,6 +775,12 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "share_links", "options", `options TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate share_links.options: %w", err)
 	}
+	// The token itself, so every writer can read the live link to pass it on.
+	// Public lookups still go through token_hash; a row minted before this
+	// column existed has no plaintext and cannot be shown until re-created.
+	if err := ensureColumn(db, "share_links", "token", `token TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate share_links.token: %w", err)
+	}
 	// Named calendar subscriptions carry their own history window, so one
 	// link can stay quiet while another keeps the archive.
 	if err := ensureColumn(db, "ics_feeds", "past_days", `past_days INTEGER NOT NULL DEFAULT 90`); err != nil {

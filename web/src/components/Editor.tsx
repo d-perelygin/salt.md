@@ -1500,9 +1500,10 @@ function PageHeader({
     return () => cancelAnimationFrame(raf);
   }, [pageId]);
 
-  // The token itself is stored hashed server-side, so a minted URL cannot be
-  // recovered — only remembered. The owner who minted it keeps it in this
-  // browser; opening the menu must never mint silently, or every open would
+  // The link is the server's now: anyone who may edit the page can read it
+  // back and pass it on. localStorage stays as the fallback for a link minted
+  // before tokens were kept, where only the browser that created it knows the
+  // address. Opening the menu still never mints silently, or every open would
   // kill the link somebody already sent.
   const shareUrlKey = `salt:share-url:${pageId}`;
   const readStoredUrl = (): string | null => {
@@ -1571,6 +1572,14 @@ function PageHeader({
         setShareAllowDetail(out.detail);
         setShareHasPassword(!!st.hasPassword);
         setShareExpiry(expiryToDays(st.expiresAt));
+        if (st.url) {
+          setShareUrl(st.url);
+          rememberUrl(st.url);
+        } else {
+          // A link from before tokens were kept: only its creator's browser
+          // remembers the address.
+          setShareUrl(readStoredUrl());
+        }
       } else {
         setReadShared(false);
       }

@@ -1153,7 +1153,7 @@ func (s *Server) handleSharePage(w http.ResponseWriter, r *http.Request) {
 	// with a new expiry/password doesn't leave the old token valid. Form-shares
 	// (mode='form') are independent and left untouched.
 	s.db.Exec(`DELETE FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID)
-	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, page_id, created_at, expires_at, password_hash, options, file_key) VALUES (?, ?, ?, ?, ?, ?, ?)`, tokenHash(token), pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail), newID()+newID()); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, token, page_id, created_at, expires_at, password_hash, options, file_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, tokenHash(token), token, pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail), newID()+newID()); err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}
@@ -1189,9 +1189,12 @@ func decodeShareOptions(raw string) shareOptions {
 	return o
 }
 
-// handleShareStatus reports the live read-share settings (no token/URL: the
-// token itself is stored hashed and cannot be recovered). The panel mints once
-// to get the URL, then PATCHes settings in place without rotating the link.
+// handleShareStatus reports the live read-share settings and, to anyone who
+// may edit the page, the link itself. The token used to be stored only as a
+// hash, so only the browser that minted a link could show it; a colleague with
+// write access had to ask for the URL. The plaintext now rides beside the hash
+// (public lookups still use the hash), and this endpoint — already restricted
+// to writers — hands the current address back.
 func (s *Server) handleShareStatus(w http.ResponseWriter, r *http.Request) {
 	pageID := r.PathValue("id")
 	if !s.canWriteReq(r, pageID) {
@@ -1201,7 +1204,8 @@ func (s *Server) handleShareStatus(w http.ResponseWriter, r *http.Request) {
 	var raw sql.NullString
 	var expiresAt sql.NullString
 	var pwHash sql.NullString
-	err := s.db.QueryRow(`SELECT options, expires_at, password_hash FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID).Scan(&raw, &expiresAt, &pwHash)
+	var token sql.NullString
+	err := s.db.QueryRow(`SELECT options, expires_at, password_hash, token FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID).Scan(&raw, &expiresAt, &pwHash, &token)
 	if err != nil {
 		writeJSON(w, map[string]any{"shared": false})
 		return
@@ -1211,13 +1215,19 @@ func (s *Server) handleShareStatus(w http.ResponseWriter, r *http.Request) {
 		opts = raw.String
 	}
 	o := decodeShareOptions(opts)
-	writeJSON(w, map[string]any{
+	out := map[string]any{
 		"shared":       true,
 		"allowedViews": o.AllowedViews,
 		"allowDetail":  o.AllowDetail,
 		"hasPassword":  pwHash.Valid && pwHash.String != "",
 		"expiresAt":    expiresAt.String,
-	})
+	}
+	// A link minted before tokens were kept has no plaintext to give; the
+	// panel falls back to "this browser does not have its URL" until re-minted.
+	if token.Valid && token.String != "" {
+		out["url"] = s.publicShareBase(r) + "/public/" + token.String
+	}
+	writeJSON(w, out)
 }
 
 // handlePatchShare updates share options, password and expiry in place — the
