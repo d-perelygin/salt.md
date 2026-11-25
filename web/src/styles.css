@@ -4400,32 +4400,6 @@ body.is-col-resizing {
   margin-bottom: 12px;
 }
 
-/* Reorder sits at the far end of the tab row: it acts on the list below,
-   not on the tabs. */
-.schema-reorder-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.schema-reorder-btn:hover {
-  background: var(--hover);
-  color: var(--fg);
-}
-
-.schema-reorder-btn.is-on {
-  background: var(--active);
-  border-color: var(--border-strong);
-  color: var(--fg);
-}
-
 /* Reorder view: every property is its editable line and nothing else. The
    options, the type configuration and the two bottom blocks step aside, so a
    long schema fits at once and the drag handles are a row apart. */

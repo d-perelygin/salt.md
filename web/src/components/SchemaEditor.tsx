@@ -10,7 +10,7 @@ import { OPTION_HEXES, optionPalette } from '../selectOptions';
 import { renameSelectOption, moveSelectOption, reorderSelectOption } from '../renameSelectOption';
 import { confirm } from '../dialog';
 import { toast } from '../toast';
-import { ArrowUpDown, GripVertical, Check, Trash2, X } from 'lucide-react';
+import { GripVertical, Check, Trash2, X } from 'lucide-react';
 import { t } from '../i18n';
 import { imeComposing } from '../keys';
 import { loadMembers, type Member } from './PropertyValue';
@@ -674,17 +674,32 @@ export default function SchemaEditor({
             {t('Process')}
             {processRuleCount > 0 ? ` · ${processRuleCount}` : ''}
           </button>
-          {tab === 'props' && (
+        </div>
+        {/* The same sub-tabs the Process tab has: one row of views over one
+            schema, so Edit and Reorder read as peers and neither looks like a
+            command that changes the data. */}
+        {tab === 'props' && (
+          <div className="workflow-view-toggle" role="tablist" aria-label={t('Properties')}>
             <button
               type="button"
-              className={'schema-reorder-btn' + (reorder ? ' is-on' : '')}
-              aria-pressed={reorder}
-              onClick={() => setReorder((v) => !v)}
+              role="tab"
+              aria-selected={!reorder}
+              className={'workflow-view-tab' + (!reorder ? ' workflow-view-tab-on' : '')}
+              onClick={() => setReorder(false)}
             >
-              <ArrowUpDown size={14} /> {t('Reorder')}
+              {t('Edit')}
             </button>
-          )}
-        </div>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={reorder}
+              className={'workflow-view-tab' + (reorder ? ' workflow-view-tab-on' : '')}
+              onClick={() => setReorder(true)}
+            >
+              {t('Reorder')}
+            </button>
+          </div>
+        )}
         {tab === 'process' ? (
           <WorkflowRules
             collectionId={collectionId}

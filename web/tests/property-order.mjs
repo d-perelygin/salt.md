@@ -58,7 +58,7 @@ await withFixture(async ({ page, open, read, assertRows }) => {
   // the add/template blocks step aside, so a long schema fits and the handles
   // sit next to each other; dragging still reorders.
   const tall = (await items.first().boundingBox()).height;
-  await page.getByRole('button', { name: 'Reorder', exact: true }).click();
+  await page.getByRole('tab', { name: 'Reorder', exact: true }).click();
   assert.equal(await page.locator('.dialog.wide.schema-reorder').count(), 1);
   assert.equal(await page.getByPlaceholder('New property name').isVisible(), false);
   assert.equal(await page.locator('.schema-options').first().isVisible(), false);
@@ -67,7 +67,7 @@ await withFixture(async ({ page, open, read, assertRows }) => {
   const before = await names();
   await drag(0, 1, true);
   assert.deepEqual(await names(), [before[1], before[0], ...before.slice(2)]);
-  await page.getByRole('button', { name: 'Reorder', exact: true }).click();
+  await page.getByRole('tab', { name: 'Edit', exact: true }).click();
   assert.equal(await page.getByPlaceholder('New property name').isVisible(), true);
 });
 console.log('Property order: drag, save/cancel, reload, unchanged data and narrow layout passed.');
