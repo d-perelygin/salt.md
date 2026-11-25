@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from 'react';
 import { api } from '../api';
 import { isTempId, savePageUpdate } from '../outbox';
 import type { FontPref } from '../App';
@@ -249,7 +249,7 @@ function DbRows({
         };
         return (
           <div key={r.id}>
-            <PageHoverCard
+            <SidebarHoverCard
               page={rowPage}
               side="right"
               tagColors={ctx.tagColors}
@@ -295,7 +295,7 @@ function DbRows({
                     to open it first and hope its own menu had what you wanted. */}
                 <RowActions id={r.id} title={r.title} parentId={collectionId} workspaceId={workspaceId} ctx={ctx} />
               </div>
-            </PageHoverCard>
+            </SidebarHoverCard>
             {isOpen && (
               <div className="tree-children" style={guideAt(depth)}>
                 {kids.map((k) => <TreeItem key={k.id} p={k} depth={depth + 1} ctx={ctx} section="dbs" />)}
@@ -405,6 +405,16 @@ function SidebarSection({
   );
 }
 
+/** The sidebar's preview is for a pointer that can hover. A phone has no such
+ *  pointer: a tap fires mouseenter, the card lands under the thumb that just
+ *  tapped and covers the rows being scrolled. Elsewhere the preview carries
+ *  real information (a link in the text, a breadcrumb); in a list you are
+ *  already navigating it is only in the way, so the drawer keeps none. */
+function SidebarHoverCard(props: ComponentProps<typeof PageHoverCard>) {
+  const phone = usePhoneLayout();
+  return <PageHoverCard {...props} disabled={props.disabled || phone} />;
+}
+
 // One flat row — no chevron, no nesting. Used by the favourites and template
 // lists, where the tree hierarchy would be noise.
 function FlatRow({
@@ -423,7 +433,7 @@ function FlatRow({
   action?: React.ReactNode;
 }) {
   return (
-    <PageHoverCard page={p} side="right">
+    <SidebarHoverCard page={p} side="right">
       <div
         className={'tree-item sb-flat' + (active ? ' active' : '')}
         onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
@@ -447,7 +457,7 @@ function FlatRow({
           </span>
         )}
       </div>
-    </PageHoverCard>
+    </SidebarHoverCard>
   );
 }
 
@@ -694,7 +704,7 @@ function TreeItem({
   return (
     <div>
       {dt === 'before' && <div className="tree-drop-line" aria-hidden="true" />}
-      <PageHoverCard
+      <SidebarHoverCard
         page={p}
         side="right"
         tagColors={ctx.tagColors}
@@ -779,7 +789,7 @@ function TreeItem({
             )}
           </span>
         </div>
-      </PageHoverCard>
+      </SidebarHoverCard>
       {dt === 'after' && <div className="tree-drop-line" aria-hidden="true" />}
       {isExpanded && (
         <div className="tree-children" style={guideAt(depth)}>

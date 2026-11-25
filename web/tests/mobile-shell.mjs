@@ -242,6 +242,11 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   const wsBtn = await p.locator('.sidebar-footer .ws-btn').boundingBox();
   assert(wsBtn && wsBtn.y > 844 * 0.85, 'the workspace switcher sits under the thumb');
   await p.locator('.tree-item', { hasText: 'Phone A' }).first().hover();
+  // No preview in the drawer: the card used to land under the thumb that had
+  // just opened the row, covering the list. It is still on for links and
+  // breadcrumbs, where it answers a question instead of blocking one.
+  await p.waitForTimeout(800);
+  assert.equal(await p.locator('.page-hover-card').count(), 0, 'the drawer has no hover previews');
   const rowActions = p.locator('.tree-item', { hasText: 'Phone A' }).first().locator('.tree-actions button').last();
   await rowActions.click();
   await eventually(async () => (await p.locator('.tree-actions .menu').count()) === 1);
