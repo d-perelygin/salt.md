@@ -1047,7 +1047,7 @@
 
 /* Page hover preview card */
 .page-hover-card {
-  z-index: 950;
+  z-index: 80;
   width: 290px;
   max-width: calc(100vw - 24px);
   background: var(--glass);

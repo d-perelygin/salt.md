@@ -572,19 +572,26 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // view, at the pointer (#24). The ⋯ only ever acted on the view you are on.
   const [tabMenu, setTabMenu] = useState<{ view: ViewDef; style: React.CSSProperties } | null>(null);
   const viewTabLongPressTimer = useRef<number | null>(null);
+  const viewTabResetTimer = useRef<number | null>(null);
   const viewTabTouchStartPos = useRef<{ x: number; y: number } | null>(null);
   const didViewTabLongPress = useRef(false);
 
-  const clearViewTabLongPress = () => {
+  const clearViewTabLongPress = (resetFlag = false) => {
     if (viewTabLongPressTimer.current) {
       window.clearTimeout(viewTabLongPressTimer.current);
       viewTabLongPressTimer.current = null;
     }
+    if (viewTabResetTimer.current) {
+      window.clearTimeout(viewTabResetTimer.current);
+      viewTabResetTimer.current = null;
+    }
     viewTabTouchStartPos.current = null;
+    if (resetFlag) didViewTabLongPress.current = false;
   };
 
   useEffect(() => {
     const onCaptureClick = (e: MouseEvent) => {
+      if ((e.target as HTMLElement | null)?.closest?.('.view-tab-menu')) return;
       if (didViewTabLongPress.current) {
         e.preventDefault();
         e.stopPropagation();
@@ -592,6 +599,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       }
     };
     const onCaptureContextMenu = (e: MouseEvent) => {
+      if ((e.target as HTMLElement | null)?.closest?.('.view-tab-menu')) return;
       if (didViewTabLongPress.current) {
         e.preventDefault();
         e.stopPropagation();
@@ -600,6 +608,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     window.addEventListener('click', onCaptureClick, true);
     window.addEventListener('contextmenu', onCaptureContextMenu, true);
     return () => {
+      clearViewTabLongPress(true);
       window.removeEventListener('click', onCaptureClick, true);
       window.removeEventListener('contextmenu', onCaptureContextMenu, true);
     };
@@ -607,7 +616,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
 
   const onViewTabTouchStart = (v: ViewDef, e: React.TouchEvent) => {
     if (embed) return;
-    clearViewTabLongPress();
+    clearViewTabLongPress(true);
     const touch = e.touches[0];
     if (!touch) return;
     const { clientX, clientY } = touch;
@@ -641,8 +650,9 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const onViewTabTouchEnd = () => {
     clearViewTabLongPress();
     if (didViewTabLongPress.current) {
-      window.setTimeout(() => {
+      viewTabResetTimer.current = window.setTimeout(() => {
         didViewTabLongPress.current = false;
+        viewTabResetTimer.current = null;
       }, 400);
     }
   };
@@ -1729,17 +1739,13 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
               onTouchStart={(e) => onViewTabTouchStart(v, e)}
               onTouchMove={onViewTabTouchMove}
               onTouchEnd={onViewTabTouchEnd}
-              onTouchCancel={clearViewTabLongPress}
+              onTouchCancel={() => clearViewTabLongPress(true)}
               onContextMenu={(e) => {
                 // Inside a document the views are the collection's business,
                 // reached through "Open as page" — not something a reader of
                 // the document should rename or remove by accident.
                 if (embed) return;
                 e.preventDefault();
-                didViewTabLongPress.current = true;
-                window.setTimeout(() => {
-                  didViewTabLongPress.current = false;
-                }, 400);
                 setTabMenu({
                   view: v,
                   style: {
@@ -4393,6 +4399,52 @@ function TimelineView({
 
   const colWidths = view.colWidths;
   const [colDrag, setColDrag] = useState<{ key: string; px: number } | null>(null);
+  const colResizeCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const cancelResize = () => colResizeCleanupRef.current?.();
+    const onVisibility = () => {
+      if (document.hidden) cancelResize();
+    };
+    window.addEventListener('blur', cancelResize);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('blur', cancelResize);
+      document.removeEventListener('visibilitychange', onVisibility);
+      cancelResize();
+    };
+  }, []);
+
+  const [isNarrow700, setIsNarrow700] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(max-width: 700px)').matches
+      : false,
+  );
+  const [isNarrow900, setIsNarrow900] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(max-width: 900px)').matches
+      : false,
+  );
+  const [viewportW, setViewportW] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1024,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq700 = window.matchMedia('(max-width: 700px)');
+    const mq900 = window.matchMedia('(max-width: 900px)');
+    const sync700 = () => setIsNarrow700(mq700.matches);
+    const sync900 = () => setIsNarrow900(mq900.matches);
+    const onResize = () => setViewportW(window.innerWidth);
+    sync700();
+    sync900();
+    mq700.addEventListener('change', sync700);
+    mq900.addEventListener('change', sync900);
+    window.addEventListener('resize', onResize);
+    return () => {
+      mq700.removeEventListener('change', sync700);
+      mq900.removeEventListener('change', sync900);
+      window.removeEventListener('resize', onResize);
+    };
+  }, []);
 
   const widthOf = (key: string) => {
     if (colDrag?.key === key) return colDrag.px;
@@ -4407,23 +4459,30 @@ function TimelineView({
 
   const startColResize = (key: string) => (e: React.PointerEvent<HTMLSpanElement>) => {
     e.stopPropagation();
+    colResizeCleanupRef.current?.();
     const th = e.currentTarget.closest('.tl-col-th') as HTMLElement | null;
     const from = th ? th.getBoundingClientRect().width : widthOf(key);
     const x0 = e.clientX;
     const widthAt = (clientX: number) => Math.max(64, Math.round(from + clientX - x0));
     document.body.classList.add('is-col-resizing');
     const move = (ev: PointerEvent) => setColDrag({ key, px: widthAt(ev.clientX) });
-    const end = (ev: PointerEvent) => {
+    const cleanup = () => {
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', end);
       document.removeEventListener('pointercancel', end);
       document.body.classList.remove('is-col-resizing');
-      const px = widthAt(ev.clientX);
       setColDrag(null);
+      if (colResizeCleanupRef.current === cleanup) colResizeCleanupRef.current = null;
+    };
+    const end = (ev: PointerEvent) => {
+      cleanup();
+      if (ev.type === 'pointercancel') return;
+      const px = widthAt(ev.clientX);
       if (px !== colWidths?.[key] && !(px === Math.round(from) && !colWidths?.[key])) {
         onViewChange({ colWidths: { ...(colWidths ?? {}), [key]: px } });
       }
     };
+    colResizeCleanupRef.current = cleanup;
     document.addEventListener('pointermove', move);
     document.addEventListener('pointerup', end);
     document.addEventListener('pointercancel', end);
@@ -4548,6 +4607,24 @@ function TimelineView({
   const prevOverRef = useRef<string | null>(null);
   // Arrow whose ✕ (unlink) button is showing, else null.
   const [hoverArrow, setHoverArrow] = useState<string | null>(null);
+  const hoverArrowTimer = useRef<number | null>(null);
+  const enterArrow = (key: string) => {
+    if (hoverArrowTimer.current) {
+      window.clearTimeout(hoverArrowTimer.current);
+      hoverArrowTimer.current = null;
+    }
+    setHoverArrow(key);
+  };
+  const leaveArrow = (key: string) => {
+    if (hoverArrowTimer.current) window.clearTimeout(hoverArrowTimer.current);
+    hoverArrowTimer.current = window.setTimeout(() => {
+      setHoverArrow((h) => (h === key ? null : h));
+      hoverArrowTimer.current = null;
+    }, 80);
+  };
+  useEffect(() => () => {
+    if (hoverArrowTimer.current) window.clearTimeout(hoverArrowTimer.current);
+  }, []);
   // Lasso line endpoints in client pixels while linking, else null.
   const [linkLine, setLinkLine] = useState<{ x: number; y: number; x2: number; y2: number } | null>(null);
   // Pixel width of the arrow overlay (the track area). Arrows are drawn in
@@ -4578,7 +4655,13 @@ function TimelineView({
     linkOverRef.current = null;
   };
   useEffect(() => {
-    if (!linkFrom && !depPop) return;
+    if (!depPop) setDepMoreOpen(false);
+  }, [depPop]);
+  useEffect(() => {
+    if (!conflictsOpen) setConflictMenuKey(null);
+  }, [conflictsOpen]);
+  useEffect(() => {
+    if (!linkFrom && !depPop && !conflictsOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       linkActiveRef.current = null;
@@ -4586,10 +4669,13 @@ function TimelineView({
       setLinkFrom(null);
       setLinkLine(null);
       setDepPop(null);
+      setDepMoreOpen(false);
+      setConflictsOpen(false);
+      setConflictMenuKey(null);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [linkFrom, depPop]);
+  }, [linkFrom, depPop, conflictsOpen]);
   // Edge-resize drag: which row, which edge, which day it is over right now.
   // Persisted on pointer-up only; until then the bar is drawn from this.
   const [drag, setDrag] = useState<{ id: string; edge: 'start' | 'end' | 'move'; day: number } | null>(null);
@@ -4643,11 +4729,18 @@ function TimelineView({
   const liveItems = items.map(liveFor);
   const byId = new Map(liveItems.map((i) => [i.row.id, i]));
   const knownIds = new Set(byId.keys());
-  // Tasks this row blocks (outgoing edges).
+  // Tasks this row blocks (outgoing edges, filtered to known scheduled items for rendering/graph).
   const depIdsOf = (rowId: string): string[] => {
     const it = byId.get(rowId);
     if (!it) return [];
     return depListOf(it.row.props, effDep, rowId, knownIds);
+  };
+  // Full unfiltered outgoing relation list from the raw row, used for mutations
+  // so links to unscheduled, filtered-out, or >500th rows are never dropped.
+  const rawDepIdsOf = (rowId: string): string[] => {
+    if (!effDep) return [];
+    const rawRow = byId.get(rowId)?.row ?? rows.find((r) => r.id === rowId);
+    return rawRow ? idList(rawRow.props[effDep]) : [];
   };
   const nodes: DepNode[] = liveItems.map((i) => ({
     id: i.row.id,
@@ -4678,6 +4771,21 @@ function TimelineView({
   // Where a row lands when it is pushed out of its blockers' way: the day after
   // the last blocker, or the Monday after it when the view skips weekends.
   const shiftDay = (day: number) => (skipWeekends ? nextWorkday(day) : day);
+  const shiftItemDates = (it: Item, newStart: number) => {
+    const dur = it.end - it.start;
+    const rowHasEnd = !!(endProp && typeof it.row.props[endProp] === 'string' && it.row.props[endProp]);
+    const rowHasStart = typeof it.row.props[startProp] === 'string' && !!it.row.props[startProp];
+    if (!rowHasStart && rowHasEnd) {
+      void onSetDates(it.row.id, {
+        [endProp]: isoDayKeepTime(it.row, endProp, newStart + dur),
+      });
+      return;
+    }
+    void onSetDates(it.row.id, {
+      [startProp]: isoDayKeepTime(it.row, startProp, newStart),
+      ...(rowHasEnd ? { [endProp]: isoDayKeepTime(it.row, endProp, newStart + dur) } : {}),
+    });
+  };
   const shiftAfterBlockers = (rowId: string) => {
     const self = byId.get(rowId);
     if (!self) return;
@@ -4687,12 +4795,7 @@ function TimelineView({
     const predNodes = preds.map((p) => nodeById.get(p.row.id)!).filter(Boolean);
     const target = shiftTarget(node, predNodes);
     if (target === null) return;
-    const after = shiftDay(target);
-    const dur = self.end - self.start;
-    void onSetDates(rowId, {
-      [startProp]: isoDay(after),
-      ...(endProp ? { [endProp]: isoDay(after + dur) } : {}),
-    });
+    shiftItemDates(self, shiftDay(target));
   };
 
   const shiftBlockerEarlier = (predId: string, selfId: string) => {
@@ -4702,10 +4805,7 @@ function TimelineView({
     const dur = pred.end - pred.start;
     const targetEnd = skipWeekends ? prevWorkday(self.start - 1) : self.start - 1;
     const targetStart = targetEnd - dur;
-    void onSetDates(predId, {
-      [startProp]: isoDay(targetStart),
-      ...(endProp ? { [endProp]: isoDay(targetEnd) } : {}),
-    });
+    shiftItemDates(pred, targetStart);
   };
 
   const shiftWithChain = (rowId: string) => {
@@ -4721,33 +4821,26 @@ function TimelineView({
     const delta = after - self.start;
     if (delta <= 0) return;
 
-    const chain = new Set<string>();
+    const chain: string[] = [];
+    const visited = new Set<string>([rowId]);
     const queue = [rowId];
     while (queue.length) {
       const cur = queue.shift()!;
       for (const next of depIdsOf(cur)) {
-        if (!chain.has(next)) {
-          chain.add(next);
+        if (!visited.has(next)) {
+          visited.add(next);
+          chain.push(next);
           queue.push(next);
         }
       }
     }
 
-    const dur = self.end - self.start;
-    void onSetDates(rowId, {
-      [startProp]: isoDay(after),
-      ...(endProp ? { [endProp]: isoDay(after + dur) } : {}),
-    });
+    shiftItemDates(self, after);
 
     for (const succId of chain) {
       const it = byId.get(succId);
       if (!it) continue;
-      const itDur = it.end - it.start;
-      const newStart = it.start + delta;
-      void onSetDates(succId, {
-        [startProp]: isoDay(newStart),
-        ...(endProp ? { [endProp]: isoDay(newStart + itDur) } : {}),
-      });
+      shiftItemDates(it, shiftDay(it.start + delta));
     }
   };
 
@@ -5182,7 +5275,7 @@ function TimelineView({
       const target = overAt(lastX, lastY) ?? linkOverRef.current;
       done();
       if (target && !wouldCycle(id, target)) {
-        const cur = depIdsOf(id);
+        const cur = rawDepIdsOf(id);
         if (!cur.includes(target)) void onSetDep(id, effDep, [...cur, target]);
       }
     };
@@ -5194,7 +5287,7 @@ function TimelineView({
   // Drop one outgoing edge: `rowId` no longer blocks `succId`.
   const unlink = (rowId: string, succId: string) => {
     if (!effDep) return;
-    void onSetDep(rowId, effDep, depIdsOf(rowId).filter((id) => id !== succId));
+    void onSetDep(rowId, effDep, rawDepIdsOf(rowId).filter((id) => id !== succId));
   };
 
   // Month header segments across the visible range, in percent of the grid.
@@ -5360,8 +5453,8 @@ function TimelineView({
   const dateProps = schema.filter((p) => p.type === 'date');
   // Dependency arrows: predecessor's end to successor's start. Each arrow gets
   // its own small SVG box from x1 to x2 so no global measuring is needed —
-  // x is in track percent, y in row pixels (ROW_H per row, bar center at 20).
-  const ROW_H = 40;
+  // x is in track percent, y in row pixels (ROW_H per row, bar center at ROW_H / 2).
+  const ROW_H = isNarrow900 ? 46 : 40;
   type Arrow = {
     key: string;
     from: number;
@@ -5442,6 +5535,7 @@ function TimelineView({
         const si = renderIndex.get(sid);
         if (!succ || si === undefined) continue;
         const sr = rendered[si];
+        if (r.offscreen && sr.offscreen) continue;
         const pf = r.fx ?? fracGeom(it);
         const sf = sr.fx ?? fracGeom(succ);
         if (!pf || !sf) continue;
@@ -5713,7 +5807,13 @@ function TimelineView({
             className="tl-header"
             style={{
               '--tl-sticky-left': `${labelW}px`,
-              '--tl-month-left': `${labelW + (hideLabels ? 32 : 0)}px`,
+              '--tl-month-left': `${
+                hideLabels
+                  ? (onToggleLabels ? 32 : 0)
+                  : isNarrow700
+                    ? Math.min(widthOf(TITLE_COL), Math.max(0, viewportW - 140))
+                    : labelW
+              }px`,
             } as React.CSSProperties}
           >
             <div className="tl-corner" style={{ width: labelW }}>
@@ -6105,96 +6205,102 @@ function TimelineView({
                 just before the bar. A fat invisible twin of each path takes
                 clicks and opens the successor's popover. Bad (overlapping)
                 arrows are red. */}
-            {effDep && (
-              <div className="tl-arrows" ref={arrowsRefCb} style={{ left: labelW }}>
-                <svg
-                  width={trackW}
-                  height={rendered.length * ROW_H}
-                  style={{ display: 'block', overflow: 'visible' }}
-                >
-                  {arrows.length > 0 &&
-                    trackW > 0 &&
-                    arrows.map((a) => {
-                    const offW = Math.min(136, Math.max(90, Math.floor(trackW * 0.35)));
-                    const pastEdge = 6 + offW;
-                    const futureEdge = trackW - 6 - offW;
-
-                    let x1 = a.x1 * trackW;
-                    // The head stops just before the bar instead of climbing it.
-                    let x2 = a.x2 * trackW - 5;
-                    if (a.fromOffscreen === 'past') {
-                      x1 = pastEdge;
-                    } else if (a.fromOffscreen === 'future') {
-                      x1 = futureEdge;
-                    }
-                    if (a.toOffscreen === 'future') {
-                      x2 = futureEdge - 2;
-                    } else if (a.toOffscreen === 'past') {
-                      x2 = pastEdge + 2;
-                    }
-                    const y1 = a.from * ROW_H + 20;
-                    const y2 = a.to * ROW_H + 20;
-                    const d = arrowPathD(x1, y1, x2, y2);
-                    const isConn = hovered ? a.pred === hovered || a.succ === hovered : false;
-                    const isDim = hovered ? !isConn : false;
-                    const gCls = [
-                      a.bad ? 'is-bad' : '',
-                      isConn ? 'is-active' : '',
-                      isDim ? 'is-dimmed' : '',
-                    ].filter(Boolean).join(' ');
-                    return (
-                      <g key={a.key} className={gCls || undefined}>
-                        <path d={d} className="tl-dep-path" />
-                        <polyline points={arrowHeadPoints(x2, y2)} className="tl-dep-head" />
-                        <path
-                          d={d}
-                          className="tl-dep-hit"
-                          onMouseEnter={() => setHoverArrow(a.key)}
-                          onMouseLeave={() => setHoverArrow((h) => (h === a.key ? null : h))}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDepPop({ id: a.succ, x: e.clientX, y: e.clientY + 4 });
-                            setAddBlockerFor(null);
-                          }}
-                        />
-                      </g>
-                    );
-                    })}
-                </svg>
-                {arrows.length > 0 &&
-                  trackW > 0 &&
-                  arrows.map((a) => {
-                    if (hoverArrow !== a.key) return null;
-                    const offW = Math.min(136, Math.max(90, Math.floor(trackW * 0.35)));
-                    const pastEdge = 6 + offW;
-                    const futureEdge = trackW - 6 - offW;
-
-                    let x2 = a.x2 * trackW - 5;
-                    if (a.toOffscreen === 'future') {
-                      x2 = futureEdge - 2;
-                    } else if (a.toOffscreen === 'past') {
-                      x2 = pastEdge + 2;
-                    }
-                    const y2 = a.to * ROW_H + 20;
-                    return (
-                      <button
-                        key={'x-' + a.key}
-                        className="tl-arrow-x"
-                        style={{ left: `${x2 - 12}px`, top: `${y2}px` }}
-                        title={t('Remove link')}
-                        onMouseEnter={() => setHoverArrow(a.key)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setHoverArrow(null);
-                          unlink(a.pred, a.succ);
-                        }}
-                      >
-                        ✕
-                      </button>
-                    );
-                  })}
-              </div>
-            )}
+            {effDep && (() => {
+              const offW = Math.min(136, Math.max(90, Math.floor(trackW * 0.35)));
+              const pastEdge = 6 + offW;
+              const futureEdge = trackW - 6 - offW;
+              const rowMid = ROW_H / 2;
+              const arrowEndpoints = (a: Arrow) => {
+                let x1 = a.x1 * trackW;
+                let exitDir: 1 | -1 = 1;
+                if (a.fromOffscreen === 'past') {
+                  x1 = pastEdge;
+                  exitDir = 1;
+                } else if (a.fromOffscreen === 'future') {
+                  x1 = futureEdge;
+                  exitDir = -1;
+                }
+                // The head stops just before the bar instead of climbing it.
+                let x2 = a.x2 * trackW - 5;
+                let enterDir: 1 | -1 = 1;
+                if (a.toOffscreen === 'future') {
+                  x2 = futureEdge - 5;
+                  enterDir = 1;
+                } else if (a.toOffscreen === 'past') {
+                  x2 = pastEdge + 5;
+                  enterDir = -1;
+                }
+                return { x1, x2, exitDir, enterDir };
+              };
+              const hoveredArrow = hoverArrow && trackW > 0 ? arrows.find((a) => a.key === hoverArrow) : undefined;
+              const hoveredBtn = hoveredArrow ? (() => {
+                const { x2, enterDir } = arrowEndpoints(hoveredArrow);
+                const xBtn = enterDir === -1 ? x2 + 12 : x2 - 12;
+                const y2 = hoveredArrow.to * ROW_H + rowMid;
+                return (
+                  <button
+                    key={'x-' + hoveredArrow.key}
+                    className="tl-arrow-x"
+                    style={{ left: `${labelW + xBtn}px`, top: `${y2}px` }}
+                    title={t('Remove link')}
+                    onMouseEnter={() => enterArrow(hoveredArrow.key)}
+                    onMouseLeave={() => leaveArrow(hoveredArrow.key)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setHoverArrow(null);
+                      unlink(hoveredArrow.pred, hoveredArrow.succ);
+                    }}
+                  >
+                    ✕
+                  </button>
+                );
+              })() : null;
+              return (
+                <>
+                  <div className="tl-arrows" ref={arrowsRefCb} style={{ left: labelW }}>
+                    <svg
+                      width={trackW}
+                      height={rendered.length * ROW_H}
+                      style={{ display: 'block', overflow: 'visible' }}
+                    >
+                      {arrows.length > 0 &&
+                        trackW > 0 &&
+                        arrows.map((a) => {
+                          const { x1, x2, exitDir, enterDir } = arrowEndpoints(a);
+                          const y1 = a.from * ROW_H + rowMid;
+                          const y2 = a.to * ROW_H + rowMid;
+                          const d = arrowPathD(x1, y1, x2, y2, exitDir, enterDir);
+                          const isConn = hovered ? a.pred === hovered || a.succ === hovered : false;
+                          const isDim = hovered ? !isConn : false;
+                          const gCls = [
+                            a.bad ? 'is-bad' : '',
+                            isConn ? 'is-active' : '',
+                            isDim ? 'is-dimmed' : '',
+                          ].filter(Boolean).join(' ');
+                          return (
+                            <g key={a.key} className={gCls || undefined}>
+                              <path d={d} className="tl-dep-path" />
+                              <polyline points={arrowHeadPoints(x2, y2, enterDir)} className="tl-dep-head" />
+                              <path
+                                d={d}
+                                className="tl-dep-hit"
+                                onMouseEnter={() => enterArrow(a.key)}
+                                onMouseLeave={() => leaveArrow(a.key)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDepPop({ id: a.succ, x: e.clientX, y: e.clientY + 4 });
+                                  setAddBlockerFor(null);
+                                }}
+                              />
+                            </g>
+                          );
+                        })}
+                    </svg>
+                  </div>
+                  {hoveredBtn}
+                </>
+              );
+            })()}
             {!hideLabels && (
               <div className="tl-row">
                 <div className="tl-row-table" style={{ width: labelW }}>
@@ -6242,7 +6348,13 @@ function TimelineView({
       )}
       {depPop && depPopItem && (
         <Portal>
-          <div className="fs-backdrop" onClick={() => setDepPop(null)} />
+          <div
+            className="fs-backdrop"
+            onClick={() => {
+              setDepPop(null);
+              setDepMoreOpen(false);
+            }}
+          />
           <div
             className="menu tl-dep-menu"
             style={{
@@ -6287,7 +6399,7 @@ function TimelineView({
                     className="btn-sm"
                     title={t('Remove block')}
                     onClick={() => {
-                      void onSetDep(pid, effDep, depIdsOf(pid).filter((id) => id !== depPop.id));
+                      void onSetDep(pid, effDep, rawDepIdsOf(pid).filter((id) => id !== depPop.id));
                       setDepPop(null);
                     }}
                   >
@@ -6452,7 +6564,7 @@ function TimelineView({
                   const target = e.target.value;
                   setAddBlockerFor(null);
                   if (target && !wouldCycle(depPop.id, target)) {
-                    const cur = depIdsOf(depPop.id);
+                    const cur = rawDepIdsOf(depPop.id);
                     if (!cur.includes(target)) void onSetDep(depPop.id, effDep, [...cur, target]);
                   } else if (target) {
                     toast.warning(t('That would create a loop'));
@@ -6931,7 +7043,7 @@ function CalendarView({
               formatMonth(second.getFullYear(), second.getMonth(), 'long')
             : formatMonth(cursor.getFullYear(), cursor.getMonth(), 'long');
   const eventButton = (r: Row, d: Date | null) => (
-    <PageHoverCard key={r.id} page={rowToPageMeta(r, pages)} side="bottom" tagColors={tagColors}>
+    <PageHoverCard key={r.id} page={rowToPageMeta(r, pages)} side="bottom" tagColors={tagColors} disabled={Boolean(ghost)}>
       <button
         className="calendar-event"
         onPointerDown={(e) => beginEntryDrag(e, r.id)}
@@ -6982,7 +7094,7 @@ function CalendarView({
         endsHere = rowKeys.length === 0 || s.to <= rowKeys[rowKeys.length - 1];
       }
       return (
-        <PageHoverCard key={'sp' + s.row.id} page={rowToPageMeta(s.row, pages)} side="bottom" tagColors={tagColors}>
+        <PageHoverCard key={'sp' + s.row.id} page={rowToPageMeta(s.row, pages)} side="bottom" tagColors={tagColors} disabled={Boolean(ghost)}>
           <button
             className={
               'cal-span' +

@@ -1097,10 +1097,16 @@ button {
   line-height: 1.2;
 }
 
+.crumb.crumb-ws-badge > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .crumb.crumb-ws-badge:hover {
   background: var(--active);
   color: var(--fg);
-  border-color: var(--border-hover, var(--border));
+  border-color: var(--border-strong, var(--border));
 }
 
 .crumb-sep {
@@ -4724,18 +4730,6 @@ button.relation-chip:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .tl-corner,
-  .tl-row-table {
-    position: relative;
-    left: auto;
-  }
-  .tl-col-th.tl-title-th,
-  .tl-cell.tl-title-cell {
-    position: sticky;
-    left: 0;
-    z-index: 3;
-    background: var(--bg);
   }
 }
 
@@ -9630,6 +9624,11 @@ a.btn {
   max-width: 100%;
   overflow: hidden;
 }
+.tl-prop-cell .relation-value,
+.tl-prop-cell .prop-checklist-toggle {
+  min-width: 0;
+  max-width: 100%;
+}
 .tl-label {
   position: sticky;
   left: 0;
@@ -9651,6 +9650,20 @@ a.btn {
   border-right: 1px solid var(--border);
   cursor: pointer;
   box-sizing: border-box;
+}
+@media (max-width: 700px) {
+  .tl-corner,
+  .tl-row-table {
+    position: relative;
+    left: auto;
+  }
+  .tl-col-th.tl-title-th,
+  .tl-cell.tl-title-cell {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    background: var(--bg);
+  }
 }
 /* Hovering a bar lights up its title in the label column, and hovering the
    label lights up the bar: short bars carry no readable text, so the label is
@@ -10000,7 +10013,7 @@ g.is-active > .tl-dep-head {
   transform: translate(-50%, -50%);
   cursor: pointer;
   pointer-events: auto;
-  z-index: 2;
+  z-index: 3;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   padding: 0;
 }
@@ -10075,8 +10088,12 @@ g.is-active > .tl-dep-head {
 .tl-conflict-sub-menu {
   z-index: 330;
   min-width: 240px;
-  max-width: 280px;
-  white-space: nowrap;
+  max-width: min(320px, calc(100vw - 16px));
+}
+.tl-conflict-sub-menu .menu-item {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 .tl-conflict-sub-menu .tl-menu-hint {
   white-space: normal;

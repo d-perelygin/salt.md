@@ -114,19 +114,27 @@ export interface ArrowGeom {
  *  horizontal and a short stub into the target. Tangents stay horizontal at
  *  both ends however narrow the gap, so tight links bend hard and wide links
  *  run straight like Notion's. The head is a separate chevron polyline so it
- *  never distorts. Entry always runs left-to-right, even when the target
- *  sits left of the blocker's end. */
-export function arrowPathD(x1: number, y1: number, x2e: number, y2: number): string {
+ *  never distorts. `exitDir` / `enterDir` allow offscreen future/past pills
+ *  to connect cleanly on their timeline-facing edges. */
+export function arrowPathD(
+  x1: number,
+  y1: number,
+  x2e: number,
+  y2: number,
+  exitDir: 1 | -1 = 1,
+  enterDir: 1 | -1 = 1,
+): string {
   const stub = 7;
-  const p0x = x1 + stub;
-  const p3x = x2e - stub;
+  const p0x = x1 + exitDir * stub;
+  const p3x = x2e - enterDir * stub;
   // Wide, Notion-like bends: the turn zone grows with the gap.
   const k = Math.min(60, Math.max(16, Math.abs(p3x - p0x) * 0.45));
   const f = (n: number) => Math.round(n * 100) / 100;
-  return `M ${f(x1)} ${f(y1)} L ${f(p0x)} ${f(y1)} C ${f(p0x + k)} ${f(y1)}, ${f(p3x - k)} ${f(y2)}, ${f(p3x)} ${f(y2)} L ${f(x2e)} ${f(y2)}`;
+  return `M ${f(x1)} ${f(y1)} L ${f(p0x)} ${f(y1)} C ${f(p0x + exitDir * k)} ${f(y1)}, ${f(p3x - enterDir * k)} ${f(y2)}, ${f(p3x)} ${f(y2)} L ${f(x2e)} ${f(y2)}`;
 }
 
-/** Chevron head for an arrow entering at (x2, y2) left-to-right. */
-export function arrowHeadPoints(x2: number, y2: number): string {
-  return `${x2 - 5},${y2 - 6} ${x2 + 1},${y2} ${x2 - 5},${y2 + 6}`;
+/** Chevron head for an arrow entering at (x2, y2). `enterDir` is 1 for
+ *  left-to-right (`>`) and -1 for right-to-left (`<`). */
+export function arrowHeadPoints(x2: number, y2: number, enterDir: 1 | -1 = 1): string {
+  return `${x2 - 5 * enterDir},${y2 - 6} ${x2 + enterDir},${y2} ${x2 - 5 * enterDir},${y2 + 6}`;
 }
