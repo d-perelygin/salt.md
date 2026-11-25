@@ -35,4 +35,26 @@ await withFixture(async ({ page }) => {
   // Snapping comes back afterwards; the card is still one card and still here.
   await eventually(async () => (await page.locator('.board-card', { hasText: 'First row' }).count()) === 1);
   assert.equal(await board.evaluate((el) => el.style.scrollSnapType), '', 'the snap override is cleared');
+
+  // Holding a card is a drag, not a text selection. On a phone a long press
+  // used to start selecting the title, and a selection cancels the pointer
+  // sequence the drag runs on — the browser's menu appeared and the card
+  // stayed put. The card's label is unselectable, and a touch menu on it is
+  // cancelled while a menu elsewhere is left alone.
+  assert.equal(
+    await card.evaluate((el) => getComputedStyle(el).userSelect),
+    'none',
+    'a card title is not selectable',
+  );
+  const touchMenu = await card.evaluate((el) => {
+    el.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+    return el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  });
+  assert.equal(touchMenu, false, 'a touch context menu on a card is cancelled');
+  const neutralMenu = await page.evaluate(() => {
+    const col = document.querySelector('.board-col-head');
+    col.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+    return col.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  });
+  assert.equal(neutralMenu, true, 'a touch menu outside a drag surface is left alone');
 });

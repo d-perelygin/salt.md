@@ -1431,6 +1431,28 @@ body.tabs-dragging .tabs-sheet-card {
   }
 }
 
+/* --- holding is a drag, not a selection ----------------------------------- */
+
+@media (max-width: 768px) {
+  /* These are all moved by holding them. A long press on the label used to
+     start a text selection instead — and the selection cancels the pointer
+     sequence the drag runs on, so the browser's callout appeared and the card
+     stayed put. Their text is a label on a thing you move, not copy. */
+  .board-card,
+  .calendar-event,
+  .cal-span,
+  .tl-bar,
+  .unsched-card,
+  .tabs-sheet-card,
+  .tab,
+  .tree-item,
+  [draggable='true'] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
 /* --- handles are a phone thing -------------------------------------------- */
 
 /* The page menus, the AI panel, the peek and the structure panel are
