@@ -1527,7 +1527,14 @@ export default function App() {
   }, [pages, currentId, navigate]);
 
   const createPage = useCallback(
-    async (parentId: string | null, type: 'doc' | 'collection' = 'doc') => {
+    async (
+      parentId: string | null,
+      type: 'doc' | 'collection' = 'doc',
+      // `newTab` is for the place where a new page is asked for FROM the list of
+      // open documents: asking there means "and show me it", not "and replace
+      // what I am looking at". Everywhere else a create is a navigation.
+      opts: { newTab?: boolean } = {},
+    ) => {
       // Shortcuts are global: without this an Alt+N on the sign-in screen
       // would journal a temp page nobody can open yet.
       if (!me?.authenticated) {
@@ -1583,7 +1590,8 @@ export default function App() {
         void flushOutbox();
       }
       setPages((prev) => (prev ? [...prev, p] : [p]));
-      navigate(p.id);
+      if (opts.newTab) openInNewTab(p.id);
+      else navigate(p.id);
       // Land in the title: a new page is created to be named, and from ⌥N there
       // was no pointer involved to leave anywhere useful. Across frames rather
       // than immediately — the editor mounts on a later render (see focusKey).
@@ -1601,7 +1609,7 @@ export default function App() {
       // immediately against the wrong page's title and never waits for `p`'s.
       focusKey('content', 'title', 180, (root) => root.dataset.pageId === p.id);
     },
-    [navigate, currentWs, me?.authenticated],
+    [navigate, openInNewTab, currentWs, me?.authenticated],
   );
   createPageRef.current = createPage;
 
@@ -2423,7 +2431,9 @@ export default function App() {
         }}
         onCreate={() => {
           setTabsSheetOpen(false);
-          void createPage(null);
+          // A page asked for from the tabs sheet opens as its own tab, the way
+          // "+" does in every other tab switcher.
+          void createPage(null, 'doc', { newTab: true });
         }}
         onCloseUnused={() => {
           closeAgedTabs();

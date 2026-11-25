@@ -69,6 +69,21 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   await eventually(async () => p.url().includes(docA.id));
   await p.locator('.tabs-sheet-dismiss').click();
 
+  // --- "New page" in the sheet opens a tab, does not replace one -----------
+  // Reported from use: asking for a new page FROM the list of open documents
+  // means "and show me it", not "and throw away what I am reading".
+  await slots.nth(1).click();
+  await eventually(async () => (await p.locator('.tabs-sheet-card').count()) > 0);
+  const before = await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count();
+  await p.locator('.tabs-sheet-new').click();
+  await eventually(async () => (await p.locator('.tabs-sheet').count()) === 0);
+  await eventually(async () => !p.url().includes(docA.id));
+  await slots.nth(1).click();
+  await eventually(
+    async () => (await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count()) === before + 1,
+  );
+  await p.locator('.tabs-sheet-dismiss').click();
+
   // --- search fills the screen ---------------------------------------------
   await slots.nth(2).click();
   await eventually(async () => (await p.locator('.search-modal').count()) === 1);
