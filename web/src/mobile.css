@@ -471,11 +471,18 @@
     font-size: 12px;
   }
 
-  /* The count on the tabs slot: information, not an alarm. The accent is the
-     app's one colour for "this needs you" and two open documents do not. */
+  /* The count on the tabs slot: information, not an alarm, and not a grey
+     disc either — a filled badge at 10px reads as a notification somebody
+     wants attention for. It is a number, muted, with a halo of the dock's own
+     colour so it stays legible over the icon's strokes. */
   .dock-count {
-    background: var(--muted);
-    color: var(--bg);
+    background: none;
+    color: var(--muted);
+    padding: 0;
+    min-width: 0;
+    font-size: 10px;
+    line-height: 12px;
+    text-shadow: 0 0 3px var(--bg), 0 0 3px var(--bg), 0 0 2px var(--bg);
   }
 
   /* A result's tab menu becomes a sheet like every other menu on a phone. A
