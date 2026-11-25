@@ -24,7 +24,7 @@ export default function ShareDialog({
   onDismiss?: () => void;
 }) {
   const tabs: { id: ShareTab; label: string }[] = [
-    { id: 'share', label: t('Share') },
+    { id: 'share', label: t('Access') },
     { id: 'publish', label: t('Publish') },
   ];
   const listRef = useRef<HTMLDivElement>(null);
