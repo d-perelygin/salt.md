@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 )
 
@@ -98,9 +99,12 @@ func plainInline(raw json.RawMessage) string {
 	}
 	var b strings.Builder
 	for _, it := range items {
-		if it.Type == "link" {
+		switch it.Type {
+		case "link":
 			b.WriteString(plainInline(it.Content))
-		} else {
+		case "pageLink":
+			b.WriteString(strProp(it.Props, "label", "Untitled"))
+		default:
 			b.WriteString(it.Text)
 		}
 	}
@@ -108,7 +112,7 @@ func plainInline(raw json.RawMessage) string {
 }
 
 func isListType(t string) bool {
-	return t == "bulletListItem" || t == "numberedListItem" || t == "checkListItem"
+	return t == "bulletListItem" || t == "numberedListItem" || t == "checkListItem" || t == "toggleListItem"
 }
 
 func blocksToMarkdown(content []byte) string {
@@ -170,7 +174,7 @@ func renderBlocks(b *strings.Builder, blocks []mdBlock, depth int) {
 			// Generated client-side from headings; nothing meaningful to export.
 		case "subpages":
 			// Generated client-side from the page tree; nothing to export.
-		case "columnList", "column":
+		case "columnList", "columns", "column":
 			// Layout containers: flatten children at the SAME depth (an indent
 			// would misread as nesting). Children handled below via the generic
 			// recursion, so nothing to emit here — but skip the extra indent by
@@ -292,13 +296,20 @@ func pageMarkdown(p *page) string {
 	return h + title + "\n\n" + blocksToMarkdown(p.Content)
 }
 
+func isEmojiIcon(icon string) bool {
+	return icon != "" &&
+		!strings.HasPrefix(icon, "lucide:") &&
+		!strings.HasPrefix(icon, "mdi:") &&
+		!strings.HasPrefix(icon, "/")
+}
+
 func pagePlainText(p *page) string {
 	title := p.Title
 	if title == "" {
 		title = "Untitled"
 	}
 	prefix := ""
-	if p.Icon != "" {
+	if isEmojiIcon(p.Icon) {
 		prefix = p.Icon + " "
 	}
 	return prefix + title + "\n\n" + blocksToPlainText(p.Content)
@@ -315,7 +326,18 @@ func blocksToPlainText(content []byte) string {
 }
 
 func renderPlainBlocks(b *strings.Builder, blocks []mdBlock, depth int) {
-	indent := strings.Repeat("  ", depth)
+	renderPlainBlocksAt(b, blocks, depth, depth)
+}
+
+func renderPlainBlocksAt(b *strings.Builder, blocks []mdBlock, depth, indentLevel int) {
+	if depth > 64 {
+		return
+	}
+	indentDepth := indentLevel
+	if indentDepth > 32 {
+		indentDepth = 32
+	}
+	indent := strings.Repeat("  ", indentDepth)
 	num := 0
 	for i, blk := range blocks {
 		if blk.Type == "numberedListItem" {
@@ -350,8 +372,8 @@ func renderPlainBlocks(b *strings.Builder, blocks []mdBlock, depth int) {
 			if raw := strProp(blk.Props, "url", ""); raw != "" {
 				b.WriteString(indent + raw + "\n\n")
 			}
-		case "columnList", "column":
-			renderPlainBlocks(b, blk.Children, depth)
+		case "columnList", "columns", "column":
+			renderPlainBlocksAt(b, blk.Children, depth+1, indentLevel)
 			blk.Children = nil
 		case "quote":
 			b.WriteString(indent + plainInline(blk.Content) + "\n\n")
@@ -371,13 +393,15 @@ func renderPlainBlocks(b *strings.Builder, blocks []mdBlock, depth int) {
 			}
 		}
 		if len(blk.Children) > 0 {
-			renderPlainBlocks(b, blk.Children, depth+1)
+			renderPlainBlocksAt(b, blk.Children, depth+1, indentLevel+1)
 		}
 		if isListType(blk.Type) && (i == len(blocks)-1 || !isListType(blocks[i+1].Type)) {
 			b.WriteString("\n")
 		}
 	}
 }
+
+var tsvSanitizer = strings.NewReplacer("\t", " ", "\r\n", " ", "\r", " ", "\n", " ")
 
 func renderPlainTable(b *strings.Builder, raw json.RawMessage, indent string) {
 	var tc struct {
@@ -403,7 +427,7 @@ func renderPlainTable(b *strings.Builder, raw json.RawMessage, indent string) {
 			if ci > 0 {
 				b.WriteString("\t")
 			}
-			b.WriteString(renderCell(c))
+			b.WriteString(tsvSanitizer.Replace(renderCell(c)))
 		}
 		b.WriteString("\n")
 	}
@@ -421,6 +445,50 @@ func safeFilename(name string) string {
 		name = string(r[:80])
 	}
 	return name
+}
+
+func formatCollectionPropCell(propID string, val any, optionName map[string]string) string {
+	switch v := val.(type) {
+	case string:
+		if n, ok := optionName[propID+"/"+v]; ok {
+			return n
+		}
+		return v
+	case bool:
+		if v {
+			return "✓"
+		}
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case []any:
+		var parts []string
+		for _, item := range v {
+			switch it := item.(type) {
+			case string:
+				if n, ok := optionName[propID+"/"+it]; ok {
+					parts = append(parts, n)
+				} else {
+					parts = append(parts, it)
+				}
+			case map[string]any:
+				text, _ := it["text"].(string)
+				done, _ := it["done"].(bool)
+				if text != "" || done {
+					mark := "[ ]"
+					if done {
+						mark = "[x]"
+					}
+					if text != "" {
+						parts = append(parts, mark+" "+text)
+					} else {
+						parts = append(parts, mark)
+					}
+				}
+			}
+		}
+		return strings.Join(parts, ", ")
+	}
+	return ""
 }
 
 // collectionMarkdown renders a database page as a Markdown table of the rows
@@ -482,33 +550,7 @@ func (s *Server) collectionMarkdown(p *page, userID string) (string, error) {
 		json.Unmarshal([]byte(propsJSON), &props)
 		b.WriteString("| " + strings.ReplaceAll(rowTitle, "|", "\\|") + " |")
 		for _, prop := range schema {
-			cell := ""
-			switch v := props[prop.ID].(type) {
-			case string:
-				if n, ok := optionName[prop.ID+"/"+v]; ok {
-					cell = n
-				} else {
-					cell = v
-				}
-			case bool:
-				if v {
-					cell = "✓"
-				}
-			case float64:
-				cell = strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.4f", v), "0000"), ".")
-			case []any:
-				var parts []string
-				for _, item := range v {
-					if str, ok := item.(string); ok {
-						if n, ok := optionName[prop.ID+"/"+str]; ok {
-							parts = append(parts, n)
-						} else {
-							parts = append(parts, str)
-						}
-					}
-				}
-				cell = strings.Join(parts, ", ")
-			}
+			cell := formatCollectionPropCell(prop.ID, props[prop.ID], optionName)
 			b.WriteString(" " + strings.ReplaceAll(cell, "|", "\\|") + " |")
 		}
 		b.WriteString("\n")
@@ -546,7 +588,7 @@ func (s *Server) collectionPlainText(p *page, userID string) (string, error) {
 	var b strings.Builder
 	b.WriteString(title + "\n\nTitle")
 	for _, prop := range schema {
-		b.WriteString("\t" + prop.Name)
+		b.WriteString("\t" + tsvSanitizer.Replace(prop.Name))
 	}
 	b.WriteString("\n")
 
@@ -567,36 +609,10 @@ func (s *Server) collectionPlainText(p *page, userID string) (string, error) {
 		}
 		var props map[string]any
 		json.Unmarshal([]byte(propsJSON), &props)
-		b.WriteString(rowTitle)
+		b.WriteString(tsvSanitizer.Replace(rowTitle))
 		for _, prop := range schema {
-			cell := ""
-			switch v := props[prop.ID].(type) {
-			case string:
-				if n, ok := optionName[prop.ID+"/"+v]; ok {
-					cell = n
-				} else {
-					cell = v
-				}
-			case bool:
-				if v {
-					cell = "✓"
-				}
-			case float64:
-				cell = strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.4f", v), "0000"), ".")
-			case []any:
-				var parts []string
-				for _, item := range v {
-					if str, ok := item.(string); ok {
-						if n, ok := optionName[prop.ID+"/"+str]; ok {
-							parts = append(parts, n)
-						} else {
-							parts = append(parts, str)
-						}
-					}
-				}
-				cell = strings.Join(parts, ", ")
-			}
-			b.WriteString("\t" + cell)
+			cell := formatCollectionPropCell(prop.ID, props[prop.ID], optionName)
+			b.WriteString("\t" + tsvSanitizer.Replace(cell))
 		}
 		b.WriteString("\n")
 	}

@@ -345,8 +345,18 @@ func TestCreatePageInheritsVisibility(t *testing.T) {
 	s := testServer(t)
 	ws, open, ids, cookies := accessFixture(t, s)
 	aliceCookie := cookies["alice-pa@example.test"]
+	bob := ids["bob-pa@example.test"]
+	bobCookie := cookies["bob-pa@example.test"]
+	carol := ids["carol-pa@example.test"]
+	carolCookie := cookies["carol-pa@example.test"]
 
-	// Create child under open page -> visibility: 'workspace'
+	// Non-admin member Eve to verify non-admin parent owners can read/write collaborator children.
+	eve, eveCookie := signedIn(t, s, "eve-pa@example.test")
+	if _, err := s.db.Exec(`INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, 'member')`, ws, eve); err != nil {
+		t.Fatalf("add eve: %v", err)
+	}
+
+	// Create child under open page -> visibility: 'workspace', no inheritedAccess
 	rec := requestAs(t, s, aliceCookie, "POST", "/api/pages", `{"parentId":"`+open+`","title":"Open Child"}`)
 	if rec.Code != 200 {
 		t.Fatalf("create open child: %d %s", rec.Code, rec.Body.String())
@@ -359,12 +369,23 @@ func TestCreatePageInheritsVisibility(t *testing.T) {
 	if openChild.Visibility != "workspace" {
 		t.Errorf("open child visibility = %s, want workspace", openChild.Visibility)
 	}
+	rec = requestAs(t, s, aliceCookie, "GET", "/api/pages/"+openChild.ID, "")
+	if rec.Code != 200 {
+		t.Fatalf("get open child: %d", rec.Code)
+	}
+	var gotOpen struct {
+		InheritedAccess *inheritedAccessInfo `json:"inheritedAccess"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &gotOpen)
+	if gotOpen.InheritedAccess != nil {
+		t.Errorf("open child inheritedAccess = %+v, want nil", gotOpen.InheritedAccess)
+	}
 
 	// Create private page
 	priv := s.makePage(t, ws, ids["alice-pa@example.test"], "", "Secret", "{}")
 	s.db.Exec(`UPDATE pages SET visibility = 'private' WHERE id = ?`, priv)
 
-	// Create child under private page -> visibility: 'private'
+	// Child & grandchild under private page stay 'workspace' in DB and inherit dynamically.
 	rec = requestAs(t, s, aliceCookie, "POST", "/api/pages", `{"parentId":"`+priv+`","title":"Private Child"}`)
 	if rec.Code != 200 {
 		t.Fatalf("create private child: %d %s", rec.Code, rec.Body.String())
@@ -374,11 +395,13 @@ func TestCreatePageInheritsVisibility(t *testing.T) {
 		Visibility string `json:"visibility"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &privChild)
-	if privChild.Visibility != "private" {
-		t.Errorf("private child visibility = %s, want private", privChild.Visibility)
+	if privChild.Visibility != "workspace" {
+		t.Errorf("private child visibility = %s, want workspace", privChild.Visibility)
+	}
+	if s.canRead(bob, privChild.ID) || s.canWrite(bob, privChild.ID) {
+		t.Errorf("ungranted member gained access to child under private parent")
 	}
 
-	// Create grandchild under private child -> visibility: 'private'
 	rec = requestAs(t, s, aliceCookie, "POST", "/api/pages", `{"parentId":"`+privChild.ID+`","title":"Private Grandchild"}`)
 	if rec.Code != 200 {
 		t.Fatalf("create private grandchild: %d %s", rec.Code, rec.Body.String())
@@ -388,16 +411,31 @@ func TestCreatePageInheritsVisibility(t *testing.T) {
 		Visibility string `json:"visibility"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &privGrandchild)
-	if privGrandchild.Visibility != "private" {
-		t.Errorf("private grandchild visibility = %s, want private", privGrandchild.Visibility)
+	if privGrandchild.Visibility != "workspace" {
+		t.Errorf("private grandchild visibility = %s, want workspace", privGrandchild.Visibility)
+	}
+	if s.canRead(bob, privGrandchild.ID) {
+		t.Errorf("ungranted member gained access to grandchild under private parent")
+	}
+	rec = requestAs(t, s, aliceCookie, "GET", "/api/pages/"+privGrandchild.ID, "")
+	if rec.Code != 200 {
+		t.Fatalf("get private grandchild: %d", rec.Code)
+	}
+	var gotPriv struct {
+		InheritedAccess *inheritedAccessInfo `json:"inheritedAccess"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &gotPriv)
+	if gotPriv.InheritedAccess == nil || gotPriv.InheritedAccess.Visibility != "private" || gotPriv.InheritedAccess.FromID != priv || gotPriv.InheritedAccess.FromTitle != "Secret" {
+		t.Errorf("private grandchild inheritedAccess = %+v, want private from %s", gotPriv.InheritedAccess, priv)
 	}
 
-	// Create restricted page
-	restr := s.makePage(t, ws, ids["alice-pa@example.test"], "", "Restricted", "{}")
-	s.db.Exec(`UPDATE pages SET visibility = 'restricted' WHERE id = ?`, restr)
+	// Non-admin owner Eve creates a restricted parent and grants Bob edit access.
+	restr := s.makePage(t, ws, eve, "", "Restricted", "{}")
+	restrict(t, s, restr)
+	grant(t, s, restr, bob, grantEdit)
 
-	// Create child under restricted page -> visibility: 'restricted'
-	rec = requestAs(t, s, aliceCookie, "POST", "/api/pages", `{"parentId":"`+restr+`","title":"Restricted Child"}`)
+	// Child created by Eve under restricted parent stays 'workspace' in DB…
+	rec = requestAs(t, s, eveCookie, "POST", "/api/pages", `{"parentId":"`+restr+`","title":"Restricted Child"}`)
 	if rec.Code != 200 {
 		t.Fatalf("create restricted child: %d %s", rec.Code, rec.Body.String())
 	}
@@ -406,7 +444,209 @@ func TestCreatePageInheritsVisibility(t *testing.T) {
 		Visibility string `json:"visibility"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &restrChild)
-	if restrChild.Visibility != "restricted" {
-		t.Errorf("restricted child visibility = %s, want restricted", restrChild.Visibility)
+	if restrChild.Visibility != "workspace" {
+		t.Errorf("restricted child visibility = %s, want workspace", restrChild.Visibility)
+	}
+
+	// …ungranted Carol cannot read or write it…
+	if s.canRead(carol, restrChild.ID) || s.canWrite(carol, restrChild.ID) {
+		t.Errorf("ungranted member reads/writes child under restricted parent")
+	}
+	if rec := requestAs(t, s, carolCookie, "GET", "/api/pages/"+restrChild.ID, ""); rec.Code != 404 {
+		t.Errorf("ungranted Carol GET restricted child = %d, want 404", rec.Code)
+	}
+
+	// …while collaborator Bob (edit grant on parent) CAN read and write Eve's child…
+	if !s.canRead(bob, restrChild.ID) || !s.canWrite(bob, restrChild.ID) {
+		t.Errorf("collaborator Bob cannot read/write Eve's child under restricted parent")
+	}
+	rec = requestAs(t, s, bobCookie, "GET", "/api/pages/"+restrChild.ID, "")
+	if rec.Code != 200 {
+		t.Fatalf("Bob GET restricted child = %d: %s", rec.Code, rec.Body.String())
+	}
+	var gotRestr struct {
+		InheritedAccess *inheritedAccessInfo `json:"inheritedAccess"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &gotRestr)
+	if gotRestr.InheritedAccess == nil || gotRestr.InheritedAccess.Visibility != "restricted" || gotRestr.InheritedAccess.FromID != restr || gotRestr.InheritedAccess.FromTitle != "Restricted" {
+		t.Errorf("restricted child inheritedAccess = %+v, want restricted from %s", gotRestr.InheritedAccess, restr)
+	}
+	if rec := requestAs(t, s, bobCookie, "PATCH", "/api/pages/"+restrChild.ID, `{"title":"Edited by Bob"}`); rec.Code != 200 {
+		t.Errorf("Bob PATCH restricted child = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// …and non-admin parent owner Eve CAN read and write Bob's child created inside restr.
+	rec = requestAs(t, s, bobCookie, "POST", "/api/pages", `{"parentId":"`+restr+`","title":"Bob Child"}`)
+	if rec.Code != 200 {
+		t.Fatalf("Bob create child under restricted parent: %d %s", rec.Code, rec.Body.String())
+	}
+	var bobChild struct {
+		ID         string `json:"id"`
+		Visibility string `json:"visibility"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &bobChild)
+	if bobChild.Visibility != "workspace" {
+		t.Errorf("bob child visibility = %s, want workspace", bobChild.Visibility)
+	}
+	if !s.canRead(eve, bobChild.ID) || !s.canWrite(eve, bobChild.ID) {
+		t.Errorf("non-admin parent owner Eve cannot read/write Bob's child")
+	}
+	if rec := requestAs(t, s, eveCookie, "GET", "/api/pages/"+bobChild.ID, ""); rec.Code != 200 {
+		t.Errorf("Eve GET Bob's child = %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := requestAs(t, s, eveCookie, "PATCH", "/api/pages/"+bobChild.ID, `{"title":"Edited by Eve"}`); rec.Code != 200 {
+		t.Errorf("Eve PATCH Bob's child = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Private ancestor overrides an intermediate restricted ancestor in inheritedAccess.
+	nestedRestr := s.makePage(t, ws, ids["alice-pa@example.test"], priv, "Nested Restricted", "{}")
+	restrict(t, s, nestedRestr)
+	rec = requestAs(t, s, aliceCookie, "POST", "/api/pages", `{"parentId":"`+nestedRestr+`","title":"Under Both"}`)
+	if rec.Code != 200 {
+		t.Fatalf("create under both: %d %s", rec.Code, rec.Body.String())
+	}
+	var underBoth struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &underBoth)
+	rec = requestAs(t, s, aliceCookie, "GET", "/api/pages/"+underBoth.ID, "")
+	if rec.Code != 200 {
+		t.Fatalf("get under both: %d", rec.Code)
+	}
+	var gotBoth struct {
+		InheritedAccess *inheritedAccessInfo `json:"inheritedAccess"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &gotBoth)
+	if gotBoth.InheritedAccess == nil || gotBoth.InheritedAccess.Visibility != "private" || gotBoth.InheritedAccess.FromID != priv {
+		t.Errorf("underBoth inheritedAccess = %+v, want private from %s", gotBoth.InheritedAccess, priv)
+	}
+}
+
+func TestRestrictedRowsHiddenFromExportPublicAndICS(t *testing.T) {
+	s := testServer(t)
+	ws, _, ids, cookies := accessFixture(t, s)
+	alice := ids["alice-pa@example.test"]
+	bob := ids["bob-pa@example.test"]
+	aliceCookie := cookies["alice-pa@example.test"]
+	bobCookie := cookies["bob-pa@example.test"]
+
+	col := s.makeCollection(t, ws, alice, "Salaries", `[{"id":"due","name":"Due","type":"date"}]`)
+	s.db.Exec(`UPDATE collections SET views = ? WHERE page_id = ?`, `[{"id":"v1","name":"Table","type":"table"}]`, col)
+
+	s.makeRow(t, ws, alice, col, "Open Row", `{"due":"2026-10-20"}`)
+	restrSecret := s.makeRow(t, ws, alice, col, "Restricted Secret Row", `{"due":"2026-10-21"}`)
+	restrict(t, s, restrSecret)
+	restrGranted := s.makeRow(t, ws, alice, col, "Restricted Granted Row", `{"due":"2026-10-22"}`)
+	restrict(t, s, restrGranted)
+	grant(t, s, restrGranted, bob, grantView)
+
+	p, err := s.getPage(col)
+	if err != nil {
+		t.Fatalf("getPage: %v", err)
+	}
+
+	// Member Bob sees Open + Granted, never Secret.
+	txtBob, err := s.collectionPlainText(p, bob)
+	if err != nil {
+		t.Fatalf("collectionPlainText(bob): %v", err)
+	}
+	if !strings.Contains(txtBob, "Open Row") || !strings.Contains(txtBob, "Restricted Granted Row") || strings.Contains(txtBob, "Restricted Secret Row") {
+		t.Errorf("collectionPlainText(bob) mismatch:\n%s", txtBob)
+	}
+	mdBob, err := s.collectionMarkdown(p, bob)
+	if err != nil {
+		t.Fatalf("collectionMarkdown(bob): %v", err)
+	}
+	if !strings.Contains(mdBob, "Open Row") || !strings.Contains(mdBob, "Restricted Granted Row") || strings.Contains(mdBob, "Restricted Secret Row") {
+		t.Errorf("collectionMarkdown(bob) mismatch:\n%s", mdBob)
+	}
+
+	// Anonymous reader sees only Open (neither restricted row).
+	txtAnon, err := s.collectionPlainText(p, "")
+	if err != nil {
+		t.Fatalf("collectionPlainText(anon): %v", err)
+	}
+	if !strings.Contains(txtAnon, "Open Row") || strings.Contains(txtAnon, "Restricted Secret Row") || strings.Contains(txtAnon, "Restricted Granted Row") {
+		t.Errorf("collectionPlainText(anon) leaked restricted row:\n%s", txtAnon)
+	}
+
+	// Public collection rows and row detail exclude restricted rows.
+	rec := requestAs(t, s, aliceCookie, "POST", "/api/pages/"+col+"/share", `{"allowedViews":["v1"],"allowDetail":true}`)
+	if rec.Code != 200 {
+		t.Fatalf("share: %d %s", rec.Code, rec.Body.String())
+	}
+	var share struct {
+		Token string `json:"token"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &share)
+
+	recRows := requestAs(t, s, "", "GET", "/api/public/c/"+share.Token+"/rows", "")
+	if recRows.Code != 200 {
+		t.Fatalf("public rows: %d", recRows.Code)
+	}
+	if !strings.Contains(recRows.Body.String(), "Open Row") || strings.Contains(recRows.Body.String(), "Restricted Secret Row") || strings.Contains(recRows.Body.String(), "Restricted Granted Row") {
+		t.Errorf("public collection rows leaked restricted row:\n%s", recRows.Body.String())
+	}
+	if recDet := requestAs(t, s, "", "GET", "/api/public/c/"+share.Token+"/row/"+restrSecret, ""); recDet.Code != 404 {
+		t.Errorf("public collection row detail = %d, want 404", recDet.Code)
+	}
+
+	// Named ICS feed for Bob excludes ungranted restricted row, includes granted one.
+	recFeed := requestAs(t, s, bobCookie, "POST", "/api/ics/feeds", `{"kind":"collection","refId":"`+col+`","name":"Cal"}`)
+	if recFeed.Code != 200 {
+		t.Fatalf("create feed: %d %s", recFeed.Code, recFeed.Body.String())
+	}
+	var feed struct {
+		URL string `json:"url"`
+	}
+	json.Unmarshal(recFeed.Body.Bytes(), &feed)
+	path := feed.URL
+	if i := strings.Index(path, "/ics/"); i >= 0 {
+		path = path[i:]
+	}
+	recICS := requestAs(t, s, "", "GET", path, "")
+	if recICS.Code != 200 {
+		t.Fatalf("ics feed: %d %s", recICS.Code, recICS.Body.String())
+	}
+	if !strings.Contains(recICS.Body.String(), "Open Row") || !strings.Contains(recICS.Body.String(), "Restricted Granted Row") || strings.Contains(recICS.Body.String(), "Restricted Secret Row") {
+		t.Errorf("ics feed mismatch:\n%s", recICS.Body.String())
+	}
+}
+
+func TestUpdatePageRejectsUnsafeBlockURLs(t *testing.T) {
+	s := testServer(t)
+	ws, _, ids, cookies := accessFixture(t, s)
+	alice := ids["alice-pa@example.test"]
+	aliceCookie := cookies["alice-pa@example.test"]
+	pid := s.makePage(t, ws, alice, "", "Links", "[]")
+
+	badPayloads := []string{
+		`{"content":[{"type":"bookmark","props":{"url":"javascript:alert(1)"}}]}`,
+		`{"content":[{"type":"bookmark","props":{"url":"  JaVaScRiPt:void(0)"}}]}`,
+		`{"content":[{"type":"bookmark","props":{"url":"java\tscript:alert(1)"}}]}`,
+		`{"content":[{"type":"paragraph","children":[{"type":"file","props":{"url":"vbscript:msgbox(1)"}}]}]}`,
+		`{"content":[{"type":"paragraph","content":[{"type":"link","href":"data:text/html,<script>alert(1)</script>","content":[{"type":"text","text":"x"}]}]}]}`,
+		`{"content":[{"type":"table","content":{"type":"tableContent","rows":[{"cells":[[{"type":"link","href":"javascript:alert(1)","content":[{"type":"text","text":"x"}]}]]}]}}]}`,
+	}
+	for _, payload := range badPayloads {
+		rec := requestAs(t, s, aliceCookie, "PATCH", "/api/pages/"+pid, payload)
+		if rec.Code != 400 {
+			t.Errorf("payload %s got HTTP %d, want 400 (%s)", payload, rec.Code, rec.Body.String())
+		}
+	}
+
+	goodPayload := `{"content":[
+		{"type":"bookmark","props":{"url":"https://example.com"}},
+		{"type":"image","props":{"url":"data:image/png;base64,AAAA"}},
+		{"type":"file","props":{"url":"/files/abc.pdf"}},
+		{"type":"paragraph","content":[
+			{"type":"link","href":"mailto:a@example.com","content":[{"type":"text","text":"mail"}]},
+			{"type":"link","href":"tel:+123","content":[{"type":"text","text":"call"}]},
+			{"type":"link","href":"#section","content":[{"type":"text","text":"jump"}]},
+			{"type":"link","href":"","content":[{"type":"text","text":"empty"}]}
+		]}
+	]}`
+	if rec := requestAs(t, s, aliceCookie, "PATCH", "/api/pages/"+pid, goodPayload); rec.Code != 200 {
+		t.Errorf("valid URLs rejected with %d: %s", rec.Code, rec.Body.String())
 	}
 }

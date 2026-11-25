@@ -175,8 +175,33 @@ var (
 	// A thematic break: three or more of the same marker, spaces allowed
 	// between them, nothing else on the line. All the spellings Markdown
 	// accepts, because an agent picks whichever it was trained on.
-	hrRe = regexp.MustCompile(`^(?:-[ \t]*){3,}$|^(?:\*[ \t]*){3,}$|^(?:_[ \t]*){3,}$`)
+	hrRe       = regexp.MustCompile(`^(?:-[ \t]*){3,}$|^(?:\*[ \t]*){3,}$|^(?:_[ \t]*){3,}$`)
+	setextH2Re = regexp.MustCompile(`^-{2,}$`)
+	yamlKeyRe  = regexp.MustCompile(`^[A-Za-z0-9_.-]+\s*:`)
 )
+
+func findYAMLFrontmatterEnd(lines []string) (int, bool) {
+	if len(lines) < 3 || strings.TrimRight(lines[0], " \t") != "---" {
+		return 0, false
+	}
+	if strings.TrimSpace(lines[1]) == "" {
+		return 0, false
+	}
+	hasKey := false
+	for j := 1; j < len(lines); j++ {
+		tr := strings.TrimRight(lines[j], " \t")
+		if tr == "---" || tr == "..." {
+			if hasKey {
+				return j, true
+			}
+			return 0, false
+		}
+		if yamlKeyRe.MatchString(tr) {
+			hasKey = true
+		}
+	}
+	return 0, false
+}
 
 func mdToBlocks(md string) []*mBlock {
 	lines := strings.Split(strings.ReplaceAll(md, "\r\n", "\n"), "\n")
@@ -204,23 +229,39 @@ func mdToBlocks(md string) []*mBlock {
 		listStack = append(listStack, b)
 	}
 
-	for i := 0; i < len(lines); i++ {
+	startLine := 0
+	if end, ok := findYAMLFrontmatterEnd(lines); ok {
+		startLine = end + 1
+	}
+	prevWasParagraph := false
+
+	for i := startLine; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimLeft(line, " \t")
 		indent := 0
+		leadingSpaces := 0
+		hasLeadingTab := false
 		for _, c := range line {
 			if c == ' ' {
 				indent++
+				if !hasLeadingTab {
+					leadingSpaces++
+				}
 			} else if c == '\t' {
 				indent += 2
+				hasLeadingTab = true
 			} else {
 				break
 			}
 		}
 		level := indent / 2
+		// CommonMark §4.1: thematic breaks and Setext underlines allow at most 3
+		// leading spaces (no leading tab / 4+ space indented code).
+		hrIndentOK := !hasLeadingTab && leadingSpaces <= 3
 
 		if trimmed == "" {
 			listStack = listStack[:0]
+			prevWasParagraph = false
 			continue
 		}
 
@@ -243,6 +284,7 @@ func mdToBlocks(md string) []*mBlock {
 			if strings.EqualFold(m[2], "mermaid") {
 				appendBlock(&mBlock{Type: "mermaid",
 					Props: map[string]any{"code": strings.Join(code, "\n"), "svg": ""}}, 0)
+				prevWasParagraph = false
 				continue
 			}
 			props := map[string]any{}
@@ -251,6 +293,7 @@ func mdToBlocks(md string) []*mBlock {
 			}
 			appendBlock(&mBlock{Type: "codeBlock", Props: props,
 				Content: []any{inlineText(strings.Join(code, "\n"), nil)}}, 0)
+			prevWasParagraph = false
 			continue
 		}
 		if m := headingRe.FindStringSubmatch(trimmed); m != nil {
@@ -260,10 +303,21 @@ func mdToBlocks(md string) []*mBlock {
 			}
 			appendBlock(&mBlock{Type: "heading", Props: map[string]any{"level": lvl},
 				Content: parseInline(m[2])}, 0)
+			prevWasParagraph = false
 			continue
 		}
 		if m := imageRe.FindStringSubmatch(trimmed); m != nil {
 			appendBlock(&mBlock{Type: "image", Props: map[string]any{"url": m[2], "name": m[1]}}, 0)
+			prevWasParagraph = false
+			continue
+		}
+		// Setext H2 (`Title\n---`): a dash underline directly beneath a
+		// paragraph promotes that paragraph to an h2 rather than adding a divider.
+		trimmedRight := strings.TrimRight(trimmed, " \t")
+		if hrIndentOK && prevWasParagraph && len(blocks) > 0 && setextH2Re.MatchString(trimmedRight) {
+			blocks[len(blocks)-1].Type = "heading"
+			blocks[len(blocks)-1].Props = map[string]any{"level": 2}
+			prevWasParagraph = false
 			continue
 		}
 		// A rule is a block of its own, not the three hyphens an agent typed.
@@ -273,26 +327,31 @@ func mdToBlocks(md string) []*mBlock {
 		//
 		// It has to come BEFORE the list cases: "- - -" is a rule in Markdown,
 		// while the bullet pattern would happily read it as an item saying "--".
-		if hrRe.MatchString(strings.TrimRight(trimmed, " \t")) {
+		if hrIndentOK && hrRe.MatchString(trimmedRight) {
 			appendBlock(&mBlock{Type: "divider"}, 0)
+			prevWasParagraph = false
 			continue
 		}
 		if m := checkRe.FindStringSubmatch(trimmed); m != nil {
 			checked := m[1] != " "
 			appendBlock(&mBlock{Type: "checkListItem", Props: map[string]any{"checked": checked},
 				Content: parseInline(m[2])}, level)
+			prevWasParagraph = false
 			continue
 		}
 		if m := bulletRe.FindStringSubmatch(trimmed); m != nil {
 			appendBlock(&mBlock{Type: "bulletListItem", Content: parseInline(m[1])}, level)
+			prevWasParagraph = false
 			continue
 		}
 		if m := numberedRe.FindStringSubmatch(trimmed); m != nil {
 			appendBlock(&mBlock{Type: "numberedListItem", Content: parseInline(m[1])}, level)
+			prevWasParagraph = false
 			continue
 		}
 		if strings.HasPrefix(trimmed, "> ") {
 			appendBlock(&mBlock{Type: "quote", Content: parseInline(trimmed[2:])}, 0)
+			prevWasParagraph = false
 			continue
 		}
 		if tableRowRe.MatchString(trimmed) {
@@ -321,13 +380,16 @@ func mdToBlocks(md string) []*mBlock {
 			// the original text as a paragraph instead of an empty table.
 			if len(rows) == 0 {
 				appendBlock(&mBlock{Type: "paragraph", Content: parseInline(trimmed)}, 0)
+				prevWasParagraph = false
 				continue
 			}
 			appendBlock(&mBlock{Type: "table",
 				Content: map[string]any{"type": "tableContent", "rows": rows}}, 0)
+			prevWasParagraph = false
 			continue
 		}
 		appendBlock(&mBlock{Type: "paragraph", Content: parseInline(trimmed)}, 0)
+		prevWasParagraph = true
 	}
 	return blocks
 }

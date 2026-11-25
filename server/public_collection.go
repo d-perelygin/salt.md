@@ -104,14 +104,14 @@ func (s *Server) handlePublicCollection(w http.ResponseWriter, r *http.Request) 
 		schema = []any{}
 	}
 	writeJSON(w, map[string]any{
-		"title":       p.Title,
-		"icon":        p.Icon,
-		"cover":       p.Cover,
-		"description": p.Description,
-		"type":        p.Type,
-		"schema":      schema,
-		"views":       visible,
-		"allowDetail": opts.AllowDetail,
+		"title":        p.Title,
+		"icon":         p.Icon,
+		"cover":        p.Cover,
+		"description":  p.Description,
+		"type":         p.Type,
+		"schema":       schema,
+		"views":        visible,
+		"allowDetail":  opts.AllowDetail,
 		"needPassword": false,
 	})
 }
@@ -216,7 +216,7 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 			sortParam = so.Property + ":" + d
 		}
 	}
-	where := []string{"parent_id = ?", "trashed_at IS NULL", "(visibility IS NULL OR visibility != 'private')"}
+	where := []string{"parent_id = ?", "trashed_at IS NULL", "(visibility IS NULL OR visibility NOT IN ('private', 'restricted'))"}
 	args := []any{colID}
 	ors := []string{}
 	for _, g := range groups {
@@ -374,11 +374,11 @@ func (s *Server) handlePublicCollectionRow(w http.ResponseWriter, r *http.Reques
 		httpError(w, 403, "row detail is not shared")
 		return
 	}
-	var parentID, title, icon, cover, content, props, tags string
+	var parentID, title, icon, cover, content, props, tags, vis string
 	var trashed sql.NullString
-	err := s.db.QueryRow(`SELECT parent_id, title, icon, cover, content, props, tags, trashed_at FROM pages WHERE id = ?`, rowID).
-		Scan(&parentID, &title, &icon, &cover, &content, &props, &tags, &trashed)
-	if err != nil || parentID != colID || (trashed.Valid && trashed.String != "") {
+	err := s.db.QueryRow(`SELECT parent_id, title, icon, cover, content, props, tags, trashed_at, COALESCE(visibility, '') FROM pages WHERE id = ?`, rowID).
+		Scan(&parentID, &title, &icon, &cover, &content, &props, &tags, &trashed, &vis)
+	if err != nil || parentID != colID || (trashed.Valid && trashed.String != "") || vis == "private" || vis == "restricted" {
 		httpError(w, 404, "not found")
 		return
 	}

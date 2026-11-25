@@ -396,25 +396,27 @@ func (f rowFilter) where() (string, []any) {
 	return "", nil
 }
 
-// privateRowRule is the SQL condition that keeps other people's private rows
-// out of everything that reads a collection's rows. The visibility switch in
-// the page header applies to database rows too. The row list honoured it first;
-// the Markdown export, get_page over MCP, the calendar feed and a publicly
-// shared collection went on reading every row, so a row hidden in the app was
-// readable four other ways. Every reader of rows goes through this now.
+// privateRowRule is the SQL condition that keeps other people's private and
+// restricted rows out of everything that reads a collection's rows. The
+// visibility switch in the page header applies to database rows too. The row
+// list honoured it first; the Markdown/text export, get_page over MCP, the
+// calendar feed and a publicly shared collection went on reading every row, so
+// a row hidden in the app was readable four other ways. Every reader of rows
+// goes through this now.
 //
 // userID "" is somebody without an account, reading a shared link: no private
-// row at all, whoever owns it. Workspace admins still see everything, the same
-// rule as in forbiddenPrivateAncestor.
+// or restricted row at all, whoever owns it. Workspace admins still see
+// everything, the same rule as in forbiddenPrivateAncestor.
 func (s *Server) privateRowRule(userID, colID string) (string, []any) {
 	if userID == "" {
-		return "visibility != 'private'", nil
+		return "(visibility IS NULL OR visibility NOT IN ('private', 'restricted'))", nil
 	}
 	wsAdmin := 0
 	if s.isWorkspaceAdmin(userID, s.pageWorkspace(colID)) {
 		wsAdmin = 1
 	}
-	return "(? = 1 OR visibility != 'private' OR owner_id = ?)", []any{wsAdmin, userID}
+	return "(? = 1 OR ((visibility IS NULL OR visibility != 'private' OR owner_id = ?) AND (visibility IS NULL OR visibility != 'restricted' OR owner_id = ? OR EXISTS (SELECT 1 FROM page_grants g WHERE g.page_id = pages.id AND g.user_id = ? AND g.subject_type = 'user' AND g.access IN ('view', 'edit')))))",
+		[]any{wsAdmin, userID, userID, userID}
 }
 
 // collectionRowsQuery filters, sorts and paginates a collection's rows in

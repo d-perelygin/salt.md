@@ -47,10 +47,17 @@ type pageMeta struct {
 	Shared bool `json:"shared,omitempty"`
 }
 
+type inheritedAccessInfo struct {
+	Visibility string `json:"visibility"`
+	FromID     string `json:"fromId"`
+	FromTitle  string `json:"fromTitle"`
+}
+
 type page struct {
 	pageMeta
-	Content   json.RawMessage `json:"content"`
-	CreatedAt string          `json:"createdAt"`
+	Content         json.RawMessage      `json:"content"`
+	CreatedAt       string               `json:"createdAt"`
+	InheritedAccess *inheritedAccessInfo `json:"inheritedAccess,omitempty"`
 	// The generation of this body (docgen.go). An editor seeds a new live
 	// document from Content, so it has to know which document Content was.
 	DocGen int64 `json:"docGen"`
@@ -223,7 +230,43 @@ func (s *Server) handleGetPage(w http.ResponseWriter, r *http.Request) {
 	if s.liveShared([]string{p.ID})[p.ID] {
 		p.Shared = true
 	}
+	p.InheritedAccess = s.inheritedAccessFor(p)
 	writeJSON(w, p)
+}
+
+// inheritedAccessFor walks ancestors of p.ParentID (stopping on cycle or depth
+// 64) and reports the strongest inherited visibility restriction, preferring
+// "private" over "restricted".
+func (s *Server) inheritedAccessFor(p *page) *inheritedAccessInfo {
+	if p == nil || p.ParentID == nil || *p.ParentID == "" {
+		return nil
+	}
+	seen := map[string]bool{p.ID: true}
+	cur := *p.ParentID
+	var found *inheritedAccessInfo
+	for step := 0; cur != "" && step < 64; step++ {
+		if seen[cur] {
+			break
+		}
+		seen[cur] = true
+		var nextParent sql.NullString
+		var title, vis string
+		if err := s.db.QueryRow(`SELECT parent_id, title, visibility FROM pages WHERE id = ?`, cur).Scan(&nextParent, &title, &vis); err != nil {
+			break
+		}
+		if vis == "private" {
+			return &inheritedAccessInfo{Visibility: "private", FromID: cur, FromTitle: title}
+		}
+		if vis == "restricted" && found == nil {
+			found = &inheritedAccessInfo{Visibility: "restricted", FromID: cur, FromTitle: title}
+		}
+		if nextParent.Valid {
+			cur = nextParent.String
+		} else {
+			cur = ""
+		}
+	}
+	return found
 }
 
 // liveShared reports which of the given pages carry a live public link
@@ -391,18 +434,6 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vis := "workspace"
-	if body.ParentID != nil && *body.ParentID != "" {
-		var ancVis string
-		err := s.db.QueryRow(`
-			WITH RECURSIVE anc(id, parent_id, visibility) AS (
-				SELECT id, parent_id, visibility FROM pages WHERE id = ?
-				UNION
-				SELECT p.id, p.parent_id, p.visibility FROM pages p JOIN anc ON p.id = anc.parent_id
-			) SELECT visibility FROM anc WHERE visibility IN ('private', 'restricted') LIMIT 1`, *body.ParentID).Scan(&ancVis)
-		if err == nil && ancVis != "" {
-			vis = ancVis
-		}
-	}
 	_, err := s.db.Exec(
 		`INSERT INTO pages (id, parent_id, title, icon, content, position, created_at, updated_at, type, props, workspace_id, owner_id, visibility) VALUES (?, ?, ?, '', '[]', ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, body.ParentID, body.Title, pos, ts, ts, body.Type, props, workspaceID, userID, vis,
@@ -508,6 +539,59 @@ func validCover(c string) bool {
 			return false
 		}
 		return strings.Contains(body, "gradient(")
+	}
+	return false
+}
+
+// isUnsafeBlockURL reports whether a URL starts with a dangerous scheme
+// (javascript:, vbscript:, data:text/html), stripping ASCII whitespace/control
+// bytes before matching so obfuscated schemes cannot slip past.
+func isUnsafeBlockURL(raw string) bool {
+	var b strings.Builder
+	b.Grow(16)
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if c <= 0x20 || c == 0x7f {
+			continue
+		}
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b.WriteByte(c)
+		if b.Len() >= 16 {
+			break
+		}
+	}
+	s := b.String()
+	return strings.HasPrefix(s, "javascript:") ||
+		strings.HasPrefix(s, "vbscript:") ||
+		strings.HasPrefix(s, "data:text/html")
+}
+
+// hasUnsafeBlockURL recursively inspects BlockNote JSON for dangerous URLs in
+// block props.url or inline href fields (including nested children, content, and tables).
+func hasUnsafeBlockURL(v any) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		if href, ok := t["href"].(string); ok && isUnsafeBlockURL(href) {
+			return true
+		}
+		if props, ok := t["props"].(map[string]any); ok {
+			if u, ok := props["url"].(string); ok && isUnsafeBlockURL(u) {
+				return true
+			}
+		}
+		for _, val := range t {
+			if hasUnsafeBlockURL(val) {
+				return true
+			}
+		}
+	case []any:
+		for _, val := range t {
+			if hasUnsafeBlockURL(val) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -649,6 +733,11 @@ func (s *Server) handleUpdatePage(w http.ResponseWriter, r *http.Request) {
 	if len(body.Content) > 0 {
 		if !json.Valid(body.Content) {
 			httpError(w, 400, "content is not valid JSON")
+			return
+		}
+		var parsed any
+		if json.Unmarshal(body.Content, &parsed) != nil || hasUnsafeBlockURL(parsed) {
+			httpError(w, 400, "unsafe URL scheme in block content")
 			return
 		}
 		sets = append(sets, "content = ?")

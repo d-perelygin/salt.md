@@ -88,3 +88,32 @@ func TestDividerRoundTripsThroughMarkdown(t *testing.T) {
 		t.Errorf("second pass produced %d dividers, want 1", n)
 	}
 }
+
+func TestIndentedRulesStayText(t *testing.T) {
+	for _, md := range []string{
+		"    ---\n",
+		"\t---\n",
+		"- outer\n  - inner\n    ---\n",
+	} {
+		for _, b := range mdToBlocks(md) {
+			if b.Type == "divider" {
+				t.Errorf("indented rule %q became a divider", md)
+			}
+		}
+	}
+}
+
+func TestSetextH2AndYAMLFrontmatter(t *testing.T) {
+	// Setext H2 directly under a paragraph becomes heading level 2, not divider.
+	blocks := mdToBlocks("Section Title\n---\n\nBody\n")
+	if len(blocks) != 2 || blocks[0].Type != "heading" || blocks[0].Props["level"] != 2 || blocks[1].Type != "paragraph" {
+		t.Fatalf("Setext H2 parsed unexpectedly: %+v", blocks)
+	}
+
+	// Leading YAML frontmatter is stripped instead of creating dividers.
+	fm := "---\ntitle: Spec\ntags:\n  - docs\n---\n\n# Heading\n\nParagraph\n"
+	fmBlocks := mdToBlocks(fm)
+	if len(fmBlocks) != 2 || fmBlocks[0].Type != "heading" || fmBlocks[1].Type != "paragraph" {
+		t.Fatalf("YAML frontmatter parsed unexpectedly: %+v", fmBlocks)
+	}
+}
