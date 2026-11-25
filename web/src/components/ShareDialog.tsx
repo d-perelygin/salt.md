@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent, type ReactNode } from 'react';
+import SheetGrab from './SheetGrab';
 import { t } from '../i18n';
 
 export type ShareTab = 'share' | 'publish';
@@ -12,17 +13,22 @@ export default function ShareDialog({
   onTabChange,
   share,
   publish,
+  onDismiss,
 }: {
   tab: ShareTab;
   onTabChange: (tab: ShareTab) => void;
   share: ReactNode;
   publish: ReactNode;
+  /** Phone only: the sheet's handle closes it. Without it the dialog is the
+   *  desktop popover, which has no bottom edge to drag. */
+  onDismiss?: () => void;
 }) {
   const tabs: { id: ShareTab; label: string }[] = [
     { id: 'share', label: t('Share') },
     { id: 'publish', label: t('Publish') },
   ];
   const listRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     e.preventDefault();
@@ -35,7 +41,10 @@ export default function ShareDialog({
     });
   };
   return (
-    <div className="menu share-dialog" role="dialog" aria-label={t('Share')}>
+    <div className="menu share-dialog" role="dialog" aria-label={t('Share')} ref={sheetRef}>
+      {/* Above the tabs, once: both tabs are the same sheet, and a handle
+          inside the first one's content sat halfway down the panel. */}
+      {onDismiss && <SheetGrab sheet={sheetRef} onDismiss={onDismiss} />}
       <div ref={listRef} className="share-tabs" role="tablist" aria-label={t('Share')} onKeyDown={onKeyDown}>
         {tabs.map((x) => (
           <button

@@ -1210,6 +1210,76 @@
   .ai-panel-foot {
     padding-bottom: calc(14px + env(safe-area-inset-bottom));
   }
+
+  /* The side peek becomes a sheet on a phone: the same document, presented
+     the way a phone presents a modal. The page behind is veiled, the panel
+     slides from the bottom with a handle, and the two actions it needs sit
+     within a thumb's reach instead of in the topbar's corners. */
+  .peek-panel {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: min(92dvh, calc(var(--vvh, 100dvh) - 8px));
+    border-left: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+    /* Above the drawer and the dock, below menus (320) and dialogs (400):
+       the peek's own dropdowns still open over it. */
+    z-index: 260;
+  }
+
+  .peek-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    background: rgba(0, 0, 0, 0.42);
+  }
+
+  .peek-actions {
+    display: flex;
+    flex: none;
+    gap: 8px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .peek-action {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    border-radius: 10px;
+    background: var(--hover);
+    color: var(--fg);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .peek-action:active {
+    background: var(--active);
+  }
+
+  /* The topbar keeps the pin/expand menu; the close now lives in the footer,
+     and two X's in one sheet read as two different actions. */
+  .peek-panel .peek-pair > .icon-btn:first-child {
+    display: none;
+  }
+
+  /* The structure panel is a desktop side rail: at 280px it left a strip of
+     the board visible, and the collection toolbar painted over it. Full width
+     here, above that toolbar. */
+  .structure-panel {
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: none;
+    border-left: none;
+    z-index: 30;
+  }
 }
 
 /* --- the keyboard bar ----------------------------------------------------- */
@@ -1290,11 +1360,14 @@
 
 /* --- handles are a phone thing -------------------------------------------- */
 
-/* The page menus and the AI panel are popovers on a desktop: they hang off a
-   button and have no bottom edge to drag, so no handle either. */
+/* The page menus, the AI panel and the peek are popovers/panels on a desktop:
+   they have no bottom edge to drag, and no actions bar of their own. */
 @media (min-width: 769px) {
   .menu .sheet-grab,
-  .ai-panel .sheet-grab {
+  .ai-panel .sheet-grab,
+  .peek-panel .sheet-grab,
+  .peek-actions,
+  .peek-backdrop {
     display: none;
   }
 }

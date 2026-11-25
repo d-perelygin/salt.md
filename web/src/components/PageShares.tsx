@@ -4,7 +4,6 @@ import { api } from '../api';
 import { toast } from '../toast';
 import { isOfflineError, isTempId, savePageUpdate } from '../outbox';
 import { t } from '../i18n';
-import SheetGrab from './SheetGrab';
 
 type Access = 'view' | 'edit';
 type Visibility = 'workspace' | 'private' | 'restricted';
@@ -123,7 +122,6 @@ export default function PageShares({
   const menuRef = useRef<HTMLDivElement>(null);
   return (
     <div className="menu access-menu" role="dialog" aria-label={t('Page access')} ref={menuRef}>
-      <SheetGrab sheet={menuRef} onDismiss={onClose} />
       <h2 className="access-title">{t('Page access')}</h2>
       {inheritedFrom && (
         <div className="access-inherited-hint">

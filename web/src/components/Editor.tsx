@@ -1499,18 +1499,6 @@ function PageHeader({
     return () => cancelAnimationFrame(raf);
   }, [pageId]);
 
-  const togglePrivate = () => {
-    const next = visibility === 'private' ? 'workspace' : 'private';
-    setVisibility(next);
-    api.updatePage(pageId, { visibility: next }).catch((e) => {
-      if (isTempId(pageId) || isOfflineError(e)) {
-        void savePageUpdate(pageId, { visibility: next }, { label: t('Visibility') });
-        return;
-      }
-      toast(t('Visibility not saved'));
-    });
-  };
-
   // The token itself is stored hashed server-side, so a minted URL cannot be
   // recovered — only remembered. The owner who minted it keeps it in this
   // browser; opening the menu must never mint silently, or every open would
@@ -2035,6 +2023,7 @@ function PageHeader({
               <ShareDialog
                 tab={shareTab}
                 onTabChange={switchShareTab}
+                onDismiss={phoneLayout ? () => setShareOpen(false) : undefined}
                 share={
                   <PageShares
                     pageId={pageId}
@@ -2299,16 +2288,9 @@ function PageHeader({
                 >
                   <PanelRight size={15} /> {structureOpen ? t('Hide structure') : t('Show structure')}
                 </button>
-                <button
-                  className="menu-item narrow-only"
-                  onClick={() => {
-                    setOverflowOpen(false);
-                    togglePrivate();
-                  }}
-                >
-                  {visibility === 'private' ? <Lock size={15} /> : <LockOpen size={15} />}{' '}
-                  {visibility === 'private' ? t('Make it visible to the workspace') : t('Make it private')}
-                </button>
+                {/* No separate "Make it private" row: Page access is the one
+                    place visibility lives, and a second switch beside it only
+                    invites the two to disagree. */}
                 <button
                   className="menu-item"
                   onClick={() => {
