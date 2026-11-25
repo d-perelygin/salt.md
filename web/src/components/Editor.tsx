@@ -42,6 +42,7 @@ import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import AnchoredMenu from './AnchoredMenu';
 import SheetBackdrop from './SheetBackdrop';
+import SheetGrab from './SheetGrab';
 import MobileEditorBar from './MobileEditorBar';
 import AiEmptyLine from './AiEmptyLine';
 import IconPicker from './IconPicker';
@@ -1705,6 +1706,10 @@ function PageHeader({
     return chain;
   }, [pagesById, pageId, page]);
 
+  // The page's ⋯ and share sheets on a phone: their handles drag them away.
+  const shareSheetRef = useRef<HTMLDivElement>(null);
+  const overflowSheetRef = useRef<HTMLDivElement>(null);
+
   const inheritedAccess = useMemo(() => {
     for (let i = 0; i < breadcrumbs.length - 1; i++) {
       const a = breadcrumbs[i];
@@ -1894,7 +1899,8 @@ function PageHeader({
             {shareOpen && (
               <>
                 <SheetBackdrop onDismiss={() => setShareOpen(false)} />
-                <div className="menu share-menu">
+                <div className="menu share-menu" ref={shareSheetRef}>
+                  <SheetGrab sheet={shareSheetRef} onDismiss={() => setShareOpen(false)} />
                 <div className="share-hint">{isCollection ? t('Anyone with this link sees this collection (read-only).') : t('Anyone with this link can view this page (read-only).')}</div>
                 {!readShared && !displayUrl ? (
                   <>
@@ -2025,7 +2031,8 @@ function PageHeader({
             {overflowOpen && (
               <>
                 <SheetBackdrop onDismiss={() => setOverflowOpen(false)} />
-                <div className="menu overflow-menu">
+                <div className="menu overflow-menu" ref={overflowSheetRef}>
+                  <SheetGrab sheet={overflowSheetRef} onDismiss={() => setOverflowOpen(false)} />
                 <>
                   <div className="menu-row" role="group" aria-label={t('Undo and redo')}>
                     <button className="menu-item" disabled={!undoCtl.canUndo} onClick={fireUndo}>

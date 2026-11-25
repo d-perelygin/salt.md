@@ -51,6 +51,23 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   // --- the tabs sheet -------------------------------------------------------
   await slots.nth(1).click();
   await eventually(async () => (await p.locator('.tabs-sheet').count()) === 1);
+
+  // Swipe down on the handle: a short pull springs back, a long one closes.
+  const grab = await p.locator('.tabs-sheet .sheet-grab').boundingBox();
+  const dragTo = async (dy) => {
+    await p.mouse.move(grab.x + grab.width / 2, grab.y + grab.height / 2);
+    await p.mouse.down();
+    await p.mouse.move(grab.x + grab.width / 2, grab.y + grab.height / 2 + dy, { steps: 12 });
+    await p.mouse.up();
+    await p.waitForTimeout(320);
+  };
+  await dragTo(40);
+  assert.equal(await p.locator('.tabs-sheet').count(), 1, 'a short pull springs back');
+  await dragTo(280);
+  await eventually(async () => (await p.locator('.tabs-sheet').count()) === 0, 3000);
+  // Reopen for the assertions below.
+  await slots.nth(1).click();
+  await eventually(async () => (await p.locator('.tabs-sheet').count()) === 1);
   assert.equal(await p.locator('.tabs-sheet-arrow').count(), 2);
   // Nothing was navigated yet, so there is nowhere to go back to.
   assert.equal(await p.locator('.tabs-sheet-arrow').first().isDisabled(), true);

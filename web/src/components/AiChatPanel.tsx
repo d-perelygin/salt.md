@@ -7,6 +7,7 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
+import SheetGrab from './SheetGrab';
 import { FileText, Table2 } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
@@ -33,6 +34,7 @@ export default function AiChatPanel(props: {
   onOpenSidebar?: () => void;
   hidden?: boolean;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
   const [threadId, setThreadId] = useState<string | null>(props.threadId ?? null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<AiStep[]>([]);
@@ -537,7 +539,8 @@ export default function AiChatPanel(props: {
   const traceAt = !agentBusy && messages.length > 0 && messages[messages.length - 1].role !== 'user' ? messages.length - 1 : messages.length;
 
   return (
-    <div className="ai-panel" style={props.hidden ? { display: 'none' } : undefined}>
+    <div className="ai-panel" ref={panelRef} style={props.hidden ? { display: 'none' } : undefined}>
+      <SheetGrab sheet={panelRef} onDismiss={props.onClose} />
       <div className="ai-panel-head">
         <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }} ref={threadMenuRef}>
           <button

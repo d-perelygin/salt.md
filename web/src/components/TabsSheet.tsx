@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { ArrowLeft, ArrowRight, FileText, Plus, Table2, X } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import type { PageMeta } from '../types';
@@ -5,6 +6,7 @@ import type { ArchivedTab } from '../tabAging';
 import { t } from '../i18n';
 import { goBack, goForward, useNavArrows } from '../navStack';
 import Portal from './Portal';
+import SheetGrab from './SheetGrab';
 
 /** Open documents as a sheet of cards, for the phone.
  *
@@ -45,12 +47,13 @@ export default function TabsSheet({
   onDismiss: () => void;
 }) {
   const nav = useNavArrows();
+  const sheetRef = useRef<HTMLDivElement>(null);
   if (!open) return null;
   return (
     <Portal>
       <div className="fs-backdrop tabs-sheet-backdrop" onClick={onDismiss} />
-      <div className="tabs-sheet" role="dialog" aria-label={t('Tabs')}>
-        <div className="sheet-grab" aria-hidden="true" />
+      <div className="tabs-sheet" role="dialog" aria-label={t('Tabs')} ref={sheetRef}>
+        <SheetGrab sheet={sheetRef} onDismiss={onDismiss} />
         <div className="tabs-sheet-head">
           <span className="tabs-sheet-title">{t('Tabs')}</span>
           <button

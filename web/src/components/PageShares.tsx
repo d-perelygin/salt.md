@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
 import { api } from '../api';
 import { toast } from '../toast';
 import { isOfflineError, isTempId, savePageUpdate } from '../outbox';
 import { t } from '../i18n';
+import SheetGrab from './SheetGrab';
 
 type Access = 'view' | 'edit';
 type Visibility = 'workspace' | 'private' | 'restricted';
@@ -119,8 +120,10 @@ export default function PageShares({
   const granted = new Set((shares ?? []).map((s) => s.userId));
   const candidates = members.filter((m) => !granted.has(m.userId));
 
+  const menuRef = useRef<HTMLDivElement>(null);
   return (
-    <div className="menu access-menu" role="dialog" aria-label={t('Page access')}>
+    <div className="menu access-menu" role="dialog" aria-label={t('Page access')} ref={menuRef}>
+      <SheetGrab sheet={menuRef} onDismiss={onClose} />
       <h2 className="access-title">{t('Page access')}</h2>
       {inheritedFrom && (
         <div className="access-inherited-hint">

@@ -3,6 +3,7 @@ import { ExternalLink, MoreHorizontal, PanelRight, Pin, SlidersHorizontal, X } f
 import { api } from '../api';
 import type { PageMeta, SearchResult, User } from '../types';
 import Portal from './Portal';
+import SheetGrab from './SheetGrab';
 import Editor from './Editor';
 import { PageIcon } from '../pageIcon';
 import { useExclusiveModal } from '../modal';
@@ -233,6 +234,8 @@ export default function SearchModal({
   // and preview clicks alike. Modified clicks keep their meaning.
   const openPageId = (id: string) => (previewNewTab ? (onOpenInNewTab ?? onNavigate)(id) : onNavigate(id));
 
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const rowMenuRef = useRef<HTMLDivElement>(null);
   // The per-result tab menu: which page, and where to put it.
   const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const openRowMenu = (e: React.MouseEvent, id: string) => {
@@ -420,7 +423,14 @@ export default function SearchModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={'search-modal' + (showPreview ? ' has-preview' : '')} onKeyDown={onKey}>
+      <div
+        className={'search-modal' + (showPreview ? ' has-preview' : '')}
+        role="dialog"
+        aria-label={t('Search')}
+        ref={sheetRef}
+        onKeyDown={onKey}
+      >
+        <SheetGrab sheet={sheetRef} onDismiss={onClose} />
         <div className="search-topbar">
           <input
             ref={inputRef}
@@ -645,7 +655,9 @@ export default function SearchModal({
               className="menu search-row-menu"
               style={{ position: 'fixed', left: rowMenu.x, top: rowMenu.y, right: 'auto' }}
               role="menu"
+              ref={rowMenuRef}
             >
+              <SheetGrab sheet={rowMenuRef} onDismiss={close} />
               <button
                 type="button"
                 role="menuitem"

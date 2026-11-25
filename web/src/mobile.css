@@ -154,14 +154,30 @@
   }
 }
 
-/* The bar every phone sheet has, for the only gesture people try on one. */
+/* The bar every phone sheet has, and the handle the drag starts from: a 26px
+   strip with the bar drawn inside it, `touch-action: none` so the browser
+   gives the gesture to us instead of rubber-banding the page. */
 .sheet-grab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  flex: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sheet-grab > span {
   width: 34px;
   height: 4px;
-  margin: 6px auto 8px;
   border-radius: 2px;
   background: var(--border-strong);
-  flex: none;
+  pointer-events: none;
+}
+
+/* A sheet being dragged must not animate its own transition. */
+.sheet-drag:active {
+  cursor: grabbing;
 }
 
 .tabs-sheet-head {
@@ -483,16 +499,6 @@
     box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
   }
 
-  .search-row-menu::before {
-    content: '';
-    flex: none;
-    width: 34px;
-    height: 4px;
-    margin: 6px auto 8px;
-    border-radius: 2px;
-    background: var(--border-strong);
-  }
-
   .search-row-backdrop {
     background: rgba(0, 0, 0, 0.38);
   }
@@ -620,20 +626,6 @@
     z-index: 320;
   }
 
-  /* The grab bar, drawn rather than an element: these menus are written in six
-     places and none of them should have to remember it. */
-  .overflow-menu::before,
-  .share-menu::before,
-  .access-menu::before {
-    content: '';
-    display: block;
-    width: 34px;
-    height: 4px;
-    margin: 6px auto 10px;
-    border-radius: 2px;
-    background: var(--border-strong);
-  }
-
   .overflow-menu button,
   .share-menu button,
   .access-menu button {
@@ -680,17 +672,6 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-  }
-
-  /* The grab bar every other phone sheet in the app has. */
-  .search-modal::before {
-    content: '';
-    flex: none;
-    width: 34px;
-    height: 4px;
-    margin: 8px auto 2px;
-    border-radius: 2px;
-    background: var(--border-strong);
   }
 
   .search-modal .search-body {
@@ -873,5 +854,16 @@
      the bar instead of hiding under the thumb. */
   body.mobile-editing .page-body {
     padding-bottom: 64px;
+  }
+}
+
+/* --- handles are a phone thing -------------------------------------------- */
+
+/* The page menus and the AI panel are popovers on a desktop: they hang off a
+   button and have no bottom edge to drag, so no handle either. */
+@media (min-width: 769px) {
+  .menu .sheet-grab,
+  .ai-panel .sheet-grab {
+    display: none;
   }
 }
