@@ -3168,7 +3168,15 @@ function FilterSortControls({
       {open && pos && (
         <Portal>
           <div className="fs-backdrop" onClick={() => setOpen(null)} />
-          <div className="fs-popover" style={pos}>
+          {/* On a phone this is a bottom sheet, and a sheet without a name is a
+              guess: the title says which menu rose, the CSS draws it. */}
+          <div
+            className="fs-popover"
+            style={pos}
+            role="dialog"
+            aria-label={open === 'filter' ? t('Filter') : open === 'sort' ? t('Sort') : t('Group')}
+            data-title={open === 'filter' ? t('Filter') : open === 'sort' ? t('Sort') : t('Group')}
+          >
             {open === 'filter' && (
               <>
           {groups.map((group, gi) => (
@@ -4750,7 +4758,13 @@ function ColumnsControl({
       {open && pos && (
         <Portal>
           <div className="fs-backdrop" onClick={() => setOpen(false)} />
-          <div className="fs-popover col-popover" style={pos}>
+          <div
+            className="fs-popover col-popover"
+            style={pos}
+            role="dialog"
+            aria-label={t('Columns')}
+            data-title={t('Columns')}
+          >
             <div className="col-section-head">
               <span>{t('Shown')}</span>
               {shown.length > 0 && (

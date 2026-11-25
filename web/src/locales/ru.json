@@ -1866,5 +1866,6 @@
   "Match case": "Учитывать регистр",
   "Ignore case": "Не учитывать регистр",
   "Case matters": "Регистр учитывается",
-  "Case is ignored": "Регистр не учитывается"
+  "Case is ignored": "Регистр не учитывается",
+  "The trash is empty.": "Корзина пуста."
 }

@@ -9,9 +9,10 @@ import { useExclusiveModal } from '../modal';
 import { formatMoment, formatRelative } from '../format';
 import { plural, t } from '../i18n';
 import { AdminSettingsModal, TwoFAModal, CalendarSubModal } from './AdminSettings';
-import { Key, History, CalendarDays, ShieldCheck, Users, Settings, LogOut, Bot, User as UserIcon, Columns2, Type, Languages, Undo2, Keyboard, SquareArrowOutUpRight, X } from 'lucide-react';
+import { Key, History, CalendarDays, ShieldCheck, Users, Settings, LogOut, Bot, User as UserIcon, Columns2, Type, Languages, Undo2, Keyboard, SquareArrowOutUpRight, Sun, X } from 'lucide-react';
 import { chordFor } from '../keys';
 import { pagePath } from '../pageUrl';
+import ThemeSwitch, { type ThemePref } from '../ThemeSwitch';
 import { LanguageTimeModal } from './LanguageTime';
 import { RowOpenModal } from './RowOpenSettings';
 
@@ -231,9 +232,14 @@ interface Props {
   // The shortcut sheet was reachable only by pressing "?", and only if you
   // already knew that — so nobody found the shortcuts it lists.
   onOpenShortcuts?: () => void;
+  // On a phone the footer's theme switch is gone (the trash button took its
+  // place), so the appearance choice moves in here, behind the account where
+  // the rest of the settings already live.
+  themePref?: ThemePref;
+  onSetTheme?: (v: ThemePref) => void;
 }
 
-export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, notesMode, onToggleNotesMode, onOpenShortcuts, fontPref = 'brand', onSetFont }: Props) {
+export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, notesMode, onToggleNotesMode, onOpenShortcuts, fontPref = 'brand', onSetFont, themePref, onSetTheme }: Props) {
   const [open, setOpen] = useState(false);
   const [modal, setModal] = useState<'users' | 'tokens' | 'activity' | 'twofa' | 'settings' | 'calendar' | 'profile' | 'langtime' | 'rowopen' | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -304,6 +310,12 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
               <Type size={16} /> {t('Salt fonts')}
               <span className={'mode-dot' + (fontPref === 'brand' ? ' on' : '')} aria-hidden />
             </button>
+          )}
+          {themePref && onSetTheme && (
+            <div className="user-menu-theme" role="group" aria-label={t('Appearance')}>
+              <Sun size={16} /> {t('Appearance')}
+              <ThemeSwitch value={themePref} onChange={onSetTheme} size={13} />
+            </div>
           )}
           {user.isAdmin && (
             <button onClick={() => { setOpen(false); setModal('users'); }}>

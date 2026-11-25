@@ -8,7 +8,7 @@ import { eventually, withFixture } from './fixture.mjs';
 // sheets instead of hanging off a corner, and search takes the whole screen.
 // All three are CSS-and-DOM only — the same components render on both sides of
 // the breakpoint — so the last section checks that the desktop did not move.
-await withFixture(async ({ page, context, api, base, workspace }) => {
+await withFixture(async ({ page, context, api, base, workspace, collection }) => {
   page.setDefaultTimeout(15000);
 
   const docA = await api('POST', '/api/pages', { title: 'Phone A', type: 'doc', workspaceId: workspace.id });
@@ -234,6 +234,22 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   assert(wsMenu && wsMenu.y + wsMenu.height <= wsBtn.y + 2, 'the workspace menu opens over the tree');
   await p.locator('.sidebar-footer .ws-btn').click();
   await eventually(async () => (await p.locator('.sidebar-footer .ws-menu').count()) === 0);
+  // The theme switch left the footer for the trash; the appearance choice is
+  // one row further in, behind the account.
+  assert.equal(await p.locator('.sidebar-footer .theme-switch').count(), 0);
+  assert.equal(await p.locator('.trash-fab').count(), 1);
+  await p.locator('.trash-fab').click();
+  await eventually(async () => (await p.locator('.trash-dialog').count()) === 1);
+  const trashSheet = await p.locator('.trash-dialog').boundingBox();
+  assert(trashSheet && trashSheet.y > 60, 'the trash opens over the page, not as a new screen');
+  assert.equal(await p.locator('.trash-dialog .trash-empty').innerText(), 'The trash is empty.');
+  await p.keyboard.press('Escape');
+  await eventually(async () => (await p.locator('.trash-dialog').count()) === 0);
+  await p.locator('.sidebar-account .user-menu-btn').click();
+  await eventually(async () => (await p.locator('.user-menu-popup').count()) === 1);
+  assert.equal(await p.locator('.user-menu-popup .user-menu-theme .theme-switch').count(), 1);
+  await p.locator('.sidebar-account .user-menu-btn').click();
+  await eventually(async () => (await p.locator('.user-menu-popup').count()) === 0);
   // The drawer covers the left two thirds of the screen, so the tap that closes
   // it has to be on the part of the backdrop its own edges leave free.
   // The drawer gives a long page title room for more than two words, and still
@@ -273,6 +289,25 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   if (await sep.count()) assert((await sep.boundingBox()).height >= 1);
   await p.locator('.sheet-backdrop').click({ position: { x: 195, y: 60 } });
   await eventually(async () => (await p.locator('.overflow-menu').count()) === 0);
+
+  // --- dialogs are sheets, their actions always under the thumb -------------
+  await p.goto(`${base}/p/${collection.id}`);
+  const propsButton = p.locator('button.btn-sm').filter({ hasText: /^\s*Properties\s*$/ });
+  await eventually(async () => (await propsButton.count()) === 1);
+  await propsButton.click();
+  await eventually(async () => (await p.locator('.dialog.wide').count()) === 1);
+  const dialogBox = await p.locator('.dialog.wide').boundingBox();
+  assert(dialogBox && dialogBox.height < 844 - 60, `a dialog is a sheet, not the whole screen (${dialogBox?.height})`);
+  const actions = p.locator('.dialog.wide .dialog-buttons').first();
+  assert.equal(await actions.evaluate((el) => getComputedStyle(el).position), 'sticky');
+  assert.equal(await actions.evaluate((el) => getComputedStyle(el).flexDirection), 'row');
+  // Scrolled to the top of a long schema, the actions are still on screen.
+  await p.locator('.dialog.wide').evaluate((el) => { el.scrollTop = 0; });
+  await p.waitForTimeout(200);
+  const actionsBox = await actions.boundingBox();
+  assert(actionsBox && actionsBox.y + actionsBox.height <= 844, 'the actions bar stays pinned to the bottom');
+  await actions.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await eventually(async () => (await p.locator('.dialog').count()) === 0);
 
   // --- the desktop is untouched --------------------------------------------
   await page.goto(`${base}/p/${docA.id}`);

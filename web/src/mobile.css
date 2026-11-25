@@ -175,8 +175,10 @@
 
 .tabs-sheet-title {
   flex: 1;
-  font-size: 14px;
-  font-weight: 600;
+  /* The same title a dialog carries: every bottom sheet is the same kind of
+     surface, and a 14px caption above cards read as a label, not a place. */
+  font-size: 22px;
+  font-weight: 650;
   letter-spacing: -0.01em;
 }
 
@@ -572,6 +574,116 @@
     max-height: calc(100dvh - 160px);
   }
 
+  /* The trash took the theme switch's corner: the appearance choice moved
+     behind the account, and the one footer item that is a destination rather
+     than a setting got the thumb-sized square. */
+  .trash-fab {
+    position: relative;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: var(--hover);
+    color: var(--muted);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .trash-fab:active {
+    background: var(--active);
+    color: var(--fg);
+  }
+
+  .trash-fab-count {
+    position: absolute;
+    top: 1px;
+    right: 2px;
+    min-width: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--active);
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+  }
+
+  /* Rows in the trash dialog are the same list as the desktop section, at
+     arm's length: 52px rows and 36px actions instead of 20px squares. */
+  .trash-dialog {
+    padding: 16px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .trash-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-bottom: 10px;
+  }
+
+  .trash-dialog-head h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .trash-dialog .trash-search {
+    min-height: 40px;
+    margin: 0 0 6px;
+  }
+
+  .trash-dialog .trash-item {
+    gap: 8px;
+    min-height: 52px;
+    padding: 2px 4px;
+    font-size: 14px;
+  }
+
+  .trash-dialog .trash-item > button {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  .trash-dialog .trash-item .trash-peek {
+    width: auto;
+    height: auto;
+  }
+
+  /* The appearance row inside the account menu. */
+  .user-menu-theme {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 44px;
+    padding: 0 10px;
+    border-radius: 6px;
+    color: var(--fg);
+    font-size: 13.5px;
+  }
+
+  /* A three-way switch sitting in a menu row reads far wider than the same
+     control in a footer corner. It keeps all three choices, at menu scale. */
+  .user-menu-theme .theme-switch {
+    flex: none;
+    gap: 1px;
+    margin-left: auto;
+    padding: 2px;
+  }
+
+  .user-menu-theme .theme-switch-opt {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+  }
+
   /* More air between the search field and the first note: the top rows were
      the hardest thing to hit on a tall phone. */
   .sidebar .tree {
@@ -592,6 +704,15 @@
     max-width: calc(100vw - 24px);
     padding: 6px;
     border-radius: 12px;
+  }
+
+  /* Menus inside the drawer sit directly on the tree they came from. The
+     glass material blurs the rows behind the panel, which reads as a smudge
+     that follows the cursor from row to row — depth is not worth that. */
+  .sidebar .menu {
+    background: var(--card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 
   .menu button,
@@ -758,6 +879,9 @@
   .modal-overlay {
     align-items: flex-end;
     padding: 8px 0 calc(8px + var(--kb-inset, 0px));
+    /* Above the drawer (200) and every sheet (320/330): a dialog opened from
+       the drawer — the trash, the profile — used to sit behind it. */
+    z-index: 400;
   }
 
   .search-modal,
@@ -842,23 +966,40 @@
     overflow-y: auto;
   }
 
-  /* Dialogs keep their buttons where the thumb is: stacked, full width, the
-     confirming one last in the source order and therefore at the bottom. */
+  /* Dialog actions ride on a bar pinned to the bottom of the dialog's own
+     scroll: always under the thumb instead of parked at the end of a long
+     scroll, in a row like the desktop, and no longer two full-width rows that
+     ate a third of the screen. */
   .dialog-buttons,
   .dialog-actions {
-    flex-direction: column;
-    align-items: stretch;
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 14px -22px 0;
+    padding: 10px 22px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--card);
   }
 
   .dialog-buttons > button,
   .dialog-actions > button {
-    min-height: 46px;
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 40px;
+    padding: 0 16px;
+    font-size: 14px;
   }
 
+  /* A sheet, not a takeover: the page stays visible above it and the content
+     scrolls inside, so a dialog no longer reads as a new screen. */
   .modal-overlay > .dialog {
     width: 100%;
     max-width: none;
-    max-height: calc(var(--vvh, 100dvh) - 16px);
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
     border-radius: 18px 18px 0 0;
     border-bottom: none;
     overflow-y: auto;
@@ -879,9 +1020,23 @@
     border: none;
     border-top: 1px solid var(--border-strong);
     border-radius: 18px 18px 0 0;
-    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    padding: 14px 12px calc(20px + env(safe-area-inset-bottom));
     box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
     font-size: 15px;
+  }
+
+  /* The sheet says which menu rose. The title is drawn from the attribute, so
+     every filter/sort/group/columns sheet gets one without its own markup. */
+  .fs-popover[data-title]::before {
+    content: attr(data-title);
+    display: block;
+    flex: none;
+    padding: 2px 2px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg);
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
   }
 
   .fs-popover .col-row {

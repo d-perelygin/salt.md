@@ -106,7 +106,7 @@ export async function withFixture(test) {
     };
     // One fixture for every test here: the collection ones use its helpers,
     // the callout one only needs the API and a workspace to write into.
-    await test({ page, context, api, base, workspace, path, open, chip, field, read, assertRows, schema });
+    await test({ page, context, api, base, workspace, collection, path, open, chip, field, read, assertRows, schema });
   } finally {
     await browser?.close();
     if (server && server.exitCode === null) {

@@ -14,7 +14,7 @@ import AnchoredMenu from './AnchoredMenu';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { PageHoverCard, holdWarm, releaseWarm } from './PageHoverCard';
-import TrashSection from './TrashSection';
+import TrashSection, { TrashDialog } from './TrashSection';
 import { compare } from '../format';
 import { plural, t } from '../i18n';
 import { openPage, openPageAux, peekPanel } from '../pageOpen';
@@ -868,6 +868,7 @@ export default function Sidebar({
     }
   }, [expanded]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [addFor, setAddFor] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const dragId = useRef<string | null>(null);
@@ -1472,6 +1473,8 @@ export default function Sidebar({
       onOpenShortcuts={onOpenShortcuts}
       fontPref={fontPref}
       onSetFont={onSetFont}
+      themePref={phone ? themePref : undefined}
+      onSetTheme={phone ? onSetTheme : undefined}
     />
   );
   return (
@@ -1742,7 +1745,7 @@ export default function Sidebar({
           }
         </SidebarSection>
       )}
-      {trashRoots.length > 0 && (
+      {!phone && trashRoots.length > 0 && (
         <TrashSection roots={trashRoots} pages={pages} onRestore={onRestore} onDeleteForever={onDeleteForever} />
       )}
         </div>
@@ -1760,10 +1763,35 @@ export default function Sidebar({
       <div className="sidebar-footer">
         <div className="sidebar-footer-row">
           {phone && workspaceSwitcher}
-          {phone ? null : accountMenu}
-          <SyncButton />
-          <ThemeSwitch value={themePref} onChange={onSetTheme} />
+          {phone ? (
+            <button
+              type="button"
+              className="trash-fab"
+              aria-label={t('Trash')}
+              title={t('Trash')}
+              onClick={() => setTrashOpen(true)}
+            >
+              <Trash2 size={18} />
+              {trashRoots.length > 0 && <span className="trash-fab-count">{trashRoots.length}</span>}
+            </button>
+          ) : (
+            <>
+              {accountMenu}
+              <SyncButton />
+              <ThemeSwitch value={themePref} onChange={onSetTheme} />
+            </>
+          )}
         </div>
+        {phone && (
+          <TrashDialog
+            open={trashOpen}
+            roots={trashRoots}
+            pages={pages}
+            onRestore={onRestore}
+            onDeleteForever={onDeleteForever}
+            onClose={() => setTrashOpen(false)}
+          />
+        )}
         {membersOpen && currentWs && (
           <WorkspaceMembers
             workspaceId={currentWs}
