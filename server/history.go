@@ -386,11 +386,12 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Body    string          `json:"body"`
-		BlockID string          `json:"blockId"`
-		Agent   string          `json:"agent"`
-		Label   string          `json:"label"`
-		Anchor  json.RawMessage `json:"anchor"`
+		Body           string          `json:"body"`
+		BlockID        string          `json:"blockId"`
+		Agent          string          `json:"agent"`
+		Label          string          `json:"label"`
+		Anchor         json.RawMessage `json:"anchor"`
+		IdempotencyKey string          `json:"idempotencyKey"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
@@ -428,6 +429,16 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 	if u.TokenKind != "" {
 		agent, label = commentAgent(body.Agent, body.Label)
 	}
+	idemKey := ""
+	if body.IdempotencyKey != "" {
+		idemKey = u.ID + "\x00comment\x00" + body.IdempotencyKey
+		if cached, reserved := s.reserveIdempotent(idemKey); !reserved {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(cached))
+			return
+		}
+		defer s.releaseIdempotent(idemKey)
+	}
 	id := newID()
 	result, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at, agent, agent_label, anchor)
 		SELECT ?, id, ?, ?, ?, ?, ?, ?, ?, ? FROM pages WHERE id = ? AND (? IS NULL OR doc_gen = ?)`,
@@ -443,7 +454,13 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		httpErrorCode(w, 409, "comment_anchor_stale", "The page changed. Select the text again.")
 		return
 	}
-	writeJSON(w, map[string]string{"id": id})
+	resp := map[string]string{"id": id}
+	if idemKey != "" {
+		if b, err := json.Marshal(resp); err == nil {
+			s.finishIdempotent(idemKey, string(b))
+		}
+	}
+	writeJSON(w, resp)
 }
 
 // commentQuote is the passage a comment was written on. A page comment has none.

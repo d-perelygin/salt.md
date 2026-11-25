@@ -19,10 +19,10 @@ import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmen
 import { de as coreDe, en as coreEn, es as coreEs, ru as coreRu, zh as coreZh, zhTW as coreZhTW } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { TextSelection } from 'prosemirror-state';
-import { api, ApiError, materializeQuery } from '../api';
+import { api, ApiError, isOfflineResponse, materializeQuery } from '../api';
 import * as Y from 'yjs';
-import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
-import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
+import { dropPage, dropYDoc, getPage as getCachedPage, getYDocEntry, putPage as putCachedPage, putUploadBlob, putYDoc } from '../offlineCache';
+import { enqueue, FILE_MAPPED_EVENT, isOfflineError, isTempId, newTempId, refreshCount, REMAP_EVENT, savePageUpdate, SERVER_STATUS_EVENT } from '../outbox';
 import {
   activeViewOf,
   canRedo,
@@ -160,7 +160,15 @@ export default function Editor(props: EditorProps) {
   const [page, setPage] = useState<Page | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [offlineCopy, setOfflineCopy] = useState(false);
+  const [serverReachable, setServerReachable] = useState(true);
   const online = useOnline();
+  const rescueRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    const h = (e: Event) => setServerReachable((e as CustomEvent<boolean>).detail !== false);
+    window.addEventListener(SERVER_STATUS_EVENT, h);
+    return () => window.removeEventListener(SERVER_STATUS_EVENT, h);
+  }, []);
   const [nonce, setNonce] = useState(0);
   const regionId = props.regionId ?? 'content';
   const primary = props.primary ?? true;
@@ -273,14 +281,31 @@ export default function Editor(props: EditorProps) {
     setOfflineCopy(false);
     api
       .getPage(props.pageId)
-      .then((p) => {
+      .then(async (p) => {
         if (!alive) return;
-        setPage(p);
-        void putCachedPage(p);
+        if (isOfflineResponse(p)) {
+          const cached = await getCachedPage(props.pageId);
+          if (!alive) return;
+          setPage(cached ?? p);
+          setOfflineCopy(true);
+        } else {
+          setPage(p);
+          setServerReachable(true);
+          void putCachedPage(p);
+        }
       })
       .catch((e: Error) => {
-        // Offline with a snapshot: render the last seen copy instead of an
-        // error. Edits still merge through the CRDT layer on reconnect.
+        // Only fall back to the offline snapshot on network/gateway errors;
+        // 403/404 means access was revoked or the page was deleted.
+        if (!isOfflineError(e)) {
+          if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+            void dropPage(props.pageId);
+            void dropYDoc(props.pageId);
+          }
+          if (alive) setError(e.message);
+          return;
+        }
+        setServerReachable(false);
         void getCachedPage(props.pageId).then((cached) => {
           if (!alive) return;
           if (cached) {
@@ -326,9 +351,12 @@ export default function Editor(props: EditorProps) {
         (arriving ? ' panel-arriving' : '')
       }
     >
-      {(offlineCopy || !online) && page ? (
+      {(offlineCopy || !online || !serverReachable) && page ? (
         <div className="offline-banner" role="status">
           {t('Offline copy — changes will sync when the connection is back')}
+          {!window.isSecureContext && !('serviceWorker' in navigator && navigator.serviceWorker.controller)
+            ? ` (${t('HTTPS required for offline reload')})`
+            : ''}
         </div>
       ) : null}
       <PageHeader
@@ -369,15 +397,14 @@ export default function Editor(props: EditorProps) {
             onOpenInNewTab={props.onOpenInNewTab}
             onCreatePage={props.onCreatePage}
             onPagesChanged={props.onPagesChanged}
-            onReset={() => {
+            rescueRef={rescueRef}
+            onReset={async () => {
               // The server replaced the document under us (restore, agent
-              // rewrite, import): our in-flight edits lost to the replacement.
-              // The state before it survives as a revision — point there.
-              // The offline journal and snapshot die with it: replaying them
-              // onto the new document would resurrect exactly what was
-              // replaced.
-              void clearJournal(props.pageId);
-              void dropYDoc(props.pageId);
+              // rewrite, import): rescue any unsynced offline text into page
+              // history before clearing the stale local doc and remounting.
+              await rescueRef.current?.().catch(() => {});
+              await dropYDoc(props.pageId);
+              void refreshCount();
               toast.warning(t('This page was replaced on the server. Open Version history to recover your text.'));
               setNonce((n) => n + 1);
             }}
@@ -2741,12 +2768,13 @@ interface CollabProps {
    *  the side panel). Flows through ...rest to BlockContent. */
   regionId: string;
   comments: Comment[];
+  rescueRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   onCommentSelection: (anchor: CommentAnchor, blockId: string) => void;
   onCommentOpen: (id: string) => void;
   onAnchorStatuses: (statuses: Record<string, boolean>) => void;
 }
 
-function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabProps) {
+function CollabEditor({ page, user, theme, canEdit, onReset, rescueRef, ...rest }: CollabProps) {
   const [ready, setReady] = useState(false);
   const [provider, setProvider] = useState<SaltProvider | null>(null);
   const seedRef = useRef<unknown[] | null>(null);
@@ -2762,46 +2790,65 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
     let p: SaltProvider | null = null;
     let saveTimer = 0;
     let onVisibility: (() => void) | null = null;
-    // Restore the offline snapshot first so edits typed before a reload are
-    // not lost; the provider merges it with the server replay on connect.
-    void getYDoc(page.id).then((initialUpdate) => {
+    let onPageHide: (() => void) | null = null;
+    // Restore the offline snapshot only if its docGen matches the server's
+    // current generation (never resurrect a replaced document).
+    void getYDocEntry(page.id).then((entry) => {
       if (cancelled) return;
+      const genMatches =
+        !entry ||
+        entry.gen === null ||
+        page.docGen == null ||
+        entry.gen === page.docGen;
+      const initialUpdate = genMatches ? (entry?.update ?? null) : null;
+      const initialDirty = genMatches ? (entry?.dirty ?? false) : false;
+      if (!genMatches && entry) {
+        void dropYDoc(page.id);
+        if (entry.dirty) {
+          toast.warning(t('Offline edits conflicted with a newer server version and were discarded.'));
+        }
+      }
+      const flushYDocNow = () => {
+        try {
+          if (p && !p.reset && !p.replacedDoc) {
+            const cur = Y.encodeStateAsUpdate(p.doc);
+            if (cur.length > 0) {
+              void putYDoc(page.id, cur, { gen: p.gen, dirty: p.dirty }).then(() => {
+                if (p?.dirty) void refreshCount();
+              });
+            }
+          }
+        } catch {
+          /* snapshot is best-effort */
+        }
+      };
       const scheduleSave = () => {
         window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(() => {
-          try {
-            if (p) {
-              const cur = Y.encodeStateAsUpdate(p.doc);
-              if (cur.length > 0) void putYDoc(page.id, cur);
-            }
-          } catch {
-            /* snapshot is best-effort */
-          }
-        }, 1000);
+        saveTimer = window.setTimeout(flushYDocNow, 1000);
       };
       p = new SaltProvider(
         page.id,
         page.docGen ?? null,
         (isNew) => {
-          // Seed a brand-new CRDT doc from the page's stored content once.
           if (isNew && Array.isArray(page.content) && page.content.length > 0) {
             seedRef.current = page.content;
           }
           setReady(true);
         },
         onReset,
-        { initialUpdate, onLocalUpdate: () => scheduleSave() },
+        {
+          initialUpdate,
+          initialDirty,
+          onLocalUpdate: () => scheduleSave(),
+          onRemoteUpdate: () => scheduleSave(),
+          onDirtyChange: () => void refreshCount(),
+        },
       );
-      // Presence means "is looking at this page right now": a tab in a hidden
-      // window must not show up as a peer for hours. Doc sync stays connected;
-      // only the awareness state is withdrawn. IMPORTANT: setLocalState, not
-      // setLocalStateField — after setLocalState(null) the latter is a silent
-      // no-op (y-protocols checks state !== null), and presence would never come
-      // back after switching tabs.
       const applyPresence = () => {
         if (!p) return;
         if (document.visibilityState === 'hidden') {
           p.awareness.setLocalState(null);
+          flushYDocNow();
         } else {
           p.awareness.setLocalState({
             user: { name: user.name, color: user.color, avatar: user.avatar },
@@ -2809,9 +2856,8 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
         }
       };
       onVisibility = applyPresence;
+      onPageHide = flushYDocNow;
       applyPresence();
-      // Awareness has long known about the others — you just never saw them.
-      // Here they are written into the presence store the header reads.
       const pushPeers = () => {
         if (!p) return;
         const mine = p.awareness.clientID;
@@ -2826,26 +2872,21 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
       p.awareness.on('change', pushPeers);
       pushPeers();
       document.addEventListener('visibilitychange', applyPresence);
+      window.addEventListener('pagehide', flushYDocNow);
       setProvider(p);
-      // A restored snapshot renders now, without waiting for a sync that may
-      // never come while offline: the body below reads the local doc, and the
-      // provider merges it with the server replay on connect. With no snapshot
-      // and no connection there is likewise nothing to wait for.
-      if ((initialUpdate && initialUpdate.length > 0) || !navigator.onLine) setReady(true);
+      if ((initialUpdate && initialUpdate.length > 0) || !navigator.onLine || isTempId(page.id)) setReady(true);
     });
     return () => {
       cancelled = true;
       window.clearTimeout(saveTimer);
       if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
+      if (onPageHide) window.removeEventListener('pagehide', onPageHide);
       clearPeers(page.id);
-      setReady(false); // the next provider (StrictMode) gates itself again
-      // Flush the latest state so a tab closed right now keeps its edits.
-      // Skipped after a server-side reset: the local doc is stale, and
-      // persisting it would resurrect exactly what was replaced.
+      setReady(false);
       try {
-        if (p && !p.reset) {
+        if (p && !p.reset && !p.replacedDoc) {
           const cur = Y.encodeStateAsUpdate(p.doc);
-          if (cur.length > 0) void putYDoc(page.id, cur);
+          if (cur.length > 0) void putYDoc(page.id, cur, { gen: p.gen, dirty: p.dirty });
         }
       } catch {
         /* best-effort */
@@ -2873,6 +2914,7 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
       user={user}
       theme={theme}
       canEdit={canEdit}
+      rescueRef={rescueRef}
       {...rest}
     />
   );
@@ -2916,6 +2958,7 @@ function BlockContent({
   structureOpen,
   regionId,
   comments,
+  rescueRef,
   onCommentSelection,
   onCommentOpen,
   onAnchorStatuses,
@@ -2936,6 +2979,7 @@ function BlockContent({
   onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
   onPagesChanged: () => void;
   comments: Comment[];
+  rescueRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   onCommentSelection: (anchor: CommentAnchor, blockId: string) => void;
   onCommentOpen: (id: string) => void;
   onAnchorStatuses: (statuses: Record<string, boolean>) => void;
@@ -2954,7 +2998,25 @@ function BlockContent({
     // file list. Without it a PDF added in the browser stayed invisible to
     // both, while the same PDF added by an agent did not — the MCP path has
     // always passed a page id.
-    uploadFile: (file: File) => api.upload(file, pageId),
+    uploadFile: async (file: File) => {
+      try {
+        return await api.upload(file, pageId);
+      } catch (e) {
+        if (!isOfflineError(e) && !isTempId(pageId)) throw e;
+        const uploadId = newTempId();
+        const tempUrl = URL.createObjectURL(file);
+        await putUploadBlob({ id: uploadId, blob: file, name: file.name, type: file.type, pageId });
+        const ok = await enqueue({
+          kind: 'upload-file',
+          pageId,
+          payload: { uploadId, tempUrl },
+          label: file.name || t('File'),
+        });
+        if (!ok) throw e;
+        toast.warning(t('Will sync when the connection is back'));
+        return tempUrl;
+      }
+    },
     // BlockNote's own words in the interface's language: the hint on an empty
     // line, its menus, the toolbar. It was always handed English, so a German
     // interface said "Enter text or type '/' for commands" (#114). Changing the
@@ -3600,15 +3662,21 @@ function BlockContent({
                 content: [],
                 createdAt: now,
               });
-              await enqueue({
+              const ok = await enqueue({
                 kind: 'create-page',
                 pageId: tempId,
                 parentId: null,
                 payload: { title: query.trim(), type: 'doc', props: {} },
                 label: query.trim(),
               });
-              onPagesChanged();
-              toast.warning(t('Will sync when the connection is back'));
+              if (ok) {
+                editor.insertInlineContent([
+                  { type: 'pageLink', props: { pageId: tempId, label: query.trim() } },
+                  ' ',
+                ]);
+                onPagesChanged();
+                toast.warning(t('Will sync when the connection is back'));
+              }
               return;
             }
             console.error('salt.md: failed to create page from mention', e);
@@ -3717,7 +3785,7 @@ function BlockContent({
             void savePageUpdate(
               provider.pageId,
               { content: doc } as Record<string, unknown>,
-              { materialize: true, label: t('Page content') },
+              { materialize: true, gen: provider.gen, label: t('Page content') },
             );
             return;
           }
@@ -3742,8 +3810,50 @@ function BlockContent({
       matTimer.current = window.setTimeout(() => flush(false), 1500);
     };
     const unsub = editor.onChange?.(persist);
+    if (rescueRef) {
+      rescueRef.current = async () => {
+        if (!provider.dirty || seedFailed.current) return;
+        const doc = editor.document;
+        if (isEffectivelyEmpty(doc)) return;
+        await fetch(`/api/pages/${provider.pageId}?materialize=1&replaced=1`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: doc }),
+        }).catch(() => {});
+      };
+    }
+    const onRemap = (ev: Event) => {
+      const { tempId, realId } = (ev as CustomEvent<{ tempId: string; realId: string }>).detail;
+      for (const b of editor.document as any[]) {
+        if (Array.isArray(b.content)) {
+          let changed = false;
+          const next = b.content.map((c: any) => {
+            if (c?.type === 'pageLink' && c?.props?.pageId === tempId) {
+              changed = true;
+              return { ...c, props: { ...c.props, pageId: realId } };
+            }
+            return c;
+          });
+          if (changed) editor.updateBlock(b, { content: next } as never);
+        }
+      }
+    };
+    const onFileMapped = (ev: Event) => {
+      const { tempUrl, realUrl, pageId: mappedPage } = (ev as CustomEvent<{ tempUrl: string; realUrl: string; pageId: string }>).detail;
+      if (mappedPage !== provider.pageId) return;
+      for (const b of editor.document as any[]) {
+        if (b?.props?.url === tempUrl) {
+          editor.updateBlock(b, { props: { ...b.props, url: realUrl } } as never);
+        }
+      }
+    };
+    window.addEventListener(REMAP_EVENT, onRemap);
+    window.addEventListener(FILE_MAPPED_EVENT, onFileMapped);
     return () => {
       window.clearTimeout(matTimer.current);
+      if (rescueRef) rescueRef.current = null;
+      window.removeEventListener(REMAP_EVENT, onRemap);
+      window.removeEventListener(FILE_MAPPED_EVENT, onFileMapped);
       flush(true); // flush any pending edit before this editor unmounts
       if (typeof unsub === 'function') unsub();
     };

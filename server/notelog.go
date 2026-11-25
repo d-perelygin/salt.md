@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -171,18 +172,36 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Body string `json:"body"`
+		Body           string `json:"body"`
+		IdempotencyKey string `json:"idempotencyKey"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
 		return
 	}
-	id, err := s.addNote(requestUser(r), pageID, body.Body, "", "")
+	u := requestUser(r)
+	idemKey := ""
+	if body.IdempotencyKey != "" {
+		idemKey = u.ID + "\x00note\x00" + body.IdempotencyKey
+		if cached, reserved := s.reserveIdempotent(idemKey); !reserved {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(cached))
+			return
+		}
+		defer s.releaseIdempotent(idemKey)
+	}
+	id, err := s.addNote(u, pageID, body.Body, "", "")
 	if err != nil {
 		httpErrorFrom(w, 400, err)
 		return
 	}
-	writeJSON(w, map[string]string{"id": id})
+	resp := map[string]string{"id": id}
+	if idemKey != "" {
+		if b, err := json.Marshal(resp); err == nil {
+			s.finishIdempotent(idemKey, string(b))
+		}
+	}
+	writeJSON(w, resp)
 }
 
 // handleClearNotes discards a page's whole trail. sessionOnly on the route: a

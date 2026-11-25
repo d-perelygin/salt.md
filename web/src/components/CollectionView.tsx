@@ -15,7 +15,7 @@ import {
 import { onRefresh } from '../pwa';
 import { clearProcessSession, processTab, readProcessPart, writeProcessPart } from '../processSession';
 import { StatusGateProvider } from '../statusMarks';
-import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
+import { collectionKey, getCollectionSnapshot, listOps, putCollectionSnapshot } from '../offlineCache';
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
 import { useShortcut } from '../keys';
 import {
@@ -700,14 +700,52 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           total: acc.length,
         });
       }
-    } catch {
+    } catch (e) {
       if (!fresh()) return;
-      // Offline with a snapshot: render the frozen view instead of an empty table.
+      if (!isOfflineError(e)) return;
+      // Offline with a snapshot: render the frozen view + any pending offline
+      // row creations or edits from the outbox.
       const snap = await getCollectionSnapshot(collectionKey(collectionId, fsKey));
       if (snap && fresh()) {
         if (!config) setConfig(snap.config);
-        setRows(snap.rows);
-        setTotal(snap.total);
+        const ops = await listOps();
+        const extraRows: Row[] = [];
+        const trashedIds = new Set<string>();
+        const patchMap = new Map<string, Record<string, unknown>>();
+        for (const op of ops) {
+          if (op.kind === 'create-page' && op.parentId === collectionId) {
+            const p = op.payload as { title?: string; props?: Record<string, unknown> };
+            extraRows.push({
+              id: op.pageId,
+              title: p.title ?? '',
+              icon: '',
+              cover: '',
+              props: p.props ?? {},
+              position: op.createdAt,
+            });
+          } else if (op.kind === 'trash-page') {
+            trashedIds.add(op.pageId);
+          } else if (op.kind === 'update-page' && op.payload?.patch) {
+            const prev = patchMap.get(op.pageId) ?? {};
+            patchMap.set(op.pageId, { ...prev, ...(op.payload.patch as Record<string, unknown>) });
+          }
+        }
+        const merged = [...snap.rows, ...extraRows]
+          .filter((r) => !trashedIds.has(r.id))
+          .map((r) => {
+            const p = patchMap.get(r.id);
+            if (!p) return r;
+            return {
+              ...r,
+              ...(typeof p.title === 'string' ? { title: p.title } : {}),
+              ...(typeof p.position === 'number' ? { position: p.position } : {}),
+              ...(p.propsPatch && typeof p.propsPatch === 'object'
+                ? { props: { ...r.props, ...(p.propsPatch as Record<string, unknown>) } }
+                : {}),
+            };
+          });
+        setRows(merged);
+        setTotal(merged.length);
         setOfflineSnapshot(true);
       }
     }
@@ -1415,6 +1453,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       await loadRows();
       onPagesChanged();
     } catch (e) {
+      if (isTempId(id) || isOfflineError(e)) {
+        const queued = await enqueue({ kind: 'trash-page', pageId: id, payload: {}, label: title || t('Move to trash') });
+        if (queued) {
+          setRows((prev) => prev.filter((r) => r.id !== id));
+          toast.warning(t('Will sync when the connection is back'));
+        }
+        return;
+      }
       toast((e as Error).message || t('Could not be moved to the trash'));
     }
   };

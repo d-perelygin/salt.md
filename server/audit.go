@@ -297,6 +297,46 @@ func (s *Server) storeIdempotent(key, result string) {
 	s.db.Exec(`INSERT INTO idempotency (key, result, created_at) VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING`, key, result, now())
 }
 
+// reserveIdempotent atomically claims an idempotency key before performing a
+// mutation, preventing concurrent retries (e.g. two browser tabs flushing the
+// same offline outbox) from running the mutation twice. Returns (cached, false)
+// if a completed result already exists, or ("", true) if this caller claimed
+// the key and must call finishIdempotent or releaseIdempotent.
+func (s *Server) reserveIdempotent(key string) (string, bool) {
+	if key == "" {
+		return "", true
+	}
+	for i := 0; i < 40; i++ {
+		res, err := s.db.Exec(`INSERT INTO idempotency (key, result, created_at) VALUES (?, '', ?) ON CONFLICT(key) DO NOTHING`, key, now())
+		if err == nil {
+			if n, _ := res.RowsAffected(); n > 0 {
+				return "", true
+			}
+		}
+		var cached string
+		err = s.db.QueryRow(`SELECT result FROM idempotency WHERE key = ?`, key).Scan(&cached)
+		if err == nil && cached != "" {
+			return cached, false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return "", true
+}
+
+func (s *Server) finishIdempotent(key, result string) {
+	if key == "" || result == "" {
+		return
+	}
+	s.db.Exec(`UPDATE idempotency SET result = ? WHERE key = ?`, result, key)
+}
+
+func (s *Server) releaseIdempotent(key string) {
+	if key == "" {
+		return
+	}
+	s.db.Exec(`DELETE FROM idempotency WHERE key = ? AND result = ''`, key)
+}
+
 // handleAuditRevert takes back ONE recorded change, and only the part of it
 // that is still exactly as the actor left it.
 //

@@ -79,9 +79,13 @@ export default function NoteTrail({ pageId, canWrite }: { pageId: string; canWri
       // Offline (or a not-yet-synced temp page): journal the note, it replays
       // after the page itself exists. Anything else puts the text back.
       if (isTempId(pageId) || isOfflineError(e)) {
-        await enqueue({ kind: 'note', pageId, payload: { body: text }, label: text.slice(0, 60) });
-        setExpanded(true);
-        toast.warning(t('Will sync when the connection is back'));
+        const ok = await enqueue({ kind: 'note', pageId, payload: { body: text }, label: text.slice(0, 60) });
+        if (ok) {
+          setExpanded(true);
+          toast.warning(t('Will sync when the connection is back'));
+        } else {
+          setBody(text);
+        }
         return;
       }
       setBody(text);
