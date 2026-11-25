@@ -11,7 +11,16 @@ type sqlRows = *sql.Rows
 
 // mcpAIThreads lists the calling user's chat threads.
 func (s *Server) mcpAIThreads(u *user) (string, error) {
-	rows, err := s.db.Query(`SELECT id, title, page_id, page_title, msg_count, has_runs, updated_at FROM ai_threads WHERE user_id = ? ORDER BY updated_at DESC`, u.ID)
+	if !s.aiEnabledForUser(u) {
+		return "", fmt.Errorf("AI is disabled")
+	}
+	rows, err := s.db.Query(`SELECT t.id, t.title, t.page_id,
+		COALESCE(p.title, '') AS page_title,
+		(SELECT COUNT(*) FROM ai_messages m WHERE m.thread_id = t.id) AS msg_count,
+		EXISTS (SELECT 1 FROM ai_runs r WHERE r.thread_id = t.id) AS has_runs,
+		t.updated_at
+		FROM ai_threads t LEFT JOIN pages p ON p.id = t.page_id
+		WHERE t.user_id = ? ORDER BY t.updated_at DESC`, u.ID)
 	if err != nil {
 		return "", err
 	}
@@ -35,12 +44,21 @@ func (s *Server) mcpAIThreads(u *user) (string, error) {
 		t.HasRuns = hasRuns == 1
 		out = append(out, t)
 	}
+	rows.Close()
+	for i := range out {
+		if out[i].PageID != "" && !s.canRead(u.ID, out[i].PageID) {
+			out[i].PageTitle = ""
+		}
+	}
 	b, _ := json.Marshal(out)
 	return string(b), nil
 }
 
 // mcpAIThreadMessages returns the messages of one of the user's threads.
 func (s *Server) mcpAIThreadMessages(u *user, threadID string, limit int) (string, error) {
+	if !s.aiEnabledForUser(u) {
+		return "", fmt.Errorf("AI is disabled")
+	}
 	if threadID == "" {
 		return "", fmt.Errorf("thread_id required")
 	}
@@ -86,6 +104,9 @@ func (s *Server) mcpAIThreadMessages(u *user, threadID string, limit int) (strin
 
 // mcpAIThreadRuns lists the runs of one of the user's threads.
 func (s *Server) mcpAIThreadRuns(u *user, threadID string) (string, error) {
+	if !s.aiEnabledForUser(u) {
+		return "", fmt.Errorf("AI is disabled")
+	}
 	if threadID == "" {
 		return "", fmt.Errorf("thread_id required")
 	}
@@ -125,6 +146,9 @@ func (s *Server) mcpAIThreadRuns(u *user, threadID string) (string, error) {
 
 // mcpAIRun reads one run (owned by the user).
 func (s *Server) mcpAIRun(u *user, runID string) (string, error) {
+	if !s.aiEnabledForUser(u) {
+		return "", fmt.Errorf("AI is disabled")
+	}
 	if runID == "" {
 		return "", fmt.Errorf("run_id required")
 	}
@@ -159,6 +183,9 @@ func (s *Server) mcpAIRun(u *user, runID string) (string, error) {
 
 // mcpAIRunSteps reads the trace of one run (owned by the user).
 func (s *Server) mcpAIRunSteps(u *user, runID string) (string, error) {
+	if !s.aiEnabledForUser(u) {
+		return "", fmt.Errorf("AI is disabled")
+	}
 	if runID == "" {
 		return "", fmt.Errorf("run_id required")
 	}

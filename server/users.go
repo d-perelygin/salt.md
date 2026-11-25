@@ -700,6 +700,20 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "invalid color")
 		return
 	}
+	if body.AIDisabled != nil {
+		if !me.IsAdmin || (!s.isOwner(me.ID) && me.AIDisabled) {
+			httpError(w, 403, "forbidden")
+			return
+		}
+		if s.isOwner(id) && !s.isOwner(me.ID) {
+			httpError(w, 403, "forbidden")
+			return
+		}
+		if id == me.ID && *body.AIDisabled {
+			httpError(w, 403, "forbidden")
+			return
+		}
+	}
 	if body.Password != nil && len(*body.Password) < 8 {
 		httpError(w, 400, "password must be at least 8 characters")
 		return
@@ -721,12 +735,15 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			s.db.Exec(`UPDATE org_members SET role = ? WHERE org_id = ? AND user_id = ? AND role != ?`, role, org, id, roleOwner)
 		}
 	}
-	if body.AIDisabled != nil && me.IsAdmin && !me.AIDisabled {
+	if body.AIDisabled != nil {
 		v := 0
 		if *body.AIDisabled {
 			v = 1
 		}
 		s.db.Exec(`UPDATE users SET ai_disabled = ? WHERE id = ?`, v, id)
+		if *body.AIDisabled {
+			s.cancelAIRunsForUser(id)
+		}
 	}
 	if body.Email != nil {
 		s.db.Exec(`UPDATE users SET email = ?, email_verified = 0 WHERE id = ?`, newEmail, id)

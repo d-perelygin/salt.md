@@ -1,12 +1,19 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
+	"time"
+	"unicode/utf8"
 )
 
 // Approval policy: read-only tools never ask, destructive ones ask on
@@ -373,9 +380,268 @@ func TestAIDisabledForUser(t *testing.T) {
 	// Member cannot use AI endpoints.
 	if r := call(memberCookie, "POST", "/api/ai/runs", `{"task":"test"}`); r.Code != 403 {
 		t.Fatalf("expected 403 on /api/ai/runs for aiDisabled user, got %d", r.Code)
+	} else if !strings.Contains(r.Body.String(), `"AI is disabled"`) {
+		t.Fatalf("expected standardized 'AI is disabled' message, got %s", r.Body.String())
 	}
 	if r := call(memberCookie, "GET", "/api/ai/settings", ""); r.Code != 403 {
 		t.Fatalf("expected 403 on /api/ai/settings for aiDisabled user, got %d", r.Code)
+	}
+}
+
+// BUG-06: SPA HTML responses carry Content-Security-Policy header.
+func TestSPAHandlerSetsCSPOnHTML(t *testing.T) {
+	fsys := fstest.MapFS{
+		"index.html":        {Data: []byte("<html><body>ok</body></html>")},
+		"assets/app-123.js": {Data: []byte("console.log(1)")},
+	}
+	h := spaHandler(fsys)
+
+	for _, path := range []string{"/", "/p/abc", "/index.html"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", path, nil)
+		h.ServeHTTP(rec, req)
+		if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") || !strings.Contains(csp, "object-src 'none'") {
+			t.Errorf("GET %s: missing/unexpected CSP %q", path, csp)
+		}
+	}
+
+	recJS := httptest.NewRecorder()
+	reqJS := httptest.NewRequest("GET", "/assets/app-123.js", nil)
+	h.ServeHTTP(recJS, reqJS)
+	if csp := recJS.Header().Get("Content-Security-Policy"); csp != "" {
+		t.Errorf("GET /assets/app-123.js should not set HTML CSP, got %q", csp)
+	}
+}
+
+// BUG-14 & BUG-15: Thread runs expose error field, and MCP ai_threads computes joined/aggregate columns.
+func TestAIThreadRunsErrorAndMCPThreads(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "mcpthreads@example.com")
+	ws := s.firstWorkspaceOf(t, uid)
+	pid := s.makePage(t, ws, uid, "", "Roadmap", "[]")
+	tid := newID()
+	runID := newID()
+	s.db.Exec(`INSERT INTO ai_threads (id, user_id, workspace_id, page_id, title, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+		tid, uid, ws, pid, "Thread 1", now(), now())
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, created_at) VALUES (?,?,?,?,?)`,
+		newID(), tid, "user", "hello", now())
+	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, task, error, started_at, finished_at) VALUES (?,?,?,?,?,?,?,?)`,
+		runID, uid, tid, "failed", "do thing", "upstream 429 rate limit", now(), now())
+
+	req := httptest.NewRequest("GET", "/api/ai/threads/"+tid+"/runs", nil)
+	req.Header.Set("Cookie", cookie)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("GET thread runs: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"error":"upstream 429 rate limit"`) {
+		t.Fatalf("expected error field in thread runs JSON, got: %s", rec.Body.String())
+	}
+
+	out, err := s.mcpAIThreads(s.userByID(uid))
+	if err != nil {
+		t.Fatalf("mcpAIThreads error: %v", err)
+	}
+	var list []struct {
+		ID        string `json:"id"`
+		PageTitle string `json:"pageTitle"`
+		MsgCount  int    `json:"msgCount"`
+		HasRuns   bool   `json:"hasRuns"`
+	}
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		t.Fatalf("unmarshal mcpAIThreads: %v", err)
+	}
+	if len(list) != 1 || list[0].PageTitle != "Roadmap" || list[0].MsgCount != 1 || !list[0].HasRuns {
+		t.Fatalf("unexpected mcpAIThreads result: %+v", list)
+	}
+}
+
+// BUG-12: Deleting a thread cancels active runs, cleans up attachments/files, and wait loops exit on ErrNoRows.
+func TestDeleteAIThreadCancelsWaitLoopsAndCleansAttachments(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "delclean@example.com")
+	ws := s.firstWorkspaceOf(t, uid)
+	pid := s.makePage(t, ws, uid, "", "Doc", "[]")
+	tid := newID()
+	runID := newID()
+	fname := "att-" + newID() + ".txt"
+	fpath := filepath.Join(s.dataDir, "files", fname)
+	if err := os.WriteFile(fpath, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.db.Exec(`INSERT INTO files (file_name, display_name, ext, size, created_at) VALUES (?,?,?,?,?)`, fname, "note.txt", ".txt", 6, now())
+	s.db.Exec(`INSERT INTO ai_threads (id, user_id, workspace_id, page_id, title, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+		tid, uid, ws, pid, "Active Thread", now(), now())
+	s.db.Exec(`INSERT INTO ai_attachments (id, user_id, thread_id, file_name, extracted_text, status, created_at) VALUES (?,?,?,?,?,?,?)`,
+		newID(), uid, tid, fname, "secret", "done", now())
+	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, task, started_at) VALUES (?,?,?,?,?,?)`,
+		runID, uid, tid, "waiting_user", "task", now())
+	s.db.Exec(`INSERT INTO agent_presence (page_id, account_id, agent, label, note, started_at, last_seen) VALUES (?,?,?,?,?,?,?)`,
+		pid, uid, "salt-ai", "AI agent", "task", now(), now())
+
+	cancelled := make(chan struct{})
+	runMu.Lock()
+	runCancel[runID] = func() { close(cancelled) }
+	runMu.Unlock()
+	defer func() {
+		runMu.Lock()
+		delete(runCancel, runID)
+		runMu.Unlock()
+	}()
+
+	waitDone := make(chan string, 1)
+	go func() {
+		waitDone <- s.aiWaitUser(context.Background(), runID)
+	}()
+
+	req := httptest.NewRequest("DELETE", "/api/ai/threads/"+tid, nil)
+	req.Header.Set("Cookie", cookie)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("DELETE thread: %d %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected active run cancel func to be invoked on thread delete")
+	}
+	select {
+	case ans := <-waitDone:
+		if ans != "" {
+			t.Fatalf("expected empty answer on deleted run, got %q", ans)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("aiWaitUser did not exit promptly after run deletion")
+	}
+
+	if _, err := os.Stat(fpath); !os.IsNotExist(err) {
+		t.Fatalf("expected attachment file %s to be deleted, stat err=%v", fpath, err)
+	}
+	var attCount, fileCount, presCount int
+	s.db.QueryRow(`SELECT COUNT(*) FROM ai_attachments WHERE thread_id = ?`, tid).Scan(&attCount)
+	s.db.QueryRow(`SELECT COUNT(*) FROM files WHERE file_name = ?`, fname).Scan(&fileCount)
+	s.db.QueryRow(`SELECT COUNT(*) FROM agent_presence WHERE page_id = ? AND account_id = ?`, pid, uid).Scan(&presCount)
+	if attCount != 0 || fileCount != 0 || presCount != 0 {
+		t.Fatalf("leftover rows after thread delete: att=%d files=%d presence=%d", attCount, fileCount, presCount)
+	}
+}
+
+// BUG-10: Disabling AI globally cancels active runs and blocks MCP ai_* tools.
+func TestDisableAIGloballyCancelsActiveRunsAndBlocksMCP(t *testing.T) {
+	s := testServer(t)
+	uid, adminCookie := signedIn(t, s, "globaloff@example.com")
+	tid := newID()
+	runID := newID()
+	s.db.Exec(`INSERT INTO ai_threads (id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)`, tid, uid, "T", now(), now())
+	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, task, started_at) VALUES (?,?,?,?,?,?)`, runID, uid, tid, "running", "task", now())
+
+	cancelled := make(chan struct{})
+	runMu.Lock()
+	runCancel[runID] = func() { close(cancelled) }
+	runMu.Unlock()
+	defer func() {
+		runMu.Lock()
+		delete(runCancel, runID)
+		runMu.Unlock()
+	}()
+
+	req := httptest.NewRequest("PUT", "/api/settings", strings.NewReader(`{"aiEnabled":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", adminCookie)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("PUT /api/settings: %d %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected active run to be cancelled when aiEnabled=false")
+	}
+
+	var status string
+	s.db.QueryRow(`SELECT status FROM ai_runs WHERE id = ?`, runID).Scan(&status)
+	if status != "cancelled" {
+		t.Fatalf("run status = %q, want cancelled", status)
+	}
+	if _, err := s.mcpAIThreads(s.userByID(uid)); err == nil {
+		t.Fatalf("expected mcpAIThreads to fail when AI is globally disabled")
+	}
+}
+
+// BUG-24: Rune-safe truncation and tool step body formatting.
+func TestTruncateRunesAndToolStepBody(t *testing.T) {
+	s := strings.Repeat("П", 10) + "🚀" + strings.Repeat("я", 10)
+	got := truncateRunes(s, 11)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncateRunes produced invalid UTF-8: %q", got)
+	}
+	if got != strings.Repeat("П", 10)+"🚀…" {
+		t.Fatalf("truncateRunes = %q", got)
+	}
+	body := formatToolStepBody(`{"query":"hello"}`, "found 1 page")
+	if !strings.Contains(body, `"query":"hello"`) || !strings.Contains(body, "found 1 page") {
+		t.Fatalf("formatToolStepBody lost args or result: %q", body)
+	}
+}
+
+// BUG-46: Retry excludes assistant response created after the retried user message.
+func TestAIThreadHistoryExcludesSubsequentAssistantOnRetry(t *testing.T) {
+	s := testServer(t)
+	uid, _ := signedIn(t, s, "retryhist@example.com")
+	tid := newID()
+	s.db.Exec(`INSERT INTO ai_threads (id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)`, tid, uid, "Retry", now(), now())
+
+	t0 := "2026-01-01T00:00:01Z"
+	t1 := "2026-01-01T00:00:02Z"
+	t2 := "2026-01-01T00:00:03Z"
+	t3 := "2026-01-01T00:00:04Z"
+	u1 := newID()
+	a1 := newID()
+	u2 := newID()
+	a2 := newID()
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, created_at) VALUES (?,?,?,?,?)`, u1, tid, "user", "first Q", t0)
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, created_at) VALUES (?,?,?,?,?)`, a1, tid, "assistant", "first A", t1)
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, created_at) VALUES (?,?,?,?,?)`, u2, tid, "user", "retried Q", t2)
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, created_at) VALUES (?,?,?,?,?)`, a2, tid, "assistant", "stale bad A", t3)
+
+	hist := s.aiThreadHistory(tid, u2, 8)
+	if len(hist) != 2 || hist[0][1] != "first Q" || hist[1][1] != "first A" {
+		t.Fatalf("unexpected retry history (should exclude retried Q and stale bad A): %+v", hist)
+	}
+}
+
+// BUG-47: Small attachment with foreign threadId is rejected before saving.
+func TestAIAttachmentRejectsForeignThreadSmallPayload(t *testing.T) {
+	s := testServer(t)
+	aliceID, _ := signedIn(t, s, "alice-att@example.com")
+	_, bobCookie := signedIn(t, s, "bob-att@example.com")
+	aliceThread := newID()
+	s.db.Exec(`INSERT INTO ai_threads (id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)`, aliceThread, aliceID, "Alice", now(), now())
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("threadId", aliceThread)
+	fw, _ := mw.CreateFormFile("file", "small.txt")
+	fw.Write([]byte("hello"))
+	mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/ai/attachments", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Cookie", bobCookie)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != 404 {
+		t.Fatalf("expected 404 for foreign threadId on small upload, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var cnt int
+	s.db.QueryRow(`SELECT COUNT(*) FROM ai_attachments WHERE thread_id = ?`, aliceThread).Scan(&cnt)
+	if cnt != 0 {
+		t.Fatalf("foreign attachment inserted: %d", cnt)
 	}
 }
 

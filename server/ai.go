@@ -10,8 +10,10 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -28,22 +30,114 @@ func (s *Server) aiEnabled() bool {
 	return s.setting("ai_enabled", "1") == "1"
 }
 
+const maxAIResponseBody = 4 << 20
+
+type errRoundTripper struct{ err error }
+
+func (e errRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, e.err
+}
+
+type aiTransportKey struct {
+	proxyURL      string
+	userCustomURL bool
+}
+
+var (
+	aiTransportMu        sync.Mutex
+	aiTransports         = map[aiTransportKey]http.RoundTripper{}
+	aiInvalidProxyLogged = map[string]bool{}
+)
+
+func aiHTTPTransport(userCustomURL bool) http.RoundTripper {
+	proxyRaw := strings.TrimSpace(os.Getenv("AI_PROXY_URL"))
+	key := aiTransportKey{proxyURL: proxyRaw, userCustomURL: userCustomURL}
+
+	aiTransportMu.Lock()
+	defer aiTransportMu.Unlock()
+	if rt, ok := aiTransports[key]; ok {
+		return rt
+	}
+
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	if proxyRaw != "" {
+		pu, err := url.Parse(proxyRaw)
+		validScheme := err == nil && (pu.Scheme == "http" || pu.Scheme == "https" || pu.Scheme == "socks5" || pu.Scheme == "socks5h")
+		if !validScheme || pu.Host == "" || pu.Hostname() == "" {
+			if !aiInvalidProxyLogged[proxyRaw] {
+				aiInvalidProxyLogged[proxyRaw] = true
+				log.Printf("invalid AI_PROXY_URL %q: refusing direct AI egress", proxyRaw)
+			}
+			rt := errRoundTripper{err: fmt.Errorf("invalid AI_PROXY_URL")}
+			aiTransports[key] = rt
+			return rt
+		}
+		base.Proxy = http.ProxyURL(pu)
+	}
+	if userCustomURL {
+		base.DialContext = safeDial
+	}
+	aiTransports[key] = base
+	return base
+}
+
 // aiHTTPClient returns an *http.Client for AI provider calls. When AI_PROXY_URL
 // is set (e.g. http://mihomo:7890) the request is tunnelled through it; otherwise
 // a direct client is used. Other outbound traffic in salt does not use this proxy.
 func aiHTTPClient() *http.Client {
-	c := &http.Client{Timeout: 5 * time.Minute}
-	if u := os.Getenv("AI_PROXY_URL"); u != "" {
-		if pu, err := url.Parse(u); err == nil {
-			c.Transport = &http.Transport{Proxy: http.ProxyURL(pu)}
-		}
+	return aiHTTPClientFor(false)
+}
+
+func aiHTTPClientFor(userCustomURL bool) *http.Client {
+	return &http.Client{
+		Timeout:   5 * time.Minute,
+		Transport: aiHTTPTransport(userCustomURL),
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return fmt.Errorf("AI endpoint must not redirect")
+		},
 	}
-	return c
 }
 
 // aiEnabledForUser reports whether AI is enabled both globally and for the user.
 func (s *Server) aiEnabledForUser(u *user) bool {
 	return u != nil && !u.AIDisabled && s.aiEnabled()
+}
+
+// aiAuth requires an authenticated user with AI enabled both globally and for their account.
+func (s *Server) aiAuth(next http.HandlerFunc) http.HandlerFunc {
+	return s.auth(func(w http.ResponseWriter, r *http.Request) {
+		if !s.aiEnabledForUser(requestUser(r)) {
+			httpError(w, 403, "AI is disabled")
+			return
+		}
+		next(w, r)
+	})
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	n := 0
+	for i := range s {
+		if n == max {
+			return s[:i] + "…"
+		}
+		n++
+	}
+	return s
+}
+
+func formatToolStepBody(argsStr, result string) string {
+	a := truncateRunes(strings.TrimSpace(argsStr), 800)
+	r := truncateRunes(strings.TrimSpace(result), 1200)
+	if a == "" {
+		return r
+	}
+	if r == "" {
+		return "Args:\n" + a
+	}
+	return truncateRunes("Args:\n"+a+"\n\nResult:\n"+r, 2000)
 }
 
 // aiWorkspaceEnabled lets a workspace opt out. Empty means on.
@@ -198,7 +292,12 @@ func (s *Server) handlePutAISettings(w http.ResponseWriter, r *http.Request) {
 		temp = 0.7
 	}
 	if body.BaseURL != nil {
-		bs = normalizeAIBaseURL(*body.BaseURL)
+		norm, err := validateAIBaseURL(*body.BaseURL)
+		if err != nil {
+			httpError(w, 400, err.Error())
+			return
+		}
+		bs = norm
 	}
 	if body.Model != nil {
 		model = strings.TrimSpace(*body.Model)
@@ -249,10 +348,27 @@ func normalizeAIBaseURL(raw string) string {
 	return u
 }
 
+func validateAIBaseURL(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", nil
+	}
+	norm := normalizeAIBaseURL(raw)
+	u, err := url.Parse(norm)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Hostname() == "" {
+		return "", fmt.Errorf("invalid base URL")
+	}
+	return norm, nil
+}
+
 // resolveAIConfig returns base_url, model, format, temperature, apiKey, approval for a user.
 func (s *Server) resolveAIConfig(u *user) (string, string, string, float64, string, string, error) {
+	bs, model, format, temp, apiKey, approval, _, err := s.resolveAIConfigWithOrigin(u)
+	return bs, model, format, temp, apiKey, approval, err
+}
+
+func (s *Server) resolveAIConfigWithOrigin(u *user) (string, string, string, float64, string, string, bool, error) {
 	if !s.aiEnabledForUser(u) {
-		return "", "", "", 0, "", "", fmt.Errorf("AI is disabled")
+		return "", "", "", 0, "", "", false, fmt.Errorf("AI is disabled")
 	}
 	var bs, model, format, enc, approval string
 	var temp float64
@@ -269,32 +385,39 @@ func (s *Server) resolveAIConfig(u *user) (string, string, string, float64, stri
 	if temp == 0 {
 		temp = 0.7
 	}
-	// defaults from instance
-	if bs == "" {
-		bs = s.setting("ai_default_base_url", "https://api.openai.com/v1")
+	defBase := normalizeAIBaseURL(s.setting("ai_default_base_url", "https://api.openai.com/v1"))
+	rawUserBS := normalizeAIBaseURL(bs)
+	userCustomURL := rawUserBS != "" && rawUserBS != defBase
+	if rawUserBS != "" {
+		bs = rawUserBS
+	} else {
+		bs = defBase
 	}
-	bs = normalizeAIBaseURL(bs)
+	bs, err = validateAIBaseURL(bs)
+	if err != nil || bs == "" {
+		return "", "", "", 0, "", "", userCustomURL, fmt.Errorf("invalid base URL")
+	}
 	if model == "" {
 		model = s.setting("ai_default_model", "gpt-4o-mini")
 	}
 	key, err := s.aiEncKey()
 	if err != nil {
-		return "", "", "", 0, "", "", err
+		return "", "", "", 0, "", "", userCustomURL, err
 	}
 	apiKey, err := decryptSecret(enc, key)
 	if err != nil {
-		return "", "", "", 0, "", "", err
+		return "", "", "", 0, "", "", userCustomURL, err
 	}
-	if apiKey == "" {
+	if apiKey == "" && !userCustomURL {
 		enc2 := s.setting("ai_instance_key_enc", "")
-		if enc2 != "" && (s.setting("ai_allow_instance_key", "1") == "1" || u.IsAdmin) {
+		if enc2 != "" && (s.setting("ai_allow_instance_key", "0") == "1" || u.IsAdmin) {
 			apiKey, _ = decryptSecret(enc2, key)
 		}
 	}
 	if apiKey == "" {
-		return "", "", "", 0, "", "", fmt.Errorf("no API key configured")
+		return "", "", "", 0, "", "", userCustomURL, fmt.Errorf("no API key configured")
 	}
-	return bs, model, format, temp, apiKey, approval, nil
+	return bs, model, format, temp, apiKey, approval, userCustomURL, nil
 }
 
 // ---- threads & messages ----
@@ -302,7 +425,7 @@ func (s *Server) resolveAIConfig(u *user) (string, string, string, float64, stri
 func (s *Server) handleListAIThreads(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	if !s.aiEnabledForUser(u) {
-		writeJSON(w, []any{})
+		httpError(w, 403, "AI is disabled")
 		return
 	}
 	pageID := r.URL.Query().Get("page_id")
@@ -351,15 +474,18 @@ func (s *Server) handleListAIThreads(w http.ResponseWriter, r *http.Request) {
 		var preview, lastRole sql.NullString
 		rows.Scan(&x.ID, &x.UserID, &x.WorkspaceID, &x.PageID, &x.Title, &x.CreatedAt, &x.UpdatedAt, &x.LastReadAt, &x.PageTitle, &x.MsgCount, &preview, &lastRole, &x.HasRuns)
 		if preview.Valid {
-			x.LastPreview = preview.String
-			if len(x.LastPreview) > 160 {
-				x.LastPreview = x.LastPreview[:160] + "…"
-			}
+			x.LastPreview = truncateRunes(preview.String, 160)
 		}
 		if lastRole.Valid {
 			x.LastRole = lastRole.String
 		}
 		out = append(out, x)
+	}
+	rows.Close()
+	for i := range out {
+		if out[i].PageID != "" && !s.canRead(u.ID, out[i].PageID) {
+			out[i].PageTitle = ""
+		}
 	}
 	writeJSON(w, out)
 }
@@ -374,7 +500,7 @@ func (s *Server) handleListAIThreadRuns(w http.ResponseWriter, r *http.Request) 
 		httpError(w, 404, "not found")
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, status, task, progress, started_at, finished_at, artifacts FROM ai_runs WHERE thread_id = ? ORDER BY started_at ASC`, threadID)
+	rows, err := s.db.Query(`SELECT id, status, task, progress, error, started_at, finished_at, artifacts FROM ai_runs WHERE thread_id = ? ORDER BY started_at ASC`, threadID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -385,6 +511,7 @@ func (s *Server) handleListAIThreadRuns(w http.ResponseWriter, r *http.Request) 
 		Status    string `json:"status"`
 		Task      string `json:"task"`
 		Progress  string `json:"progress"`
+		Error     string `json:"error,omitempty"`
 		StartedAt string `json:"startedAt"`
 		Finished  string `json:"finishedAt"`
 		Artifacts string `json:"artifacts"`
@@ -392,7 +519,7 @@ func (s *Server) handleListAIThreadRuns(w http.ResponseWriter, r *http.Request) 
 	out := []run{}
 	for rows.Next() {
 		var x run
-		rows.Scan(&x.ID, &x.Status, &x.Task, &x.Progress, &x.StartedAt, &x.Finished, &x.Artifacts)
+		rows.Scan(&x.ID, &x.Status, &x.Task, &x.Progress, &x.Error, &x.StartedAt, &x.Finished, &x.Artifacts)
 		out = append(out, x)
 	}
 	writeJSON(w, out)
@@ -409,7 +536,18 @@ func (s *Server) handleCreateAIThread(w http.ResponseWriter, r *http.Request) {
 		PageID      string `json:"pageId"`
 		Title       string `json:"title"`
 	}
-	decodeJSON(w, r, &body)
+	if err := decodeJSON(w, r, &body); err != nil && !errors.Is(err, io.EOF) {
+		httpError(w, 400, "invalid JSON")
+		return
+	}
+	if body.PageID != "" && !s.canReadReq(r, body.PageID) {
+		httpError(w, 404, "not found")
+		return
+	}
+	if body.WorkspaceID != "" && (!s.isMember(u.ID, body.WorkspaceID) || !s.credentialMayEnter(u, body.WorkspaceID)) {
+		httpError(w, 404, "not found")
+		return
+	}
 	id := newID()
 	ts := now()
 	s.db.Exec(`INSERT INTO ai_threads (id, user_id, workspace_id, page_id, title, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
@@ -456,8 +594,95 @@ func (s *Server) handleGetAIThreadMessages(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleDeleteAIThread(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	id := r.PathValue("id")
-	s.db.Exec(`DELETE FROM ai_runs WHERE thread_id = ? AND user_id = ?`, id, u.ID)
-	s.db.Exec(`DELETE FROM ai_threads WHERE id = ? AND user_id = ?`, id, u.ID)
+	var owner, pageID string
+	if err := s.db.QueryRow(`SELECT user_id, page_id FROM ai_threads WHERE id = ?`, id).Scan(&owner, &pageID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpError(w, 404, "not found")
+			return
+		}
+		httpError(w, 500, err.Error())
+		return
+	}
+	if owner != u.ID {
+		httpError(w, 404, "not found")
+		return
+	}
+
+	var runIDs []string
+	if rows, err := s.db.Query(`SELECT id FROM ai_runs WHERE thread_id = ? AND user_id = ?`, id, u.ID); err == nil {
+		for rows.Next() {
+			var rid string
+			if rows.Scan(&rid) == nil {
+				runIDs = append(runIDs, rid)
+			}
+		}
+		rows.Close()
+	}
+	runMu.Lock()
+	for _, rid := range runIDs {
+		if c, ok := runCancel[rid]; ok {
+			c()
+		}
+	}
+	runMu.Unlock()
+
+	var attFiles []string
+	if rows, err := s.db.Query(`SELECT file_name FROM ai_attachments WHERE thread_id = ? AND user_id = ?`, id, u.ID); err == nil {
+		for rows.Next() {
+			var fn string
+			if rows.Scan(&fn) == nil && fn != "" {
+				attFiles = append(attFiles, fn)
+			}
+		}
+		rows.Close()
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	defer tx.Rollback()
+
+	if pageID != "" && len(runIDs) > 0 {
+		tx.Exec(`DELETE FROM agent_presence WHERE page_id = ? AND account_id = ? AND agent = 'salt-ai'`, pageID, u.ID)
+	}
+	tx.Exec(`DELETE FROM ai_steps WHERE thread_id = ? OR run_id IN (SELECT id FROM ai_runs WHERE thread_id = ? AND user_id = ?)`, id, id, u.ID)
+	tx.Exec(`DELETE FROM ai_attachments WHERE thread_id = ? AND user_id = ?`, id, u.ID)
+	tx.Exec(`DELETE FROM ai_runs WHERE thread_id = ? AND user_id = ?`, id, u.ID)
+	tx.Exec(`DELETE FROM ai_messages WHERE thread_id = ?`, id)
+	tx.Exec(`DELETE FROM ai_threads WHERE id = ? AND user_id = ?`, id, u.ID)
+
+	var toRemove []string
+	for _, fn := range attFiles {
+		if filepath.Base(fn) != fn {
+			continue
+		}
+		like := "%" + fn + "%"
+		var refs int
+		tx.QueryRow(`SELECT
+			(SELECT COUNT(*) FROM ai_attachments WHERE file_name = ?) +
+			(SELECT COUNT(*) FROM pages WHERE content LIKE ? OR props LIKE ? OR cover LIKE ?) +
+			(SELECT COUNT(*) FROM page_revisions WHERE content LIKE ?) +
+			(SELECT COUNT(*) FROM comments WHERE body LIKE ?) +
+			(SELECT COUNT(*) FROM workspaces WHERE image LIKE ?) +
+			(SELECT COUNT(*) FROM users WHERE avatar LIKE ?)`,
+			fn, like, like, like, like, like, like, like).Scan(&refs)
+		if refs == 0 {
+			tx.Exec(`DELETE FROM files WHERE file_name = ?`, fn)
+			toRemove = append(toRemove, fn)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	for _, fn := range toRemove {
+		if err := os.Remove(filepath.Join(s.dataDir, "files", fn)); err != nil && !os.IsNotExist(err) {
+			log.Printf("remove ai attachment %s: %v", fn, err)
+		}
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -477,9 +702,7 @@ func (s *Server) handleRenameAIThread(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "title required")
 		return
 	}
-	if len(title) > 120 {
-		title = title[:120]
-	}
+	title = truncateRunes(title, 120)
 	res, err := s.db.Exec(`UPDATE ai_threads SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?`, title, now(), id, u.ID)
 	if err != nil {
 		httpError(w, 500, err.Error())
@@ -534,10 +757,7 @@ func aiAttachmentsContext(files []struct {
 		if i >= 3 {
 			break
 		}
-		txt := f.Text
-		if len(txt) > 4000 {
-			txt = txt[:4000] + "…"
-		}
+		txt := truncateRunes(f.Text, 4000)
 		name := f.Name
 		if name == "" {
 			name = "file"
@@ -566,10 +786,7 @@ func (s *Server) aiMentionContext(r *http.Request, pageID string, mentions []str
 			continue
 		}
 		b, _ := json.Marshal(p.Content)
-		txt := string(b)
-		if len(txt) > 4000 {
-			txt = txt[:4000] + "…"
-		}
+		txt := truncateRunes(string(b), 4000)
 		fmt.Fprintf(&sb, "\n\nReferenced page %q (via @-mention):\n%s", p.Title, txt)
 	}
 	return sb.String()
@@ -586,7 +803,18 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "invalid JSON")
 		return
 	}
-	baseURL, defModel, format, temp, apiKey, _, err := s.resolveAIConfig(u)
+	if req.PageID != "" && !s.canReadReq(r, req.PageID) {
+		httpError(w, 404, "not found")
+		return
+	}
+	if req.ThreadID != "" {
+		var owner string
+		if err := s.db.QueryRow(`SELECT user_id FROM ai_threads WHERE id = ?`, req.ThreadID).Scan(&owner); err != nil || owner != u.ID {
+			httpError(w, 404, "not found")
+			return
+		}
+	}
+	baseURL, defModel, format, temp, apiKey, _, userCustomURL, err := s.resolveAIConfigWithOrigin(u)
 	if err != nil {
 		httpError(w, 400, err.Error())
 		return
@@ -599,8 +827,14 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	threadID := req.ThreadID
 	if threadID == "" {
 		threadID = newID()
+		wsID := ""
+		if req.PageID != "" {
+			if p, err := s.getPage(req.PageID); err == nil {
+				wsID = p.WorkspaceID
+			}
+		}
 		s.db.Exec(`INSERT INTO ai_threads (id, user_id, workspace_id, page_id, title, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
-			threadID, u.ID, "", req.PageID, "New chat", now(), now())
+			threadID, u.ID, wsID, req.PageID, "New chat", now(), now())
 	}
 	// save last user message
 	if len(req.Messages) > 0 {
@@ -612,7 +846,7 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if format == "responses" {
-		s.handleAIChatResponses(w, r, u, req, baseURL, model, temp, apiKey, threadID)
+		s.handleAIChatResponses(w, r, u, req, baseURL, model, temp, apiKey, threadID, userCustomURL)
 		return
 	}
 
@@ -631,10 +865,7 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.IncludePage {
 				b, _ := json.Marshal(p.Content)
-				txt := string(b)
-				if len(txt) > 8000 {
-					txt = txt[:8000] + "…"
-				}
+				txt := truncateRunes(string(b), 8000)
 				sys += "\n\nPage content (JSON blocks):\n" + txt
 			}
 		}
@@ -644,6 +875,9 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	var threadWS string
 	if threadID != "" {
 		s.db.QueryRow(`SELECT workspace_id FROM ai_threads WHERE id = ?`, threadID).Scan(&threadWS)
+		if threadWS != "" && !s.isMember(u.ID, threadWS) {
+			threadWS = ""
+		}
 	}
 	sys += s.aiWorkspaceRulesBlock(req.PageID, threadWS)
 	msgs = append(msgs, map[string]any{"role": "system", "content": sys})
@@ -660,7 +894,7 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	b, _ := json.Marshal(body)
 
 	url := strings.TrimRight(baseURL, "/") + "/chat/completions"
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(r.Context(), "POST", url, bytes.NewReader(b))
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -669,7 +903,7 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("x-opencode-session", newID())
 
-	client := aiHTTPClient()
+	client := aiHTTPClientFor(userCustomURL)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		httpError(w, 502, err.Error())
@@ -677,7 +911,7 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		rb, _ := io.ReadAll(resp.Body)
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, maxAIResponseBody))
 		httpError(w, resp.StatusCode, string(rb))
 		return
 	}
@@ -729,7 +963,18 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAIChatResponses streams an OpenAI Responses API request.
-func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u *user, req aiChatRequest, baseURL, model string, temp float64, apiKey, threadID string) {
+func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u *user, req aiChatRequest, baseURL, model string, temp float64, apiKey, threadID string, userCustomURL bool) {
+	if req.PageID != "" && !s.canReadReq(r, req.PageID) {
+		httpError(w, 404, "not found")
+		return
+	}
+	if req.ThreadID != "" {
+		var owner string
+		if err := s.db.QueryRow(`SELECT user_id FROM ai_threads WHERE id = ?`, req.ThreadID).Scan(&owner); err != nil || owner != u.ID {
+			httpError(w, 404, "not found")
+			return
+		}
+	}
 	sys := aiBasePrompt() + "\n" +
 		"You answer questions and draft text. You cannot change anything yourself — " +
 		"but an agent mode in the same thread can: if the user asks to create, edit, organize or fill anything, " +
@@ -742,10 +987,7 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 			}
 			if req.IncludePage {
 				b, _ := json.Marshal(p.Content)
-				txt := string(b)
-				if len(txt) > 8000 {
-					txt = txt[:8000] + "…"
-				}
+				txt := truncateRunes(string(b), 8000)
 				sys += "\n\nPage content (JSON blocks):\n" + txt
 			}
 		}
@@ -755,6 +997,9 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 	var threadWS string
 	if threadID != "" {
 		s.db.QueryRow(`SELECT workspace_id FROM ai_threads WHERE id = ?`, threadID).Scan(&threadWS)
+		if threadWS != "" && !s.isMember(u.ID, threadWS) {
+			threadWS = ""
+		}
 	}
 	sys += s.aiWorkspaceRulesBlock(req.PageID, threadWS)
 	// build input messages
@@ -771,7 +1016,7 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 	}
 	b, _ := json.Marshal(body)
 	url := strings.TrimRight(baseURL, "/") + "/responses"
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(r.Context(), "POST", url, bytes.NewReader(b))
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -780,7 +1025,7 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("x-opencode-session", newID())
 
-	client := aiHTTPClient()
+	client := aiHTTPClientFor(userCustomURL)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		httpError(w, 502, err.Error())
@@ -788,7 +1033,7 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		rb, _ := io.ReadAll(resp.Body)
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, maxAIResponseBody))
 		httpError(w, resp.StatusCode, string(rb))
 		return
 	}
@@ -836,7 +1081,15 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 }
 
 // runAIBackgroundResponses runs the agent using OpenAI Responses API.
-func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, threadID, task, pageID, baseURL, model string, temp float64, apiKey, approvalMode, sys, userMsgID string) {
+func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, threadID, task, pageID, baseURL, model string, temp float64, apiKey, approvalMode, sys, userMsgID string, userCustomURL bool) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("ai run %s (responses) panic: %v", runID, rec)
+			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=? AND status IN ('queued','running','waiting_approval','waiting_user')`,
+				fmt.Sprintf("internal error: %v", rec), now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
+		}
+	}()
 	// Build tools in Responses format.
 	tools := make([]map[string]any, 0, len(mcpTools))
 	for _, t := range mcpTools {
@@ -862,16 +1115,29 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 		input = append(input, map[string]any{"role": h[0], "content": h[1]})
 	}
 	input = append(input, map[string]any{"role": "user", "content": task})
-	client := aiHTTPClient()
+	client := aiHTTPClientFor(userCustomURL)
 	var finalContent string
 	rejected := false
-	s.aiAddStep(runID, threadID, u.ID, "thinking", "Planning", task, "running")
+	planStepID := s.aiAddStep(runID, threadID, u.ID, "thinking", "Planning", task, "running")
+	finishPlan := func(status string) {
+		if planStepID != "" {
+			s.db.Exec(`UPDATE ai_steps SET status=? WHERE id=? AND status='running'`, status, planStepID)
+			planStepID = ""
+		}
+	}
 	for iter := 0; iter < 20; iter++ {
 		select {
 		case <-ctx.Done():
+			finishPlan("done")
 			s.db.Exec(`UPDATE ai_runs SET status='cancelled', finished_at=? WHERE id=?`, now(), runID)
 			return
 		default:
+		}
+		if !s.aiEnabledForUser(s.userByID(u.ID)) {
+			finishPlan("done")
+			s.db.Exec(`UPDATE ai_runs SET status='cancelled', error='AI is disabled', finished_at=? WHERE id=?`, now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
+			return
 		}
 		body := map[string]any{
 			"model":        model,
@@ -882,25 +1148,39 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 			"stream":       false,
 		}
 		b, _ := json.Marshal(body)
-		req, _ := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(baseURL, "/")+"/responses", bytes.NewReader(b))
+		req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(baseURL, "/")+"/responses", bytes.NewReader(b))
+		if err != nil {
+			finishPlan("error")
+			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
+			return
+		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 		req.Header.Set("x-opencode-session", newID())
 		resp, err := client.Do(req)
 		if err != nil {
-			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				finishPlan("done")
+				s.db.Exec(`UPDATE ai_runs SET status='cancelled', finished_at=? WHERE id=?`, now(), runID)
+			} else {
+				finishPlan("error")
+				s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
+			}
 			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
 		}
-		rb, _ := io.ReadAll(resp.Body)
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, maxAIResponseBody))
 		resp.Body.Close()
 		if resp.StatusCode >= 400 {
+			finishPlan("error")
 			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, string(rb), now(), runID)
 			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
 		}
 		var out map[string]any
 		json.Unmarshal(rb, &out)
+		finishPlan("done")
 		output, _ := out["output"].([]any)
 		// collect function calls and text
 		hasTool := false
@@ -939,18 +1219,22 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 					stopped = true
 					break
 				}
+				if !s.aiEnabledForUser(s.userByID(u.ID)) {
+					s.db.Exec(`UPDATE ai_runs SET status='cancelled', error='AI is disabled', finished_at=? WHERE id=?`, now(), runID)
+					s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
+					return
+				}
 				s.db.Exec(`UPDATE ai_runs SET progress=? WHERE id=?`, "calling "+name, runID)
 				stepID := s.aiAddStep(runID, threadID, u.ID, "tool_call", "Script · "+name, argsStr, "running")
 				var args json.RawMessage = json.RawMessage(argsStr)
 				result, err := s.mcpCall(u, name, args, "")
+				stepStatus := "done"
 				if err != nil {
 					result = "error: " + err.Error()
+					stepStatus = "error"
 				}
-				trunc := result
-				if len(trunc) > 2000 {
-					trunc = trunc[:2000] + "…"
-				}
-				s.db.Exec(`UPDATE ai_steps SET status='done', body=? WHERE id=?`, trunc, stepID)
+				stepBody := formatToolStepBody(argsStr, result)
+				s.db.Exec(`UPDATE ai_steps SET status=?, body=? WHERE id=?`, stepStatus, stepBody, stepID)
 				s.aiRecordArtifacts(runID, name, result)
 				// append function_call and output to input
 				input = append(input, it)
@@ -986,6 +1270,7 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 			break
 		}
 	}
+	finishPlan("done")
 	s.aiAddStep(runID, threadID, u.ID, "thinking", "Done", finalContent, "done")
 	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at) VALUES (?,?,?,?,?,?)`,
 		newID(), threadID, "assistant", finalContent, model, now())
@@ -995,7 +1280,7 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 		s.db.Exec(`UPDATE ai_runs SET status='completed', progress='done', finished_at=? WHERE id=?`, now(), runID)
 	}
 	s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
-	if pageID != "" {
+	if pageID != "" && s.canRead(u.ID, pageID) {
 		s.db.Exec(`DELETE FROM agent_presence WHERE page_id=? AND account_id=? AND agent='salt-ai'`, pageID, u.ID)
 	}
 }
@@ -1023,9 +1308,7 @@ type aiStep struct {
 // result can be a whole page dump, and the trace is a summary, not a copy.
 func (s *Server) aiAddStep(runID, threadID, userID, kind, title, body, status string) string {
 	id := newID()
-	if len(body) > 2000 {
-		body = body[:2000] + "…"
-	}
+	body = truncateRunes(body, 2000)
 	if status == "" {
 		status = "done"
 	}
@@ -1108,7 +1391,14 @@ func (s *Server) handleGetAIRunEvents(w http.ResponseWriter, r *http.Request) {
 			rows.Close()
 		}
 		var status, progress, runErr, pendingTool, pendingArgs string
-		s.db.QueryRow(`SELECT status, progress, error, pending_tool, pending_args FROM ai_runs WHERE id = ?`, runID).Scan(&status, &progress, &runErr, &pendingTool, &pendingArgs)
+		err = s.db.QueryRow(`SELECT status, progress, error, pending_tool, pending_args FROM ai_runs WHERE id = ?`, runID).Scan(&status, &progress, &runErr, &pendingTool, &pendingArgs)
+		if errors.Is(err, sql.ErrNoRows) {
+			fmt.Fprintf(w, "data: %s\n\n", mustJSONStr(map[string]any{"type": "status", "status": "cancelled", "progress": "", "error": "", "pendingTool": "", "pendingArgs": ""}))
+			if fl != nil {
+				fl.Flush()
+			}
+			return
+		}
 		fmt.Fprintf(w, "data: %s\n\n", mustJSONStr(map[string]any{"type": "status", "status": status, "progress": progress, "error": runErr, "pendingTool": pendingTool, "pendingArgs": pendingArgs}))
 		if fl != nil {
 			fl.Flush()
@@ -1167,7 +1457,9 @@ func (s *Server) aiWaitApproval(ctx context.Context, runID string) bool {
 	timeout := time.After(15 * time.Minute)
 	for {
 		var approved, cancel int
-		s.db.QueryRow(`SELECT approved, cancel_requested FROM ai_runs WHERE id = ?`, runID).Scan(&approved, &cancel)
+		if err := s.db.QueryRow(`SELECT approved, cancel_requested FROM ai_runs WHERE id = ?`, runID).Scan(&approved, &cancel); errors.Is(err, sql.ErrNoRows) {
+			return false
+		}
 		if approved == 1 {
 			return true
 		}
@@ -1230,7 +1522,9 @@ func (s *Server) aiWaitUser(ctx context.Context, runID string) string {
 	for {
 		var answer string
 		var cancel int
-		s.db.QueryRow(`SELECT pending_answer, cancel_requested FROM ai_runs WHERE id = ?`, runID).Scan(&answer, &cancel)
+		if err := s.db.QueryRow(`SELECT pending_answer, cancel_requested FROM ai_runs WHERE id = ?`, runID).Scan(&answer, &cancel); errors.Is(err, sql.ErrNoRows) {
+			return ""
+		}
 		if answer != "" {
 			s.db.Exec(`UPDATE ai_runs SET pending_answer='' WHERE id=?`, runID)
 			return answer
@@ -1381,7 +1675,11 @@ func (s *Server) handleAIGenerate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "prompt required")
 		return
 	}
-	baseURL, defModel, format, temp, apiKey, _, err := s.resolveAIConfig(u)
+	if req.PageID != "" && !s.canReadReq(r, req.PageID) {
+		httpError(w, 404, "not found")
+		return
+	}
+	baseURL, defModel, format, temp, apiKey, _, userCustomURL, err := s.resolveAIConfigWithOrigin(u)
 	if err != nil {
 		httpError(w, 400, err.Error())
 		return
@@ -1400,10 +1698,7 @@ func (s *Server) handleAIGenerate(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.IncludePage {
 				b, _ := json.Marshal(p.Content)
-				txt := string(b)
-				if len(txt) > 8000 {
-					txt = txt[:8000] + "…"
-				}
+				txt := truncateRunes(string(b), 8000)
 				sys += "\n\nPage content (JSON blocks):\n" + txt
 			}
 		} else if req.Selection != "" {
@@ -1418,18 +1713,18 @@ func (s *Server) handleAIGenerate(w http.ResponseWriter, r *http.Request) {
 		userMsg = "Process the selected text."
 	}
 	if format == "responses" {
-		s.streamResponses(w, baseURL, model, temp, apiKey, sys, map[string]any{"role": "user", "content": userMsg})
+		s.streamResponses(r.Context(), w, baseURL, model, temp, apiKey, sys, map[string]any{"role": "user", "content": userMsg}, userCustomURL)
 		return
 	}
 	msgs := []map[string]any{
 		{"role": "system", "content": sys},
 		{"role": "user", "content": userMsg},
 	}
-	s.streamChat(w, baseURL, model, temp, apiKey, msgs)
+	s.streamChat(r.Context(), w, baseURL, model, temp, apiKey, msgs, userCustomURL)
 }
 
 // streamChat proxies one OpenAI chat-completions stream as our SSE envelope.
-func (s *Server) streamChat(w http.ResponseWriter, baseURL, model string, temp float64, apiKey string, msgs []map[string]any) {
+func (s *Server) streamChat(ctx context.Context, w http.ResponseWriter, baseURL, model string, temp float64, apiKey string, msgs []map[string]any, userCustomURL bool) {
 	body := map[string]any{
 		"model":       model,
 		"messages":    msgs,
@@ -1438,7 +1733,7 @@ func (s *Server) streamChat(w http.ResponseWriter, baseURL, model string, temp f
 	}
 	b, _ := json.Marshal(body)
 	url := strings.TrimRight(baseURL, "/") + "/chat/completions"
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(b))
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -1446,14 +1741,14 @@ func (s *Server) streamChat(w http.ResponseWriter, baseURL, model string, temp f
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("x-opencode-session", newID())
-	resp, err := aiHTTPClient().Do(httpReq)
+	resp, err := aiHTTPClientFor(userCustomURL).Do(httpReq)
 	if err != nil {
 		httpError(w, 502, err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		rb, _ := io.ReadAll(resp.Body)
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, maxAIResponseBody))
 		httpError(w, resp.StatusCode, string(rb))
 		return
 	}
@@ -1496,7 +1791,7 @@ func (s *Server) streamChat(w http.ResponseWriter, baseURL, model string, temp f
 }
 
 // streamResponses proxies one OpenAI Responses stream as our SSE envelope.
-func (s *Server) streamResponses(w http.ResponseWriter, baseURL, model string, temp float64, apiKey, instructions string, input any) {
+func (s *Server) streamResponses(ctx context.Context, w http.ResponseWriter, baseURL, model string, temp float64, apiKey, instructions string, input any, userCustomURL bool) {
 	inArr, ok := input.([]map[string]any)
 	if !ok {
 		if single, ok := input.(map[string]any); ok {
@@ -1512,7 +1807,7 @@ func (s *Server) streamResponses(w http.ResponseWriter, baseURL, model string, t
 	}
 	b, _ := json.Marshal(body)
 	url := strings.TrimRight(baseURL, "/") + "/responses"
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(b))
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -1520,14 +1815,14 @@ func (s *Server) streamResponses(w http.ResponseWriter, baseURL, model string, t
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("x-opencode-session", newID())
-	resp, err := aiHTTPClient().Do(httpReq)
+	resp, err := aiHTTPClientFor(userCustomURL).Do(httpReq)
 	if err != nil {
 		httpError(w, 502, err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		rb, _ := io.ReadAll(resp.Body)
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, maxAIResponseBody))
 		httpError(w, resp.StatusCode, string(rb))
 		return
 	}
@@ -1615,7 +1910,7 @@ func aiAgentSystemPrompt(today string) string {
 		"5. REPORT: what changed (reference every created page as a Markdown link [title](/p/id)), what you verified, and what is still open. " +
 		"ALWAYS end with a short message to the user, even when there is nothing to report (for example the task was only to put text into a document): say what you did in a few words, like 'Done, inserted'. Never finish with an empty reply.\n" +
 		"If the task is ambiguous or a critical detail is missing (e.g. target language, which database, which rows), do NOT guess and do NOT stall: " +
-		"ask through the ask_user tool instead — strictly ONE single question per call, with 2-4 concrete selectable answers in 'options' (never put a question as an option label, never combine two questions in one call, and never add an 'other' option since the UI always provides a free-text input). The UI lets the user pick several options at once, so set 'multiple': true when more than one answer is valid. " +
+		"ask through the ask_user tool instead — strictly ONE single question per call, with 2-4 concrete selectable answers in 'options' (never put a question as an option label, never combine two questions in one call, and never add an 'other' option since the UI always provides a free-text input). By default the UI is single-select (one click submits), so set 'multiple': true whenever more than one answer could be valid. " +
 		"When 'Currently open page in the editor' is present below, phrases like 'this page', 'current page', or 'this collection' ALREADY refer to that page id — read it directly with get_page / query_rows and NEVER ask which page.\n" +
 		"Plain-text questions stall the run; ask_user pauses it and resumes with the answer. Only put questions in your final summary when no safe step exists at all.\n" +
 		"Resolve relative dates (today, next week) against today yourself, in ISO format.\n" +
@@ -1629,9 +1924,17 @@ func (s *Server) aiThreadHistory(threadID, excludeMsgID string, limit int) [][2]
 	var rows *sql.Rows
 	var err error
 	if excludeMsgID != "" {
-		rows, err = s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? AND id != ? ORDER BY created_at DESC LIMIT ?`, threadID, excludeMsgID, limit)
+		var cutoff string
+		var cutoffRowID int64
+		if qErr := s.db.QueryRow(`SELECT created_at, rowid FROM ai_messages WHERE id = ? AND thread_id = ?`, excludeMsgID, threadID).Scan(&cutoff, &cutoffRowID); qErr == nil {
+			rows, err = s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? AND (created_at < ? OR (created_at = ? AND rowid < ?)) ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+				threadID, cutoff, cutoff, cutoffRowID, limit)
+		} else {
+			rows, err = s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? AND created_at < (SELECT created_at FROM ai_messages WHERE id = ?) ORDER BY created_at DESC LIMIT ?`,
+				threadID, excludeMsgID, limit)
+		}
 	} else {
-		rows, err = s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?`, threadID, limit)
+		rows, err = s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`, threadID, limit)
 	}
 	if err != nil {
 		return nil
@@ -1641,9 +1944,7 @@ func (s *Server) aiThreadHistory(threadID, excludeMsgID string, limit int) [][2]
 	for rows.Next() {
 		var role, content string
 		rows.Scan(&role, &content)
-		if len(content) > 1500 {
-			content = content[:1500] + "…"
-		}
+		content = truncateRunes(content, 1500)
 		rev = append(rev, [2]string{role, content})
 	}
 	// chronological order
@@ -1673,10 +1974,46 @@ type aiRun struct {
 var runMu sync.Mutex
 var runCancel = map[string]context.CancelFunc{}
 
+func (s *Server) cancelAIRunsByQuery(query string, args ...any) {
+	rows, err := s.db.Query(query, args...)
+	if err == nil {
+		var runIDs []string
+		for rows.Next() {
+			var rid string
+			if rows.Scan(&rid) == nil {
+				runIDs = append(runIDs, rid)
+			}
+		}
+		rows.Close()
+		runMu.Lock()
+		for _, rid := range runIDs {
+			if c, ok := runCancel[rid]; ok {
+				c()
+			}
+		}
+		runMu.Unlock()
+	}
+}
+
+func (s *Server) cancelAIRunsForUser(userID string) {
+	if userID == "" {
+		return
+	}
+	s.cancelAIRunsByQuery(`SELECT id FROM ai_runs WHERE user_id = ? AND status IN ('queued','running','waiting_approval','waiting_user')`, userID)
+	s.db.Exec(`UPDATE ai_runs SET cancel_requested=1, status='cancelled', finished_at=? WHERE user_id = ? AND status IN ('queued','running','waiting_approval','waiting_user')`, now(), userID)
+	s.db.Exec(`DELETE FROM agent_presence WHERE account_id = ? AND agent = 'salt-ai'`, userID)
+}
+
+func (s *Server) cancelAllAIRuns() {
+	s.cancelAIRunsByQuery(`SELECT id FROM ai_runs WHERE status IN ('queued','running','waiting_approval','waiting_user')`)
+	s.db.Exec(`UPDATE ai_runs SET cancel_requested=1, status='cancelled', finished_at=? WHERE status IN ('queued','running','waiting_approval','waiting_user')`, now())
+	s.db.Exec(`DELETE FROM agent_presence WHERE agent = 'salt-ai'`)
+}
+
 func (s *Server) handleCreateAIRun(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	if !s.aiEnabledForUser(u) {
-		httpError(w, 403, "AI disabled")
+		httpError(w, 403, "AI is disabled")
 		return
 	}
 	var body struct {
@@ -1686,16 +2023,30 @@ func (s *Server) handleCreateAIRun(w http.ResponseWriter, r *http.Request) {
 		Retry    bool   `json:"retry"`
 		PageID   string `json:"pageId"`
 	}
-	decodeJSON(w, r, &body)
+	if err := decodeJSON(w, r, &body); err != nil {
+		httpError(w, 400, "invalid JSON")
+		return
+	}
 	if strings.TrimSpace(body.Task) == "" {
 		httpError(w, 400, "task required")
 		return
+	}
+	if body.PageID != "" && !s.canReadReq(r, body.PageID) {
+		httpError(w, 404, "not found")
+		return
+	}
+	threadID := body.ThreadID
+	if threadID != "" {
+		var owner string
+		if err := s.db.QueryRow(`SELECT user_id FROM ai_threads WHERE id = ?`, threadID).Scan(&owner); err != nil || owner != u.ID {
+			httpError(w, 404, "not found")
+			return
+		}
 	}
 	prompt := strings.TrimSpace(body.Prompt)
 	if prompt == "" {
 		prompt = strings.TrimSpace(body.Task)
 	}
-	threadID := body.ThreadID
 	if threadID == "" {
 		threadID = newID()
 		wsID := ""
@@ -1734,15 +2085,27 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		delete(runCancel, runID)
 		runMu.Unlock()
 	}()
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("ai run %s panic: %v", runID, rec)
+			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=? AND status IN ('queued','running','waiting_approval','waiting_user')`,
+				fmt.Sprintf("internal error: %v", rec), now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
+		}
+	}()
 	s.db.Exec(`UPDATE ai_runs SET status='running', started_at=? WHERE id=?`, now(), runID)
+	effectivePageID := pageID
+	if effectivePageID != "" && !s.canRead(u.ID, effectivePageID) {
+		effectivePageID = ""
+	}
 	// presence
-	if pageID != "" {
+	if effectivePageID != "" {
 		s.db.Exec(`INSERT INTO agent_presence (page_id, account_id, agent, label, note, started_at, last_seen) VALUES (?,?,?,?,?,?,?)
 			ON CONFLICT(page_id, account_id, agent) DO UPDATE SET last_seen=excluded.last_seen`,
-			pageID, u.ID, "salt-ai", "AI agent", task, now(), now())
-		defer s.db.Exec(`DELETE FROM agent_presence WHERE page_id=? AND account_id=? AND agent='salt-ai'`, pageID, u.ID)
+			effectivePageID, u.ID, "salt-ai", "AI agent", task, now(), now())
+		defer s.db.Exec(`DELETE FROM agent_presence WHERE page_id=? AND account_id=? AND agent='salt-ai'`, effectivePageID, u.ID)
 	}
-	baseURL, model, format, temp, apiKey, approvalMode, err := s.resolveAIConfig(u)
+	baseURL, model, format, temp, apiKey, approvalMode, userCustomURL, err := s.resolveAIConfigWithOrigin(u)
 	if err != nil {
 		s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
 		s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
@@ -1772,16 +2135,19 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 	}
 	today := time.Now().Format("2006-01-02")
 	sys := aiAgentSystemPrompt(today)
-	if pageID != "" {
-		if p, err := s.getPage(pageID); err == nil {
+	if effectivePageID != "" {
+		if p, err := s.getPage(effectivePageID); err == nil {
 			sys += fmt.Sprintf("\nCurrently open page in the editor (when the user says 'this page', 'current page', or 'this collection', it always refers to this page — do NOT ask which page): id=%s, type=%s, title=%q", p.ID, p.Type, p.Title)
 		}
 	}
 	var threadWS string
 	s.db.QueryRow(`SELECT workspace_id FROM ai_threads WHERE id = ?`, threadID).Scan(&threadWS)
-	sys += s.aiWorkspaceRulesBlock(pageID, threadWS)
+	if threadWS != "" && !s.isMember(u.ID, threadWS) {
+		threadWS = ""
+	}
+	sys += s.aiWorkspaceRulesBlock(effectivePageID, threadWS)
 	if format == "responses" {
-		s.runAIBackgroundResponses(ctx, u, runID, threadID, task, pageID, baseURL, model, temp, apiKey, approvalMode, sys, userMsgID)
+		s.runAIBackgroundResponses(ctx, u, runID, threadID, task, effectivePageID, baseURL, model, temp, apiKey, approvalMode, sys, userMsgID, userCustomURL)
 		return
 	}
 	messages := []map[string]any{
@@ -1791,16 +2157,29 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		messages = append(messages, map[string]any{"role": h[0], "content": h[1]})
 	}
 	messages = append(messages, map[string]any{"role": "user", "content": task})
-	client := aiHTTPClient()
+	client := aiHTTPClientFor(userCustomURL)
 	var finalContent string
 	rejected := false
-	s.aiAddStep(runID, threadID, u.ID, "thinking", "Planning", task, "running")
+	planStepID := s.aiAddStep(runID, threadID, u.ID, "thinking", "Planning", task, "running")
+	finishPlan := func(status string) {
+		if planStepID != "" {
+			s.db.Exec(`UPDATE ai_steps SET status=? WHERE id=? AND status='running'`, status, planStepID)
+			planStepID = ""
+		}
+	}
 	for iter := 0; iter < 20; iter++ {
 		select {
 		case <-ctx.Done():
+			finishPlan("done")
 			s.db.Exec(`UPDATE ai_runs SET status='cancelled', finished_at=? WHERE id=?`, now(), runID)
 			return
 		default:
+		}
+		if !s.aiEnabledForUser(s.userByID(u.ID)) {
+			finishPlan("done")
+			s.db.Exec(`UPDATE ai_runs SET status='cancelled', error='AI is disabled', finished_at=? WHERE id=?`, now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
+			return
 		}
 		body := map[string]any{
 			"model":       model,
@@ -1810,19 +2189,32 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 			"tools":       tools,
 		}
 		b, _ := json.Marshal(body)
-		req, _ := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(baseURL, "/")+"/chat/completions", bytes.NewReader(b))
+		req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(baseURL, "/")+"/chat/completions", bytes.NewReader(b))
+		if err != nil {
+			finishPlan("error")
+			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
+			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
+			return
+		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 		req.Header.Set("x-opencode-session", newID())
 		resp, err := client.Do(req)
 		if err != nil {
-			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				finishPlan("done")
+				s.db.Exec(`UPDATE ai_runs SET status='cancelled', finished_at=? WHERE id=?`, now(), runID)
+			} else {
+				finishPlan("error")
+				s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, err.Error(), now(), runID)
+			}
 			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
 		}
-		rb, _ := io.ReadAll(resp.Body)
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, maxAIResponseBody))
 		resp.Body.Close()
 		if resp.StatusCode >= 400 {
+			finishPlan("error")
 			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, string(rb), now(), runID)
 			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
@@ -1831,10 +2223,12 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		json.Unmarshal(rb, &out)
 		choices, _ := out["choices"].([]any)
 		if len(choices) == 0 {
+			finishPlan("error")
 			s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, finished_at=? WHERE id=?`, "no choices", now(), runID)
 			s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
 			return
 		}
+		finishPlan("done")
 		c0, _ := choices[0].(map[string]any)
 		msg, _ := c0["message"].(map[string]any)
 		// tool calls?
@@ -1869,6 +2263,11 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 					stopped = true
 					break
 				}
+				if !s.aiEnabledForUser(s.userByID(u.ID)) {
+					s.db.Exec(`UPDATE ai_runs SET status='cancelled', error='AI is disabled', finished_at=? WHERE id=?`, now(), runID)
+					s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
+					return
+				}
 				s.db.Exec(`UPDATE ai_runs SET progress=? WHERE id=?`, "calling "+name, runID)
 				stepID := s.aiAddStep(runID, threadID, u.ID, "tool_call", "Script · "+name, argsStr, "running")
 				var args json.RawMessage = json.RawMessage(argsStr)
@@ -1876,14 +2275,13 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 					args = json.RawMessage("{}")
 				}
 				result, err := s.mcpCall(u, name, args, "")
+				stepStatus := "done"
 				if err != nil {
 					result = "error: " + err.Error()
+					stepStatus = "error"
 				}
-				trunc := result
-				if len(trunc) > 2000 {
-					trunc = trunc[:2000] + "…"
-				}
-				s.db.Exec(`UPDATE ai_steps SET status='done', body=? WHERE id=?`, trunc, stepID)
+				stepBody := formatToolStepBody(argsStr, result)
+				s.db.Exec(`UPDATE ai_steps SET status=?, body=? WHERE id=?`, stepStatus, stepBody, stepID)
 				s.aiRecordArtifacts(runID, name, result)
 
 				messages = append(messages, map[string]any{
@@ -1902,6 +2300,7 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		}
 		break
 	}
+	finishPlan("done")
 	s.aiAddStep(runID, threadID, u.ID, "thinking", "Done", finalContent, "done")
 	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at) VALUES (?,?,?,?,?,?)`,
 		newID(), threadID, "assistant", finalContent, model, now())
@@ -1911,8 +2310,8 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		s.db.Exec(`UPDATE ai_runs SET status='completed', progress='done', finished_at=? WHERE id=?`, now(), runID)
 	}
 	s.db.Exec(`UPDATE ai_threads SET updated_at=? WHERE id=?`, now(), threadID)
-	if pageID != "" {
-		s.db.Exec(`DELETE FROM agent_presence WHERE page_id=? AND account_id=? AND agent='salt-ai'`, pageID, u.ID)
+	if effectivePageID != "" {
+		s.db.Exec(`DELETE FROM agent_presence WHERE page_id=? AND account_id=? AND agent='salt-ai'`, effectivePageID, u.ID)
 	}
 }
 
@@ -1957,10 +2356,28 @@ func (s *Server) handleUploadAIAttachment(w http.ResponseWriter, r *http.Request
 		httpError(w, 403, "AI is disabled")
 		return
 	}
-	// reuse multipart file
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		httpError(w, 400, err.Error())
+	maxUpload := s.maxUploadBytes()
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	maxMem := int64(32 << 20)
+	if maxUpload < maxMem {
+		maxMem = maxUpload
+	}
+	if err := r.ParseMultipartForm(maxMem); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) || strings.Contains(err.Error(), "too large") {
+			httpError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("file too large — max %d MB", maxUpload>>20))
+		} else {
+			httpError(w, 400, err.Error())
+		}
 		return
+	}
+	threadID := r.FormValue("threadId")
+	if threadID != "" {
+		var owner string
+		if err := s.db.QueryRow(`SELECT user_id FROM ai_threads WHERE id = ?`, threadID).Scan(&owner); err != nil || owner != u.ID {
+			httpError(w, 404, "not found")
+			return
+		}
 	}
 	file, hdr, err := r.FormFile("file")
 	if err != nil {
@@ -1968,16 +2385,27 @@ func (s *Server) handleUploadAIAttachment(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer file.Close()
-	data, _ := io.ReadAll(file)
-	threadID := r.FormValue("threadId")
+	data, err := io.ReadAll(io.LimitReader(file, maxUpload+1))
+	if err != nil {
+		httpError(w, 400, err.Error())
+		return
+	}
+	if int64(len(data)) > maxUpload {
+		httpError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("file too large — max %d MB", maxUpload>>20))
+		return
+	}
 	// save file
-	fname := newID() + filepath.Ext(hdr.Filename)
-	os.WriteFile(filepath.Join(s.dataDir, "files", fname), data, 0o644)
+	extRaw := filepath.Ext(filepath.Base(hdr.Filename))
+	fname := newID() + extRaw
+	if err := os.WriteFile(filepath.Join(s.dataDir, "files", fname), data, 0o644); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
 	s.db.Exec(`INSERT INTO files (file_name, display_name, ext, size, created_at) VALUES (?,?,?,?,?)`,
-		fname, hdr.Filename, filepath.Ext(hdr.Filename), len(data), now())
+		fname, filepath.Base(hdr.Filename), extRaw, len(data), now())
 	// extract text (best effort)
 	text := ""
-	ext := strings.ToLower(filepath.Ext(hdr.Filename))
+	ext := strings.ToLower(extRaw)
 	switch ext {
 	case ".txt", ".md", ".csv", ".json":
 		text = string(data)
@@ -1999,10 +2427,7 @@ func (s *Server) handleUploadAIAttachment(w http.ResponseWriter, r *http.Request
 		status = "unsupported"
 	}
 	// Cap what travels back to the browser; the full text stays in the DB.
-	preview := text
-	if len(preview) > 8000 {
-		preview = preview[:8000] + "…"
-	}
+	preview := truncateRunes(text, 8000)
 	s.db.Exec(`INSERT INTO ai_attachments (id, user_id, thread_id, file_name, extracted_text, status, created_at) VALUES (?,?,?,?,?,?,?)`,
 		attID, u.ID, threadID, fname, text, status, now())
 	writeJSON(w, map[string]any{"id": attID, "fileName": hdr.Filename, "status": status, "textLength": len(text), "text": preview})

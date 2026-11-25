@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const spaCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' https: http:; media-src 'self' data: blob: https: http:; object-src 'none'; base-uri 'self'"
+
 // spaHandler serves the embedded frontend build and falls back to index.html
 // for client-side routes like /p/<id> and /p/<slug>-<id>.
 func spaHandler(dist fs.FS) http.Handler {
@@ -53,6 +55,7 @@ func spaHandler(dist fs.FS) http.Handler {
 				// just has to ask first.
 				if strings.HasSuffix(p, ".html") {
 					w.Header().Set("Cache-Control", "no-cache")
+					w.Header().Set("Content-Security-Policy", spaCSP)
 				}
 				fileServer.ServeHTTP(w, r)
 				return
@@ -72,6 +75,7 @@ func spaHandler(dist fs.FS) http.Handler {
 		// Same for the fallback, which is how index.html is served for every
 		// client route — that is the common case, not the exception.
 		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Content-Security-Policy", spaCSP)
 		r2 := new(http.Request)
 		*r2 = *r
 		r2.URL = new(url.URL)

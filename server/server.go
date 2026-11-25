@@ -365,25 +365,25 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("GET /api/skill", s.auth(s.handleSkill))
 
 	// AI agent endpoints.
-	m.HandleFunc("GET /api/ai/settings", s.auth(s.handleGetAISettings))
-	m.HandleFunc("PUT /api/ai/settings", s.auth(s.handlePutAISettings))
-	m.HandleFunc("GET /api/ai/threads", s.auth(s.handleListAIThreads))
-	m.HandleFunc("POST /api/ai/threads", s.auth(s.handleCreateAIThread))
-	m.HandleFunc("GET /api/ai/threads/{id}/messages", s.auth(s.handleGetAIThreadMessages))
-	m.HandleFunc("DELETE /api/ai/threads/{id}", s.auth(s.handleDeleteAIThread))
-	m.HandleFunc("PATCH /api/ai/threads/{id}", s.auth(s.handleRenameAIThread))
-	m.HandleFunc("POST /api/ai/threads/{id}/read", s.auth(s.handleReadAIThread))
-	m.HandleFunc("POST /api/ai/chat", s.auth(s.handleAIChat))
-	m.HandleFunc("POST /api/ai/generate", s.auth(s.handleAIGenerate))
-	m.HandleFunc("POST /api/ai/runs", s.auth(s.handleCreateAIRun))
-	m.HandleFunc("GET /api/ai/runs/{id}", s.auth(s.handleGetAIRun))
-	m.HandleFunc("GET /api/ai/runs/{id}/steps", s.auth(s.handleListAIRunSteps))
-	m.HandleFunc("GET /api/ai/threads/{id}/runs", s.auth(s.handleListAIThreadRuns))
-	m.HandleFunc("GET /api/ai/runs/{id}/events", s.auth(s.handleGetAIRunEvents))
-	m.HandleFunc("POST /api/ai/runs/{id}/cancel", s.auth(s.handleCancelAIRun))
-	m.HandleFunc("POST /api/ai/runs/{id}/approve", s.auth(s.handleApproveAIRun))
-	m.HandleFunc("POST /api/ai/runs/{id}/answer", s.auth(s.handleAnswerAIRun))
-	m.HandleFunc("POST /api/ai/attachments", s.auth(s.handleUploadAIAttachment))
+	m.HandleFunc("GET /api/ai/settings", s.aiAuth(s.sessionOnly(s.handleGetAISettings)))
+	m.HandleFunc("PUT /api/ai/settings", s.aiAuth(s.sessionOnly(s.handlePutAISettings)))
+	m.HandleFunc("GET /api/ai/threads", s.aiAuth(s.handleListAIThreads))
+	m.HandleFunc("POST /api/ai/threads", s.aiAuth(s.handleCreateAIThread))
+	m.HandleFunc("GET /api/ai/threads/{id}/messages", s.aiAuth(s.handleGetAIThreadMessages))
+	m.HandleFunc("DELETE /api/ai/threads/{id}", s.aiAuth(s.handleDeleteAIThread))
+	m.HandleFunc("PATCH /api/ai/threads/{id}", s.aiAuth(s.handleRenameAIThread))
+	m.HandleFunc("POST /api/ai/threads/{id}/read", s.aiAuth(s.handleReadAIThread))
+	m.HandleFunc("POST /api/ai/chat", s.aiAuth(s.handleAIChat))
+	m.HandleFunc("POST /api/ai/generate", s.aiAuth(s.handleAIGenerate))
+	m.HandleFunc("POST /api/ai/runs", s.aiAuth(s.handleCreateAIRun))
+	m.HandleFunc("GET /api/ai/runs/{id}", s.aiAuth(s.handleGetAIRun))
+	m.HandleFunc("GET /api/ai/runs/{id}/steps", s.aiAuth(s.handleListAIRunSteps))
+	m.HandleFunc("GET /api/ai/threads/{id}/runs", s.aiAuth(s.handleListAIThreadRuns))
+	m.HandleFunc("GET /api/ai/runs/{id}/events", s.aiAuth(s.handleGetAIRunEvents))
+	m.HandleFunc("POST /api/ai/runs/{id}/cancel", s.aiAuth(s.handleCancelAIRun))
+	m.HandleFunc("POST /api/ai/runs/{id}/approve", s.aiAuth(s.handleApproveAIRun))
+	m.HandleFunc("POST /api/ai/runs/{id}/answer", s.aiAuth(s.handleAnswerAIRun))
+	m.HandleFunc("POST /api/ai/attachments", s.aiAuth(s.handleUploadAIAttachment))
 
 	m.HandleFunc("GET /api/events", s.auth(s.handleEvents))
 	m.HandleFunc("GET /api/presence", s.auth(s.handlePresence))
@@ -421,6 +421,11 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 			return
 		}
 		if pageID.Valid && pageID.String != "" && !s.canReadReq(r, pageID.String) {
+			httpError(w, 404, "not found")
+			return
+		}
+		var attOwner string
+		if err := s.db.QueryRow(`SELECT user_id FROM ai_attachments WHERE file_name = ?`, name).Scan(&attOwner); err == nil && attOwner != requestUser(r).ID {
 			httpError(w, 404, "not found")
 			return
 		}

@@ -279,6 +279,14 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.validAgentAddresses(w, body.AgentAddressesOn, body.AgentAddresses) {
 		return
 	}
+	if body.AIDefaultBaseURL != nil {
+		norm, err := validateAIBaseURL(*body.AIDefaultBaseURL)
+		if err != nil {
+			httpError(w, 400, err.Error())
+			return
+		}
+		body.AIDefaultBaseURL = &norm
+	}
 	if body.AgentAddresses != nil {
 		s.setSetting(settingAgentAddresses, strings.TrimSpace(*body.AgentAddresses))
 	}
@@ -328,10 +336,9 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			v = "1"
 		}
 		s.setSetting("ai_enabled", v)
-	}
-	if body.AIDefaultBaseURL != nil {
-		norm := normalizeAIBaseURL(*body.AIDefaultBaseURL)
-		body.AIDefaultBaseURL = &norm
+		if !*body.AIEnabled {
+			s.cancelAllAIRuns()
+		}
 	}
 	set("ai_default_base_url", body.AIDefaultBaseURL)
 	set("ai_default_model", body.AIDefaultModel)
@@ -348,7 +355,10 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			if enc, err := encryptSecret(strings.TrimSpace(*body.AIInstanceKey), key); err == nil {
 				s.setSetting("ai_instance_key_enc", enc)
 				if body.AIAllowInstanceKey == nil {
-					s.setSetting("ai_allow_instance_key", "1")
+					var existing string
+					if s.db.QueryRow(`SELECT value FROM app_settings WHERE key = 'ai_allow_instance_key'`).Scan(&existing) != nil {
+						s.setSetting("ai_allow_instance_key", "1")
+					}
 				}
 			}
 		}
