@@ -7980,6 +7980,53 @@ body.is-unsched-carry .tl-end-space {
   gap: 6px;
 }
 
+/* The grip is the condition's own, at its head: dragging the block reorders
+   it inside its group and across the OR divider. touch-action none keeps a
+   phone from scrolling the popover instead of moving the row. */
+.fs-drag {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  margin: -2px 0 -2px -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+.fs-drag:hover {
+  color: var(--foreground);
+  background: var(--hover);
+}
+.fs-drag:active {
+  cursor: grabbing;
+}
+.fs-filter.is-drag-source {
+  opacity: 0.45;
+}
+.fs-filter.is-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.fs-filter.is-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+body.filter-dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+/* Right-click on a condition: fixed at the pointer, above the popover, and
+   overruling .menu's own right edge (which would otherwise stretch the box). */
+.filter-menu {
+  right: auto;
+  z-index: 330;
+  min-width: 170px;
+}
+
 .fs-filter-head .fs-label {
   flex: 1;
   font-weight: 500;
@@ -8184,6 +8231,13 @@ body.is-unsched-carry .tl-end-space {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  border-radius: 10px;
+}
+/* A group with no rows offers nothing to aim at; while a condition is in the
+   air, the end of a group is worth showing. */
+.fs-group.is-drop-end {
+  outline: 1px dashed var(--accent);
+  outline-offset: 3px;
 }
 
 .fs-or {

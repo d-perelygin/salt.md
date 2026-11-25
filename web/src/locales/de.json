@@ -1800,5 +1800,7 @@
   },
   "No changes in the text": "Keine Änderungen im Text",
   "Match case": "Groß-/Kleinschreibung beachten",
-  "Ignore case": "Groß-/Kleinschreibung ignorieren"
+  "Ignore case": "Groß-/Kleinschreibung ignorieren",
+  "Case matters": "Groß-/Kleinschreibung zählt",
+  "Case is ignored": "Groß-/Kleinschreibung egal"
 }

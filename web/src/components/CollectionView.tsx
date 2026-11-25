@@ -110,6 +110,8 @@ import {
   ArrowRight,
   ArrowUpToLine,
   ArrowDownToLine,
+  GripVertical,
+  Copy,
   ChevronDown, History, Inbox, Lock, PanelLeftClose, PanelLeftOpen, Pin, TriangleAlert, X} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
@@ -634,7 +636,21 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const schemaDateProp = (id: string) =>
     id === SORT_CREATED || id === SORT_UPDATED || (config?.schema ?? []).some((p) => p.id === id && p.type === 'date');
   const serverGroups = viewFilterGroups(view0 ?? { filters: [] })
-    .map((g) => g.filter((f) => filterIsArmed(f, schemaDateProp(f.property))).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })))
+    .map((g) =>
+      g
+        .filter((f) => filterIsArmed(f, schemaDateProp(f.property)))
+        .map((f) => ({
+          property: f.property,
+          op: f.op,
+          value: f.value,
+          values: f.values,
+          value2: f.value2,
+          // The title condition's switch is the reader's, and the database
+          // has to answer the same question the browser does; dropping it
+          // here made the server over-fetch and the browser decide alone.
+          caseSensitive: f.caseSensitive,
+        })),
+    )
     .filter((g) => g.length > 0);
   const serverSorts = view0 ? viewSorts(view0) : [];
   // The viewer's day travels with every row query, so "today" resolves
@@ -2815,18 +2831,123 @@ function FilterSortControls({
   // Write both shapes at once: the flat list mirrors the first group, so
   // readers that only know the old shape still see something honest.
   const setGroups = (next: Filter[][]) => onChange({ filters: next[0] ?? [], filterGroups: next });
+  // Reordering conditions is a gesture on the block itself, not a value in a
+  // menu: a handle at its head, the same one the property editor uses. The
+  // pointer listeners live for one drag and read the groups as they were when
+  // it started — the panel does not change under it.
+  const [fdrag, setFdrag] = useState<{
+    gi: number;
+    ci: number;
+    target: { gi: number; ci: number; before: boolean } | null;
+  } | null>(null);
+  const fdragRef = useRef<typeof fdrag>(null);
+  // Right-click on a condition: duplicate it or take it away. The × still
+  // removes in one click; this is where "again, with one thing changed"
+  // starts.
+  const [filterMenu, setFilterMenu] = useState<{ gi: number; ci: number; x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!filterMenu) return;
+    const close = (e: PointerEvent) => {
+      if (!(e.target as Element).closest?.('.filter-menu')) setFilterMenu(null);
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setFilterMenu(null);
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [filterMenu]);
+
+  const applyFilterMove = (gi: number, ci: number, to: { gi: number; ci: number; before: boolean }) => {
+    const next = groups.map((g) => g.slice());
+    const [moved] = next[gi].splice(ci, 1);
+    if (!moved) return;
+    let targetGi = to.gi;
+    // `ci` is the row the pointer is over; the half of it decides the side.
+    let targetCi = to.ci + (to.before ? 0 : 1);
+    if (targetGi === gi && targetCi > ci) targetCi -= 1;
+    if (!next[targetGi]) return;
+    next[targetGi].splice(targetCi, 0, moved);
+    // A group emptied by the move goes away; an empty OR group would render as
+    // an "add filter" box with nothing on the other side of its OR.
+    setGroups(next.filter((g) => g.length > 0));
+  };
+
+  const startFilterDrag = (e: React.PointerEvent, gi: number, ci: number) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const first = { gi, ci, target: null };
+    fdragRef.current = first;
+    setFdrag(first);
+    document.body.classList.add('filter-dragging');
+    const onMove = (ev: PointerEvent) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as Element | null;
+      const row = el?.closest?.('.fs-filter') as HTMLElement | null;
+      const group = el?.closest?.('.fs-group') as HTMLElement | null;
+      let target: { gi: number; ci: number; before: boolean } | null = null;
+      if (row) {
+        const r = row.getBoundingClientRect();
+        target = {
+          gi: Number(row.dataset.gi),
+          ci: Number(row.dataset.ci),
+          before: ev.clientY < r.top + r.height / 2,
+        };
+      } else if (group) {
+        // Anywhere else in a group: the end of it.
+        target = {
+          gi: Number(group.dataset.gi),
+          ci: group.querySelectorAll('.fs-filter').length,
+          before: true,
+        };
+      }
+      const next = { ...(fdragRef.current ?? first), target };
+      fdragRef.current = next;
+      setFdrag(next);
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.classList.remove('filter-dragging');
+      const d = fdragRef.current;
+      fdragRef.current = null;
+      setFdrag(null);
+      if (d?.target) applyFilterMove(d.gi, d.ci, d.target);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
+
+  const removeFilter = (gi: number, ci: number) =>
+    setGroups(
+      groups.map((g, j) => (j === gi ? g.filter((_, k) => k !== ci) : g)).filter((g) => g.length > 0),
+    );
+
+  const duplicateFilter = (gi: number, ci: number) => {
+    const source = groups[gi]?.[ci];
+    if (!source) return;
+    const next = groups.map((g) => g.slice());
+    next[gi].splice(ci + 1, 0, { ...source, values: source.values ? [...source.values] : undefined });
+    setGroups(next);
+  };
+
   const sorts = viewSorts(view);
   // Write both shapes at once: the flat sort mirrors the first key, so
   // readers that only know the old shape still sort by something honest.
   const setSorts = (next: Sort[]) => onChange({ sorts: next, sort: next[0] ?? null });
   const propName = (id: string) =>
-    id === TEMPLATE_FILTER
-      ? t('Template')
-      : id === SORT_CREATED
-        ? t('Created')
-        : id === SORT_UPDATED
-          ? t('Updated')
-          : schema.find((p) => p.id === id)?.name ?? id;
+    id === TITLE_FILTER
+      ? t('Title')
+      : id === TEMPLATE_FILTER
+        ? t('Template')
+        : id === SORT_CREATED
+          ? t('Created')
+          : id === SORT_UPDATED
+            ? t('Updated')
+            : schema.find((p) => p.id === id)?.name ?? id;
 
   const valuesFor = (propId: string): { value: string; label: string }[] => {
     if (propId === TEMPLATE_FILTER) {
@@ -2998,7 +3119,16 @@ function FilterSortControls({
             {open === 'filter' && (
               <>
           {groups.map((group, gi) => (
-          <div key={gi} className="fs-group">
+          <div
+            key={gi}
+            className={
+              'fs-group' +
+              (fdrag?.target && fdrag.target.gi === gi && fdrag.target.ci === group.length
+                ? ' is-drop-end'
+                : '')
+            }
+            data-gi={gi}
+          >
           {gi > 0 && <div className="fs-or">OR</div>}
           {group.map((f, ci) => {
             const op = f.op ?? (f.value ? 'is' : 'is_not_empty');
@@ -3038,8 +3168,36 @@ function FilterSortControls({
               patch({ values: next, value: '' });
             };
             return (
-              <div key={rowKeyByPath.get(`${gi}:${ci}`) ?? ci} className="fs-filter">
+              <div
+                key={rowKeyByPath.get(`${gi}:${ci}`) ?? ci}
+                data-gi={gi}
+                data-ci={ci}
+                className={
+                  'fs-filter' +
+                  (fdrag && fdrag.gi === gi && fdrag.ci === ci ? ' is-drag-source' : '') +
+                  (fdrag?.target && fdrag.target.gi === gi && fdrag.target.ci === ci
+                    ? fdrag.target.before
+                      ? ' is-drop-before'
+                      : ' is-drop-after'
+                    : '')
+                }
+                onContextMenu={(e) => {
+                  // The condition itself is the object; a right-click on it
+                  // asks what to do with it, without aiming at the small ×.
+                  e.preventDefault();
+                  setFilterMenu({ gi, ci, x: e.clientX, y: e.clientY });
+                }}
+              >
                 <div className="fs-filter-head">
+                  <button
+                    type="button"
+                    className="fs-drag"
+                    title={t('Drag to reorder')}
+                    aria-label={t('Drag to reorder')}
+                    onPointerDown={(e) => startFilterDrag(e, gi, ci)}
+                  >
+                    <GripVertical size={14} />
+                  </button>
                   <span className="fs-label">{propName(f.property)}</span>
                   {/* The template condition is a choice, not an operator plus a
                       choice: one select says which half, so there is no second
@@ -3071,13 +3229,7 @@ function FilterSortControls({
                   <button
                     className="icon-btn danger fs-remove"
                     title={t('Remove filter')}
-                    onClick={() =>
-                      setGroups(
-                        groups
-                          .map((g, j) => (j === gi ? g.filter((_, k) => k !== ci) : g))
-                          .filter((g) => g.length > 0),
-                      )
-                    }
+                    onClick={() => removeFilter(gi, ci)}
                   >
                     <X size={14} />
                   </button>
@@ -3152,13 +3304,20 @@ function FilterSortControls({
                         type="button"
                         className={'fs-case' + (f.caseSensitive ? ' on' : '')}
                         aria-pressed={!!f.caseSensitive}
-                        aria-label={t('Match case')}
+                        aria-label={f.caseSensitive ? t('Case matters') : t('Case is ignored')}
                         title={f.caseSensitive ? t('Ignore case') : t('Match case')}
                         onClick={() => patch({ caseSensitive: f.caseSensitive ? undefined : true })}
                       >
                         Aa
                       </button>
                     )}
+                  </div>
+                )}
+                {/* The switch is a glyph, and a glyph does not say which way
+                    it is set. One line under it does. */}
+                {titleCase && (
+                  <div className="fs-hint fs-case-state">
+                    {f.caseSensitive ? t('Case matters') : t('Case is ignored')}
                   </div>
                 )}
                 {/* One hint at a time: a date field that is not a day yet
@@ -3177,7 +3336,13 @@ function FilterSortControls({
                 onChange={(e) => {
                   if (!e.target.value) return;
                   const next = groups.map((g) => g.slice());
-                  next[gi] = [...next[gi], { property: e.target.value, op: 'is', value: '' }];
+                  next[gi] = [
+                    ...next[gi],
+                    // A title is text somebody half-remembers: typing "авшк"
+                    // into a field that means exact equality finds nothing and
+                    // reads as broken. "contains" is what the condition is for.
+                    { property: e.target.value, op: e.target.value === TITLE_FILTER ? 'contains' : 'is', value: '' },
+                  ];
                   setGroups(next);
                 }}
               >
@@ -3217,7 +3382,7 @@ function FilterSortControls({
               value=""
               onChange={(e) => {
                 if (!e.target.value) return;
-                setGroups([[{ property: e.target.value, op: 'is', value: '' }]]);
+                setGroups([[{ property: e.target.value, op: e.target.value === TITLE_FILTER ? 'contains' : 'is', value: '' }]]);
               }}
             >
               <option value="">{t('+ Add filter…')}</option>
@@ -3349,6 +3514,34 @@ function FilterSortControls({
               </div>
             )}
           </div>
+          {filterMenu && (
+            <div
+              className="menu filter-menu"
+              style={{
+                position: 'fixed',
+                left: Math.min(filterMenu.x, window.innerWidth - 180),
+                top: Math.min(filterMenu.y, window.innerHeight - 92),
+              }}
+            >
+              <button
+                onClick={() => {
+                  duplicateFilter(filterMenu.gi, filterMenu.ci);
+                  setFilterMenu(null);
+                }}
+              >
+                <Copy size={15} /> {t('Duplicate')}
+              </button>
+              <button
+                className="danger"
+                onClick={() => {
+                  removeFilter(filterMenu.gi, filterMenu.ci);
+                  setFilterMenu(null);
+                }}
+              >
+                <X size={15} /> {t('Remove filter')}
+              </button>
+            </div>
+          )}
         </Portal>
       )}
     </div>

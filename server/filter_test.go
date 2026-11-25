@@ -711,3 +711,23 @@ func TestNewFromTemplateRoundtrip(t *testing.T) {
 		t.Errorf("untouched save cleared it: got %q, want %q", got, tmpl)
 	}
 }
+
+// The title condition's case switch travels as part of the condition. The
+// browser writes it into filter_group; dropping it in the middle made the
+// database ignore case whatever the reader had chosen, so the query answered
+// a different question than the table then showed.
+func TestFilterGroupJSONKeepsCaseSensitivity(t *testing.T) {
+	groups := parseFilterGroups([]string{
+		`[{"property":"@title","op":"contains","value":"авшк","caseSensitive":true}]`,
+	})
+	if len(groups) != 1 || len(groups[0]) != 1 {
+		t.Fatalf("parsed %#v, want one group with one condition", groups)
+	}
+	if !groups[0][0].CaseSensitive {
+		t.Errorf("caseSensitive was dropped: %#v", groups[0][0])
+	}
+	plain := parseFilterGroups([]string{`[{"property":"@title","op":"contains","value":"авшк"}]`})
+	if len(plain) == 1 && len(plain[0]) == 1 && plain[0][0].CaseSensitive {
+		t.Errorf("caseSensitive defaulted to true")
+	}
+}

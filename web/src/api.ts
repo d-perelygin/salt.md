@@ -491,8 +491,8 @@ export const api = {
     opts: {
       limit?: number;
       offset?: number;
-      filters?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[];
-      filterGroups?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[][];
+      filters?: { property: string; op?: string; value: string; values?: string[]; value2?: string; caseSensitive?: boolean }[];
+      filterGroups?: { property: string; op?: string; value: string; values?: string[]; value2?: string; caseSensitive?: boolean }[][];
       sort?: { property: string; dir: 'asc' | 'desc' } | null;
       // Extra sort keys after the first, in priority order. Travels as
       // repeated sort params; the server reads them as one ORDER BY.
@@ -507,12 +507,12 @@ export const api = {
     if (opts.limit) p.set('limit', String(opts.limit));
     if (opts.offset) p.set('offset', String(opts.offset));
     if (opts.today) p.set('today', opts.today);
-    const encode = (f: { property: string; op?: string; value: string; values?: string[]; value2?: string }) => {
+    const encode = (f: { property: string; op?: string; value: string; values?: string[]; value2?: string; caseSensitive?: boolean }) => {
       // A set of values and a range do not fit in a colon-separated string, so
       // anything beyond the simple case travels as JSON. The server reads both
       // — the short form is what curl, a bookmarked URL and every older client
       // sends, and it keeps working unchanged.
-      if (f.values?.length || f.value2) return JSON.stringify(f);
+      if (f.values?.length || f.value2 || f.caseSensitive) return JSON.stringify(f);
       return `${f.property}:${f.op ?? ''}:${f.value}`;
     };
     for (const f of opts.filters ?? []) p.append('filter', encode(f));

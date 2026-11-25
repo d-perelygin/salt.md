@@ -436,6 +436,13 @@ Add a condition with **+ Add filter…** inside a group; add a group with
 group with the `✕` in its foot (removing the last condition of a group
 removes the group).
 
+**Conditions can be reordered.** Drag the grip at the head of one condition: it
+moves inside its group and across the OR divider, and a condition dropped on a
+group's empty space lands at the end of that group. The order is the order the
+conditions are read in, and it is saved with the view. Right-click a condition
+for **Duplicate** and **Remove filter** — duplicating is how *the same, but
+Done instead* is made without rebuilding it.
+
 Seven operators exist. Which of them are offered depends on the property type,
 and the labels change to suit it:
 
@@ -500,20 +507,25 @@ Three behaviours that surprise people:
 
 **Title** is the row's name, offerable as a condition of its own: `contains`,
 `does not contain`, `is`, `is not`, `is empty`, `is not empty`, and `matches
-regex`. The regex is case-insensitive and unanchored, so `#1[0-9]{2}\b` finds
-rows mentioning an issue in the hundreds and `draft|todo` finds either word. A
-pattern that does not compile is not a condition yet: it filters nothing, so the
-table keeps its rows while you finish typing. A `contains` on the title is a
-plain substring, which is what you want nine times out of ten; the regex is
-there for the tenth.
+regex`. A new title condition starts on `contains`, because the part somebody
+remembers is a fragment: typing *авшк* into a condition that means exact
+equality finds nothing, and reads as a broken search. The regex is unanchored
+and follows the case switch below, so `#1[0-9]{2}\b` finds rows mentioning an
+issue in the hundreds and `draft|todo` finds either word. A pattern that does
+not compile is not a condition yet: it filters nothing, so the table keeps its
+rows while you finish typing. A `contains` on the title is a plain substring,
+which is what you want nine times out of ten; the regex is there for the tenth.
 
-**Aa** beside the value decides whether case matters. Off — the default — means
-a title search folds case in every alphabet, so *авшк* finds *АвШк* and *ABSHK*
-finds *Abshk*; the regex follows the same switch, which is what a pattern like
-`^[A-Z]` needs. It is off by default because "contains" is a search, and a search
-that misses a row over a capital letter reads as broken. The switch belongs to
-the condition, not the view: one view can hold *title contains "draft"* and
-*title is "DRAFT-1"* with case respected.
+**Aa** beside the value decides whether case matters, and the line under the
+value says which way it is set: **Case is ignored** or **Case matters**. Off —
+the default — means a title search folds case in every alphabet, so *авшк*
+finds *АвШк* and *ABSHK* finds *Abshk*; the regex follows the same switch,
+which is what a pattern like `^[A-Z]` needs. It is off by default because
+"contains" is a search, and a search that misses a row over a capital letter
+reads as broken. The switch belongs to the condition, not the view: one view
+can hold *title contains "draft"* and *title is "DRAFT-1"* with case respected.
+Both halves obey it — the database narrows with the same case rule the browser
+applies afterwards, so the rows that arrive and the rows shown agree.
 
 Titles used to be unfilterable, and this is not [Search](search.md) wearing a
 condition's clothes: a search looks across the whole workspace and cannot be
