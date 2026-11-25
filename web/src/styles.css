@@ -3367,19 +3367,6 @@ body:has(.icon-picker) .bn-side-menu {
   gap: 2px;
   flex: 0 0 auto;
 }
-.board-col-more {
-  position: relative;
-  display: flex;
-}
-.board-col-more .board-add {
-  font-size: 15px;
-  line-height: 1;
-}
-.board-col-menu {
-  top: 28px;
-  right: 0;
-  min-width: 210px;
-}
 
 .board-col-head-left {
   display: flex;
@@ -8020,6 +8007,26 @@ body.is-unsched-carry .tl-end-space {
 .fs-filter-value > * {
   flex: 1;
   min-width: 0;
+}
+/* The case switch sits beside the value, not inside it: it is about the whole
+   condition, and it must not stretch like the input. */
+.fs-filter-value .fs-case {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.fs-filter-value .fs-case.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .fs-filter-value .prop-select,
@@ -13919,21 +13926,9 @@ body:has(.confirm-dialog) .dialog:not(.confirm-dialog) {
   }
 }
 
-/* --- the view's own menu ------------------------------------------------------
-   It lives in the toolbar with filter, sort and columns, because that row is
-   already "settings for the view you are on". Inside the tab it was a smudge in
-   the pill, and it had to reserve room in a row where nothing else does — which
-   pushed every tab apart at rest. */
-
-.view-menu-wrap {
-  position: relative;
-  display: inline-flex;
-}
-
+/* The view menu (rename / move / remove of one view) opens from its tab, so
+   its positioning is set from the pointer. Only the width is shared. */
 .view-tab-menu {
-  top: 30px;
-  right: 0;
-  left: auto;
   min-width: 170px;
 }
 

@@ -74,25 +74,28 @@ export function matchesFilter(
     if (!filterIsArmed(f)) return true;
     const title = row.title ?? '';
     const need = f.value ?? '';
+    // The reader's choice, and the same one the server applies: folding case
+    // here is Unicode-aware, but only when it was asked for.
+    const fold = (s: string) => (f.caseSensitive ? s : s.toLowerCase());
     switch (f.op ?? (need ? 'is' : 'is_not_empty')) {
       case 'is_empty':
         return title.trim() === '';
       case 'is_not_empty':
         return title.trim() !== '';
       case 'contains':
-        return title.toLowerCase().includes(need.toLowerCase());
+        return fold(title).includes(fold(need));
       case 'not_contains':
-        return !title.toLowerCase().includes(need.toLowerCase());
+        return !fold(title).includes(fold(need));
       case 'matches':
         try {
-          return new RegExp(need, 'i').test(title);
+          return new RegExp(need, f.caseSensitive ? '' : 'i').test(title);
         } catch {
           return true;
         }
       case 'is_not':
-        return title !== need;
+        return fold(title) !== fold(need);
       default:
-        return title === need;
+        return fold(title) === fold(need);
     }
   }
   // Created and Updated read the row's own timestamps as days — the same days

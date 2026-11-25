@@ -332,6 +332,10 @@ export interface Filter {
   values?: string[];
   /** Upper bound of `between`, inclusive. A range is value…value2. */
   value2?: string;
+  /** Compare the row's title with the exact case typed. Off is the default,
+   *  because "contains" is a search and searches ignore case — in every
+   *  alphabet, which the database does not do on its own. */
+  caseSensitive?: boolean;
 }
 
 export interface Sort {

@@ -875,7 +875,6 @@
   "Version history": "Versionsverlauf",
   "Version restored": "Version wiederhergestellt",
   "Via relation": "Über Relation",
-  "View options": "Ansichts-Optionen",
   "Viewer": "Betrachter",
   "Viewer (read only)": "Betrachter (Nur lesen)",
   "Visibility not saved": "Sichtbarkeit nicht gespeichert",
@@ -1799,5 +1798,7 @@
     "one": "{n} Änderung",
     "other": "{n} Änderungen"
   },
-  "No changes in the text": "Keine Änderungen im Text"
+  "No changes in the text": "Keine Änderungen im Text",
+  "Match case": "Groß-/Kleinschreibung beachten",
+  "Ignore case": "Groß-/Kleinschreibung ignorieren"
 }

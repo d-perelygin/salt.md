@@ -107,7 +107,10 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
-  ArrowRight, ChevronDown, History, Inbox, Lock, PanelLeftClose, PanelLeftOpen, Pin, TriangleAlert, X} from 'lucide-react';
+  ArrowRight,
+  ArrowUpToLine,
+  ArrowDownToLine,
+  ChevronDown, History, Inbox, Lock, PanelLeftClose, PanelLeftOpen, Pin, TriangleAlert, X} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
 function propTypeIcon(t: PropDef['type']) {
@@ -522,12 +525,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const [total, setTotal] = useState(0);
   const [addViewOpen, setAddViewOpen] = useState(false);
   const addViewBtnRef = useRef<HTMLButtonElement>(null);
-  const [viewMenuFor, setViewMenuFor] = useState<string | null>(null);
-  // The view menu is portalled with a computed position: the toolbar scrolls
-  // sideways and hides its vertical overflow, so a menu anchored inside it was
-  // cut off at the bar's edge instead of opening over the view.
-  const viewMenuBtn = useRef<HTMLButtonElement>(null);
-  const [viewMenuPos, setViewMenuPos] = useState<{ left: number; top: number } | null>(null);
   const [addViewPos, setAddViewPos] = useState<React.CSSProperties | null>(null);
   // A right-click on a view's tab opens the same actions the ⋯ holds, for THAT
   // view, at the pointer (#24). The ⋯ only ever acted on the view you are on.
@@ -1650,7 +1647,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // List, Timeline or Form at all.
   const renameView = async (v: ViewDef) => {
     const name = await promptText(t('Rename view'), { defaultValue: v.name, confirmText: t('Rename') });
-    setViewMenuFor(null);
     const n = name?.trim();
     if (!n || n === v.name) return;
     void saveConfig({ ...config, views: config.views.map((x) => (x.id === v.id ? { ...x, name: n } : x)) });
@@ -1658,7 +1654,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
 
   // A collection with no view has nothing to render, so the last one stays.
   const removeView = (v: ViewDef) => {
-    setViewMenuFor(null);
     if (config.views.length <= 1) return;
     const rest = config.views.filter((x) => x.id !== v.id);
     void saveConfig({ ...config, views: rest });
@@ -1924,70 +1919,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             <Settings2 size={14} /> {t('Properties')}
           </button>
         )}
-        {/* Renaming and removing the view you are on. It sat inside the tab as a
-            ⋯ first, which looked like a smudge in the pill and had to reserve
-            room in a row where nothing else does. This bar is already "settings
-            for the current view" — filter, sort, group, columns — so it is
-            where the last two belong. */}
-        {!embed && (
-        <div className="view-menu-wrap">
-          <button
-            ref={viewMenuBtn}
-            className="btn-sm"
-            title={t('View options')}
-            aria-expanded={viewMenuFor === view.id}
-            onClick={() => {
-              if (viewMenuFor === view.id) {
-                setViewMenuFor(null);
-                return;
-              }
-              const r = viewMenuBtn.current?.getBoundingClientRect();
-              if (r) {
-                const width = 216;
-                const left = Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8));
-                setViewMenuPos({ left, top: r.bottom + 6 });
-              }
-              setViewMenuFor(view.id);
-            }}
-          >
-            <MoreHorizontal size={14} />
-          </button>
-          {viewMenuFor === view.id && viewMenuPos && (
-            <Portal>
-              <div className="fs-backdrop" onClick={() => setViewMenuFor(null)} />
-              <div
-                className="menu view-tab-menu"
-                style={{ position: 'fixed', left: viewMenuPos.left, top: viewMenuPos.top, right: 'auto' }}
-              >
-                <button onClick={() => void renameView(view)}>
-                  <Pencil size={15} /> {t('Rename view')}
-                </button>
-                {config.views.length > 1 && (
-                  <>
-                    <button
-                      disabled={config.views[0]?.id === view.id}
-                      onClick={() => moveView(view, -1)}
-                    >
-                      <ArrowLeft size={15} /> {t('Move left')}
-                    </button>
-                    <button
-                      disabled={config.views[config.views.length - 1]?.id === view.id}
-                      onClick={() => moveView(view, 1)}
-                    >
-                      <ArrowRight size={15} /> {t('Move right')}
-                    </button>
-                  </>
-                )}
-                {config.views.length > 1 && (
-                  <button className="danger" onClick={() => removeView(view)}>
-                    <Trash2 size={15} /> {t('Remove view')}
-                  </button>
-                )}
-              </div>
-            </Portal>
-          )}
-        </div>
-        )}
+        {/* Renaming, moving and removing a view live on its tab: right-click
+            (or long-press) opens them for THAT view. The toolbar used to carry
+            its own ⋯ for the same actions, which added a button and said
+            nothing new. */}
         {view.type !== 'form' && (
           <button className="btn-sm primary" onClick={() => void addRow()}>
             <Plus size={14} /> {t('New')}
@@ -3036,6 +2971,12 @@ function FilterSortControls({
             const isDate =
               propType === 'date' || f.property === SORT_CREATED || f.property === SORT_UPDATED;
             const isPerson = propType === 'person';
+            // "Match case" belongs to the title condition alone: its value is
+            // free text on both sides, and its case is something the reader
+            // asks about by name. The others compare option ids, numbers, days.
+            const titleCase =
+              f.property === TITLE_FILTER &&
+              (op === 'contains' || op === 'not_contains' || op === 'is' || op === 'is_not' || op === 'matches');
             const picked = filterValues(f);
             const several = takesSeveral(f.property) && (op === 'is' || op === 'is_not');
             // A tick list writes `values`, everything else writes `value` — the
@@ -3154,6 +3095,18 @@ function FilterSortControls({
                         placeholder={t('value')}
                         onChange={(e) => patch({ value: e.target.value, values: undefined })}
                       />
+                    )}
+                    {titleCase && (
+                      <button
+                        type="button"
+                        className={'fs-case' + (f.caseSensitive ? ' on' : '')}
+                        aria-pressed={!!f.caseSensitive}
+                        aria-label={t('Match case')}
+                        title={f.caseSensitive ? t('Ignore case') : t('Match case')}
+                        onClick={() => patch({ caseSensitive: f.caseSensitive ? undefined : true })}
+                      >
+                        Aa
+                      </button>
                     )}
                   </div>
                 )}
@@ -3561,7 +3514,6 @@ function BoardView({
   // (multiselect grouping) opens only the tapped copy's menu.
   const [moveMenu, setMoveMenu] = useState<string | null>(null);
   // Which column's ⋯ menu is open (its "add at the top / bottom" choices).
-  const [colMenu, setColMenu] = useState<string | null>(null);
   // Cards whose overflow ("+3") the reader opened. Kept here rather than per
   // card so it survives a re-render, and forgotten on leaving the view — an
   // opened card is a glance, not a setting.
@@ -3622,14 +3574,6 @@ function BoardView({
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
   }, [moveMenu]);
-  useEffect(() => {
-    if (!colMenu) return;
-    const onDown = (e: MouseEvent) => {
-      if (!(e.target as Element).closest?.('.board-col-more')) setColMenu(null);
-    };
-    document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, [colMenu]);
   const prop = allProps.find((p) => p.id === groupBy);
   if (!prop || (prop.type !== 'select' && prop.type !== 'multiselect' && prop.type !== 'relation')) {
     return (
@@ -3742,42 +3686,6 @@ function BoardView({
               <button className="board-add" title={t('New')} onClick={() => onAddInColumn(groupBy, col.id)}>
                 <Plus size={14} />
               </button>
-              {/* Where a new card lands is a choice only once a column is
-                  long enough for the top and the bottom to be different
-                  places. Two quiet items behind this mark, rather than two
-                  more buttons competing with the + at the head of every
-                  column. */}
-              <span className="board-col-more">
-                <button
-                  className="board-add"
-                  title={t('More')}
-                  aria-label={t('More')}
-                  aria-expanded={colMenu === col.id}
-                  onClick={() => setColMenu(colMenu === col.id ? null : col.id)}
-                >
-                  ⋯
-                </button>
-                {colMenu === col.id && (
-                  <div className="menu board-col-menu">
-                    <button
-                      onClick={() => {
-                        setColMenu(null);
-                        onAddInColumn(groupBy, col.id, 'top');
-                      }}
-                    >
-                      {t('Add card at the top')}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setColMenu(null);
-                        onAddInColumn(groupBy, col.id, 'bottom');
-                      }}
-                    >
-                      {t('Add card at the bottom')}
-                    </button>
-                  </div>
-                )}
-              </span>
             </span>
           </div>
           <div className="board-cards">
@@ -3887,6 +3795,29 @@ function BoardView({
                               <CornerUpRight size={15} /> {c.name}
                             </button>
                           ))}
+                        {/* Where a new card lands is a question about the
+                            column, and the card is the thing in front of you
+                            when you ask it: "another one above this, another
+                            one below". A ⋯ at the head of every column said
+                            the same thing from further away. */}
+                        <div className="menu-sep" />
+                        <button
+                          onClick={() => {
+                            setMoveMenu(null);
+                            onAddInColumn(groupBy, col.id, 'top');
+                          }}
+                        >
+                          <ArrowUpToLine size={15} /> {t('Add card at the top')}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setMoveMenu(null);
+                            onAddInColumn(groupBy, col.id, 'bottom');
+                          }}
+                        >
+                          <ArrowDownToLine size={15} /> {t('Add card at the bottom')}
+                        </button>
+                        <div className="menu-sep" />
                         <button
                           className="danger"
                           onClick={() => {
