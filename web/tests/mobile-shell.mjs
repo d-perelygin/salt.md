@@ -176,11 +176,19 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   await p.goto(`${base}/p/${docA.id}`);
   await eventually(async () => (await p.locator('.mobile-dock').count()) === 1);
   await openSheet();
-  await eventually(async () => (await p.locator('.tabs-sheet-group').count()) === 1);
-  assert.equal(await p.locator('.tabs-sheet-group .tabs-sheet-archive-row').count(), 1);
-  assert.equal(await p.locator('.tabs-sheet-group').innerText().then((s) => s.includes('Phone B')), true);
+  // The group is a plaque above the grid and starts closed: the tabs that are
+  // actually open keep the room, and the count says whether to open it.
+  await eventually(async () => (await p.locator('.tabs-sheet-unused-bar').count()) === 1);
+  assert.equal(await p.locator('.tabs-sheet-unused-list').count(), 0);
+  assert.equal(await p.locator('.tabs-sheet-unused-count').innerText(), '1');
+  const plaque = await p.locator('.tabs-sheet-unused-bar').boundingBox();
+  const grid = await p.locator('.tabs-sheet-grid').boundingBox();
+  assert(plaque.y + plaque.height <= grid.y, 'the unused plaque sits above the grid');
+  await p.locator('.tabs-sheet-unused-toggle').click();
+  await eventually(async () => (await p.locator('.tabs-sheet-unused-list .tabs-sheet-archive-row').count()) === 1);
+  assert.equal(await p.locator('.tabs-sheet-unused').innerText().then((s) => s.includes('Phone B')), true);
   assert.equal(
-    await p.locator('.tabs-sheet-group').innerText().then((s) => s.includes('Phone A')),
+    await p.locator('.tabs-sheet-unused').innerText().then((s) => s.includes('Phone A')),
     false,
     'a pinned tab never joins the unused group',
   );
@@ -189,7 +197,7 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
 
   // "Close all" empties the group into the archive beneath it.
   await p.locator('.tabs-sheet-group-close').click();
-  await eventually(async () => (await p.locator('.tabs-sheet-group').count()) === 0);
+  await eventually(async () => (await p.locator('.tabs-sheet-unused').count()) === 0);
   await eventually(async () => (await p.locator('.tabs-sheet-archive-row').count()) === 1);
   assert.equal(await p.locator('.tabs-sheet-archive-name').first().innerText(), 'Phone B');
   await p.locator('.tabs-sheet-dismiss').click();
@@ -201,6 +209,14 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   // measurement is what keeps all of them honest.
   await slots.nth(0).click();
   await eventually(async () => (await p.locator('.sidebar.open').count()) === 1);
+  // Thumb reach decides the drawer's two ends: the account — and every setting
+  // behind it — is at the top, the workspace switcher at the bottom.
+  assert.equal(await p.locator('.sidebar-header .user-menu').count(), 1);
+  assert.equal(await p.locator('.sidebar-footer .ws-switcher').count(), 1);
+  const accountBtn = await p.locator('.sidebar-header .user-menu-btn').boundingBox();
+  assert(accountBtn && accountBtn.y < 80, 'the account sits at the top of the drawer');
+  const wsBtn = await p.locator('.sidebar-footer .ws-btn').boundingBox();
+  assert(wsBtn && wsBtn.y > 844 * 0.85, 'the workspace switcher sits under the thumb');
   await p.locator('.tree-item', { hasText: 'Phone A' }).first().hover();
   const rowActions = p.locator('.tree-item', { hasText: 'Phone A' }).first().locator('.tree-actions button').last();
   await rowActions.click();
@@ -211,6 +227,13 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   assert(rowBox && rowBox.height >= 44, 'a phone menu row is a thumb-sized target');
   await p.keyboard.press('Escape');
   await eventually(async () => (await p.locator('.tree-actions .menu').count()) === 0);
+  // The workspace menu has no room under the footer, so it opens upward.
+  await p.locator('.sidebar-footer .ws-btn').click();
+  await eventually(async () => (await p.locator('.sidebar-footer .ws-menu').count()) === 1);
+  const wsMenu = await p.locator('.sidebar-footer .ws-menu').boundingBox();
+  assert(wsMenu && wsMenu.y + wsMenu.height <= wsBtn.y + 2, 'the workspace menu opens over the tree');
+  await p.locator('.sidebar-footer .ws-btn').click();
+  await eventually(async () => (await p.locator('.sidebar-footer .ws-menu').count()) === 0);
   // The drawer covers the left two thirds of the screen, so the tap that closes
   // it has to be on the part of the backdrop its own edges leave free.
   // The drawer gives a long page title room for more than two words, and still
@@ -256,6 +279,10 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   await eventually(async () => (await page.locator('.topbar').count()) === 1);
   assert.equal(await page.locator('.mobile-dock').isVisible(), false);
   assert.equal(await page.locator('.tab-bar').isVisible(), true);
+  // The drawer keeps its desk arrangement: workspace in the header, account
+  // in the footer, neither traded for the other.
+  assert.equal(await page.locator('.sidebar-header .ws-switcher').count(), 1);
+  assert.equal(await page.locator('.sidebar-footer .user-menu').count(), 1);
   assert.equal(await page.locator('.ai-fab').isVisible(), true);
   await page.locator('.topbar button[title="More"]').click();
   await eventually(async () => (await page.locator('.overflow-menu').count()) === 1);

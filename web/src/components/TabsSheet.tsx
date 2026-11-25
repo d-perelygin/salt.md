@@ -1,5 +1,5 @@
-import { useRef } from 'react';
-import { ArrowLeft, ArrowRight, FileText, Pin, Plus, Table2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, FileText, Pin, Plus, Table2, X } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import type { PageMeta } from '../types';
 import type { ArchivedTab } from '../tabAging';
@@ -53,6 +53,13 @@ export default function TabsSheet({
 }) {
   const nav = useNavArrows();
   const sheetRef = useRef<HTMLDivElement>(null);
+  // The unused group is a plaque, not a shelf: it sits above the grid and
+  // stays closed until asked, so the tabs actually open keep the room. Every
+  // open starts closed — the count is what says whether to look.
+  const [unusedOpen, setUnusedOpen] = useState(false);
+  useEffect(() => {
+    if (open) setUnusedOpen(false);
+  }, [open]);
   if (!open) return null;
   const unusedSet = new Set(unused);
   const recent = tabs.filter((id) => !unusedSet.has(id));
@@ -94,6 +101,76 @@ export default function TabsSheet({
           </button>
         </div>
         <div className="tabs-sheet-body">
+          {/* Above the grid, not below it: the group is a thing to decide
+              about before picking a tab, and a shelf under a wall of cards is
+              reached only by scrolling past them. Closed by default, then it
+              is one bar — the count says whether opening it is worth it. */}
+          {unused.length > 0 && (
+            <div className="tabs-sheet-unused">
+              <div className="tabs-sheet-unused-bar">
+                <button
+                  type="button"
+                  className="tabs-sheet-unused-toggle"
+                  aria-expanded={unusedOpen}
+                  onClick={() => setUnusedOpen((o) => !o)}
+                >
+                  {unusedOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                  <span className="tabs-sheet-unused-label">{t('Unused tabs')}</span>
+                  <span className="tabs-sheet-unused-count">{unused.length}</span>
+                </button>
+                {unusedOpen && (
+                  <button type="button" className="tabs-sheet-group-close" onClick={onCloseUnused}>
+                    {t('Close all')}
+                  </button>
+                )}
+              </div>
+              {unusedOpen && (
+                <div className="tabs-sheet-unused-list">
+                  {unused.map((id) => {
+                    const page = pagesById.get(id);
+                    const title = page?.title || t('Untitled');
+                    return (
+                      <div
+                        key={id}
+                        role="button"
+                        tabIndex={0}
+                        className="tabs-sheet-archive-row"
+                        onClick={() => onSelect(id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onSelect(id);
+                          }
+                        }}
+                      >
+                        <span className="tabs-sheet-card-icon">
+                          <PageIcon
+                            icon={page?.icon}
+                            size={14}
+                            fallback={page?.type === 'collection' ? <Table2 size={14} /> : <FileText size={14} />}
+                          />
+                        </span>
+                        <span className="tabs-sheet-archive-name">{title}</span>
+                        {pinButton(id, 13)}
+                        <button
+                          type="button"
+                          className="tabs-sheet-card-close"
+                          aria-label={t('Close tab {title}', { title })}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onClose(id);
+                          }}
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="tabs-sheet-grid">
             {recent.map((id) => {
               const page = pagesById.get(id);
@@ -152,59 +229,6 @@ export default function TabsSheet({
               <span className="tabs-sheet-card-title">{t('New page')}</span>
             </button>
           </div>
-
-          {unused.length > 0 && (
-            <div className="tabs-sheet-archive tabs-sheet-group">
-              <div className="tabs-sheet-archive-title">
-                <span>
-                  {t('Unused tabs')} · {unused.length}
-                </span>
-                <button type="button" className="tabs-sheet-group-close" onClick={onCloseUnused}>
-                  {t('Close all')}
-                </button>
-              </div>
-              {unused.map((id) => {
-                const page = pagesById.get(id);
-                const title = page?.title || t('Untitled');
-                return (
-                  <div
-                    key={id}
-                    role="button"
-                    tabIndex={0}
-                    className="tabs-sheet-archive-row"
-                    onClick={() => onSelect(id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onSelect(id);
-                      }
-                    }}
-                  >
-                    <span className="tabs-sheet-card-icon">
-                      <PageIcon
-                        icon={page?.icon}
-                        size={14}
-                        fallback={page?.type === 'collection' ? <Table2 size={14} /> : <FileText size={14} />}
-                      />
-                    </span>
-                    <span className="tabs-sheet-archive-name">{title}</span>
-                    {pinButton(id, 13)}
-                    <button
-                      type="button"
-                      className="tabs-sheet-card-close"
-                      aria-label={t('Close tab {title}', { title })}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onClose(id);
-                      }}
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
 
           {archive.length > 0 && (
             <div className="tabs-sheet-archive">

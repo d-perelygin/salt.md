@@ -355,14 +355,6 @@
   flex: none;
 }
 
-/* The unused group is a second shelf under the grid, not a footnote: a gap
-   and a rule keep it from reading as more cards. */
-.tabs-sheet-group {
-  margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-
 .tabs-sheet-archive-title {
   display: flex;
   align-items: center;
@@ -376,24 +368,87 @@
   text-transform: uppercase;
 }
 
-/* The group-wide action sits in the heading it applies to. Sentence case,
-   because it is a command beside a label and not a third heading. */
+/* The unused group above the grid: a plaque of its own, closed until asked.
+   It has to read as one control and not as a section heading, so it gets a
+   fill and a border like a card edge, and the count sits where the eye
+   already looks for numbers in this sheet. */
+.tabs-sheet-unused {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+}
+
+.tabs-sheet-unused-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 2px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--hover);
+}
+
+.tabs-sheet-unused-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 10px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 550;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-unused-toggle:active {
+  background: var(--active);
+}
+
+.tabs-sheet-unused-toggle svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.tabs-sheet-unused-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabs-sheet-unused-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabs-sheet-unused-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0 0;
+}
+
+/* The group-wide action lives inside the plaque it applies to. Sentence case,
+   because it is a command beside a label and not a heading. */
 .tabs-sheet-group-close {
   flex: none;
-  min-height: 32px;
-  margin: -6px -6px -6px auto;
-  padding: 0 8px;
-  border-radius: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
   color: var(--accent);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 550;
-  letter-spacing: 0;
-  text-transform: none;
   -webkit-tap-highlight-color: transparent;
 }
 
 .tabs-sheet-group-close:active {
-  background: var(--hover);
+  background: var(--active);
 }
 
 .tabs-sheet-archive-row {
@@ -449,6 +504,78 @@
        to be shorter than its content. Without this the editor grows past the
        dock and the bottom of the page is unreachable. */
     min-height: 0;
+  }
+
+  /* --- the drawer: what the thumb needs, at the bottom ---------------------
+     Switching workspaces is a reach, opening the account (and every setting
+     behind it) is not, so the two trade places on a phone. The account row is
+     also taller than the workspace name it replaces, and that is the extra
+     distance at the top: the first note used to sit at the edge of the screen,
+     where a thumb does not bend comfortably. */
+  .sidebar-header {
+    padding: calc(20px + env(safe-area-inset-top)) 14px 8px;
+    gap: 6px;
+  }
+
+  .sidebar-account {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sidebar-account .user-menu {
+    margin-top: 0;
+  }
+
+  .sidebar-account .user-menu-btn {
+    min-height: 46px;
+    padding: 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  /* The settings menu hung upward because its button lived at the bottom of
+     the drawer. From the header it opens downward, over the tree. */
+  .sidebar-account .user-menu-popup {
+    top: calc(100% + 6px);
+    bottom: auto;
+    left: 0;
+    right: auto;
+    min-width: 250px;
+  }
+
+  /* The footer row the account used to own now belongs to the workspace. */
+  .sidebar-footer-row {
+    gap: 8px;
+  }
+
+  .sidebar-footer .ws-switcher {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sidebar-footer .ws-btn {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 8px;
+    border-radius: 10px;
+    background: var(--hover);
+    font-size: 14px;
+  }
+
+  /* No room below the footer, so this menu opens upward, over the tree. */
+  .sidebar-footer .ws-menu {
+    top: auto;
+    bottom: calc(100% + 6px);
+    left: 0;
+    right: auto;
+    min-width: 250px;
+    max-height: calc(100dvh - 160px);
+  }
+
+  /* More air between the search field and the first note: the top rows were
+     the hardest thing to hit on a tall phone. */
+  .sidebar .tree {
+    padding-top: 8px;
   }
 
   .mobile-dock {

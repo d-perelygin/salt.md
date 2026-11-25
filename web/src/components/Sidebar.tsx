@@ -35,6 +35,7 @@ import { tagColorClass } from '../tags';
 import { childrenForSection, topLevelForDocs } from '../treeMode';
 import SyncButton from './SyncButton';
 import ThemeSwitch, { type ThemePref } from '../ThemeSwitch';
+import { usePhoneLayout } from '../viewport';
 
 interface Props {
   pages: PageMeta[];
@@ -843,6 +844,11 @@ export default function Sidebar({
   onRefreshChats,
   onMarkRead,
 }: Props) {
+  // On a phone the thumb decides the layout: switching workspaces is a reach,
+  // opening the account (and every setting behind it) is not. The two trade
+  // places, and the account row is taller than the workspace name it replaces —
+  // which is what buys the top of the tree its extra distance from the edge.
+  const phone = usePhoneLayout();
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     // An open tree stays open: which branches were expanded is part of the
     // workspace's open state, like the tabs, and survives a reload the same way.
@@ -1389,70 +1395,89 @@ export default function Sidebar({
     }
   };
 
+  // The workspace switcher and the account row are each rendered in exactly
+  // one place, chosen by width: one element, one open menu, no ghost copy
+  // behind the drawer.
+  const workspaceSwitcher = (
+    <div className="ws-switcher" ref={wsMenuRef}>
+      <button className="ws-btn" onClick={() => setWsMenuOpen((o) => !o)}>
+        <WorkspaceAvatar ws={activeWs} />
+        <strong>{activeWs?.name ?? 'salt.md'}</strong>
+        <ChevronDown size={14} className="ws-caret" />
+      </button>
+      {wsMenuOpen && (
+        <div className="menu ws-menu">
+          {workspaces.map((w) => (
+            <button
+              key={w.id}
+              className={'ws-menu-item' + (w.id === currentWs ? ' active' : '')}
+              onClick={() => {
+                onSwitchWorkspace(w.id);
+                setWsMenuOpen(false);
+              }}
+            >
+              <WorkspaceAvatar ws={w} />
+              <span className="ws-menu-name">{w.name}</span>
+              {w.personal && <span className="ws-tag">{t('own space')}</span>}
+              {w.autoJoin && !w.personal && <span className="ws-tag">{t('open to all')}</span>}
+              {w.id === currentWs && <Check size={14} />}
+            </button>
+          ))}
+          <div className="menu-sep" />
+          {/* One entry instead of the sixteen that used to stand here. A
+              menu is a list of actions you take now; most of what was in it
+              are settings you look at and compare, which is a different
+              shape and now has its own dialog. */}
+          {activeWs?.role === 'admin' && (
+            <button className="menu-item" onClick={() => { setWsMenuOpen(false); setWsSettingsOpen(true); }}>
+              <Settings2 size={15} /> {t('Workspace settings')}
+            </button>
+          )}
+          {canCreateWorkspace && (
+            <button className="menu-item" onClick={newWorkspace}>
+              <Plus size={15} /> {t('New workspace')}
+            </button>
+          )}
+          {user.orgRole === 'owner' && (
+            <button
+              className="menu-item"
+              title={t('Workspaces nobody can look after any more')}
+              onClick={() => { setWsMenuOpen(false); setStrandedOpen(true); }}
+            >
+              <ShieldAlert size={15} /> {t('With nobody in charge…')}
+            </button>
+          )}
+          {/* Deleting lives in the settings dialog now, next to everything else
+              about this workspace — offering it in two places invites the
+              accident. */}
+        </div>
+      )}
+      <input
+        ref={wsImportRef}
+        type="file"
+        accept=".zip"
+        style={{ display: 'none' }}
+        onChange={(e) => void importWorkspace(e)}
+      />
+    </div>
+  );
+  const accountMenu = (
+    <UserMenu
+      user={user}
+      onUserChanged={onUserChanged}
+      onLogout={onLogout}
+      onOpenAgents={() => setAgentOpen(true)}
+      notesMode={notesModeSetting}
+      onToggleNotesMode={onToggleNotesMode}
+      onOpenShortcuts={onOpenShortcuts}
+      fontPref={fontPref}
+      onSetFont={onSetFont}
+    />
+  );
   return (
     <aside className={'sidebar' + (open ? ' open' : '')} ref={asideRef}>
       <div className="sidebar-header">
-        <div className="ws-switcher" ref={wsMenuRef}>
-          <button className="ws-btn" onClick={() => setWsMenuOpen((o) => !o)}>
-            <WorkspaceAvatar ws={activeWs} />
-            <strong>{activeWs?.name ?? 'salt.md'}</strong>
-            <ChevronDown size={14} className="ws-caret" />
-          </button>
-          {wsMenuOpen && (
-            <div className="menu ws-menu">
-              {workspaces.map((w) => (
-                <button
-                  key={w.id}
-                  className={'ws-menu-item' + (w.id === currentWs ? ' active' : '')}
-                  onClick={() => {
-                    onSwitchWorkspace(w.id);
-                    setWsMenuOpen(false);
-                  }}
-                >
-                  <WorkspaceAvatar ws={w} />
-                  <span className="ws-menu-name">{w.name}</span>
-                  {w.personal && <span className="ws-tag">{t('own space')}</span>}
-                  {w.autoJoin && !w.personal && <span className="ws-tag">{t('open to all')}</span>}
-                  {w.id === currentWs && <Check size={14} />}
-                </button>
-              ))}
-              <div className="menu-sep" />
-              {/* One entry instead of the sixteen that used to stand here. A
-                  menu is a list of actions you take now; most of what was in it
-                  are settings you look at and compare, which is a different
-                  shape and now has its own dialog. */}
-              {activeWs?.role === 'admin' && (
-                <button className="menu-item" onClick={() => { setWsMenuOpen(false); setWsSettingsOpen(true); }}>
-                  <Settings2 size={15} /> {t('Workspace settings')}
-                </button>
-              )}
-              {canCreateWorkspace && (
-                <button className="menu-item" onClick={newWorkspace}>
-                  <Plus size={15} /> {t('New workspace')}
-                </button>
-              )}
-              {user.orgRole === 'owner' && (
-                <button
-                  className="menu-item"
-                  title={t('Workspaces nobody can look after any more')}
-                  onClick={() => { setWsMenuOpen(false); setStrandedOpen(true); }}
-                >
-                  <ShieldAlert size={15} /> {t('With nobody in charge…')}
-                </button>
-              )}
-              {/* Deleting lives in the settings dialog now, next to everything else
-                  about this workspace — offering it in two places invites the
-                  accident. */}
-            </div>
-          )}
-          <input
-            ref={wsImportRef}
-            type="file"
-            accept=".zip"
-            style={{ display: 'none' }}
-            onChange={(e) => void importWorkspace(e)}
-          />
-        </div>
+        {phone ? <div className="sidebar-account">{accountMenu}</div> : workspaceSwitcher}
         <div className="sidebar-header-actions">
           <button className="icon-btn" title={t('Library (every page)')} onClick={onOpenIndex}>
             <Library size={17} />
@@ -1734,17 +1759,8 @@ export default function Sidebar({
       )}
       <div className="sidebar-footer">
         <div className="sidebar-footer-row">
-          <UserMenu
-            user={user}
-            onUserChanged={onUserChanged}
-            onLogout={onLogout}
-            onOpenAgents={() => setAgentOpen(true)}
-            notesMode={notesModeSetting}
-            onToggleNotesMode={onToggleNotesMode}
-            onOpenShortcuts={onOpenShortcuts}
-            fontPref={fontPref}
-            onSetFont={onSetFont}
-          />
+          {phone && workspaceSwitcher}
+          {phone ? null : accountMenu}
           <SyncButton />
           <ThemeSwitch value={themePref} onChange={onSetTheme} />
         </div>
