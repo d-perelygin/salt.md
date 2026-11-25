@@ -1038,24 +1038,31 @@
   .dialog-buttons,
   .dialog-actions {
     position: sticky;
-    bottom: 0;
+    /* Negative: the dialog's scrollport ends at its content box, 18px above
+       the bottom edge. Pinning at 0 left that padding as a strip where the
+       content showed through under the bar. */
+    bottom: -18px;
     z-index: 1;
     flex-direction: row;
     align-items: center;
-    justify-content: flex-end;
     gap: 8px;
-    margin: 14px -22px 0;
-    padding: 10px 22px calc(12px + env(safe-area-inset-bottom));
+    /* The bar covers the dialog's own bottom padding (18px) instead of
+       floating above it — the strip under it used to show the content
+       scrolling behind. And every action takes an equal share of the width:
+       a row of two right-aligned buttons left half the bar empty. */
+    margin: 14px -18px -18px;
+    padding: 10px 18px calc(12px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     background: var(--card);
   }
 
   .dialog-buttons > button,
   .dialog-actions > button {
-    flex: 0 0 auto;
+    flex: 1 1 0;
     width: auto;
+    min-width: 0;
     min-height: 40px;
-    padding: 0 16px;
+    padding: 0 12px;
     font-size: 14px;
   }
 

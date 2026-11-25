@@ -334,6 +334,15 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await p.waitForTimeout(200);
   const actionsBox = await actions.boundingBox();
   assert(actionsBox && actionsBox.y + actionsBox.height <= 844, 'the actions bar stays pinned to the bottom');
+  // Flush with the dialog's bottom edge (no strip of content underneath) and
+  // sharing the width between the actions.
+  assert(
+    Math.abs(actionsBox.y + actionsBox.height - (dialogBox.y + dialogBox.height)) <= 1,
+    'the actions bar reaches the bottom edge',
+  );
+  const cancelW = (await actions.getByRole('button', { name: 'Cancel', exact: true }).boundingBox()).width;
+  const saveW = (await actions.getByRole('button', { name: 'Save', exact: true }).boundingBox()).width;
+  assert(Math.abs(cancelW - saveW) <= 1 && cancelW > dialogBox.width * 0.35, 'the actions share the bar');
   await actions.getByRole('button', { name: 'Cancel', exact: true }).click();
   await eventually(async () => (await p.locator('.dialog').count()) === 0);
 
