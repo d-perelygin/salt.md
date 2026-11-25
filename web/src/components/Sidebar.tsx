@@ -148,6 +148,10 @@ interface TreeCtx {
   dragLeave: (id: string) => void;
   drop: (p: PageMeta, e: React.DragEvent) => void;
   dragEnd: () => void;
+  /** Whether a row is a native HTML5 draggable. Never on a phone: Chrome
+   *  Android starts its own touch drag on a long press, and that cancels the
+   *  pointer stream the hold-to-carry gesture runs on. */
+  htmlDrag: boolean;
   // The same move for a finger. Desktop drag events never fire on a phone, so
   // a hold carries the row instead (see beginTouchDrag in Sidebar).
   beginTouchDrag: (p: PageMeta, e: ReactPointerEvent<HTMLElement>) => void;
@@ -736,7 +740,7 @@ function TreeItem({
           // sidebar's sections are not that chain. Claiming the role without the
           // structure describes the tree wrongly, which is worse than not at all.
           data-expanded={hasExpand ? (isExpanded ? 'true' : 'false') : undefined}
-          draggable
+          draggable={ctx.htmlDrag}
           onDragStart={(e) => ctx.dragStart(p.id, e)}
           onDragOver={(e) => ctx.dragOver(p, e)}
           onDragLeave={() => ctx.dragLeave(p.id)}
@@ -1395,6 +1399,7 @@ export default function Sidebar({
     beginTouchDrag,
     touchCarried: touchCarry?.id ?? null,
     touchJustDropped: () => Date.now() - touchDroppedAt.current < 700,
+    htmlDrag: !phone,
   };
 
   const activeWs = workspaces.find((w) => w.id === currentWs);

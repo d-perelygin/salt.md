@@ -1459,6 +1459,13 @@ body.tabs-dragging .tabs-sheet-card {
     opacity: 0.45;
   }
 
+  /* No native drag anywhere in a row: Chrome Android starts its own drag on a
+     long press and cancels the pointer stream the carry runs on. */
+  .tree-item,
+  .tree-item * {
+    -webkit-user-drag: none;
+  }
+
   .tree-drag-ghost {
     position: fixed;
     z-index: 340;

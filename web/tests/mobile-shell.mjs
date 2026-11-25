@@ -235,6 +235,10 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await eventually(async () => (await p.locator('.sidebar.open').count()) === 1);
   // Thumb reach decides the drawer's two ends: the account — and every setting
   // behind it — is at the top, the workspace switcher at the bottom.
+  // A row is not a native HTML5 draggable on a phone: Chrome Android starts
+  // its own touch drag on a long press, and that cancels the pointer stream
+  // the hold-to-carry gesture runs on.
+  assert.equal(await p.locator('.tree-item').first().getAttribute('draggable'), 'false');
   assert.equal(await p.locator('.sidebar-header .user-menu').count(), 1);
   assert.equal(await p.locator('.sidebar-footer .ws-switcher').count(), 1);
   const accountBtn = await p.locator('.sidebar-header .user-menu-btn').boundingBox();
