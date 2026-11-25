@@ -1342,6 +1342,9 @@ export default function App() {
   useShortcut({
     id: 'tabs.reopen',
     keys: ['alt+shift+t'],
+    // The chord types nothing — it is Option+Shift+T, whose "character" is a
+    // caron — so it is safe to answer it while the caret is in the page.
+    whileTyping: true,
     label: () => t('Reopen closed tab'),
     group: () => t('Tabs'),
     run: () => {
@@ -1349,7 +1352,11 @@ export default function App() {
       while (stack.length) {
         const id = stack.shift()!;
         if (tabsRef.current.includes(id)) continue;
-        if (!pagesByIdRef.current.has(id) && !extraPages.has(id)) continue;
+        // No meta check. A row opened from a collection is not in the page
+        // tree and its meta is dropped with its tab, so "is it a page we know"
+        // answered no for exactly the tabs people close most — and the entry
+        // was thrown away silently. The app resolves a tab's row meta on open,
+        // and a page that is really gone closes its own tab on the 404.
         openInNewTab(id);
         return;
       }
