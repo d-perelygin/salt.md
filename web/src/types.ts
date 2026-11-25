@@ -171,12 +171,42 @@ export interface Webhook {
 /** One thing a version changed, as the server read it when the snapshot was
  *  written: the difference from the version above it. */
 export interface RevisionChange {
-  kind: 'title' | 'content' | 'prop';
+  kind:
+    | 'title'
+    | 'content'
+    | 'prop'
+    | 'column_added'
+    | 'column_removed'
+    | 'column_moved'
+    | 'column_changed'
+    | 'option_added'
+    | 'option_removed'
+    | 'option_changed'
+    | 'view_added'
+    | 'view_removed'
+    | 'view_moved'
+    | 'view_changed'
+    | 'workflow_changed'
+    | 'workflow_rule_added'
+    | 'workflow_rule_removed'
+    | 'workflow_rule_changed'
+    | 'workflow_code_added'
+    | 'workflow_code_removed'
+    | 'workflow_code_changed'
+    | 'template_changed';
+  /** Which half of a database the change belongs to. Absent on documents. */
+  scope?: 'property' | 'view' | 'workflow' | 'template';
+  /** The column or view id, so the change itself can offer "restore this". */
+  id?: string;
+  /** An option inside the column named by `id`. */
+  item?: string;
   /** For a property: its id, name and stored type, so a date can be formatted
    *  the way every other date in the app is. */
   prop?: string;
   name?: string;
   type?: string;
+  /** Which part changed: type, options, filters, status, rules… */
+  field?: string;
   from?: string;
   to?: string;
 }
@@ -185,12 +215,28 @@ export interface Revision {
   id: string;
   createdAt: string;
   authorName: string;
-  title: string;
+  /** Absent on a database's structure version, which has no page title. */
+  title?: string;
+  /** `collection` marks a version of a database's STRUCTURE (columns, views,
+   *  process). Absent means a page's document revision. */
+  kind?: 'page' | 'collection';
   /** What this version changed, against the one above it. A version written
    *  before that was recorded has it worked out on read, from the two states. */
   changes?: RevisionChange[];
   /** The first stretch of the document's text: enough to recognise the state. */
   excerpt?: string;
+}
+
+/** One version of a database's structure, as `getRevision` returns it. */
+export interface CollectionRevisionState {
+  kind: 'collection';
+  schema: PropDef[];
+  views: ViewDef[];
+  workflow?: WorkflowConfig;
+  newFromTemplate?: string;
+  createdAt: string;
+  authorName: string;
+  changes?: RevisionChange[];
 }
 
 export interface CommentAnchor {

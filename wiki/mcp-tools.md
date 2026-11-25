@@ -959,6 +959,8 @@ A page's history. See [History and audit](history-and-audit.md).
 | `action` | string | no: **list** (default), **get**, **restore**, **restore_original** |
 | `revision_id` | string | for **get** and **restore** |
 | `limit` | integer | **list** only |
+| `scope` | string | **restore** on a database only: `all`, `schema`, `views`, `workflow`, `property`, `view` |
+| `item_id` | string | **restore** with `scope` `property` or `view` |
 
 `list` returns `{page_id, total, oldest_revision_id, revisions:[{id, created_at,
 author, title, content_bytes, by, baseline}]}`, newest first. `baseline` marks
@@ -985,13 +987,37 @@ does the same with the oldest surviving revision: one word instead of reading
 the list and picking the id by eye. That is why restoring lives here rather than
 behind its own tool.
 
+**On a database page the revisions are its STRUCTURE.** A collection's columns,
+views and process live beside the page, not in its body, so **list** and **get**
+answer with the schema, the views and the workflow instead of a document.
+**list** items carry the same `id`, created_at, `author` and `by`, plus a
+`changes` array whose entries name what moved (`column_added`, `view_changed`,
+`option_removed`, `workflow_rule_changed`, …) and carry the column or view id, so
+an agent can read what happened before deciding what to put back. **get** returns
+`{page_id, revision_id, kind:"collection", schema, views, workflow,
+new_from_template}`. `restore` then takes `scope`:
+
+| `scope` | What goes back |
+| --- | --- |
+| `all` (the default) | columns, views, process and the new-row template |
+| `schema` | the columns only |
+| `views` | the views only |
+| `workflow` | the process only |
+| `property` + `item_id` | one column, back at its old place; its row values were never deleted |
+| `view` + `item_id` | one view, with today's column widths kept |
+
+A restore that would leave the process naming a missing property or option is
+refused with a structure conflict and changes nothing. Row values are never part
+of this history and are never written by a restore; each row has its own.
+
 Reading counts as a read and restoring as a write, so a read-only token may list
 and get but not restore.
 
 Errors: `unknown action "x" — use list (the default), get, restore or
 restore_original`; `revision_id is required for action=get`; `revision "…" not
 found on page …`; `page … has no revisions yet — there is no earlier state to
-restore`.
+restore`; `item_id is required for scope=property`; `unknown scope "x" — use
+all, schema, views, workflow, property or view`.
 
 ### comments
 

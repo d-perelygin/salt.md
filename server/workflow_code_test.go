@@ -504,7 +504,7 @@ func TestRewriteMemberInCode(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("seed: %d %s", rec.Code, rec.Body.String())
 	}
-	s.rewriteMemberInCode(uid, "Test", "Tester")
+	s.rewriteMemberInCode(uid, "Test", "Tester", "", "Test")
 	var stored string
 	s.db.QueryRow(`SELECT workflow FROM collections WHERE page_id = ?`, col).Scan(&stored)
 	var cfg workflowConfig
@@ -517,6 +517,19 @@ func TestRewriteMemberInCode(t *testing.T) {
 	}
 	if !strings.Contains(rewritten, `"Tester"`) || strings.Contains(rewritten, `"Test"`) {
 		t.Errorf("member not rewritten: %q", rewritten)
+	}
+	// The rename is a real change to this database's process: it is filed
+	// under the person who renamed the account, not left to appear later as a
+	// change nobody made.
+	var author string
+	var changes string
+	s.db.QueryRow(`SELECT author_name, changes FROM collection_revisions WHERE page_id = ?
+		ORDER BY seq DESC LIMIT 1`, col).Scan(&author, &changes)
+	if author != "Test" {
+		t.Errorf("the rewrite is filed under %q", author)
+	}
+	if !strings.Contains(changes, "workflow_code_changed") {
+		t.Errorf("the rewrite is not described: %s", changes)
 	}
 }
 

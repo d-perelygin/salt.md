@@ -585,11 +585,29 @@ export const api = {
 
   listRevisions: (pageId: string) => req<import('./types').Revision[]>(`/api/pages/${pageId}/revisions`),
   getRevision: (pageId: string, revId: string) =>
-    req<{ title: string; content: unknown[]; createdAt: string; authorName: string }>(
-      `/api/pages/${pageId}/revisions/${revId}`,
-    ),
-  restoreRevision: (pageId: string, revId: string) =>
-    req<{ ok: boolean }>(`/api/pages/${pageId}/revisions/${revId}/restore`, { method: 'POST' }),
+    req<{
+      kind?: 'page' | 'collection';
+      title?: string;
+      content?: unknown[];
+      schema?: import('./types').PropDef[];
+      views?: import('./types').ViewDef[];
+      workflow?: import('./types').WorkflowConfig;
+      newFromTemplate?: string;
+      createdAt: string;
+      authorName: string;
+      changes?: import('./types').RevisionChange[];
+    }>(`/api/pages/${pageId}/revisions/${revId}`),
+  /** A page's restore, or — for a database — one part of its structure: the
+   *  whole thing, one column, one view, or the process. */
+  restoreRevision: (
+    pageId: string,
+    revId: string,
+    part?: { scope?: 'all' | 'schema' | 'views' | 'workflow' | 'property' | 'view'; itemId?: string },
+  ) =>
+    req<{ ok: boolean; detail?: string }>(`/api/pages/${pageId}/revisions/${revId}/restore`, {
+      method: 'POST',
+      body: JSON.stringify(part ?? {}),
+    }),
   copyRevision: (pageId: string, revId: string) =>
     req<{ id: string; parentId: string }>(`/api/pages/${pageId}/revisions/${revId}/copy`, { method: 'POST' }),
 

@@ -93,6 +93,13 @@ sub-pages of its own. This is why a task can hold its own meeting notes and a
 deal can hold a folder of documents without anybody inventing an attachment
 system. Everything on [Pages](pages.md) applies.
 
+The collection itself has a history of its own, and it is about the shape rather
+than the data: open **⋯ → Version history** on the database page to see its old
+columns, views and process, and to put back one column, one view, the process, or
+the whole structure. A deleted column returns with its values, because removing a
+column never deletes what the rows held. See
+[History and audit](history-and-audit.md#a-databases-structure).
+
 To give a row a sub-page, expand the collection in the sidebar: every row
 listed there carries the same `＋` and the same `⋯` as any other tree item, so a
 dossier under a deal is made the same way a page under a page is.

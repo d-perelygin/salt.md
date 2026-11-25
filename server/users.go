@@ -741,7 +741,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		// A renamed member keeps their code references: every process that
 		// names them is rewritten at exact token positions.
 		if nn := strings.TrimSpace(*body.Name); nn != oldName {
-			s.rewriteMemberInCode(id, oldName, nn)
+			s.rewriteMemberInCode(id, oldName, nn, me.ID, me.Name)
 		}
 	}
 	if body.Color != nil {

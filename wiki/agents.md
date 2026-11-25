@@ -245,7 +245,10 @@ every page as a node as well, off by default, because it is large and because th
 returns anyway already answer "what is connected to nothing". And `revisions`
 lists 20 by default and 100 at most, but the part worth knowing is that restoring
 saves the CURRENT state as a new revision first: putting a page back is itself
-reversible.
+reversible. On a **database** page it lists the structure instead — columns,
+views and process — and `restore` takes a scope (`schema`, `views`, `workflow`,
+`property`, `view`) so one column can come back without touching the rest. Row
+values are not in that history.
 
 ### Writing
 

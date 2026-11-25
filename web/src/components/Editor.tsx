@@ -2448,6 +2448,7 @@ function PageHeader({
             {historyOpen && (
               <HistoryModal
                 pageId={pageId}
+                collection={page?.type === 'collection'}
                 onClose={() => setHistoryOpen(false)}
                 onRestored={onPagesChanged}
                 onOpen={onOpenInNewTab}
