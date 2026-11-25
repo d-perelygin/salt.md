@@ -41,7 +41,7 @@ export default function TabsSheet({
   activeId: string | null;
   pagesById: Map<string, PageMeta>;
   archive: ArchivedTab[];
-  /** Tabs nobody has looked at in a week, already filtered of the active and
+  /** Tabs nobody has looked at for three days, already filtered of the active and
    *  pinned ones. They leave the grid and gather in their own section, which
    *  is reversible by one tap: nothing is closed behind the reader's back. */
   unused: string[];

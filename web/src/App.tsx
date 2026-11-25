@@ -1947,7 +1947,7 @@ export default function App() {
   //
   // A phone collects documents the way Chrome collects tabs, and the sheet
   // hides nothing: after a fortnight it is a wall of pages nobody will open
-  // again. The sheet gathers anything untouched for a week into "Unused tabs"
+  // again. The sheet gathers anything untouched for three days into "Unused tabs"
   // instead of closing it on load, and its "Close all" moves that group into
   // the archive below — both visible where the tabs are.
   const [tabUsage, setTabUsage] = useState<TabUsage>(loadUsage);
@@ -1978,7 +1978,7 @@ export default function App() {
     // sheet arguing with the person who just cleared it.
     replaceTabs(tabsRef.current.filter((id) => !stale.includes(id)));
   }, [replaceTabs]);
-  // The tabs nobody has opened for a week. They are not closed: the sheet
+  // The tabs nobody has opened for three days. They are not closed: the sheet
   // gathers them into their own section, which one tap reverses. That pass is
   // a visible group rather than a silent close, and pinning is the way a tab
   // opts out of it entirely (see staleTabs).

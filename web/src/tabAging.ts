@@ -14,9 +14,9 @@ import type { PageMeta } from './types';
 
 const USED_KEY = 'salt-tab-used';
 const ARCHIVE_KEY = 'salt-tab-archive';
-/** A week. Long enough that a project picked up on Monday is still there on
- *  Friday, short enough that the sheet stops being a museum. */
-export const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+/** Three days. Long enough to survive a weekend away from a project, short
+ *  enough that the sheet stops being a museum. */
+export const STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 const ARCHIVE_MAX = 24;
 
 export type TabUsage = Record<string, number>;
@@ -65,7 +65,7 @@ export function saveArchive(archive: ArchivedTab[]): void {
   }
 }
 
-/** The tabs nobody has opened for a week.
+/** The tabs nobody has opened for three days.
  *
  *  A tab with no timestamp is left alone: it was opened before this file
  *  existed, and guessing that it is old because it has no date would close
