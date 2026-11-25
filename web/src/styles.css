@@ -11209,8 +11209,13 @@ a.btn {
    heading row does — a Gantt you cannot read the dates off is decoration.
    The paint is opaque so rows never show through. */
 .timeline .tl-header {
-  position: sticky;
-  top: 46px;
+  /* NOT sticky. Its scroll container is .tl-scroll (overflow-x: auto makes
+     both axes a scrollport), so `top: 46px` did not dock the axis under the
+     collection toolbar — it pushed it 46px down inside the timeline and laid
+     it over the first rows, hiding the first task and swallowing clicks on
+     its bar at rest. The axis scrolls with the rows; the page's own sticky
+     toolbar is what stays on screen. */
+  position: relative;
   z-index: 6;
   background: var(--bg);
 }
@@ -11548,7 +11553,11 @@ a.btn {
   white-space: nowrap;
   font-size: 13.5px;
 }
-.tl-track { position: relative; flex: 1 1 auto; min-width: 0; border-bottom: 1px solid var(--border); }
+/* Above the dependency overlay: the arrows' fat invisible hit bands (16px of
+   stroke) were swallowing clicks on the bar edges they cross, so a resize or a
+   move under an arrow did nothing. Lines still read in the gaps; over a bar
+   they pass behind it, which is where a connector belongs anyway. */
+.tl-track { position: relative; z-index: 1; flex: 1 1 auto; min-width: 0; border-bottom: 1px solid var(--border); }
 .tl-today-line { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--danger); opacity: 0.28; }
 /* The weekend column in the body, one band per weekend rather than per day. It
    sits behind the bars, so a bar is read against the weekend it crosses. */
@@ -11822,7 +11831,9 @@ body.is-tl-resizing {
   right: 0;
   bottom: 0;
   pointer-events: none;
-  z-index: 1;
+  /* Behind the tracks (z-index 1): their hit bands must not take a click meant
+     for a bar edge. */
+  z-index: 0;
 }
 /* Notion-style dependency paths: thin line, chevron head, and a fat
    invisible twin that takes clicks. */

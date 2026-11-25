@@ -5271,6 +5271,20 @@ function TimelineView({
   const [cursor, setCursor] = useState(() =>
     today < dataMin - 3 ? dataMin : today > dataMax + 4 ? dataMax : today,
   );
+  // Rows arrive after the first render (the load is async), so the initial
+  // cursor was computed against an empty list and stayed on today — a window
+  // months away from the only events, saying "Nothing in this period" until
+  // somebody paged back by hand. Recenter once, the first time data lands,
+  // unless the window has already been moved.
+  const cursorTouched = useRef(false);
+  const dataSpan = items.length
+    ? `${Math.min(...items.map((i) => i.start))}:${Math.max(...items.map((i) => i.end))}`
+    : '';
+  useEffect(() => {
+    if (cursorTouched.current || !dataSpan) return;
+    const [lo, hi] = dataSpan.split(':').map(Number);
+    setCursor(today < lo - 3 ? lo : today > hi + 4 ? hi : today);
+  }, [dataSpan, today]);
   const [hovered, setHovered] = useState<string | null>(null);
   // The unscheduled tray: closed until its toolbar button opens it, the day
   // a carried card is over right now (for the drop highlight), and whether a
@@ -6066,6 +6080,7 @@ function TimelineView({
               ' — ' +
               formatMonth(yearOf(dayCols[dayCols.length - 1]), monthOf(dayCols[dayCols.length - 1]), 'long');
   const step = (delta: number) => {
+    cursorTouched.current = true;
     if (mode === 'day') setCursor((c) => c + delta);
     else if (mode === 'week') setCursor((c) => c + delta * 7);
     else if (mode === 'year')
@@ -6081,7 +6096,10 @@ function TimelineView({
         return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + delta, 1) / 86400000);
       });
   };
-  const goToday = () => setCursor(today);
+  const goToday = () => {
+    cursorTouched.current = true;
+    setCursor(today);
+  };
 
   // Bar geometry in percent of the grid, clamped to the window. Null when
   // the item is fully outside. fracGeom is the same in fractions (for the
@@ -6703,6 +6721,7 @@ function TimelineView({
                           }}
                           onClick={(e) => {
                             if (swallowClick()) return;
+                            cursorTouched.current = true;
                             setCursor(offDate);
                           }}
                           aria-label={t('Click to jump to date')}
