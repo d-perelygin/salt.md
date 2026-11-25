@@ -1347,7 +1347,8 @@ body.tabs-dragging .tabs-sheet-card {
 
   /* A phone does not animate a panel into place: it appears, like the drawer
      and the other sheets here. */
-  .comments-panel {
+  .comments-panel,
+  .structure-panel {
     animation: none !important;
     transition: none !important;
   }

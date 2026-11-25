@@ -361,6 +361,20 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await p.locator('.sheet-backdrop').click({ position: { x: 195, y: 60 } });
   await eventually(async () => (await p.locator('.overflow-menu').count()) === 0);
 
+  // The structure panel is a sheet here too, and a sheet appears rather than
+  // sliding in from the side the way the desktop rail does.
+  await p.locator('.topbar button[title="More"]').click();
+  await eventually(async () => (await p.locator('.overflow-menu').count()) === 1);
+  await p.getByRole('button', { name: /Show structure/ }).last().click();
+  await eventually(async () => (await p.locator('.structure-panel').count()) === 1);
+  assert.equal(
+    await p.locator('.structure-panel').evaluate((el) => getComputedStyle(el).animationName),
+    'none',
+    'the structure sheet appears without the desktop slide',
+  );
+  await p.locator('.structure-backdrop').click({ position: { x: 195, y: 60 } });
+  await eventually(async () => (await p.locator('.structure-panel').count()) === 0);
+
   // The share dialog is a .menu hanging off topbar buttons that are hidden on
   // a phone, so its anchor is a zero-width box at the right edge: the desktop
   // 400px panel used to hang off the screen with half the form unreachable.
