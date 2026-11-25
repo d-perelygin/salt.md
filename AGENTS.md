@@ -12,8 +12,13 @@
 
 ### Test gates (what to run when)
 
-- **Every edit**: `go test ./...` (cached unless `web/dist` changed), `cd web && npx tsc
-  --noEmit`, and only the browser tests the change touches:
+- **Batch, don't gate every edit.** This is a standing preference, not a suggestion:
+  collect related edits, build once per batch, test only what the change touches, and
+  run the full gate once at the end of the batch — before the commit or push. Repeating
+  `vite build` / `go test ./...` / `npm run check` after each small step makes the loop
+  painfully slow and is explicitly not wanted.
+- **While editing**: `go test ./...` when the change is Go (cached unless `web/dist`
+  changed), `cd web && npx tsc --noEmit`, and only the browser tests the change touches:
   `cd web/tests && node run.mjs mobile-shell board-edge-scroll`.
 - **Before a push**: `cd web && npm run check` (~25s), `go test ./...`, then the whole
   browser suite: `cd web/tests && npm test` — parallel, four workers, about three and a
