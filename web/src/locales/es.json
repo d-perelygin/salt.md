@@ -406,8 +406,6 @@
   "Mail sending connected ✓": "Envío de correo conectado ✓",
   "Maintenance": "Mantenimiento",
   "Make instance admin": "Hacer administrador de la instancia",
-  "Make it private": "Hacer privado",
-  "Make it visible to the workspace": "Hacer visible en el espacio de trabajo",
   "Make the instance public for that (Instance settings → Domain & proxy) and connect through the public URL. Local CLIs on the same network work directly.": "Haz la instancia pública para ello (Ajustes de la instancia → Dominio y proxy) y conéctate a través de la URL pública. Las CLI locales en la misma red funcionan directamente.",
   "Manage": "Gestionar",
   "Manage users": "Gestionar usuarios",

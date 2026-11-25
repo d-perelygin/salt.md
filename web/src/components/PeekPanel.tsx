@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ChevronDown, ChevronUp, SquareArrowOutUpRight, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Maximize2, X } from 'lucide-react';
 import Editor, { type EditorProps } from './Editor';
 import SheetGrab from './SheetGrab';
 import { t } from '../i18n';
@@ -116,15 +116,14 @@ export default function PeekPanel({
         <button
           type="button"
           className="peek-action"
-          title={t('Open in new tab')}
-          aria-label={t('Open in new tab')}
+          title={t('Open full screen')}
+          aria-label={t('Open full screen')}
           onClick={() => {
-            if (onOpenInNewTab) onOpenInNewTab(pageId);
-            else onOpenFull(pageId);
+            onOpenFull(pageId);
             onClose();
           }}
         >
-          <SquareArrowOutUpRight size={18} />
+          <Maximize2 size={18} />
         </button>
         <button
           type="button"

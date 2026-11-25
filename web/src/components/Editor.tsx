@@ -56,6 +56,7 @@ import PageShares from './PageShares';
 import SheetBackdrop from './SheetBackdrop';
 import SheetGrab from './SheetGrab';
 import ShareDialog, { type ShareTab } from './ShareDialog';
+import MobileEditorBar from './MobileEditorBar';
 import { usePhoneLayout } from '../viewport';
 import { HistoryModal } from './PageHistory';
 import CommentsPanel, {
@@ -4388,6 +4389,9 @@ function BlockContent({
             />
           </BlockNoteView>
         </BlockContext.Provider>
+        {/* The keyboard bar: inline styles and AI while the caret is in the
+            text, in the one strip a phone keyboard leaves free. */}
+        <MobileEditorBar editor={editor} aiEnabled={aiEnabled} onAskAi={askAi} />
         <AiEmptyLine editor={editor} pageId={pageId} canEdit={canEdit} />
         <OutlineMinimap editor={editor} />
         {!structureOpen && (

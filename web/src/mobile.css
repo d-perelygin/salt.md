@@ -1263,22 +1263,43 @@
     background: var(--active);
   }
 
-  /* The topbar keeps the pin/expand menu; the close now lives in the footer,
-     and two X's in one sheet read as two different actions. */
-  .peek-panel .peek-pair > .icon-btn:first-child {
+  /* Typing takes the strip: the keyboard bar replaces the sheet's actions, so
+     there is never a formatting bar above a close button above the keys. */
+  body.mobile-editing .peek-actions {
     display: none;
   }
 
-  /* The structure panel is a desktop side rail: at 280px it left a strip of
-     the board visible, and the collection toolbar painted over it. Full width
-     here, above that toolbar. */
+  /* The topbar pair (expand, pin, their menu) is gone on a phone: the footer
+     carries the same expand action at the thumb, and one icon per action
+     beats two sets of corners. */
+  .peek-panel .peek-pair {
+    display: none;
+  }
+
+  /* The structure panel is a desktop side rail. Here it is a sheet, like the
+     peek: veil, grab handle, rounded top, and its own header to close it. */
   .structure-panel {
     left: 0;
     right: 0;
+    top: auto;
+    bottom: 0;
     width: 100%;
     max-width: none;
+    height: auto;
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
     border-left: none;
-    z-index: 30;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+    z-index: 300;
+  }
+
+  .structure-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 290;
+    background: rgba(0, 0, 0, 0.42);
   }
 }
 
@@ -1303,7 +1324,9 @@
     right: 0;
     /* On the keyboard, or where the dock was when it is closed. */
     bottom: var(--kb-inset, 0px);
-    z-index: 70;
+    /* Above the peek and structure sheets (260/300): the caret can be in a
+       sheet's editor, and the bar has to ride on the keyboard there too. */
+    z-index: 310;
     display: flex;
     align-items: center;
     gap: 2px;
@@ -1360,14 +1383,17 @@
 
 /* --- handles are a phone thing -------------------------------------------- */
 
-/* The page menus, the AI panel and the peek are popovers/panels on a desktop:
-   they have no bottom edge to drag, and no actions bar of their own. */
+/* The page menus, the AI panel, the peek and the structure panel are
+   popovers/panels on a desktop: they have no bottom edge to drag, no actions
+   bar of their own and nothing to veil. */
 @media (min-width: 769px) {
   .menu .sheet-grab,
   .ai-panel .sheet-grab,
   .peek-panel .sheet-grab,
+  .structure-panel .sheet-grab,
   .peek-actions,
-  .peek-backdrop {
+  .peek-backdrop,
+  .structure-backdrop {
     display: none;
   }
 }

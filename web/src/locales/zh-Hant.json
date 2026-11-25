@@ -423,8 +423,6 @@
   "Mail sending connected ✓": "郵件傳送已連線 ✓",
   "Maintenance": "維護",
   "Make instance admin": "設為實例管理員",
-  "Make it private": "設為私密",
-  "Make it visible to the workspace": "設為工作區可見",
   "Make the instance public for that (Instance settings → Domain & proxy) and connect through the public URL. Local CLIs on the same network work directly.": "這需要先將實例公開（實例設定 → 網域名稱與代理），並通過公開 URL 連線。同一網路中的本機 CLI 可直接連線。",
   "Manage": "管理",
   "Manage users": "管理使用者",
