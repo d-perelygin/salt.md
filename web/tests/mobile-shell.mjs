@@ -110,6 +110,91 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   );
   await p.locator('.tabs-sheet-dismiss').click();
 
+  // --- pinned tabs, and the group of unused ones ---------------------------
+  // A strip with a known shape: two documents, nothing pinned, nobody has
+  // looked at either of them yet.
+  const openSheet = async () => {
+    await slots.nth(1).click();
+    await eventually(async () => (await p.locator('.tabs-sheet').count()) === 1);
+  };
+  const sheetCard = (title) =>
+    p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').filter({ hasText: title }).first();
+  const setStrip = async () => {
+    await p.evaluate(
+      ([a, b]) => {
+        localStorage.setItem('salt-tabs', JSON.stringify([a, b]));
+        localStorage.setItem('salt-pinned-tabs', '[]');
+        localStorage.setItem('salt-tab-used', '{}');
+        localStorage.setItem('salt-tab-archive', '[]');
+      },
+      [docA.id, docB.id],
+    );
+    await p.reload();
+    await eventually(async () => (await p.locator('.mobile-dock').count()) === 1);
+  };
+  await p.goto(`${base}/p/${docA.id}`);
+  await setStrip();
+  await openSheet();
+  assert.equal(await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count(), 2);
+
+  // Every card carries the pin. Pinning marks it — the card moves to the head
+  // of the strip and reports its own state for a screen reader too.
+  const pinButton = (title) => sheetCard(title).locator('.tabs-sheet-card-pin');
+  assert.equal(await pinButton('Phone A').getAttribute('aria-label'), 'Pin tab');
+  await pinButton('Phone A').click();
+  await eventually(async () => (await pinButton('Phone A').getAttribute('aria-label')) === 'Unpin tab');
+  assert.equal(await sheetCard('Phone A').evaluate((el) => el.classList.contains('pinned')), true);
+  await pinButton('Phone A').click();
+  await eventually(async () => (await pinButton('Phone A').getAttribute('aria-label')) === 'Pin tab');
+  assert.equal(await sheetCard('Phone A').evaluate((el) => el.classList.contains('pinned')), false);
+
+  // Closing by hand is not deleting: the tab lands in "Recently closed" and
+  // one tap brings it back.
+  await sheetCard('Phone B').locator('.tabs-sheet-card-close').click();
+  await eventually(async () => (await p.locator('.tabs-sheet-card-archive-row, .tabs-sheet-archive-row').count()) === 1);
+  assert.equal(await p.locator('.tabs-sheet-archive-name').first().innerText(), 'Phone B');
+  await p.locator('.tabs-sheet-archive-row').filter({ hasText: 'Phone B' }).click();
+  await eventually(async () => (await p.locator('.tabs-sheet').count()) === 0);
+  await openSheet();
+  assert.equal(await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count(), 2);
+  assert.equal(await p.locator('.tabs-sheet-archive-row').count(), 0);
+
+  // A week without a visit moves a tab out of the grid into the unused group.
+  // A pinned tab is exempt — that is the whole reason to pin one.
+  await pinButton('Phone A').click();
+  await eventually(async () => (await pinButton('Phone A').getAttribute('aria-label')) === 'Unpin tab');
+  // Both stamps go back a week, then the app comes back on the pinned tab:
+  // reading a tab is what keeps it fresh, and the pinned one is the only tab
+  // allowed to be the one the app opens on here.
+  await p.evaluate(
+    ([a, b]) => {
+      const old = Date.now() - 8 * 24 * 60 * 60 * 1000;
+      localStorage.setItem('salt-tab-used', JSON.stringify({ [a]: old, [b]: old }));
+    },
+    [docA.id, docB.id],
+  );
+  await p.goto(`${base}/p/${docA.id}`);
+  await eventually(async () => (await p.locator('.mobile-dock').count()) === 1);
+  await openSheet();
+  await eventually(async () => (await p.locator('.tabs-sheet-group').count()) === 1);
+  assert.equal(await p.locator('.tabs-sheet-group .tabs-sheet-archive-row').count(), 1);
+  assert.equal(await p.locator('.tabs-sheet-group').innerText().then((s) => s.includes('Phone B')), true);
+  assert.equal(
+    await p.locator('.tabs-sheet-group').innerText().then((s) => s.includes('Phone A')),
+    false,
+    'a pinned tab never joins the unused group',
+  );
+  assert.equal(await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count(), 1);
+  assert.equal(await sheetCard('Phone A').evaluate((el) => el.classList.contains('pinned')), true);
+
+  // "Close all" empties the group into the archive beneath it.
+  await p.locator('.tabs-sheet-group-close').click();
+  await eventually(async () => (await p.locator('.tabs-sheet-group').count()) === 0);
+  await eventually(async () => (await p.locator('.tabs-sheet-archive-row').count()) === 1);
+  assert.equal(await p.locator('.tabs-sheet-archive-name').first().innerText(), 'Phone B');
+  await p.locator('.tabs-sheet-dismiss').click();
+  await eventually(async () => (await p.locator('.tabs-sheet').count()) === 0);
+
   // --- every menu is a thumb-sized menu ------------------------------------
   // Reported from a real phone: the tree row's ⋯ menu was 184px wide with
   // 13px rows. It is the same .menu component in a dozen places, so the

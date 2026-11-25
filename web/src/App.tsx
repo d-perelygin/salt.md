@@ -238,6 +238,12 @@ export default function App() {
       return next.length === prev.length ? prev : next;
     });
   }, [openTabs]);
+  // Tabs that left the strip by hand or by the unused-tabs pass, newest first.
+  // Reopening one is a tap in the same sheet; the entry then goes away.
+  const [tabArchive, setTabArchive] = useState<ArchivedTab[]>(loadArchive);
+  useEffect(() => {
+    saveArchive(tabArchive);
+  }, [tabArchive]);
   // The last active page of each workspace, so switching workspaces returns to
   // where you were instead of the workspace's first page. Written on every
   // navigation (see the effect by pagesById below); read by switchWorkspace.
@@ -1246,6 +1252,9 @@ export default function App() {
     });
     // Remember what was just closed, so Shift+Option+T can bring it back.
     closedTabsRef.current = [id, ...closedTabsRef.current.filter((x) => x !== id)].slice(0, 20);
+    // The phone's tabs sheet keeps the same thing as a visible row: closing a
+    // tab by hand is not deleting the page, and one tap brings it back.
+    setTabArchive((prev) => archiveTabs(prev, [id], pagesByIdRef.current));
     // The remembered scroll positions die with the tab. The chosen VIEW stays:
     // that is a choice about the collection, not about the tab.
     forgetPageScroll(id);
@@ -1832,9 +1841,9 @@ export default function App() {
   //
   // A phone collects documents the way Chrome collects tabs, and the sheet
   // hides nothing: after a fortnight it is a wall of pages nobody will open
-  // again. Two ways out, both reversible through the archive in the same
-  // sheet: an automatic pass on load for anything untouched for a week, and a
-  // button for the same thing on demand.
+  // again. The sheet gathers anything untouched for a week into "Unused tabs"
+  // instead of closing it on load, and its "Close all" moves that group into
+  // the archive below — both visible where the tabs are.
   const [tabUsage, setTabUsage] = useState<TabUsage>(loadUsage);
   const usageRef = useRef<TabUsage>(tabUsage);
   useEffect(() => {
@@ -1852,10 +1861,6 @@ export default function App() {
       return { ...prev, [currentId]: Date.now() };
     });
   }, [currentId]);
-  const [tabArchive, setTabArchive] = useState<ArchivedTab[]>(loadArchive);
-  useEffect(() => {
-    saveArchive(tabArchive);
-  }, [tabArchive]);
   const closeAgedTabs = useCallback(() => {
     const stale = staleTabs(tabsRef.current, usageRef.current, {
       active: activeRef.current,
@@ -1865,25 +1870,12 @@ export default function App() {
     setTabArchive((prev) => archiveTabs(prev, stale, pagesByIdRef.current));
     replaceTabs(tabsRef.current.filter((id) => !stale.includes(id)));
   }, [replaceTabs]);
-  // Once, and only after the page list has arrived: an archive entry saved
-  // without its title is a row that reads "Untitled" forever.
-  const agedRef = useRef(false);
-  useEffect(() => {
-    if (agedRef.current || !pages) return;
-    agedRef.current = true;
-    // The archive stores titles, so the pass waits for the list instead of
-    // writing "Untitled" into a row that would keep it forever.
-    const stale = staleTabs(tabsRef.current, usageRef.current, {
-      active: activeRef.current,
-      pinned: pinnedRef.current,
-    });
-    if (stale.length === 0) return;
-    setTabArchive((prev) => archiveTabs(prev, stale, pagesById));
-    replaceTabs(tabsRef.current.filter((id) => !stale.includes(id)));
-  }, [pages, pagesById, replaceTabs]);
-  const staleCount = useMemo(
-    () =>
-      staleTabs(openTabs, tabUsage, { active: currentId, pinned: pinnedTabs }).length,
+  // The tabs nobody has opened for a week. They are not closed: the sheet
+  // gathers them into their own section, which one tap reverses. That pass is
+  // a visible group rather than a silent close, and pinning is the way a tab
+  // opts out of it entirely (see staleTabs).
+  const unusedTabs = useMemo(
+    () => staleTabs(openTabs, tabUsage, { active: currentId, pinned: pinnedTabs }),
     [openTabs, tabUsage, currentId, pinnedTabs],
   );
   // Remember the active page under its OWN workspace (not the current one —
@@ -2524,7 +2516,7 @@ export default function App() {
         activeId={currentId}
         pagesById={pagesById}
         archive={tabArchive}
-        staleCount={staleCount}
+        unused={unusedTabs}
         onSelect={(id) => {
           setTabsSheetOpen(false);
           navigate(id);
@@ -2544,8 +2536,9 @@ export default function App() {
         onCloseUnused={() => {
           closeAgedTabs();
           // The whole point of the button is what happened to the sheet, so it
-          // stays open: the cards that went are now in the list underneath.
+          // stays open: the group is gone and its rows are in the archive.
         }}
+        onTogglePin={togglePinTab}
         onReopen={(id) => {
           setTabArchive((prev) => prev.filter((entry) => entry.id !== id));
           if (!pagesById.has(id)) return;

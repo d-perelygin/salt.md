@@ -287,16 +287,23 @@
   color: var(--muted);
 }
 
-.tabs-sheet-card-close {
+.tabs-sheet-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: -4px -4px 0 0;
+}
+
+.tabs-sheet-card-close,
+.tabs-sheet-card-pin {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Smaller than the 44px rule on purpose: it sits beside the card's own tap
+  /* Smaller than the 44px rule on purpose: they sit beside the card's own tap
      area, and a 44px × would be half the card. The card itself is the target
      that matters, and it is 84px tall. */
   width: 28px;
   height: 28px;
-  margin: -4px -4px 0 0;
   border-radius: 8px;
   color: var(--muted);
 }
@@ -304,6 +311,20 @@
 .tabs-sheet-card-close:active {
   background: var(--hover);
   color: var(--fg);
+}
+
+/* A pin that is on stays lit: it is the one state a glance has to read from
+   across the sheet, since a pinned tab never joins the unused group. */
+.tabs-sheet-card-pin.on {
+  color: var(--accent);
+}
+
+.tabs-sheet-card-pin.on svg {
+  fill: currentColor;
+}
+
+.tabs-sheet-card-pin:active {
+  background: var(--hover);
 }
 
 .tabs-sheet-card-title {
@@ -327,26 +348,6 @@
   background: none;
 }
 
-/* The on-demand version of the automatic pass. */
-.tabs-sheet-unused {
-  flex: none;
-  min-height: 44px;
-  padding: 0 14px;
-  margin-left: auto;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--hover);
-  color: var(--fg);
-  font-size: 13px;
-  font-weight: 550;
-  text-align: center;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.tabs-sheet-unused:active {
-  background: var(--active);
-}
-
 .tabs-sheet-archive {
   display: flex;
   flex-direction: column;
@@ -354,13 +355,45 @@
   flex: none;
 }
 
+/* The unused group is a second shelf under the grid, not a footnote: a gap
+   and a rule keep it from reading as more cards. */
+.tabs-sheet-group {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
 .tabs-sheet-archive-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
   padding: 4px 2px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* The group-wide action sits in the heading it applies to. Sentence case,
+   because it is a command beside a label and not a third heading. */
+.tabs-sheet-group-close {
+  flex: none;
+  min-height: 32px;
+  margin: -6px -6px -6px auto;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: 0;
+  text-transform: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-group-close:active {
+  background: var(--hover);
 }
 
 .tabs-sheet-archive-row {

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { ArrowLeft, ArrowRight, FileText, Plus, Table2, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, FileText, Pin, Plus, Table2, X } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import type { PageMeta } from '../types';
 import type { ArchivedTab } from '../tabAging';
@@ -24,12 +24,13 @@ export default function TabsSheet({
   activeId,
   pagesById,
   archive,
-  staleCount,
+  unused,
   onSelect,
   onClose,
   onCreate,
   onCloseUnused,
   onReopen,
+  onTogglePin,
   onDismiss,
 }: {
   open: boolean;
@@ -38,17 +39,44 @@ export default function TabsSheet({
   activeId: string | null;
   pagesById: Map<string, PageMeta>;
   archive: ArchivedTab[];
-  staleCount: number;
+  /** Tabs nobody has looked at in a week, already filtered of the active and
+   *  pinned ones. They leave the grid and gather in their own section, which
+   *  is reversible by one tap: nothing is closed behind the reader's back. */
+  unused: string[];
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onCreate: () => void;
   onCloseUnused: () => void;
   onReopen: (id: string) => void;
+  onTogglePin: (id: string) => void;
   onDismiss: () => void;
 }) {
   const nav = useNavArrows();
   const sheetRef = useRef<HTMLDivElement>(null);
   if (!open) return null;
+  const unusedSet = new Set(unused);
+  const recent = tabs.filter((id) => !unusedSet.has(id));
+  /** The pin sits on every card and every unused row: it is the one control
+   *  that decides whether a tab can age out at all, so it has to be visible
+   *  where the decision is made instead of hiding in a menu. */
+  const pinButton = (id: string, size: number) => {
+    const isPinned = pinned.includes(id);
+    return (
+      <button
+        type="button"
+        className={'tabs-sheet-card-pin' + (isPinned ? ' on' : '')}
+        aria-label={isPinned ? t('Unpin tab') : t('Pin tab')}
+        aria-pressed={isPinned}
+        title={isPinned ? t('Unpin tab') : t('Pin tab')}
+        onClick={(e) => {
+          e.stopPropagation();
+          onTogglePin(id);
+        }}
+      >
+        <Pin size={size} />
+      </button>
+    );
+  };
   return (
     <Portal>
       <div className="fs-backdrop tabs-sheet-backdrop" onClick={onDismiss} />
@@ -67,7 +95,7 @@ export default function TabsSheet({
         </div>
         <div className="tabs-sheet-body">
           <div className="tabs-sheet-grid">
-            {tabs.map((id) => {
+            {recent.map((id) => {
               const page = pagesById.get(id);
               const title = page?.title || t('Untitled');
               const isPinned = pinned.includes(id);
@@ -77,7 +105,11 @@ export default function TabsSheet({
                   role="button"
                   tabIndex={0}
                   aria-current={id === activeId}
-                  className={'tabs-sheet-card' + (id === activeId ? ' active' : '')}
+                  className={
+                    'tabs-sheet-card' +
+                    (id === activeId ? ' active' : '') +
+                    (isPinned ? ' pinned' : '')
+                  }
                   onClick={() => onSelect(id)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -94,7 +126,8 @@ export default function TabsSheet({
                         fallback={page?.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />}
                       />
                     </span>
-                    {!isPinned && (
+                    <span className="tabs-sheet-card-actions">
+                      {pinButton(id, 13)}
                       <button
                         type="button"
                         className="tabs-sheet-card-close"
@@ -106,7 +139,7 @@ export default function TabsSheet({
                       >
                         <X size={13} />
                       </button>
-                    )}
+                    </span>
                   </span>
                   <span className="tabs-sheet-card-title">{title}</span>
                 </div>
@@ -119,6 +152,59 @@ export default function TabsSheet({
               <span className="tabs-sheet-card-title">{t('New page')}</span>
             </button>
           </div>
+
+          {unused.length > 0 && (
+            <div className="tabs-sheet-archive tabs-sheet-group">
+              <div className="tabs-sheet-archive-title">
+                <span>
+                  {t('Unused tabs')} · {unused.length}
+                </span>
+                <button type="button" className="tabs-sheet-group-close" onClick={onCloseUnused}>
+                  {t('Close all')}
+                </button>
+              </div>
+              {unused.map((id) => {
+                const page = pagesById.get(id);
+                const title = page?.title || t('Untitled');
+                return (
+                  <div
+                    key={id}
+                    role="button"
+                    tabIndex={0}
+                    className="tabs-sheet-archive-row"
+                    onClick={() => onSelect(id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelect(id);
+                      }
+                    }}
+                  >
+                    <span className="tabs-sheet-card-icon">
+                      <PageIcon
+                        icon={page?.icon}
+                        size={14}
+                        fallback={page?.type === 'collection' ? <Table2 size={14} /> : <FileText size={14} />}
+                      />
+                    </span>
+                    <span className="tabs-sheet-archive-name">{title}</span>
+                    {pinButton(id, 13)}
+                    <button
+                      type="button"
+                      className="tabs-sheet-card-close"
+                      aria-label={t('Close tab {title}', { title })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onClose(id);
+                      }}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {archive.length > 0 && (
             <div className="tabs-sheet-archive">
@@ -142,9 +228,7 @@ export default function TabsSheet({
         </div>
         {/* The two arrows a browser has and an installed app does not, along
             the bottom edge where the thumb is — the same place the browser
-            puts its own toolbar. The unused-tabs pass sits beside them: both
-            are about the collection as a whole, and neither belongs in the
-            header. */}
+            puts its own toolbar. */}
         <div className="tabs-sheet-foot">
           <button
             type="button"
@@ -166,11 +250,6 @@ export default function TabsSheet({
           >
             <ArrowRight size={19} />
           </button>
-          {staleCount > 0 && (
-            <button type="button" className="tabs-sheet-unused" onClick={onCloseUnused}>
-              {t('Close unused tabs')}
-            </button>
-          )}
         </div>
       </div>
     </Portal>

@@ -7,9 +7,10 @@ import type { PageMeta } from './types';
  *  things nobody will open again. The strip on the desktop has the same problem
  *  but shows it as a scrollbar; a grid of cards makes it obvious.
  *
- *  Closing is not deleting: a tab that ages out is kept in a small archive and
- *  can be reopened from the same sheet, so the automatic pass is reversible by
- *  one tap and does not need a confirmation dialog nobody reads. */
+ *  Nothing closes on its own: a tab that ages out leaves the sheet's grid for
+ *  an "Unused tabs" group, and only closing it (or the group's "Close all")
+ *  moves it into the small archive below. Both are reversible with one tap, so
+ *  neither needs a confirmation dialog nobody reads. */
 
 const USED_KEY = 'salt-tab-used';
 const ARCHIVE_KEY = 'salt-tab-archive';
