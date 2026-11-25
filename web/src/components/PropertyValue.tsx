@@ -804,6 +804,9 @@ export function PersonChip({ raw, members }: { raw: string; members: Member[] })
 export function PersonStack({ values, max = 3 }: { values: string[]; max?: number }) {
   useNameDisplay();
   const [members, setMembers] = useState<Member[]>([]);
+  // A face is a person: clicking one answers "who is this" without leaving the
+  // card, sheet or cell it appears in.
+  const [personFor, setPersonFor] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     void loadMembers().then((m) => alive && setMembers(m));
@@ -812,7 +815,7 @@ export function PersonStack({ values, max = 3 }: { values: string[]; max?: numbe
     };
   }, []);
 
-  const people: { key: string; name: string; label: string; color: string; avatar: string }[] = [];
+  const people: { key: string; userId: string; name: string; label: string; color: string; avatar: string }[] = [];
   const seen = new Set<string>();
   for (const raw of values) {
     const v = raw.trim();
@@ -830,6 +833,7 @@ export function PersonStack({ values, max = 3 }: { values: string[]; max?: numbe
     seen.add(key);
     people.push({
       key,
+      userId: hit?.userId ?? '',
       name,
       label: hit ? displayName(hit) || name : name,
       color: hit?.color || nameColor(name),
@@ -844,9 +848,19 @@ export function PersonStack({ values, max = 3 }: { values: string[]; max?: numbe
       {shown.map((p) => (
         <span
           key={p.key}
-          className="cp-avatar person-stack-av"
+          className={'cp-avatar person-stack-av' + (p.userId ? ' is-link' : '')}
           style={{ background: p.avatar ? 'transparent' : p.color }}
           title={p.label}
+          onClick={
+            p.userId
+              ? (e) => {
+                  // The card, row and cell behind all open something of their
+                  // own; the face opens the person instead.
+                  e.stopPropagation();
+                  setPersonFor(p.userId);
+                }
+              : undefined
+          }
         >
           {p.avatar ? <img src={p.avatar} alt="" /> : initials(p.name)}
         </span>
@@ -856,6 +870,7 @@ export function PersonStack({ values, max = 3 }: { values: string[]; max?: numbe
           +{rest.length}
         </span>
       )}
+      {personFor && <PersonPage userId={personFor} onClose={() => setPersonFor(null)} />}
     </span>
   );
 }

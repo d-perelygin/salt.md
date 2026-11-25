@@ -105,5 +105,18 @@ await withFixture(async ({ page, api, workspace, path, read }) => {
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await eventually(async () => (await read()).schema.find((p) => p.id === 'team')?.personMultiple === true);
 
+  // A face in the stack opens that person's account page — on a board card
+  // the face is the only way to ask "who is this" without opening the card.
+  await api('PATCH', `/api/pages/${await rowId()}`, { propsPatch: { team: [ana.id, ben.id] } });
+  await page.reload();
+  await cell().waitFor();
+  const faces = cell().locator('.person-stack-av');
+  await eventually(async () => (await faces.count()) === 2);
+  await faces.first().click();
+  await page.locator('.person-page').waitFor();
+  assert.match(await page.locator('.person-name').innerText(), /Ana|Ben/);
+  await page.locator('.person-close').click();
+  await page.locator('.person-page').waitFor({ state: 'detached' });
+
   console.log('People: several per cell, only the named ones offered, and back to one.');
 });

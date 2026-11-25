@@ -14266,6 +14266,10 @@ body:has(.confirm-dialog) .dialog:not(.confirm-dialog) {
    pushes text or marks aside. The marks slide left as the button fades in so
    the faces and the ⋯ never sit on top of each other; at rest they keep the
    corner exactly as they were. */
+.person-stack-av.is-link {
+  cursor: pointer;
+}
+
 .card-marks {
   display: inline-flex;
   align-items: center;
