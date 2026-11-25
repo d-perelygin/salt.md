@@ -1078,6 +1078,76 @@
     overscroll-behavior: contain;
   }
 
+  /* Version history and Structure history are their own dialog class, so the
+     sheet rules above never reached them: on a phone it opened as a floating
+     96vw card with a side rail. Same sheet as every other dialog here. */
+  .rev-dialog {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
+    flex-direction: column;
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+  }
+
+  /* The list is the sheet's first page, not a side rail. */
+  .rev-list-pane {
+    flex: 0 0 auto;
+    width: auto;
+    max-height: 34dvh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .rev-list-head {
+    padding: 14px 14px 8px;
+  }
+
+  .rev-list-head h2 {
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  /* Date and author on one line, actions on their own row: at 412px the
+     narrow column wrapped "26 November 2026 at 03:38" onto four lines. */
+  .rev-doc-head {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 14px;
+  }
+
+  .rev-doc-when {
+    flex: 1 1 100%;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .rev-doc-actions {
+    flex: 1 1 100%;
+  }
+
+  .rev-doc-actions .btn {
+    flex: 1 1 0;
+    min-height: 40px;
+  }
+
+  .rev-doc-actions .rev-close {
+    flex: 0 0 auto;
+  }
+
+  .rev-doc-body {
+    padding: 12px 14px 20px;
+  }
+
+  .rev-doc-foot {
+    padding-bottom: calc(9px + env(safe-area-inset-bottom));
+  }
+
   /* Floating popovers (columns, filters, sort) are sheets as well — the
      measured position is ignored, because half of them opened with a gap on
      one side and half without, and the sheet is the shape that fits a thumb. */
