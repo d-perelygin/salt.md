@@ -611,6 +611,8 @@
   "Move left": "Переместить влево",
   "Move right": "Переместить вправо",
   "Move to": "Переместить в",
+  "Move to the bottom of the column": "Переместить в конец колонки",
+  "Move to the top of the column": "Переместить в начало колонки",
   "Move to top level": "Переместить на верхний уровень",
   "Move to trash": "Переместить в корзину",
   "Move to workspace": "Переместить в рабочее пространство",
@@ -1823,8 +1825,6 @@
     "many": "{n} версий",
     "other": "{n} версии"
   },
-  "Add card at the bottom": "Добавить карточку в конец",
-  "Add card at the top": "Добавить карточку в начало",
   "Fix grammar, spelling, and punctuation in the following text. Reply with the corrected text only.": "Исправь грамматику, орфографию и пунктуацию в тексте ниже. Ответь только исправленным текстом.",
   "Fix grammar, spelling, and punctuation on this page. Reply with the corrected text only.": "Исправь грамматику, орфографию и пунктуацию на этой странице. Ответь только исправленным текстом.",
   "Reopen closed tab": "Открыть закрытую вкладку",

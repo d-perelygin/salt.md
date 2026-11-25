@@ -1561,6 +1561,56 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     return position;
   };
 
+  const placeRowAtBottom = async (rowId: string, siblings: Row[]): Promise<number | undefined> => {
+    const known = siblings.filter((r) => r.id !== rowId).map((r) => r.position);
+    if (known.length === 0) return undefined;
+    const position = Math.max(...known) + 1;
+    touchRows();
+    setRows((prevRows) => {
+      const without = prevRows.filter((r) => r.id !== rowId);
+      const moved = prevRows.find((r) => r.id === rowId);
+      if (!moved) return prevRows;
+      const tagged = { ...moved, position };
+      // Bottom of the column: behind its last row standing in the list.
+      const others = siblings.filter((r) => r.id !== rowId);
+      const lastId = others.length ? others[others.length - 1].id : undefined;
+      const i = lastId !== undefined ? without.findIndex((r) => r.id === lastId) : -1;
+      if (i >= 0) return [...without.slice(0, i + 1), tagged, ...without.slice(i + 1)];
+      return [...without, tagged];
+    });
+    // Journals into the outbox offline, like every other row write.
+    await savePageUpdate(rowId, { position }, { label: t('Change') });
+    return position;
+  };
+
+  // "Move to the top/bottom of this column" from a card's menu: the card
+  // stays in its column and changes only its place in it. A sorted view
+  // orders by the sort, so there is no place to change and the entries are
+  // not offered; here the guard is only a second line of defence.
+  const moveWithinColumn = (
+    rowId: string,
+    groupBy: string,
+    optId: string,
+    where: 'top' | 'bottom',
+  ): Promise<void> =>
+    series(view?.id, async () => {
+      if (!view || viewSorts(view).length > 0) return;
+      const live = rowsRef.current;
+      const column = boardColumnRows(live, groupBy, optId);
+      const oldPos = live.find((r) => r.id === rowId)?.position;
+      const position =
+        where === 'top' ? await placeRowOnTop(rowId, column) : await placeRowAtBottom(rowId, column);
+      if (position === undefined || oldPos === undefined || position === oldPos) return;
+      const v = view;
+      if (v && !isTempId(rowId)) {
+        pushUndo(v.id, {
+          label: t('Change'),
+          undo: () => writePos(rowId, oldPos),
+          redo: () => writePos(rowId, position),
+        });
+      }
+    });
+
   // The process travels down to the property cells through this context: the
   // status select marks the moves it refuses (statusMarks.tsx). Above the
   // early return below, or the hook count differs between the loading render
@@ -1985,17 +2035,18 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onMoveCard={(rowId, curOrder, newOrder) => {
             void moveCard(rowId, curOrder, newOrder);
           }}
+          onMoveInColumn={(rowId, groupBy, optId, where) => {
+            void moveWithinColumn(rowId, groupBy, optId, where);
+          }}
           onTrashRow={trashRow}
-          onAddInColumn={(groupBy, optId, where) => {
+          onAddInColumn={(groupBy, optId) => {
             // A board + makes the card for this column, on its top: one less
-            // than the column's lowest position. The column's own menu can ask
-            // for the bottom instead, where the server default (MAX+1) lands.
-            // A sorted view orders by its sort, so positions stay out of it.
+            // than the column's lowest position. A sorted view orders by its
+            // sort, so positions stay out of it.
             const col = viewSorts(view).length === 0 ? boardColumnRows(viewRows, groupBy, optId) : [];
-            const atBottom = where === 'bottom';
             return void addRow(
               optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) },
-              !atBottom && col.length > 0 ? { prependBefore: Math.min(...col.map((r) => r.position)) } : undefined,
+              col.length > 0 ? { prependBefore: Math.min(...col.map((r) => r.position)) } : undefined,
             );
           }}
         />
@@ -3473,6 +3524,7 @@ function BoardView({
   onAddInColumn,
   onDropCard,
   onMoveCard,
+  onMoveInColumn,
   manualOrder,
   workflow,
 }: {
@@ -3493,7 +3545,7 @@ function BoardView({
   onSetOptions: (propId: string, options: PropOption[]) => void;
   onDrop: (rowId: string, groupBy: string, optId: string) => void;
   onTrashRow: (id: string, title: string) => Promise<void>;
-  onAddInColumn: (groupBy: string, optId: string, where?: 'top' | 'bottom') => void;
+  onAddInColumn: (groupBy: string, optId: string) => void;
   // A drag across columns with an explicit spot: the column value and the
   // position land together (one undo step, see dropCardCrossColumn).
   onDropCard: (rowId: string, groupBy: string, optId: string, curOrder: string[], newOrder: string[]) => void;
@@ -3502,6 +3554,9 @@ function BoardView({
   // meaningfully when manualOrder is on; otherwise drops only ever change the
   // column, through onDrop.
   onMoveCard: (rowId: string, curOrder: string[], newOrder: string[]) => void;
+  // "Move to the top/bottom of this column" from the card's menu: the column
+  // stays, the place in it changes. Offered only where a manual order exists.
+  onMoveInColumn: (rowId: string, groupBy: string, optId: string, where: 'top' | 'bottom') => void;
   // True when the view has no sort: the rows stand in the order they were put
   // in, so there is an order to change. A sorted view keeps its order however
   // the cards are dragged.
@@ -3780,7 +3835,7 @@ function BoardView({
                         >
                           <ExternalLink size={15} /> {t('Open in new tab')}
                         </button>
-                        {moveTargets(r).length > 0 && (
+                        {(moveTargets(r).length > 0 || manualOrder) && (
                           <div className="menu-label">{t('Move to')}</div>
                         )}
                         {moveTargets(r)
@@ -3795,28 +3850,32 @@ function BoardView({
                               <CornerUpRight size={15} /> {c.name}
                             </button>
                           ))}
-                        {/* Where a new card lands is a question about the
-                            column, and the card is the thing in front of you
-                            when you ask it: "another one above this, another
-                            one below". A ⋯ at the head of every column said
-                            the same thing from further away. */}
-                        <div className="menu-sep" />
-                        <button
-                          onClick={() => {
-                            setMoveMenu(null);
-                            onAddInColumn(groupBy, col.id, 'top');
-                          }}
-                        >
-                          <ArrowUpToLine size={15} /> {t('Add card at the top')}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setMoveMenu(null);
-                            onAddInColumn(groupBy, col.id, 'bottom');
-                          }}
-                        >
-                          <ArrowDownToLine size={15} /> {t('Add card at the bottom')}
-                        </button>
+                        {/* The same column, a different place in it: above or
+                            below every other card. Dragging does this too, but
+                            a long column makes "all the way to the top" a
+                            scroll and a guess, and touch has no drag at all.
+                            Missing in a sorted view, which has no manual
+                            order to change. */}
+                        {manualOrder && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setMoveMenu(null);
+                                onMoveInColumn(r.id, groupBy, col.id, 'top');
+                              }}
+                            >
+                              <ArrowUpToLine size={15} /> {t('Move to the top of the column')}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setMoveMenu(null);
+                                onMoveInColumn(r.id, groupBy, col.id, 'bottom');
+                              }}
+                            >
+                              <ArrowDownToLine size={15} /> {t('Move to the bottom of the column')}
+                            </button>
+                          </>
+                        )}
                         <div className="menu-sep" />
                         <button
                           className="danger"

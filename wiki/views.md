@@ -133,12 +133,10 @@ menu:
 | **Open** | Opens the row as a page. |
 | **Open in new tab** | Same, in a tab of its own; ⌘-click and middle-click do it too. |
 | **Move to** → a column | Same as dragging. Only columns the card is not already in are listed, and picking **No …** clears the value. |
-| **Add card at the top** / **at the bottom** | Creates a row already carrying this card's column value, at that end of the column, and opens it in the side peek. Long columns are why it is there: a board grouped by status can run to hundreds of cards, and scrolling to the foot of **Done** to add one has nothing to recommend it. Otherwise the same thing **＋ New** under the column does. |
+| **Move to the top of the column** / **at the bottom** | Moves this card above or below every other card in its own column. The same as dragging it all the way, without the scroll — and the only way on touch, where a card has no drag. Offered only while the view has no sort, which is the only case where a manual order exists. |
 | **Move to trash** | Asks *Move “…” to the trash?* with the row's title first, then moves the row to the trash. Reversible from [Trash](trash-and-recovery.md). |
 
-The column heading itself carries one control, **＋**, and no menu of its own:
-the two ways to place a new card live on the card, where the question "another
-one here" is asked.
+The column heading itself carries one control, **＋**, and no menu of its own.
 
 At the bottom of every column is **＋ New**, which creates a row with that
 column's value already set and opens it in the side peek — a page that slides

@@ -421,6 +421,8 @@
   "Move left": "Nach links",
   "Move right": "Nach rechts",
   "Move to": "Verschieben nach",
+  "Move to the bottom of the column": "Ans Ende der Spalte verschieben",
+  "Move to the top of the column": "An den Anfang der Spalte verschieben",
   "Move to top level": "Auf oberste Ebene",
   "Move to trash": "In den Papierkorb",
   "Move to workspace": "In Workspace verschieben",
@@ -1772,8 +1774,6 @@
     "one": "{n} Version",
     "other": "{n} Versionen"
   },
-  "Add card at the bottom": "Karte unten hinzufügen",
-  "Add card at the top": "Karte oben hinzufügen",
   "Fix grammar, spelling, and punctuation in the following text. Reply with the corrected text only.": "Korrigiere Grammatik, Rechtschreibung und Zeichensetzung im folgenden Text. Antworte nur mit dem korrigierten Text.",
   "Fix grammar, spelling, and punctuation on this page. Reply with the corrected text only.": "Korrigiere Grammatik, Rechtschreibung und Zeichensetzung auf dieser Seite. Antworte nur mit dem korrigierten Text.",
   "Reopen closed tab": "Geschlossenen Tab wieder öffnen",
