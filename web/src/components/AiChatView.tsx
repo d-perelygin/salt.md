@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { t } from '../i18n';
-import { useMenuDismiss } from '../modal';
+import { modalOpen, useMenuDismiss } from '../modal';
 import type { PageMeta } from '../types';
 import AiAgentStep, { type AiStep } from './AiAgentStep';
 import AiErrorCard from './AiErrorCard';
@@ -10,7 +10,7 @@ import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
 import { FileText, Table2 } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
-import { renderTextWithMentions } from './aiChatHelpers';
+import { renderTextWithMentions, resolvePageMentions } from './aiChatHelpers';
 
 interface Msg { role: string; content: string }
 interface AttachedFile { name: string; text: string }
@@ -29,11 +29,13 @@ function formatDuration(ms: number): string {
 export default function AiChatView(props: {
   threadId: string | null;
   pageId?: string;
+  canEdit?: boolean;
   pagesById: Map<string, PageMeta>;
   onOpenPage?: (id: string) => void;
   onThreadCreated: (id: string) => void;
   onThreadsChanged: () => void;
 }) {
+  const canEdit = props.canEdit !== false;
   const [threads, setThreads] = useState<AiThread[]>([]);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [steps, setSteps] = useState<AiStep[]>([]);
@@ -41,6 +43,8 @@ export default function AiChatView(props: {
   // live state (a brand-new thread's fetch resolves with [] mid-stream and
   // would otherwise wipe the user's own just-sent message).
   const streamingRef = useRef(false);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const streamThreadIdRef = useRef<string | null>(null);
   const [histSteps, setHistSteps] = useState<AiStep[]>([]);
   const [traceOpen, setTraceOpen] = useState(false);
   const [input, setInput] = useState('');
@@ -60,6 +64,7 @@ export default function AiChatView(props: {
   const qKeyRef = useRef('');
   const [approval, setApproval] = useApprovalMode();
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
@@ -72,27 +77,113 @@ export default function AiChatView(props: {
   const tid = props.threadId;
 
   useEffect(() => {
-    api.listAIThreads().then((r) => setThreads(r as AiThread[])).catch(() => {});
+    let alive = true;
+    api.listAIThreads().then((r) => {
+      if (alive) setThreads(r as AiThread[]);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [tid]);
+
+  useEffect(() => {
+    if (streamThreadIdRef.current && streamThreadIdRef.current !== tid) {
+      streamAbortRef.current?.abort();
+      streamAbortRef.current = null;
+      streamThreadIdRef.current = null;
+      streamingRef.current = false;
+      setAgentBusy(false);
+      setRunId(null);
+      setRunStatus('');
+      setWaitingApproval(false);
+      setPendingQuestion(null);
+      setPicked([]);
+      setFreeText('');
+      qKeyRef.current = '';
+      setRunStartedAt(null);
+      setRunElapsed(0);
+    }
+  }, [tid]);
+
+  useEffect(() => () => {
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    streamThreadIdRef.current = null;
+    streamingRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    if (!tid) return;
+    if (streamThreadIdRef.current === tid && streamingRef.current) return;
+    let alive = true;
+    void api.getAIThreadRuns(tid).then((runs: any[]) => {
+      if (!alive || !Array.isArray(runs)) return;
+      if (streamThreadIdRef.current === tid && streamingRef.current) return;
+      const active = runs.find((r) => r && (r.status === 'running' || r.status === 'queued' || r.status === 'waiting_approval' || r.status === 'waiting_user'));
+      if (!active) return;
+      streamAbortRef.current?.abort();
+      const ac = new AbortController();
+      streamAbortRef.current = ac;
+      streamThreadIdRef.current = tid;
+      streamingRef.current = true;
+      setAgentBusy(true);
+      setRunId(active.id);
+      setRunStatus(active.status === 'completed' ? '' : (active.progress || active.status || ''));
+      setSteps([]);
+      setHistSteps([]);
+      setHistDurationMs(null);
+      setLastError(null);
+      setLastRun(null);
+      setPendingQuestion(null);
+      setPicked([]);
+      setFreeText('');
+      qKeyRef.current = '';
+      setTraceOpen(true);
+      const startedMs = active.startedAt ? Date.parse(active.startedAt) : Date.now();
+      setRunStartedAt(Number.isFinite(startedMs) ? startedMs : Date.now());
+      setRunElapsed(0);
+      void api.getAIThreadMessages(tid).then((msgs) => {
+        if (!ac.signal.aborted && Array.isArray(msgs) && msgs.length) {
+          setMessages(msgs as Msg[]);
+        }
+      }).catch(() => {});
+      void consumeRun(active.id, tid, active.task || '', ac.signal)
+        .catch((err: any) => {
+          if (ac.signal.aborted) return;
+          setLastError(err?.message || t('Run failed'));
+          setRunStatus(t('Run failed'));
+        })
+        .finally(() => {
+          if (streamAbortRef.current === ac) {
+            streamAbortRef.current = null;
+            streamThreadIdRef.current = null;
+            streamingRef.current = false;
+            setAgentBusy(false);
+            setRunId(null);
+            setWaitingApproval(false);
+          }
+        });
+    }).catch(() => {});
+    return () => { alive = false; };
   }, [tid]);
 
   // History: messages, past runs (for the Worked-for row), and artifacts.
   // History fetches never overwrite live streaming state (see streamingRef).
   useEffect(() => {
+    setHistSteps([]);
+    setHistDurationMs(null);
     if (!tid) {
       setMessages([]);
       setSteps([]);
-      setHistSteps([]);
       setArtifacts([]);
-      setHistDurationMs(null);
       setLastError(null);
       setLastRun(null);
       return;
     }
+    let alive = true;
     Promise.all([
       api.getAIThreadMessages(tid).catch(() => [] as Msg[]),
       api.getAIThreadRuns(tid).catch(() => [] as any[]),
     ]).then(([rawMsgs, runs]) => {
-      if (streamingRef.current) return;
+      if (!alive || streamingRef.current) return;
       const msgs = [...rawMsgs];
       const ids: string[] = [];
       let latest: any = null;
@@ -120,7 +211,7 @@ export default function AiChatView(props: {
         if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
         // Show the trace of the latest finished run.
         api.getAIRunSteps(latest.id).then((st) => {
-          if (Array.isArray(st) && st.length && !streamingRef.current) {
+          if (alive && Array.isArray(st) && st.length && !streamingRef.current) {
             setHistSteps(st as AiStep[]);
             setTraceOpen(false);
           }
@@ -129,6 +220,7 @@ export default function AiChatView(props: {
         setHistDurationMs(null);
       }
     }).catch(() => {});
+    return () => { alive = false; };
   }, [tid]);
 
   useEffect(() => {
@@ -143,24 +235,18 @@ export default function AiChatView(props: {
   }, [agentBusy, runStartedAt]);
 
   function resolveMentions(text: string): { id: string; title: string }[] {
-    const out: { id: string; title: string }[] = [];
-    const seen = new Set<string>();
-    for (const p of props.pagesById.values()) {
-      if (p.trashed || seen.has(p.id)) continue;
-      if (text.includes('@' + (p.title || 'Untitled'))) {
-        seen.add(p.id);
-        out.push({ id: p.id, title: p.title || 'Untitled' });
-      }
-    }
-    return out.slice(0, 8);
+    return resolvePageMentions(text, props.pagesById);
   }
 
   useEffect(() => {
     if (!pendingQuestion) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      if (modalOpen()) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName?.toLowerCase();
       if (tag === 'textarea' || tag === 'input' || el?.isContentEditable) return;
+      if (e.key === 'Enter' && (el?.closest?.('button, a') || document.activeElement?.closest?.('button, a'))) return;
       if (e.key === 'Enter' && !e.shiftKey && picked.length > 0) {
         e.preventDefault();
         e.stopPropagation();
@@ -186,21 +272,22 @@ export default function AiChatView(props: {
 
   function onInputChange(v: string) {
     setInput(v);
-    const m = v.match(/@([^@]{0,60})$/);
+    const m = v.match(/(?:^|\s)@([^@]{0,60})$/);
     setMentionQuery(m ? m[1] : null);
+    setMentionIndex(0);
   }
 
   function mentionMatches(): PageMeta[] {
     const q = (mentionQuery ?? '').toLowerCase();
     const all = [...props.pagesById.values()].filter((p) => !p.trashed && p.id !== props.pageId);
     return all
-      .filter((p) => (p.title || 'Untitled').toLowerCase().includes(q))
+      .filter((p) => (p.title || t('Untitled')).toLowerCase().includes(q))
       .slice(0, 8);
   }
 
   function pickMention(p: PageMeta) {
-    const title = p.title || 'Untitled';
-    setInput((cur) => cur.replace(/@[^@]{0,60}$/, '@' + title + ' '));
+    const title = p.title || t('Untitled');
+    setInput((cur) => cur.replace(/(^|\s)@[^@]{0,60}$/, '$1@' + title + ' '));
     setMentionQuery(null);
     window.setTimeout(() => inputBoxRef.current?.focus(), 0);
   }
@@ -233,6 +320,7 @@ export default function AiChatView(props: {
   }
 
   function insertIntoPage(markdown: string) {
+    if (!canEdit) return;
     window.dispatchEvent(new CustomEvent('salt:ai-insert', {
       detail: { pageId: props.pageId, markdown },
     }));
@@ -254,9 +342,10 @@ export default function AiChatView(props: {
 
   async function attachPicked(e: React.ChangeEvent<HTMLInputElement>) {
     const list = e.target.files;
+    const pickedFiles = list ? Array.from(list).slice(0, 3) : [];
     e.target.value = '';
-    if (!list || !list.length) return;
-    for (const f of Array.from(list).slice(0, 3)) {
+    if (!pickedFiles.length) return;
+    for (const f of pickedFiles) {
       const ext = '.' + (f.name.split('.').pop() ?? '').toLowerCase();
       if (['.txt', '.md', '.csv', '.json'].includes(ext)) {
         try {
@@ -279,24 +368,113 @@ export default function AiChatView(props: {
 
   const [lastRun, setLastRun] = useState<{ id: string; task: string; status: string; error: string } | null>(null);
 
+  async function consumeRun(activeRunId: string, threadId: string, fullTask: string, signal: AbortSignal) {
+    const res = await fetch(`/api/ai/runs/${activeRunId}/events`, { credentials: 'same-origin', signal });
+    if (!res.ok || !res.body) throw new Error('no events');
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    const seen = new Set<string>();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (signal.aborted) return;
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const j = JSON.parse(line.slice(5).trim());
+          if (signal.aborted) return;
+          if (j.type === 'step' && j.step) {
+            const st = j.step as AiStep;
+            if (!seen.has(st.id)) {
+              seen.add(st.id);
+              setSteps((s) => [...s, st]);
+            } else {
+              setSteps((s) => s.map((x) => (x.id === st.id ? st : x)));
+            }
+          }
+          if (j.type === 'status') {
+            const err = typeof j.error === 'string' ? j.error : '';
+            if (j.status === 'failed') {
+              setLastError(err || t('Agent run failed'));
+            }
+            setRunStatus(j.status === 'completed' ? '' : ((j.progress || j.status) + (err && j.status === 'failed' ? `: ${err.slice(0, 200)}` : '')));
+            setWaitingApproval(j.status === 'waiting_approval');
+            if (j.status === 'waiting_user' && j.pendingTool === 'ask_user' && typeof j.pendingArgs === 'string') {
+              try {
+                const q = JSON.parse(j.pendingArgs);
+                if (q && typeof q.question === 'string' && Array.isArray(q.options)) {
+                  const key = activeRunId + '|' + q.question;
+                  if (qKeyRef.current !== key) {
+                    qKeyRef.current = key;
+                    setPendingQuestion({ runId: activeRunId, question: q.question, options: q.options.slice(0, 6), multiple: !!q.multiple });
+                    setPicked([]);
+                    setFreeText('');
+                  }
+                }
+              } catch { /* ignore */ }
+            } else {
+              qKeyRef.current = '';
+              setPendingQuestion(null);
+            }
+            if (j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled') {
+              setLastRun({ id: activeRunId, task: fullTask, status: j.status, error: err });
+              setPendingQuestion(null);
+              break;
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    }
+    if (signal.aborted) return;
+    const msgs = await api.getAIThreadMessages(threadId).catch(() => [] as Msg[]);
+    if (!signal.aborted && msgs.length) setMessages(msgs as Msg[]);
+    try {
+      const done = await api.getAIRun(activeRunId).catch(() => null) as any;
+      if (signal.aborted) return;
+      if (done && done.startedAt && done.finishedAt) {
+        const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
+        if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
+      }
+      const runs = await api.getAIThreadRuns(threadId).catch(() => [] as any[]);
+      if (signal.aborted) return;
+      const ids: string[] = [];
+      for (const run of runs as any[]) {
+        try {
+          const arr = JSON.parse(run.artifacts || '[]');
+          if (Array.isArray(arr)) for (const pid of arr) if (typeof pid === 'string' && !ids.includes(pid)) ids.push(pid);
+        } catch { /* ignore */ }
+      }
+      setArtifacts(ids);
+    } catch { /* ignore */ }
+    if (!signal.aborted) props.onThreadsChanged();
+  }
+
   // Agent run: the model works with tools and the trace streams in as
   // Thinking/Script steps, OpenChamber-style. May pause for approval.
-  // With reuseTask the user message is already in the thread (retry).
-  async function runAsAgent(reuseTask?: string) {
+  // When isRetry is true, reuseTask replays an existing user message without duplicating it.
+  async function runAsAgent(reuseTask?: string, isRetry = false) {
     if (agentBusy) return;
     const text = (reuseTask ?? input).trim();
     if (!text) return;
-    if (!reuseTask) setInput('');
+    if (!isRetry) setInput('');
     const id = await ensureThread(text);
     if (!id) return;
-    if (!reuseTask) setMessages((m) => [...m, { role: 'user', content: text }]);
+    streamAbortRef.current?.abort();
+    const ac = new AbortController();
+    streamAbortRef.current = ac;
+    streamThreadIdRef.current = id;
+    streamingRef.current = true;
+    if (!isRetry) setMessages((m) => [...m, { role: 'user', content: text }]);
     setLastRun(null);
     setLastError(null);
     setPendingQuestion(null);
     setPicked([]);
     setFreeText('');
     qKeyRef.current = '';
-    streamingRef.current = true;
     setAgentBusy(true);
     setRunStatus(t('Working…'));
     setWaitingApproval(false);
@@ -313,99 +491,32 @@ export default function AiChatView(props: {
       const filesBlock = files.length
         ? 'Attached files:\n' + files.filter((f) => f.text).slice(0, 3).map((f) => `--- ${f.name} ---\n${f.text.slice(0, 4000)}`).join('\n') + '\n\n'
         : '';
-      const fullTask = reuseTask ? reuseTask : (refBlock + filesBlock + (quote ? `Context quote:\n${quote}\n\n` : '') + text);
+      const fullTask = isRetry && reuseTask ? reuseTask : (refBlock + filesBlock + (quote ? `Context quote:\n${quote}\n\n` : '') + text);
       const r = await api.createAIRun({
         threadId: id,
         task: fullTask,
-        prompt: reuseTask ? undefined : text,
-        retry: !!reuseTask,
+        prompt: isRetry ? undefined : text,
+        retry: isRetry,
         pageId: props.pageId,
       });
+      if (ac.signal.aborted) return;
       setRunId(r.id);
       setQuote('');
       setFiles([]);
-      const res = await fetch(`/api/ai/runs/${r.id}/events`, { credentials: 'same-origin' });
-      if (!res.ok || !res.body) throw new Error('no events');
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      const seen = new Set<string>();
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue;
-          try {
-            const j = JSON.parse(line.slice(5).trim());
-            if (j.type === 'step' && j.step) {
-              const st = j.step as AiStep;
-              if (!seen.has(st.id)) {
-                seen.add(st.id);
-                setSteps((s) => [...s, st]);
-              } else {
-                setSteps((s) => s.map((x) => (x.id === st.id ? st : x)));
-              }
-            }
-            if (j.type === 'status') {
-              const err = typeof j.error === 'string' ? j.error : '';
-              if (j.status === 'failed') {
-                setLastError(err || t('Agent run failed'));
-              }
-              setRunStatus(j.status === 'completed' ? '' : ((j.progress || j.status) + (err && j.status === 'failed' ? `: ${err.slice(0, 200)}` : '')));
-              setWaitingApproval(j.status === 'waiting_approval');
-              if (j.status === 'waiting_user' && j.pendingTool === 'ask_user' && typeof j.pendingArgs === 'string') {
-                try {
-                  const q = JSON.parse(j.pendingArgs);
-                  if (q && typeof q.question === 'string' && Array.isArray(q.options)) {
-                    const key = r.id + '|' + q.question;
-                    if (qKeyRef.current !== key) {
-                      qKeyRef.current = key;
-                      setPendingQuestion({ runId: r.id, question: q.question, options: q.options.slice(0, 6), multiple: !!q.multiple });
-                      setPicked([]);
-                      setFreeText('');
-                    }
-                  }
-                } catch { /* ignore */ }
-              }
-              if (j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled') {
-                setLastRun({ id: r.id, task: fullTask, status: j.status, error: err });
-                setPendingQuestion(null);
-                break;
-              }
-            }
-          } catch { /* ignore */ }
-        }
-      }
-      const msgs = await api.getAIThreadMessages(id).catch(() => [] as Msg[]);
-      if (msgs.length) setMessages(msgs as Msg[]);
-      try {
-        const done = await api.getAIRun(r.id).catch(() => null) as any;
-        if (done && done.startedAt && done.finishedAt) {
-          const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
-          if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
-        }
-        const runs = await api.getAIThreadRuns(id).catch(() => [] as any[]);
-        const ids: string[] = [];
-        for (const run of runs as any[]) {
-          try {
-            const arr = JSON.parse(run.artifacts || '[]');
-            if (Array.isArray(arr)) for (const pid of arr) if (typeof pid === 'string' && !ids.includes(pid)) ids.push(pid);
-          } catch { /* ignore */ }
-        }
-        setArtifacts(ids);
-      } catch { /* ignore */ }
-      props.onThreadsChanged();
+      await consumeRun(r.id, id, fullTask, ac.signal);
     } catch (err: any) {
+      if (ac.signal.aborted) return;
       setLastError(err?.message || t('Run failed'));
       setRunStatus(t('Run failed'));
     } finally {
-      setAgentBusy(false);
-      setRunId(null);
-      setWaitingApproval(false);
-      streamingRef.current = false;
+      if (streamAbortRef.current === ac) {
+        streamAbortRef.current = null;
+        streamThreadIdRef.current = null;
+        streamingRef.current = false;
+        setAgentBusy(false);
+        setRunId(null);
+        setWaitingApproval(false);
+      }
     }
   }
 
@@ -423,20 +534,26 @@ export default function AiChatView(props: {
     if (parts.length === 0) return;
     try {
       await api.answerAIRun(pendingQuestion.runId, parts.join('; '));
-    } catch { /* the run may have timed out or been cancelled */ }
-    setPendingQuestion(null);
-    setPicked([]);
-    setFreeText('');
+      setPendingQuestion(null);
+      setPicked([]);
+      setFreeText('');
+      setLastError(null);
+    } catch (err: any) {
+      setLastError(err?.message || t('Run failed'));
+    }
   }
 
   async function cancelQuestion() {
     if (!pendingQuestion) return;
     try {
       await api.cancelAIRun(pendingQuestion.runId);
-    } catch { /* the run may have timed out or been cancelled */ }
-    setPendingQuestion(null);
-    setPicked([]);
-    setFreeText('');
+      setPendingQuestion(null);
+      setPicked([]);
+      setFreeText('');
+      setLastError(null);
+    } catch (err: any) {
+      setLastError(err?.message || t('Run failed'));
+    }
   }
 
   async function cancelRun() {
@@ -607,12 +724,12 @@ export default function AiChatView(props: {
                       {i === messages.length - 1 && (
                         <button className="ai-iconbtn" onClick={() => {
                           const lu = [...messages].reverse().find((x) => x.role === 'user');
-                          if (lu) void runAsAgent(lu.content);
+                          if (lu) void runAsAgent(lu.content, true);
                         }} disabled={agentBusy} title={t('Regenerate')}>
                           ↻
                         </button>
                       )}
-                      {props.pageId && (
+                      {props.pageId && canEdit && (
                         <button className="ai-iconbtn" onClick={() => insertIntoPage(m.content)} title={t('Insert into page')}>
                           ⬇
                         </button>
@@ -628,7 +745,7 @@ export default function AiChatView(props: {
           {lastError && (
             <AiErrorCard
               error={lastError}
-              onRetry={lastRun?.task ? () => void runAsAgent(lastRun.task) : undefined}
+              onRetry={lastRun?.task ? () => void runAsAgent(lastRun.task, true) : undefined}
               onDismiss={() => setLastError(null)}
             />
           )}
@@ -640,7 +757,7 @@ export default function AiChatView(props: {
                   const on = picked.includes(o.label);
                   return (
                     <button
-                      key={o.label}
+                      key={`${o.label}-${idx}`}
                       className={'ai-question-opt' + (on ? ' on' : '')}
                       onClick={() => setPicked((prev) =>
                         pendingQuestion.multiple
@@ -717,14 +834,26 @@ export default function AiChatView(props: {
               background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10,
               boxShadow: '0 8px 24px rgba(0,0,0,.25)', maxHeight: 220, overflow: 'auto', minWidth: 260,
             }}>
-              {mentionMatches().map((p) => (
+              {mentionMatches().map((p, idx) => (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => pickMention(p)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '8px 12px', fontSize: 14 }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--hover)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    width: '100%',
+                    textAlign: 'left',
+                    background: idx === mentionIndex ? 'var(--hover)' : 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'inherit',
+                    padding: '8px 12px',
+                    fontSize: 14,
+                  }}
+                  onMouseEnter={(e) => { setMentionIndex(idx); e.currentTarget.style.background = 'var(--hover)'; }}
+                  onMouseLeave={(e) => { if (idx !== mentionIndex) e.currentTarget.style.background = 'transparent'; }}
                 >
                   <PageIcon
                     icon={p.icon}
@@ -757,12 +886,35 @@ export default function AiChatView(props: {
                   e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
                 }}
                 onKeyDown={(e) => {
+                  const matches = mentionQuery !== null ? mentionMatches() : [];
+                  if (mentionQuery !== null && matches.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setMentionIndex((i) => (i + 1) % matches.length);
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setMentionIndex((i) => (i - 1 + matches.length) % matches.length);
+                      return;
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      if (matches[mentionIndex]) pickMention(matches[mentionIndex]);
+                      return;
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setMentionQuery(null);
+                      return;
+                    }
+                  }
                   if (e.key === 'Escape' && mentionQuery !== null) {
                     e.preventDefault();
                     setMentionQuery(null);
                     return;
                   }
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault();
                     setMentionQuery(null);
                     void runAsAgent();

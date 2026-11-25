@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Brain, Wrench, CircleCheck } from 'lucide-react';
+import { ChevronDown, ChevronRight, Brain, Wrench, CircleCheck, AlertTriangle } from 'lucide-react';
 import { t } from '../i18n';
 
 export interface AiStep {
@@ -18,6 +18,7 @@ export interface AiStep {
 export default function AiAgentStep({ step }: { step: AiStep }) {
   const [open, setOpen] = useState(false);
   const isThinking = step.kind === 'thinking';
+  const isError = step.status === 'error' || step.status === 'failed';
   const isDone = step.status === 'completed' || step.status === 'done' || !step.status;
   const isRunning = step.status === 'running' || step.status === 'in_progress';
 
@@ -42,12 +43,13 @@ export default function AiAgentStep({ step }: { step: AiStep }) {
           {step.title}
         </span>
         {isRunning && <span style={{ fontSize: 11, color: 'var(--accent)', marginLeft: 'auto', flex: 'none' }}>⋯</span>}
+        {isError && <AlertTriangle size={12} style={{ color: 'var(--danger, #d14343)', opacity: 0.9, marginLeft: 'auto', flex: 'none' }} />}
         {isDone && <CircleCheck size={12} style={{ color: 'var(--success, #10b981)', opacity: 0.8, marginLeft: 'auto', flex: 'none' }} />}
       </button>
       {open && step.body && (
         <pre style={{
           margin: '4px 0 6px 24px', padding: '8px 10px', borderRadius: 8,
-          background: 'var(--muted, var(--hover))', color: 'inherit',
+          background: 'var(--hover)', color: 'inherit',
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
           maxHeight: 240, overflow: 'auto', fontSize: 12, lineHeight: 1.45,
           border: '1px solid var(--border)',

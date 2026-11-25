@@ -12,6 +12,32 @@ export interface ParsedAiError {
   status?: number;
 }
 
+function unwrapNestedErrorJson(val: unknown, depth = 0): unknown {
+  if (depth > 5) return val;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return unwrapNestedErrorJson(JSON.parse(trimmed), depth + 1);
+      } catch {
+        return val;
+      }
+    }
+    return val;
+  }
+  if (Array.isArray(val)) {
+    return val.map((item) => unwrapNestedErrorJson(item, depth + 1));
+  }
+  if (val && typeof val === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val)) {
+      out[k] = k === 'error' ? unwrapNestedErrorJson(v, depth + 1) : v;
+    }
+    return out;
+  }
+  return val;
+}
+
 export function parseAiError(rawError: string): ParsedAiError {
   const raw = String(rawError || '').trim();
   let msg = raw;
@@ -20,24 +46,13 @@ export function parseAiError(rawError: string): ParsedAiError {
 
   // Attempt to parse JSON error responses (from OpenAI, Anthropic, Ollama, Go server, etc.)
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = unwrapNestedErrorJson(JSON.parse(raw)) as any;
     if (parsed && typeof parsed === 'object') {
       if (parsed.error && typeof parsed.error === 'object') {
-        msg = parsed.error.message || parsed.error.code || JSON.stringify(parsed.error);
-        code = parsed.error.code || parsed.error.type || '';
+        msg = parsed.error.message || parsed.error.error?.message || parsed.error.code || JSON.stringify(parsed.error);
+        code = parsed.error.code || parsed.error.type || parsed.error.error?.code || parsed.error.error?.type || '';
       } else if (typeof parsed.error === 'string') {
-        // Handle double-encoded JSON like {"error": "{\"error\":{\"message\":\"...\"}}"}
-        try {
-          const inner = JSON.parse(parsed.error);
-          if (inner?.error?.message) {
-            msg = inner.error.message;
-            code = inner.error.code || inner.error.type || '';
-          } else {
-            msg = parsed.error;
-          }
-        } catch {
-          msg = parsed.error;
-        }
+        msg = parsed.error;
       } else if (parsed.message && typeof parsed.message === 'string') {
         msg = parsed.message;
         code = parsed.code || '';
@@ -160,7 +175,7 @@ export function parseAiError(rawError: string): ParsedAiError {
     };
   }
 
-  if (lower.includes('ai is disabled')) {
+  if (lower.includes('ai is disabled') || lower.includes('ai disabled')) {
     return {
       category: 'disabled',
       categoryLabel: t('AI disabled'),
@@ -204,7 +219,7 @@ export function parseAiError(rawError: string): ParsedAiError {
 
 export function getFormattedErrorJson(parsed: ParsedAiError): string {
   try {
-    const obj = JSON.parse(parsed.raw);
+    const obj = unwrapNestedErrorJson(JSON.parse(parsed.raw));
     return JSON.stringify(obj, null, 2);
   } catch {
     return JSON.stringify(

@@ -8,6 +8,7 @@ interface Anchor {
   top: number;
   left: number;
   width: number;
+  hidden?: boolean;
 }
 
 // "Press space for AI" on an empty line. The panel is a one-shot: whatever the
@@ -29,7 +30,16 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
     const el = editor.prosemirrorView?.dom?.querySelector(`[data-id="${blockId}"]`) as HTMLElement | null;
     if (!el) return null;
     const r = el.getBoundingClientRect();
-    return { blockId, top: r.top, left: r.left, width: r.width };
+    const scroller = el.closest('.editor-scroll') as HTMLElement | null;
+    const bounds = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const hidden = r.top < bounds.top || r.top >= bounds.bottom;
+    return {
+      blockId,
+      top: Math.max(r.top - 6, bounds.top),
+      left: r.left,
+      width: r.width,
+      hidden,
+    };
   }
 
   function close() {
@@ -108,6 +118,17 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  useEffect(() => {
+    if (!canEdit || !aiEnabled) {
+      abortRef.current?.abort();
+      setAnchor(null);
+      setPrompt('');
+      setSent('');
+      setError('');
+      setBusy(false);
+    }
+  }, [canEdit, aiEnabled]);
+
   async function send() {
     const text = prompt.trim();
     if (!text || busy || !anchor) return;
@@ -162,9 +183,23 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
       }
       if (!acc.trim()) throw new Error(failed || t('AI could not write the note'));
       const blocks = await editor.tryParseMarkdownToBlocks(acc);
+      if (ac.signal.aborted) {
+        setBusy(false);
+        return;
+      }
       if (!blocks.length) throw new Error(t('AI could not write the note'));
-      if (editor.getBlock(blockId)) editor.replaceBlocks([blockId], blocks as never);
-      else editor.insertBlocks(blocks as never, editor.document[editor.document.length - 1], 'after');
+      const existing = editor.getBlock(blockId);
+      if (existing) {
+        const children = Array.isArray((existing as any).children) ? (existing as any).children : [];
+        if (children.length > 0) {
+          const last = blocks[blocks.length - 1] as any;
+          const existingLastChildren = Array.isArray(last?.children) ? last.children : [];
+          blocks[blocks.length - 1] = { ...last, children: [...existingLastChildren, ...children] };
+        }
+        editor.replaceBlocks([blockId], blocks as never);
+      } else {
+        editor.insertBlocks(blocks as never, editor.document[editor.document.length - 1], 'after');
+      }
       setAnchor(null);
       setPrompt('');
       setSent('');
@@ -184,12 +219,17 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
     }
   }
 
-  if (!anchor) return null;
+  if (!anchor || !canEdit || !aiEnabled) return null;
   return (
     <div
       ref={wrapRef}
       className="ai-empty"
-      style={{ top: anchor.top - 6, left: anchor.left - 8, width: anchor.width + 16 }}
+      style={{
+        top: anchor.top,
+        left: anchor.left - 8,
+        width: anchor.width + 16,
+        ...(anchor.hidden ? { display: 'none' } : {}),
+      }}
       contentEditable={false}
     >
       <span className="ai-empty-spark">✨</span>
@@ -217,7 +257,7 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
               if (e.key === 'Escape') {
                 e.preventDefault();
                 close();
-              } else if (e.key === 'Backspace' && !prompt) {
+              } else if (e.key === 'Backspace' && !prompt && !e.nativeEvent.isComposing) {
                 // Nothing typed: Backspace takes the panel back, like erasing the space.
                 e.preventDefault();
                 close();

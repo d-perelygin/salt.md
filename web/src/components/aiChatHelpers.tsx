@@ -166,7 +166,9 @@ export const COLLECTION_PRESETS: CollectionTemplatePreset[] = [
 export async function applyCollectionPreset(
   preset: CollectionTemplatePreset,
   currentCollectionId?: string,
+  canEdit = true,
 ): Promise<string | null> {
+  if (!canEdit) return null;
   try {
     let targetId = currentCollectionId;
     if (targetId) {
@@ -196,7 +198,8 @@ export async function applyCollectionPreset(
   }
 }
 
-export async function instantiateCollectionTemplate(templateId: string): Promise<string | null> {
+export async function instantiateCollectionTemplate(templateId: string, canEdit = true): Promise<string | null> {
+  if (!canEdit) return null;
   try {
     const r = await api.duplicatePage(templateId, true);
     window.dispatchEvent(new CustomEvent('salt:navigate', { detail: r.id }));
@@ -206,6 +209,63 @@ export async function instantiateCollectionTemplate(templateId: string): Promise
     toast(t('The template could not be used'));
     return null;
   }
+}
+
+// Extracts up to 8 non-trashed pages explicitly referenced via @PageTitle.
+// Requires start-of-string or whitespace before '@' and a boundary after the title,
+// and matches both 'Untitled' and localized t('Untitled').
+export function resolvePageMentions(
+  text: string,
+  pagesById?: Map<string, PageMeta>,
+): { id: string; title: string }[] {
+  const out: { id: string; title: string }[] = [];
+  if (!text || !pagesById || pagesById.size === 0 || !text.includes('@')) return out;
+  const untitledLocal = t('Untitled');
+  const candidates: { page: PageMeta; matchTitle: string }[] = [];
+  for (const p of pagesById.values()) {
+    if (p.trashed) continue;
+    if ((p.title || '').trim()) {
+      candidates.push({ page: p, matchTitle: p.title });
+    } else {
+      candidates.push({ page: p, matchTitle: 'Untitled' });
+      if (untitledLocal && untitledLocal !== 'Untitled') {
+        candidates.push({ page: p, matchTitle: untitledLocal });
+      }
+    }
+  }
+  candidates.sort((a, b) => b.matchTitle.length - a.matchTitle.length);
+
+  const seen = new Set<string>();
+  let idx = 0;
+  while (idx < text.length && out.length < 8) {
+    const at = text.indexOf('@', idx);
+    if (at === -1) break;
+    if (at > 0 && !/\s/.test(text[at - 1])) {
+      idx = at + 1;
+      continue;
+    }
+    const rest = text.slice(at + 1);
+    let matched: { page: PageMeta; matchTitle: string } | undefined;
+    for (const c of candidates) {
+      if (c.matchTitle && rest.startsWith(c.matchTitle)) {
+        const after = rest[c.matchTitle.length];
+        if (!after || /[\s.,!?;:)\]]/.test(after)) {
+          matched = c;
+          break;
+        }
+      }
+    }
+    if (matched) {
+      if (!seen.has(matched.page.id)) {
+        seen.add(matched.page.id);
+        out.push({ id: matched.page.id, title: matched.page.title || 'Untitled' });
+      }
+      idx = at + 1 + matched.matchTitle.length;
+    } else {
+      idx = at + 1;
+    }
+  }
+  return out;
 }
 
 // Renders text with @PageTitle highlighted as a clickable .page-link pill

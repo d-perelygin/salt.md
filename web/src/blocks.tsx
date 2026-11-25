@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createReactBlockSpec } from '@blocknote/react';
 import { Table2, Sparkles, RotateCw, Settings, FileText } from 'lucide-react';
 import { useBlockCtx } from './blockContext';
@@ -636,6 +636,7 @@ export const aiBlockSpec = createReactBlockSpec(
     render: (props) => {
       const { block, editor, contentRef } = props;
       const aiEnabled = useAiEnabled();
+      const isEditable = editor.isEditable;
       const { pageId } = useBlockCtx();
       const title = String((block.props as { title?: string }).title ?? '');
       const prompt = String((block.props as { prompt?: string }).prompt ?? '');
@@ -646,51 +647,82 @@ export const aiBlockSpec = createReactBlockSpec(
       const [editing, setEditing] = useState(status === 'draft' || (!prompt && !title));
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState('');
+      const abortRef = useRef<AbortController | null>(null);
+
+      useEffect(() => () => abortRef.current?.abort(), []);
 
       const generate = async (customPrompt?: string) => {
+        if (!editor.isEditable || busy) return;
         const p = customPrompt ?? draftPrompt ?? prompt;
-        if (busy) return;
+        abortRef.current?.abort();
+        const ac = new AbortController();
+        abortRef.current = ac;
         setBusy(true);
         setError('');
         try {
-          const res = await api.generateAI({
-            prompt: p.trim() || 'Generate helpful content',
-            pageId,
-          });
-          if (!res.ok) {
+          const res = await api.generateAI(
+            {
+              prompt: p.trim() || 'Generate helpful content',
+              pageId,
+            },
+            ac.signal,
+          );
+          if (!res.ok || !res.body) {
             const errBody = await res.text().catch(() => '');
             throw new Error(errBody || t('Generation failed. Please try again.'));
           }
-          const full = await res.text();
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          let buf = '';
           let acc = '';
-          for (const line of full.split('\n')) {
-            if (!line.startsWith('data:')) continue;
+          let streamErr = '';
+          const processLine = (line: string) => {
+            if (!line.startsWith('data:')) return;
             const data = line.slice(5).trim();
-            if (!data || data === '[DONE]') continue;
+            if (!data || data === '[DONE]') return;
             try {
               const j = JSON.parse(data);
-              if (j.type === 'delta') acc += j.content;
+              if (j.type === 'delta' && typeof j.content === 'string') acc += j.content;
+              else if (j.type === 'error') {
+                streamErr = typeof j.error === 'string'
+                  ? j.error
+                  : (j.error ? JSON.stringify({ error: j.error }) : (typeof j.message === 'string' ? j.message : data));
+              }
             } catch {}
+          };
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop() || '';
+            for (const line of lines) processLine(line);
           }
-          if (acc) {
-            editor.updateBlock(block, {
-              props: {
-                title: draftTitle,
-                prompt: p,
-                status: 'ready',
-              },
-              content: [{ type: 'text', text: acc, styles: {} }],
-            } as never);
-            setEditing(false);
-          }
+          if (buf.trim()) processLine(buf.trim());
+          if (ac.signal.aborted) return;
+          if (streamErr) throw new Error(streamErr);
+          if (!acc.trim()) throw new Error(t('Generation failed. Please try again.'));
+          if (!editor.getBlock(block.id)) return;
+          editor.updateBlock(block, {
+            props: {
+              title: draftTitle,
+              prompt: p,
+              status: 'ready',
+            },
+            content: [{ type: 'text', text: acc, styles: {} }],
+          } as never);
+          setEditing(false);
         } catch (err: any) {
+          if (ac.signal.aborted) return;
           setError(err?.message || t('Generation failed. Please try again.'));
         } finally {
+          if (abortRef.current === ac) abortRef.current = null;
           setBusy(false);
         }
       };
 
       const saveConfig = () => {
+        if (!editor.isEditable) return;
         editor.updateBlock(block, {
           props: {
             title: draftTitle,
@@ -703,38 +735,48 @@ export const aiBlockSpec = createReactBlockSpec(
 
       const unwrap = async () => {
         if (!editor.isEditable) return;
-        const current = editor.getBlock(block) || block;
+        const current = editor.getBlock(block.id) || block;
         const rawContent = (current as any).content;
+        const children = Array.isArray((current as any).children) && (current as any).children.length > 0
+          ? (current as any).children
+          : undefined;
+        const fallbackBlock = () => ({
+          type: 'paragraph',
+          content: rawContent && rawContent.length > 0 ? rawContent : undefined,
+          ...(children ? { children } : {}),
+        });
+        const hasRichContent = Array.isArray(rawContent) && rawContent.some((c: any) => {
+          if (!c || typeof c !== 'object') return false;
+          if (c.type === 'link' || c.type === 'pageLink') return true;
+          if (c.type !== 'text') return true;
+          return Boolean(c.styles && Object.values(c.styles).some(Boolean));
+        });
         try {
-          const text = Array.isArray(rawContent)
-            ? rawContent.map((c: any) => (typeof c === 'string' ? c : c.text || '')).join('')
-            : '';
-          if (text.trim() && typeof editor.tryParseMarkdownToBlocks === 'function') {
-            const parsed = await editor.tryParseMarkdownToBlocks(text);
-            if (parsed && parsed.length > 0) {
-              editor.replaceBlocks([block], parsed);
-              return;
+          if (!hasRichContent) {
+            const text = Array.isArray(rawContent)
+              ? rawContent.map((c: any) => (typeof c === 'string' ? c : c.text || '')).join('')
+              : '';
+            if (text.trim() && typeof editor.tryParseMarkdownToBlocks === 'function') {
+              const parsed = await editor.tryParseMarkdownToBlocks(text);
+              if (!editor.getBlock(block.id)) return;
+              if (parsed && parsed.length > 0) {
+                const next = children
+                  ? parsed.map((b: any, i: number) =>
+                      i === parsed.length - 1
+                        ? { ...b, children: [...(Array.isArray(b.children) ? b.children : []), ...children] }
+                        : b,
+                    )
+                  : parsed;
+                editor.replaceBlocks([block.id], next as never);
+                return;
+              }
             }
           }
-          editor.replaceBlocks(
-            [block],
-            [
-              {
-                type: 'paragraph',
-                content: rawContent && rawContent.length > 0 ? rawContent : undefined,
-              } as never,
-            ],
-          );
+          if (!editor.getBlock(block.id)) return;
+          editor.replaceBlocks([block.id], [fallbackBlock() as never]);
         } catch {
-          editor.replaceBlocks(
-            [block],
-            [
-              {
-                type: 'paragraph',
-                content: rawContent && rawContent.length > 0 ? rawContent : undefined,
-              } as never,
-            ],
-          );
+          if (!editor.getBlock(block.id)) return;
+          editor.replaceBlocks([block.id], [fallbackBlock() as never]);
         }
       };
 
@@ -743,8 +785,8 @@ export const aiBlockSpec = createReactBlockSpec(
       }
 
       return (
-        <div className="bn-ai-block" data-editing={editing ? 'true' : 'false'}>
-          {editing ? (
+        <div className="bn-ai-block" data-editing={isEditable && editing ? 'true' : 'false'}>
+          {isEditable && editing ? (
             <div className="bn-ai-block-draft" contentEditable={false}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 13 }}>
@@ -783,7 +825,7 @@ export const aiBlockSpec = createReactBlockSpec(
                 value={draftPrompt}
                 onChange={(e) => setDraftPrompt(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
                     e.preventDefault();
                     void generate();
                   }
@@ -806,51 +848,64 @@ export const aiBlockSpec = createReactBlockSpec(
                     {title || prompt || t('AI Block')}
                   </span>
                 </div>
-                <div className="bn-ai-block-actions" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <button
-                    type="button"
-                    className="btn-sm"
-                    disabled={busy}
-                    onClick={() => void generate(prompt)}
-                    title={t('Regenerate')}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: '2px 8px', fontSize: 12 }}
-                  >
-                    <RotateCw size={12} className={busy ? 'spin' : ''} />
-                    <span>{busy ? t('Generating…') : t('Generate')}</span>
-                  </button>
-                </div>
-                <div className="bn-ai-block-toolbar">
-                  <button
-                    type="button"
-                    className="btn-sm"
-                    onClick={() => void unwrap()}
-                    title={t('Turn into text')}
-                    disabled={busy}
-                    style={{ padding: '2px 6px', fontSize: 12 }}
-                  >
-                    <FileText size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-sm"
-                    onClick={() => void generate(prompt)}
-                    title={t('Regenerate')}
-                    disabled={busy}
-                    style={{ padding: '2px 6px', fontSize: 12 }}
-                  >
-                    <RotateCw size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-sm"
-                    onClick={() => setEditing(true)}
-                    title={t('Settings')}
-                    style={{ padding: '2px 6px', fontSize: 12 }}
-                  >
-                    <Settings size={12} />
-                  </button>
-                </div>
+                {isEditable && (
+                  <>
+                    <div className="bn-ai-block-actions" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        type="button"
+                        className="btn-sm"
+                        disabled={busy}
+                        onClick={() => void generate(prompt)}
+                        title={t('Regenerate')}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: '2px 8px', fontSize: 12 }}
+                      >
+                        <RotateCw size={12} className={busy ? 'spin' : ''} />
+                        <span>{busy ? t('Generating…') : t('Generate')}</span>
+                      </button>
+                    </div>
+                    <div className="bn-ai-block-toolbar">
+                      <button
+                        type="button"
+                        className="btn-sm"
+                        onClick={() => void unwrap()}
+                        title={t('Turn into text')}
+                        disabled={busy}
+                        style={{ padding: '2px 6px', fontSize: 12 }}
+                      >
+                        <FileText size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-sm"
+                        onClick={() => void generate(prompt)}
+                        title={t('Regenerate')}
+                        disabled={busy}
+                        style={{ padding: '2px 6px', fontSize: 12 }}
+                      >
+                        <RotateCw size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-sm"
+                        onClick={() => setEditing(true)}
+                        title={t('Settings')}
+                        style={{ padding: '2px 6px', fontSize: 12 }}
+                      >
+                        <Settings size={12} />
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
+              {isEditable && error && (
+                <div style={{ padding: '6px 10px' }} contentEditable={false}>
+                  <AiErrorCard
+                    error={error}
+                    onRetry={() => void generate(prompt)}
+                    onDismiss={() => setError('')}
+                  />
+                </div>
+              )}
             </>
           )}
           <div className="bn-ai-block-content" ref={contentRef} />

@@ -788,7 +788,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
                         {sel.disabled ? t('Reactivate') : t('Deactivate account')}
                       </button>
                     )}
-                    {!me.aiDisabled && sel.orgRole !== 'owner' && (
+                    {!me.aiDisabled && sel.id !== me.id && sel.orgRole !== 'owner' && (
                       <button className="btn-sm" onClick={() => void toggleAiDisabled(sel)}>
                         {sel.aiDisabled ? t('Enable AI') : t('Disable AI')}
                       </button>

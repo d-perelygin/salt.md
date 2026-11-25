@@ -20,6 +20,9 @@ export default function AiFormattingDropdown(props: {
   const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   useEffect(() => {
     if (!open) return;
@@ -56,50 +59,78 @@ export default function AiFormattingDropdown(props: {
       setCoords({ top, left });
       setOpen(true);
     } else {
+      abortRef.current?.abort();
       setOpen(false);
     }
   };
 
   const run = async (instruction: string) => {
     const sel = getSelection();
-    if (!sel || busy) return;
+    if (!sel || busy || !props.editor?.isEditable) return;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     setBusy(true);
     setResult('');
     setError('');
     setLastPrompt(instruction);
     let acc = '';
+    let streamErr = '';
+    const processLine = (line: string) => {
+      if (!line.startsWith('data:')) return;
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') return;
+      try {
+        const j = JSON.parse(data);
+        if (j.type === 'delta' && typeof j.content === 'string') {
+          acc += j.content;
+          setResult(acc);
+        } else if (j.type === 'error') {
+          streamErr = typeof j.error === 'string'
+            ? j.error
+            : (j.error ? JSON.stringify({ error: j.error }) : (typeof j.message === 'string' ? j.message : data));
+        }
+      } catch { /* ignore partial JSON */ }
+    };
     try {
-      const res = await api.generateAI({
-        prompt: instruction,
-        selection: sel,
-        pageId: props.pageId,
-      });
-      if (!res.ok) {
+      const res = await api.generateAI(
+        {
+          prompt: instruction,
+          selection: sel,
+          pageId: props.pageId,
+        },
+        ac.signal,
+      );
+      if (!res.ok || !res.body) {
         const errBody = await res.text().catch(() => '');
         throw new Error(errBody || t('Generation failed. Please try again.'));
       }
-      const full = await res.text();
-      for (const line of full.split('\n')) {
-        if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trim();
-        if (!data || data === '[DONE]') continue;
-        try {
-          const j = JSON.parse(data);
-          if (j.type === 'delta') {
-            acc += j.content;
-            setResult(acc);
-          }
-        } catch {}
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) processLine(line);
       }
+      if (buf.trim()) processLine(buf.trim());
+      if (ac.signal.aborted) return;
+      if (streamErr) throw new Error(streamErr);
+      if (!acc.trim()) throw new Error(t('Generation failed. Please try again.'));
     } catch (err: any) {
+      if (ac.signal.aborted) return;
       setError(err?.message || t('Generation failed. Please try again.'));
     } finally {
+      if (abortRef.current === ac) abortRef.current = null;
       setBusy(false);
     }
   };
 
   const replace = () => {
-    if (!result) return;
+    if (!result || busy || !props.editor?.isEditable) return;
     try {
       const view = props.editor.prosemirrorView;
       const { from, to } = view.state.selection;
@@ -126,7 +157,7 @@ export default function AiFormattingDropdown(props: {
     setPrompt('');
   };
 
-  if (!aiEnabled) return null;
+  if (!aiEnabled || !props.editor?.isEditable) return null;
 
   return (
     <div className="ai-fmt-wrap" style={{ position: 'relative' }}>
@@ -205,7 +236,7 @@ export default function AiFormattingDropdown(props: {
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                         e.preventDefault();
                         submitCustom();
                       }
@@ -259,6 +290,7 @@ export default function AiFormattingDropdown(props: {
                     type="button"
                     className="btn-sm primary"
                     style={{ background: 'var(--accent)', color: 'var(--accent-fg, #fff)' }}
+                    disabled={busy}
                     onClick={replace}
                   >
                     <Check size={13} style={{ marginRight: 4 }} />
@@ -267,7 +299,10 @@ export default function AiFormattingDropdown(props: {
                   <button
                     type="button"
                     className="btn-sm"
-                    onClick={() => setResult('')}
+                    onClick={() => {
+                      abortRef.current?.abort();
+                      setResult('');
+                    }}
                   >
                     <X size={13} style={{ marginRight: 4 }} />
                     {t('Dismiss')}
