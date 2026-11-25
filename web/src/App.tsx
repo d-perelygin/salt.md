@@ -10,6 +10,8 @@ import AiChatView from './components/AiChatView';
 import type { AiThread } from './components/AiThreadList';
 import PeekPanel from './components/PeekPanel';
 import TabBar from './components/TabBar';
+import TabsSheet from './components/TabsSheet';
+import MobileDock from './components/MobileDock';
 import SearchModal from './components/SearchModal';
 import IndexView from './components/IndexView';
 import NotesList from './components/NotesList';
@@ -25,6 +27,7 @@ import { DialogHost, confirm, promptText } from './dialog';
 import { announceModal, modalOpen } from './modal';
 import { toast } from './toast';
 import { onRefresh } from './pwa';
+import { archiveTabs, loadArchive, loadUsage, saveArchive, saveUsage, staleTabs, type ArchivedTab, type TabUsage } from './tabAging';
 import { clearOfflineData, putPage as putCachedPage, setOfflineAccount } from './offlineCache';
 import {
   REMAP_EVENT,
@@ -265,6 +268,10 @@ export default function App() {
   const [extraPages, setExtraPages] = useState<Map<string, PageMeta>>(() => new Map());
   const resolvingRef = useRef<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
+  // Open documents as a sheet of cards — the phone's replacement for the tab
+  // strip. Kept in App rather than in the dock, because selecting a card has to
+  // navigate the same way a tab click does.
+  const [tabsSheetOpen, setTabsSheetOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [indexOpen, setIndexOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -1733,6 +1740,65 @@ export default function App() {
   useEffect(() => {
     pagesByIdRef.current = pagesById;
   }, [pagesById]);
+
+  // --- tab ageing ---------------------------------------------------------
+  //
+  // A phone collects documents the way Chrome collects tabs, and the sheet
+  // hides nothing: after a fortnight it is a wall of pages nobody will open
+  // again. Two ways out, both reversible through the archive in the same
+  // sheet: an automatic pass on load for anything untouched for a week, and a
+  // button for the same thing on demand.
+  const [tabUsage, setTabUsage] = useState<TabUsage>(loadUsage);
+  const usageRef = useRef<TabUsage>(tabUsage);
+  useEffect(() => {
+    usageRef.current = tabUsage;
+    saveUsage(tabUsage);
+  }, [tabUsage]);
+  // Stamp the document being read. Throttled by a minute: every navigation
+  // would otherwise write to localStorage, and this is a "last seen", not an
+  // audit log.
+  useEffect(() => {
+    if (!currentId) return;
+    setTabUsage((prev) => {
+      const at = prev[currentId];
+      if (at && Date.now() - at < 60_000) return prev;
+      return { ...prev, [currentId]: Date.now() };
+    });
+  }, [currentId]);
+  const [tabArchive, setTabArchive] = useState<ArchivedTab[]>(loadArchive);
+  useEffect(() => {
+    saveArchive(tabArchive);
+  }, [tabArchive]);
+  const closeAgedTabs = useCallback(() => {
+    const stale = staleTabs(tabsRef.current, usageRef.current, {
+      active: activeRef.current,
+      pinned: pinnedRef.current,
+    });
+    if (stale.length === 0) return;
+    setTabArchive((prev) => archiveTabs(prev, stale, pagesByIdRef.current));
+    replaceTabs(tabsRef.current.filter((id) => !stale.includes(id)));
+  }, [replaceTabs]);
+  // Once, and only after the page list has arrived: an archive entry saved
+  // without its title is a row that reads "Untitled" forever.
+  const agedRef = useRef(false);
+  useEffect(() => {
+    if (agedRef.current || !pages) return;
+    agedRef.current = true;
+    // The archive stores titles, so the pass waits for the list instead of
+    // writing "Untitled" into a row that would keep it forever.
+    const stale = staleTabs(tabsRef.current, usageRef.current, {
+      active: activeRef.current,
+      pinned: pinnedRef.current,
+    });
+    if (stale.length === 0) return;
+    setTabArchive((prev) => archiveTabs(prev, stale, pagesById));
+    replaceTabs(tabsRef.current.filter((id) => !stale.includes(id)));
+  }, [pages, pagesById, replaceTabs]);
+  const staleCount = useMemo(
+    () =>
+      staleTabs(openTabs, tabUsage, { active: currentId, pinned: pinnedTabs }).length,
+    [openTabs, tabUsage, currentId, pinnedTabs],
+  );
   // Remember the active page under its OWN workspace (not the current one —
   // the two disagree for a frame when switching). Runs again once pages load,
   // so a page active before its meta arrived is still recorded.
@@ -2322,8 +2388,58 @@ export default function App() {
         />
       )}
       {helpOpen && <ShortcutSheet onClose={() => setHelpOpen(false)} />}
+      {/* The phone's navigation bar. It is rendered unconditionally and hidden
+          by mobile.css above the breakpoint, so nothing here has to know how
+          wide the window is. */}
+      <MobileDock
+        tabCount={openTabs.length}
+        aiEnabled={aiEnabled && sidebarMode === 'docs'}
+        onOpenSidebar={openSidebar}
+        onOpenTabs={() => setTabsSheetOpen(true)}
+        onSearch={() => setSearchOpen(true)}
+        onAi={() => {
+          const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
+          if (sel) setAiQuote(sel);
+          setAiChatOpen(true);
+        }}
+      />
+      <TabsSheet
+        open={tabsSheetOpen}
+        tabs={openTabs}
+        pinned={pinnedTabs}
+        activeId={currentId}
+        pagesById={pagesById}
+        archive={tabArchive}
+        staleCount={staleCount}
+        onSelect={(id) => {
+          setTabsSheetOpen(false);
+          navigate(id);
+        }}
+        onClose={(id) => {
+          closeTab(id);
+          // The sheet is a list of what is open, so it stays current: closing
+          // the last document leaves nothing to show.
+          if (openTabs.length <= 1) setTabsSheetOpen(false);
+        }}
+        onCreate={() => {
+          setTabsSheetOpen(false);
+          void createPage(null);
+        }}
+        onCloseUnused={() => {
+          closeAgedTabs();
+          // The whole point of the button is what happened to the sheet, so it
+          // stays open: the cards that went are now in the list underneath.
+        }}
+        onReopen={(id) => {
+          setTabArchive((prev) => prev.filter((entry) => entry.id !== id));
+          if (!pagesById.has(id)) return;
+          setTabsSheetOpen(false);
+          openInNewTab(id);
+        }}
+        onDismiss={() => setTabsSheetOpen(false)}
+      />
       {aiEnabled && sidebarMode !== 'chats' && (
-        <button onMouseDown={(e) => e.preventDefault()} onClick={() => {
+        <button className="ai-fab" onMouseDown={(e) => e.preventDefault()} onClick={() => {
           const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
           if (sel) setAiQuote(sel);
           setAiChatOpen(true);

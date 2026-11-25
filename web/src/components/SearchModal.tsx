@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, PanelRight, SlidersHorizontal } from 'lucide-react';
+import { ExternalLink, PanelRight, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../api';
 import type { PageMeta, SearchResult, User } from '../types';
 import Portal from './Portal';
@@ -403,6 +403,17 @@ export default function SearchModal({
             aria-label={t('Preview')}
           >
             <PanelRight size={17} />
+          </button>
+          {/* Search covers the whole screen on a phone, so the two ways out of
+              it on a desktop — Escape and a click outside — do not exist. */}
+          <button
+            type="button"
+            className="search-icon-btn search-cancel"
+            onClick={onClose}
+            title={t('Close')}
+            aria-label={t('Close')}
+          >
+            <X size={18} />
           </button>
         </div>
         <div className="search-body">

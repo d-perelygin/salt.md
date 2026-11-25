@@ -41,6 +41,8 @@ import { blockedByMap, dayNum, depListOf, isoDay, nextWorkday, prevWorkday, shif
 import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import AnchoredMenu from './AnchoredMenu';
+import SheetBackdrop from './SheetBackdrop';
+import MobileEditorBar from './MobileEditorBar';
 import AiEmptyLine from './AiEmptyLine';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
@@ -1841,18 +1843,20 @@ function PageHeader({
             </button>
           )}
           {/* In the side peek these two move into the ⋯ menu below — a narrow
-              panel has no room for a full desktop topbar. */}
+              panel has no room for a full desktop topbar. On a phone they move
+              there for the other reason: the topbar's right corner is the spot
+              a thumb reaches last, so it keeps one button and nothing else. */}
           {!onPeekClose && (
             <>
               <button
-                className={'icon-btn' + (structureOpen ? ' is-on' : '')}
+                className={'icon-btn topbar-wide-only' + (structureOpen ? ' is-on' : '')}
                 title={structureOpen ? t('Hide structure') : t('Show structure')}
                 onClick={onToggleStructure}
               >
                 <PanelRight size={17} />
               </button>
               <button
-                className={'icon-btn' + (favorite ? ' active-star' : '')}
+                className={'icon-btn topbar-wide-only' + (favorite ? ' active-star' : '')}
                 title={favorite ? t('Remove from favorites') : t('Add to favorites')}
                 onClick={() => onToggleFavorite(pageId)}
               >
@@ -1869,15 +1873,18 @@ function PageHeader({
               {isAccessRestricted ? <Lock size={17} /> : <LockOpen size={17} />}
             </button>
             {sharesOpen && (
-              <PageShares
-                pageId={pageId}
-                workspaceId={page.workspaceId}
-                myUserId={user.id}
-                visibility={visibility}
-                inheritedFrom={inheritedAccess}
-                onClose={() => setSharesOpen(false)}
-                onVisibilityChange={setVisibility}
-              />
+              <>
+                <SheetBackdrop onDismiss={() => setSharesOpen(false)} />
+                <PageShares
+                  pageId={pageId}
+                  workspaceId={page.workspaceId}
+                  myUserId={user.id}
+                  visibility={visibility}
+                  inheritedFrom={inheritedAccess}
+                  onClose={() => setSharesOpen(false)}
+                  onVisibilityChange={setVisibility}
+                />
+              </>
             )}
           </div>
           <div className="share-wrap" ref={shareWrapRef}>
@@ -1885,7 +1892,9 @@ function PageHeader({
               <Globe size={17} />
             </button>
             {shareOpen && (
-              <div className="menu share-menu">
+              <>
+                <SheetBackdrop onDismiss={() => setShareOpen(false)} />
+                <div className="menu share-menu">
                 <div className="share-hint">{isCollection ? t('Anyone with this link sees this collection (read-only).') : t('Anyone with this link can view this page (read-only).')}</div>
                 {!readShared && !displayUrl ? (
                   <>
@@ -1993,7 +2002,8 @@ function PageHeader({
                     <div className="share-hint">{t('The password applies to the current link.')}</div>
                   </>
                 )}
-              </div>
+                </div>
+              </>
             )}
           </div>
           <div className="share-wrap" ref={overflowWrapRef}>
@@ -2013,7 +2023,9 @@ function PageHeader({
               onChange={(e) => void onImportFile(e)}
             />
             {overflowOpen && (
-              <div className="menu overflow-menu">
+              <>
+                <SheetBackdrop onDismiss={() => setOverflowOpen(false)} />
+                <div className="menu overflow-menu">
                 <>
                   <div className="menu-row" role="group" aria-label={t('Undo and redo')}>
                     <button className="menu-item" disabled={!undoCtl.canUndo} onClick={fireUndo}>
@@ -2120,6 +2132,29 @@ function PageHeader({
                   {visibility === 'private' ? <Lock size={15} /> : <LockOpen size={15} />}{' '}
                   {visibility === 'private' ? t('Make it visible to the workspace') : t('Make it private')}
                 </button>
+                {/* The two icons the phone's topbar gave up: a favourite and the
+                    structure panel are both page-level, both occasional, and
+                    both belong in the sheet rather than in a corner. */}
+                <button
+                  className="menu-item narrow-only"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    onToggleFavorite(pageId);
+                  }}
+                >
+                  <Star size={15} fill={favorite ? 'currentColor' : 'none'} />{' '}
+                  {favorite ? t('Remove from favorites') : t('Add to favorites')}
+                </button>
+                <button
+                  className="menu-item narrow-only"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    onToggleStructure();
+                  }}
+                >
+                  <PanelRight size={15} />{' '}
+                  {structureOpen ? t('Hide structure') : t('Show structure')}
+                </button>
                 <button
                   className="menu-item"
                   onClick={() => {
@@ -2215,7 +2250,8 @@ function PageHeader({
                     <Trash2 size={15} /> {t('Move to trash')}
                   </button>
                 )}
-              </div>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -3942,6 +3978,9 @@ function BlockContent({
             />
           </BlockNoteView>
         </BlockContext.Provider>
+        {/* The keyboard bar: inline styles and AI while the caret is in the
+            text, in the one strip a phone keyboard leaves free. */}
+        <MobileEditorBar editor={editor} aiEnabled={aiEnabled} onAskAi={askAi} />
         <AiEmptyLine editor={editor} pageId={pageId} canEdit={canEdit} />
         {!structureOpen && (
           <Backlinks pageId={provider.pageId} pagesById={pagesById} tagColors={tagColors} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />

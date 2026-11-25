@@ -1,0 +1,744 @@
+/* =============================================================================
+   salt.md on a phone — the thumb shell
+
+   A phone is not a narrow desktop: the pointer is a thumb, the screen is one
+   hand high, and everything worth pressing has to live in the lower third of
+   it. Three corners of the desktop layout break that — the document tabs eat a
+   row under the topbar, search hides behind a keyboard shortcut nobody has on
+   glass, and the page's actions sit in the corner the thumb reaches last.
+
+   So below 769px the tab strip becomes a sheet of cards, the actions that were
+   icons in the topbar become a sheet at the bottom, and four permanent
+   destinations move to a dock on the bottom edge. The desktop layout is not
+   touched: every rule here is inside one media query, and the components
+   render the same DOM in both worlds.
+
+   A file of its own for the same reason theme.css has one: styles.css is
+   13k lines and five open pull requests touch it, so a phone-only look that
+   can be deleted by removing one import is worth more than a tidy single file.
+   ========================================================================== */
+
+/* --- the dock ------------------------------------------------------------- */
+
+/* Hidden until the media query below says otherwise, so the component can be
+   rendered unconditionally: no JavaScript decides which shell the reader is
+   in, and a window resized across the breakpoint needs no re-render. */
+.mobile-dock {
+  display: none;
+  flex: none;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  /* Above the document, below every modal (the overlay is 100). */
+  z-index: 60;
+}
+
+.dock-btn {
+  flex: 1 1 0;
+  /* A longer word in another language must not widen its own button and push
+     the row past the screen; the label ellipsises instead. */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  /* 48px is the floor where a thumb hits without aiming. */
+  min-height: 48px;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  -webkit-tap-highlight-color: transparent;
+  /* A press on glass has no hover to wait for: the colour has to land on the
+     touch itself, or the button feels dead for the 80ms before the panel
+     opens. */
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.dock-btn:active {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.dock-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dock-label {
+  line-height: 1.1;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* How many documents are open — the same information the tab strip carried, in
+   the one place a thumb can see it. */
+.dock-count {
+  position: absolute;
+  top: -5px;
+  left: 11px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 650;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* The dock's one action, marked as one. */
+.dock-btn.dock-primary {
+  color: var(--accent);
+}
+
+.dock-btn.dock-primary:active {
+  background: var(--accent-soft);
+}
+
+/* --- the tabs sheet ------------------------------------------------------- */
+
+.tabs-sheet-backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+/* The dim layer the three page sheets share. Hidden above the breakpoint: a
+   popover hanging off an icon covers a corner, and a corner needs no veil. */
+.sheet-backdrop {
+  display: none;
+}
+
+.tabs-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 320;
+  display: flex;
+  flex-direction: column;
+  max-height: 76dvh;
+  padding: 4px 12px calc(12px + env(safe-area-inset-bottom));
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border-top: 1px solid var(--border-strong);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+  animation: sheet-rise 0.22s var(--ease-out);
+}
+
+@keyframes sheet-rise {
+  from {
+    transform: translateY(16px);
+    opacity: 0.6;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs-sheet {
+    animation: none;
+  }
+}
+
+/* The bar every phone sheet has, for the only gesture people try on one. */
+.sheet-grab {
+  width: 34px;
+  height: 4px;
+  margin: 6px auto 8px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  flex: none;
+}
+
+.tabs-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px 8px;
+  flex: none;
+}
+
+.tabs-sheet-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* The browser's own toolbar, at the bottom edge where the thumb is. */
+.tabs-sheet-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding-top: 8px;
+}
+
+.tabs-sheet-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--fg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-arrow:active:not(:disabled) {
+  background: var(--hover);
+}
+
+.tabs-sheet-arrow:disabled {
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+.tabs-sheet-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.tabs-sheet-dismiss:active {
+  background: var(--hover);
+}
+
+.tabs-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 2px;
+}
+
+.tabs-sheet-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.tabs-sheet-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  /* Taller than a row and shorter than a page: the card is a thumbnail of a
+     document, so it needs room for two lines of title under its icon and the
+     space between them to read as a card rather than a list item. */
+  min-height: 104px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--fg);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-card:active {
+  background: var(--hover);
+}
+
+/* The open document, marked the way the tab strip marked it: a ring, not a
+   fill, because a filled card loses the border that says "this is a page". */
+.tabs-sheet-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.tabs-sheet-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.tabs-sheet-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--muted);
+}
+
+.tabs-sheet-card-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Smaller than the 44px rule on purpose: it sits beside the card's own tap
+     area, and a 44px × would be half the card. The card itself is the target
+     that matters, and it is 84px tall. */
+  width: 28px;
+  height: 28px;
+  margin: -4px -4px 0 0;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.tabs-sheet-card-close:active {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.tabs-sheet-card-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.tabs-sheet-new {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.tabs-sheet-new .tabs-sheet-card-icon {
+  background: none;
+}
+
+/* The on-demand version of the automatic pass. */
+.tabs-sheet-unused {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--hover);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 550;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-unused:active {
+  background: var(--active);
+}
+
+.tabs-sheet-archive {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+}
+
+.tabs-sheet-archive-title {
+  padding: 4px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tabs-sheet-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 6px;
+  border-radius: 10px;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-archive-row:active {
+  background: var(--hover);
+}
+
+.tabs-sheet-archive-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+
+.tabs-sheet-archive-action {
+  flex: none;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+/* The search sheet's own way out. Hidden on a desktop, where Escape and a
+   click outside already do it and a visible button would be a second one. */
+.search-cancel {
+  display: none;
+}
+
+/* --- the phone shell ------------------------------------------------------ */
+
+@media (max-width: 768px) {
+  /* The dock is a bar under the document, not an overlay: content ends above
+     it, so nothing is ever hidden behind a floating layer and no scroll
+     container needs to know about it. The app turns into a column and the
+     document takes what is left. */
+  .app {
+    flex-direction: column;
+  }
+
+  .main {
+    /* In a column, a flex child scrolls its own content only if it is allowed
+       to be shorter than its content. Without this the editor grows past the
+       dock and the bottom of the page is unreachable. */
+    min-height: 0;
+  }
+
+  .mobile-dock {
+    display: flex;
+  }
+
+  /* The strip's job is done by the dock's badge and the sheet behind it. The
+     strip is still rendered (and still handles its own menu on a wide window),
+     just never on a phone. */
+  .tab-bar {
+    display: none;
+  }
+
+  /* The floating AI button is a second bottom-right corner and the dock
+     already has AI in the middle. Two ways to the same panel, one of them
+     under the thumb. `!important` because the button carries its position as
+     an inline style, and an inline style beats a stylesheet — which is also
+     why this one line is honest about what it is doing. */
+  .ai-fab {
+    display: none !important;
+  }
+
+  /* The topbar says where you are, not what you can do: one title, the menu
+     that opens the drawer, and ⋯. The crumbs before the last one are the
+     hierarchy, and the hierarchy is one tap away in the drawer. */
+  .breadcrumbs .crumb-wrap:not(:last-child) {
+    display: none;
+  }
+
+  .breadcrumbs .crumb {
+    max-width: min(56vw, 240px);
+  }
+
+  /* Menus that hang off a topbar icon become sheets. The trigger stays where
+     it was — that is the phone grammar everybody already knows from Notion and
+     Obsidian — but the choices land in the thumb's half of the screen instead
+     of hanging from a corner it cannot reach.
+
+     Only these three are page-level: the collection toolbar's menus are
+     anchored to the row they act on and belong there. */
+  .sheet-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 319;
+    background: rgba(0, 0, 0, 0.34);
+  }
+
+  .overflow-menu,
+  .share-menu,
+  .access-menu {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    min-width: 0;
+    max-height: 74dvh;
+    overflow-y: auto;
+    padding: 2px 12px calc(12px + env(safe-area-inset-bottom));
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+    z-index: 320;
+  }
+
+  /* The grab bar, drawn rather than an element: these menus are written in six
+     places and none of them should have to remember it. */
+  .overflow-menu::before,
+  .share-menu::before,
+  .access-menu::before {
+    content: '';
+    display: block;
+    width: 34px;
+    height: 4px;
+    margin: 6px auto 10px;
+    border-radius: 2px;
+    background: var(--border-strong);
+  }
+
+  .overflow-menu button,
+  .share-menu button,
+  .access-menu button {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  /* Wider rows need a visible divider: the hairline that groups a dense
+     desktop menu at 8% white disappears between rows this tall, and the sheet
+     reads as one undifferentiated list.
+     `flex: 0 0 1px` is the part that matters: the sheet scrolls, so its menu
+     is a flex container taller than its box, and the separators are the first
+     items flexbox shrinks — to exactly zero. They were invisible until the
+     growth was forbidden. */
+  .overflow-menu .menu-sep,
+  .share-menu .menu-sep,
+  .access-menu .menu-sep {
+    flex: 0 0 1px;
+    height: 1px;
+    margin: 8px 4px;
+    background: var(--border-strong);
+  }
+
+  /* Search is a sheet that rises from the bottom, not a screen of its own.
+     Full height put the field at the very top of the phone — the one place a
+     thumb cannot reach, and the place where typing it is least comfortable.
+     Anchored below, the field lands about a quarter of the way down, results
+     fill the rest, and the whole thing lifts above the keyboard (`--kb-inset`)
+     instead of hiding under it. The preview switch and the keyboard footer go:
+     there is no second column and no keyboard. */
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0 0 var(--kb-inset, 0px);
+  }
+
+  .search-modal,
+  .search-modal.has-preview {
+    width: 100vw;
+    max-width: none;
+    height: auto;
+    max-height: min(76dvh, calc(var(--vvh, 100dvh) - 24px));
+    border: none;
+    border-radius: 18px 18px 0 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* The grab bar every other phone sheet in the app has. */
+  .search-modal::before {
+    content: '';
+    flex: none;
+    width: 34px;
+    height: 4px;
+    margin: 8px auto 2px;
+    border-radius: 2px;
+    background: var(--border-strong);
+  }
+
+  .search-modal .search-body {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .search-modal .search-preview,
+  .search-modal .search-footer {
+    display: none;
+  }
+
+  /* The preview switch is a desktop affordance (there is no second column to
+     open it in) and the cancel button is the phone's only way out — so the
+     switch goes and the × arrives. */
+  .search-modal .search-icon-btn {
+    display: none;
+  }
+
+  .search-modal .search-icon-btn.search-cancel {
+    display: inline-flex;
+    flex: none;
+  }
+
+  /* ⌘⇧N and T are printed next to every command. On glass they are a promise
+     the device cannot keep. */
+  .search-modal .result-keys {
+    display: none;
+  }
+
+  .search-topbar {
+    padding-top: 2px;
+  }
+
+  /* A list read at arm's length, not at desk distance: the desktop sizes are
+     for a 14px interface under a mouse. Row height also grows, which is what
+     makes a result look tappable. The search field itself is already 17px, so
+     it needs nothing. */
+  .search-modal .search-results {
+    max-height: none;
+    padding: 8px 8px calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .search-modal .search-result {
+    padding: 13px 14px;
+    border-radius: 10px;
+  }
+
+  .search-modal .result-title {
+    font-size: 16px;
+  }
+
+  .search-modal .result-context,
+  .search-modal .result-snippet {
+    font-size: 13px;
+  }
+
+  .search-modal .search-section-label {
+    padding: 12px 14px 6px;
+    font-size: 12px;
+  }
+
+  .search-modal .search-scope {
+    font-size: 13.5px;
+    padding: 6px 12px;
+  }
+
+  .search-results {
+    overflow-y: auto;
+  }
+
+  /* Dialogs keep their buttons where the thumb is: stacked, full width, the
+     confirming one last in the source order and therefore at the bottom. */
+  .dialog-buttons,
+  .dialog-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dialog-buttons > button,
+  .dialog-actions > button {
+    min-height: 46px;
+  }
+
+  .modal-overlay > .dialog {
+    max-height: 88dvh;
+  }
+
+  /* The AI panel is a sheet that stops above the keyboard. Anchored to the
+     layout viewport it would open under the keys the moment somebody types —
+     which is the only moment the panel matters. */
+  .ai-panel {
+    left: 0;
+    right: 0;
+    bottom: var(--kb-inset, 0px);
+    width: auto;
+    max-width: none;
+    height: min(88dvh, calc(var(--vvh, 100dvh) - 8px));
+    max-height: none;
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+    z-index: 330;
+  }
+
+  .ai-panel-foot {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+}
+
+/* --- the keyboard bar ----------------------------------------------------- */
+
+/* Hidden everywhere until the phone block below turns it on, like the dock. */
+.editor-keys {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* While the caret is in the text the dock has no job: the keyboard covers
+     the bottom of the screen and the strip above it is where the typing
+     actions belong. They swap places, so nothing is ever two bars high. */
+  body.mobile-editing .mobile-dock {
+    display: none;
+  }
+
+  .editor-keys {
+    position: fixed;
+    left: 0;
+    right: 0;
+    /* On the keyboard, or where the dock was when it is closed. */
+    bottom: var(--kb-inset, 0px);
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 48px;
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid var(--border);
+  }
+
+  /* `display: flex` above would otherwise beat the attribute. */
+  .editor-keys[hidden] {
+    display: none;
+  }
+
+  .editor-key {
+    flex: 1 1 0;
+    max-width: 60px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    color: var(--fg);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .editor-key:active {
+    background: var(--hover);
+  }
+
+  /* The style under the caret, the way the desktop toolbar shows it. */
+  .editor-key.is-on {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .editor-key.editor-key-ai {
+    color: var(--accent);
+  }
+
+  .editor-key.editor-key-hide {
+    margin-left: auto;
+    color: var(--muted);
+  }
+
+  /* Room at the end of the document, so the line being typed can scroll above
+     the bar instead of hiding under the thumb. */
+  body.mobile-editing .page-body {
+    padding-bottom: 64px;
+  }
+}
