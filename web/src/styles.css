@@ -8015,6 +8015,16 @@ body.is-unsched-carry .tl-end-space {
 .fs-filter.is-drop-after {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
+/* Sorts have no box of their own, so the same line goes across the row. */
+.fs-sort-row.is-drag-source {
+  opacity: 0.45;
+}
+.fs-sort-row.is-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.fs-sort-row.is-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
 body.filter-dragging {
   user-select: none;
   cursor: grabbing;

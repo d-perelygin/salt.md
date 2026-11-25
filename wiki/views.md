@@ -565,7 +565,9 @@ not: there the sort is the database's alone.
 
 One or several properties, each **Ascending** or **Descending** (the popover
 behind the **Sort** button, **+ Add sort…** appends another key). Keys apply in
-order, like SQL `ORDER BY`: the first decides, the next breaks its ties. Text
+order, like SQL `ORDER BY`: the first decides, the next breaks its ties. Drag
+the grip at the head of a key to change that order — the list is read top to
+bottom, and the order is saved with the view. Text
 is compared the way your language sorts it, so
 accented letters land beside their plain forms instead of after Z; numbers are
 compared as numbers. Below the collection's columns, under a **System** heading

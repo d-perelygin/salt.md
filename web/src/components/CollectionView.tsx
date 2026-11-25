@@ -2845,6 +2845,14 @@ function FilterSortControls({
   // removes in one click; this is where "again, with one thing changed"
   // starts.
   const [filterMenu, setFilterMenu] = useState<{ gi: number; ci: number; x: number; y: number } | null>(null);
+  // Sort keys are a priority list: the first one decides, the next breaks its
+  // ties. Their order is therefore part of the view, and the same grip moves
+  // a key up or down the list.
+  const [sdrag, setSdrag] = useState<{
+    from: number;
+    target: { ci: number; before: boolean } | null;
+  } | null>(null);
+  const sdragRef = useRef<typeof sdrag>(null);
   useEffect(() => {
     if (!filterMenu) return;
     const close = (e: PointerEvent) => {
@@ -2938,6 +2946,51 @@ function FilterSortControls({
   // Write both shapes at once: the flat sort mirrors the first key, so
   // readers that only know the old shape still sort by something honest.
   const setSorts = (next: Sort[]) => onChange({ sorts: next, sort: next[0] ?? null });
+
+  const applySortMove = (from: number, to: { ci: number; before: boolean }) => {
+    const next = sorts.slice();
+    const [moved] = next.splice(from, 1);
+    if (!moved) return;
+    let at = to.ci + (to.before ? 0 : 1);
+    if (at > from) at -= 1;
+    next.splice(at, 0, moved);
+    setSorts(next);
+  };
+
+  const startSortDrag = (e: React.PointerEvent, si: number) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const first = { from: si, target: null };
+    sdragRef.current = first;
+    setSdrag(first);
+    document.body.classList.add('filter-dragging');
+    const onMove = (ev: PointerEvent) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as Element | null;
+      const row = el?.closest?.('.fs-sort-row') as HTMLElement | null;
+      let target: { ci: number; before: boolean } | null = null;
+      if (row) {
+        const r = row.getBoundingClientRect();
+        target = { ci: Number(row.dataset.si), before: ev.clientY < r.top + r.height / 2 };
+      }
+      const next = { ...(sdragRef.current ?? first), target };
+      sdragRef.current = next;
+      setSdrag(next);
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.classList.remove('filter-dragging');
+      const d = sdragRef.current;
+      sdragRef.current = null;
+      setSdrag(null);
+      if (d?.target) applySortMove(d.from, d.target);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
   const propName = (id: string) =>
     id === TITLE_FILTER
       ? t('Title')
@@ -3422,7 +3475,28 @@ function FilterSortControls({
                     setSorts(next);
                   };
                   return (
-                    <div className="fs-row" key={rowKey}>
+                    <div
+                      className={
+                        'fs-row fs-sort-row' +
+                        (sdrag && sdrag.from === si ? ' is-drag-source' : '') +
+                        (sdrag?.target && sdrag.target.ci === si
+                          ? sdrag.target.before
+                            ? ' is-drop-before'
+                            : ' is-drop-after'
+                          : '')
+                      }
+                      key={rowKey}
+                      data-si={si}
+                    >
+                      <button
+                        type="button"
+                        className="fs-drag"
+                        title={t('Drag to reorder')}
+                        aria-label={t('Drag to reorder')}
+                        onPointerDown={(e) => startSortDrag(e, si)}
+                      >
+                        <GripVertical size={14} />
+                      </button>
                       <select
                         className="prop-select"
                         value={s.property}
