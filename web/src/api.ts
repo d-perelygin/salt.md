@@ -23,6 +23,22 @@ import { normalizeCollectionConfig } from './types';
 import { formatBytes } from './format';
 import { serverMessage } from './serverErrors';
 
+export type PageDetail = Page & {
+  inheritedAccess?: { visibility: 'private' | 'restricted'; fromId: string; fromTitle: string } | null;
+};
+
+export function isSafeDownloadUrl(url: string): boolean {
+  const u = url.trim();
+  if (!u) return false;
+  if (u.startsWith('/')) return !u.startsWith('//') && !u.startsWith('/\\');
+  try {
+    const parsed = new URL(u);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /** An error carrying an HTTP status and a machine-readable reason, so callers
  *  can branch on those rather than on the message text — the text changes with
  *  every rewording, and a branch on it breaks silently. */
@@ -388,7 +404,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ parentId, title, type, props, workspaceId, idempotencyKey }),
     }),
-  getPage: (id: string) => req<Page>(`/api/pages/${id}`),
+  getPage: (id: string) => req<PageDetail>(`/api/pages/${id}`),
   updatePage: (
     id: string,
     patch: Partial<{
@@ -766,8 +782,9 @@ export const api = {
 
   // Anchor-based download: immune to popup blockers, unlike window.open.
   download: (url: string) => {
+    if (!isSafeDownloadUrl(url)) return;
     const a = document.createElement('a');
-    a.href = url;
+    a.href = url.trim();
     a.download = '';
     document.body.appendChild(a);
     a.click();

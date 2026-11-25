@@ -366,12 +366,33 @@ function SidebarSection({
       return !o;
     });
 
+  const holdingRef = useRef(false);
+  const enterHead = () => {
+    if (!holdingRef.current) {
+      holdingRef.current = true;
+      holdWarm();
+    }
+  };
+  const leaveHead = () => {
+    if (holdingRef.current) {
+      holdingRef.current = false;
+      releaseWarm();
+    }
+  };
+  useEffect(() => {
+    window.addEventListener('blur', leaveHead);
+    return () => {
+      window.removeEventListener('blur', leaveHead);
+      leaveHead();
+    };
+  }, []);
+
   return (
     <div className={'sb-section' + (open ? ' open' : '')}>
       <div
         className="sb-section-head"
-        onMouseEnter={holdWarm}
-        onMouseLeave={releaseWarm}
+        onMouseEnter={enterHead}
+        onMouseLeave={leaveHead}
       >
         {/* A topic looks like a row, only bolder: icon on the left, title,
             count, chevron on the right. No more micro-heading — one single row
@@ -410,6 +431,7 @@ function FlatRow({
   p,
   active,
   parentLabel,
+  tagColors,
   onNavigate,
   onOpenInNewTab,
   action,
@@ -417,12 +439,13 @@ function FlatRow({
   p: PageMeta;
   active: boolean;
   parentLabel?: string;
+  tagColors?: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   action?: React.ReactNode;
 }) {
   return (
-    <PageHoverCard page={p} side="right">
+    <PageHoverCard page={p} side="right" tagColors={tagColors}>
       <div
         className={'tree-item sb-flat' + (active ? ' active' : '')}
         onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
@@ -1523,6 +1546,7 @@ export default function Sidebar({
                 key={p.id}
                 p={p}
                 active={p.id === currentId}
+                tagColors={tagColors}
                 onNavigate={onNavigate}
                 onOpenInNewTab={onOpenInNewTab}
                 action={
@@ -1867,14 +1891,14 @@ function WorkspaceImageModal({
   const pickerBtnRef = useRef<HTMLButtonElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const saveEmoji = async (val: string = emoji) => {
+  const saveEmoji = async (val: string = emoji, close = true) => {
     if (!val.trim()) return; // never let an empty "save" wipe an existing logo
     setBusy(true);
     try {
       // Setting an emoji clears any image, and vice-versa (one identity at a time).
       await api.updateWorkspace(ws.id, { icon: val.trim(), image: '' });
       onChanged();
-      onClose();
+      if (close) onClose();
     } catch (e) {
       toast((e as Error).message || t('Saving failed'));
     } finally {
@@ -1919,7 +1943,7 @@ function WorkspaceImageModal({
           <label className="dialog-hint">{t('Emoji')}</label>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', position: 'relative' }}>
             <button className="btn icon-trigger" ref={pickerBtnRef} onClick={() => setPickerOpen((o) => !o)}>
-              {emoji || '🙂'} {t('Choose…')}
+              {emoji ? <PageIcon icon={emoji} size={16} /> : '🙂'} {t('Choose…')}
             </button>
             <input
               className="prop-input"
@@ -1937,7 +1961,7 @@ function WorkspaceImageModal({
                 onPick={(e, close = true) => {
                   if (close) setPickerOpen(false);
                   setEmoji(e);
-                  void saveEmoji(e);
+                  void saveEmoji(e, close);
                 }}
                 onRemove={() => {
                   setPickerOpen(false);

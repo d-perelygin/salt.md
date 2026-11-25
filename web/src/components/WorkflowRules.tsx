@@ -802,6 +802,8 @@ function WorkflowScheme({
   issues: WorkflowIssue[];
   statusReady: boolean;
 }) {
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
   if (!statusReady) {
     return (
       <div className="dialog-hint">
@@ -888,10 +890,13 @@ function WorkflowScheme({
     const by = y2 - uy * L;
     return `${x2},${y2} ${bx - uy * W},${by + ux * W} ${bx + uy * W},${by - ux * W}`;
   };
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
-  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
 
-  const renderEdge = (e: Edge) => {
+  const isEdgeActive = (e: Edge) => {
+    const edgeKey = `${e.from}>${e.to}`;
+    return hoveredNode === e.from || hoveredNode === e.to || hoveredEdge === edgeKey;
+  };
+
+  const renderEdge = (e: Edge, isOverlay = false) => {
     const i = idx.get(e.from)!;
     const j = idx.get(e.to)!;
     const above = i < j;
@@ -902,29 +907,31 @@ function WorkflowScheme({
     const s = above ? -1 : 1;
     const cx = (x1 + x2) / 2;
     const cy = y0 + s * 2 * h;
-    const tip = e.free
-      ? t('Allowed — no rule')
-      : [
-          ...e.rules.flatMap((r) => [
-            ...describeAutoActions(r, schema),
-            ...(r.do ?? []).flatMap((a) => {
-              if (a.type === 'require_prop') return [t('Ask {name}', { name: propName(a.prop) })];
-              if (a.type === 'require_comment') return [t('Comment')];
-              return [];
-            }),
-            ...(r.whenProps ?? []).map((c) =>
-              c.op === 'is_not'
-                ? t('Only if {prop} is not {value}', {
-                    prop: propName(c.prop),
-                    value: condDisplay(schema, c),
-                  })
-                : t('Only if {prop} is {value}', {
-                    prop: propName(c.prop),
-                    value: condDisplay(schema, c),
-                  }),
-            ),
-          ]),
-        ].join('\n');
+    const tip = isOverlay
+      ? ''
+      : e.free
+        ? t('Allowed — no rule')
+        : [
+            ...e.rules.flatMap((r) => [
+              ...describeAutoActions(r, schema),
+              ...(r.do ?? []).flatMap((a) => {
+                if (a.type === 'require_prop') return [t('Ask {name}', { name: propName(a.prop) })];
+                if (a.type === 'require_comment') return [t('Comment')];
+                return [];
+              }),
+              ...(r.whenProps ?? []).map((c) =>
+                c.op === 'is_not'
+                  ? t('Only if {prop} is not {value}', {
+                      prop: propName(c.prop),
+                      value: condDisplay(schema, c),
+                    })
+                  : t('Only if {prop} is {value}', {
+                      prop: propName(c.prop),
+                      value: condDisplay(schema, c),
+                    }),
+              ),
+            ]),
+          ].join('\n');
     const apexY = y0 + s * h;
     const edgeKey = `${e.from}>${e.to}`;
     const isOut = hoveredNode === e.from;
@@ -941,15 +948,24 @@ function WorkflowScheme({
     ].filter(Boolean).join(' ');
     return (
       <g
-        key={edgeKey}
+        key={isOverlay ? `ov:${edgeKey}` : edgeKey}
         className={cls || undefined}
-        onMouseEnter={() => setHoveredEdge(edgeKey)}
-        onMouseLeave={() => setHoveredEdge((h) => (h === edgeKey ? null : h))}
+        onMouseEnter={
+          isOverlay
+            ? undefined
+            : () => {
+                setHoveredEdge(edgeKey);
+                setHoveredNode(null);
+              }
+        }
+        onMouseLeave={
+          isOverlay ? undefined : () => setHoveredEdge((h) => (h === edgeKey ? null : h))
+        }
       >
         {tip && <title>{tip}</title>}
         <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} />
         <polygon points={head(cx, cy, x2, y0)} />
-        <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} className="workflow-scheme-hit" />
+        {!isOverlay && <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} className="workflow-scheme-hit" />}
         {e.rules.length > 1 && (
           <text x={cx} y={apexY + (above ? -6 : 14)} textAnchor="middle" className="workflow-scheme-count">
             ×{e.rules.length}
@@ -958,6 +974,7 @@ function WorkflowScheme({
       </g>
     );
   };
+  const activeEdges = hoveredNode || hoveredEdge ? edges.filter(isEdgeActive) : [];
   return (
     <div className="workflow-scheme">
       {created.length > 0 && (
@@ -972,23 +989,26 @@ function WorkflowScheme({
           ))}
         </div>
       )}
-      <svg className="workflow-scheme-svg" width={width} height={height} role="img">
-        {((hoveredNode || hoveredEdge)
-          ? [...edges].sort((a, b) => {
-              const aActive =
-                (hoveredNode && (a.from === hoveredNode || a.to === hoveredNode)) ||
-                hoveredEdge === `${a.from}>${a.to}`
-                  ? 1
-                  : 0;
-              const bActive =
-                (hoveredNode && (b.from === hoveredNode || b.to === hoveredNode)) ||
-                hoveredEdge === `${b.from}>${b.to}`
-                  ? 1
-                  : 0;
-              return aActive - bActive;
-            })
-          : edges
-        ).map(renderEdge)}
+      <svg
+        className="workflow-scheme-svg"
+        width={width}
+        height={height}
+        role="img"
+        onMouseLeave={() => {
+          setHoveredNode(null);
+          setHoveredEdge(null);
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setHoveredNode(null);
+            setHoveredEdge(null);
+          }
+        }}
+      >
+        {edges.map((e) => renderEdge(e, false))}
+        {activeEdges.length > 0 && (
+          <g pointerEvents="none">{activeEdges.map((e) => renderEdge(e, true))}</g>
+        )}
         {statusOpts.map((o, i) => {
           const flag = flagOf(o.id);
           const isNodeHovered = hoveredNode === o.id;
@@ -1001,7 +1021,10 @@ function WorkflowScheme({
             <g
               key={o.id}
               className={isNodeHovered || isNodeConnected ? 'is-hovered' : undefined}
-              onMouseEnter={() => setHoveredNode(o.id)}
+              onMouseEnter={() => {
+                setHoveredNode(o.id);
+                setHoveredEdge(null);
+              }}
               onMouseLeave={() => setHoveredNode((h) => (h === o.id ? null : h))}
               style={{ cursor: 'pointer' }}
             >

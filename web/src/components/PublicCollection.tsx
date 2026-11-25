@@ -278,7 +278,7 @@ export default function PublicCollection({ token }: { token: string }) {
           ) : view.type === 'timeline' ? (
             <PublicTimeline
               rows={rows}
-              schema={visibleSchema}
+              schema={schema}
               startProp={view.dateProp ?? ''}
               endProp={view.endDateProp ?? ''}
               allowDetail={cfg.allowDetail}

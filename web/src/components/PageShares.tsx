@@ -216,7 +216,7 @@ export default function PageShares({
               </>
             ))}
           <div className="share-actions share-actions-full">
-            {shares?.length === 0 && (
+            {visibility === 'restricted' && !denied && shares?.length === 0 && (
               <p className="prop-empty">{t('Nobody yet — the page is visible to nobody but you and the workspace admins.')}</p>
             )}
             <button className="btn-sm" onClick={onClose}>

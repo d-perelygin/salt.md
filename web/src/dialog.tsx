@@ -117,8 +117,8 @@ function ChecklistAsk({
         el.focus();
         const len = el.value.length;
         el.setSelectionRange(len, len);
+        focusIdRef.current = null;
       }
-      focusIdRef.current = null;
     }
   }, [items]);
 
@@ -145,12 +145,12 @@ function ChecklistAsk({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, it: ChecklistItem, index: number) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       toggle(it.id);
       return;
     }
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       if (it.text.trim()) {
         add(index);
@@ -371,8 +371,10 @@ export function DialogHost() {
             <>
               <p className="confirm-message">{req.title}</p>
               <div className="workflow-ask">
-                {req.fields.map((f) => (
-                  <label key={f.key} className="workflow-ask-row">
+                {req.fields.map((f) => {
+                  const RowTag = f.kind === 'checklist' ? 'div' : 'label';
+                  return (
+                  <RowTag key={f.key} className="workflow-ask-row">
                     <span>{f.kind === 'comment' ? t('Comment') : f.label}</span>
                     {f.kind === 'text' || f.kind === 'comment' ? (
                       f.kind === 'comment' ? (
@@ -428,8 +430,9 @@ export function DialogHost() {
                         onChange={(v) => setAnswers((p) => ({ ...p, [f.key]: v as string | string[] }))}
                       />
                     ) : null}
-                  </label>
-                ))}
+                  </RowTag>
+                  );
+                })}
               </div>
             </>
           ) : (

@@ -160,10 +160,13 @@ export default function IconPicker({ currentIcon, onPick, onRemove, onClose, pag
 
   const handleColorChange = (hex: string) => {
     setColor(hex);
-    if (selected && (isLucideIcon(selected) || isMdiIcon(selected))) {
+    if (
+      selected &&
+      ((lib === 'mdi' && isMdiIcon(selected)) || (lib === 'lucide' && isLucideIcon(selected)))
+    ) {
       const { name } = parseIconRef(selected);
       if (name) {
-        const next = isMdiIcon(selected) ? makeMdi(name, hex || undefined) : makeLucide(name, hex || undefined);
+        const next = lib === 'mdi' ? makeMdi(name, hex || undefined) : makeLucide(name, hex || undefined);
         setSelected(next);
         onPick(next, false);
       }
@@ -196,11 +199,21 @@ export default function IconPicker({ currentIcon, onPick, onRemove, onClose, pag
   const iconResults = useMemo(() => {
     const query = q.trim().toLowerCase().replace(/[-\s]/g, '');
     const all = lib === 'mdi' ? (mdiReady ? mdiNames() : []) : LUCIDE_NAMES;
-    if (!query) return lib === 'mdi' ? all.slice(0, 600) : all;
+    if (!query) {
+      if (lib !== 'mdi') return all;
+      const sliced = all.slice(0, 600);
+      if (isMdiIcon(selected)) {
+        const selName = parseIconRef(selected).name;
+        if (selName && !sliced.includes(selName) && all.includes(selName)) {
+          return [selName, ...sliced.slice(0, 599)];
+        }
+      }
+      return sliced;
+    }
     const hits = all.filter((n) => n.toLowerCase().includes(query));
     // MDI is huge — cap the rendered grid so typing stays responsive.
     return lib === 'mdi' ? hits.slice(0, 600) : hits;
-  }, [q, lib, mdiReady]);
+  }, [q, lib, mdiReady, selected]);
 
   const doUpload = async (file?: File | null) => {
     if (!file) return;

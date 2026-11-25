@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { t } from '../i18n';
 import { toast } from '../toast';
-import { api } from '../api';
+import { api, isSafeDownloadUrl } from '../api';
 
 const CONVERTIBLE_TYPES = new Set([
   'paragraph',
@@ -46,6 +46,31 @@ const CONVERTIBLE_TYPES = new Set([
   'callout',
   'codeBlock',
 ]);
+
+const DOWNLOADABLE_TYPES = new Set(['file', 'image', 'video', 'audio']);
+
+function cloneBlockWithoutIds(b: any): any {
+  return {
+    type: b.type,
+    props: b.props ? structuredClone(b.props) : {},
+    content: Array.isArray(b.content) ? structuredClone(b.content) : b.content,
+    children: Array.isArray(b.children) ? b.children.map(cloneBlockWithoutIds) : undefined,
+  };
+}
+
+function flattenInlineContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((item: any) => {
+      if (typeof item === 'string') return item;
+      if (item?.type === 'pageLink') return String(item.props?.label || '');
+      if (typeof item?.text === 'string') return item.text;
+      if (Array.isArray(item?.content)) return flattenInlineContent(item.content);
+      return '';
+    })
+    .join('');
+}
 
 interface TurnIntoOption {
   id: string;
@@ -75,7 +100,8 @@ export const CustomDragHandleMenu: FC = () => {
   const canConvert = targetBlocks.every((b) => CONVERTIBLE_TYPES.has(b.type));
   const isAllChecklist = targetBlocks.every((b) => b.type === 'checkListItem');
   const isCode = block.type === 'codeBlock';
-  const hasUrl = Boolean((block.props as any)?.url);
+  const blockUrl = typeof (block.props as any)?.url === 'string' ? (block.props as any).url : '';
+  const hasDownloadableUrl = DOWNLOADABLE_TYPES.has(block.type) && isSafeDownloadUrl(blockUrl);
 
   const turnIntoOptions: TurnIntoOption[] = [
     { id: 'paragraph', label: t('Text'), type: 'paragraph', icon: <Type size={15} /> },
@@ -95,55 +121,89 @@ export const CustomDragHandleMenu: FC = () => {
     editor.focus();
     editor.transact(() => {
       for (const b of targetBlocks) {
-        editor.updateBlock(b, {
-          type: type as any,
-          props: (props || {}) as any,
-        });
+        const cur = editor.getBlock(b.id);
+        if (!cur) continue;
+        if (type === 'codeBlock') {
+          const plain = flattenInlineContent(cur.content);
+          editor.updateBlock(cur, {
+            type: 'codeBlock' as any,
+            props: (props || {}) as any,
+            content: plain ? [{ type: 'text', text: plain, styles: {} }] : [],
+          });
+        } else {
+          editor.updateBlock(cur, {
+            type: type as any,
+            props: (props || {}) as any,
+          });
+        }
       }
     });
   };
 
   const duplicateBlocks = () => {
-    const last = targetBlocks[targetBlocks.length - 1];
-    editor.insertBlocks(
-      targetBlocks.map((b) => ({
-        type: b.type,
-        props: { ...b.props },
-        content: b.content,
-        children: b.children,
-      })),
-      last.id,
-      'after',
-    );
+    const live = targetBlocks.map((b) => editor.getBlock(b.id)).filter(Boolean) as any[];
+    if (live.length === 0) return;
+    const last = live[live.length - 1];
+    editor.insertBlocks(live.map(cloneBlockWithoutIds), last.id, 'after');
     toast.success(t('Block duplicated'));
   };
 
   const setCheckAll = (checked: boolean) => {
     editor.focus();
     editor.transact(() => {
+      const apply = (b: any) => {
+        const cur = editor.getBlock(b.id);
+        if (!cur) return;
+        if (cur.type === 'checkListItem') {
+          editor.updateBlock(cur, {
+            props: { ...cur.props, checked } as any,
+          });
+        }
+        if (Array.isArray(cur.children)) {
+          for (const child of cur.children) apply(child);
+        }
+      };
       for (const b of targetBlocks) {
-        editor.updateBlock(b, {
-          props: { ...b.props, checked } as any,
-        });
+        apply(b);
       }
     });
   };
 
   const copyCode = async () => {
-    const text = Array.isArray(block.content)
-      ? block.content.map((c: any) => c.text || '').join('')
-      : typeof block.content === 'string'
-        ? block.content
-        : (block.props as any)?.code || '';
-    if (text) {
-      await navigator.clipboard.writeText(text);
-      toast.success(t('Code copied'));
+    const cur = editor.getBlock(block.id);
+    if (!cur) return;
+    const text = flattenInlineContent(cur.content) || (cur.props as any)?.code || '';
+    if (!text) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        toast.success(t('Code copied'));
+        return;
+      }
+    } catch {
+      // Fall back to execCommand when Clipboard API is unavailable (e.g. plain HTTP).
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (ok) toast.success(t('Code copied'));
+    } catch {
+      // Clipboard blocked by browser policy
     }
   };
 
   const downloadFile = () => {
-    const url = (block.props as any)?.url;
-    if (url) {
+    const cur = editor.getBlock(block.id);
+    if (!cur || !DOWNLOADABLE_TYPES.has(cur.type)) return;
+    const url = typeof (cur.props as any)?.url === 'string' ? (cur.props as any).url : '';
+    if (isSafeDownloadUrl(url)) {
       api.download(url);
     }
   };
@@ -217,7 +277,7 @@ export const CustomDragHandleMenu: FC = () => {
       )}
 
       {/* 4. File / Image action: Download */}
-      {hasUrl && (
+      {hasDownloadableUrl && (
         <Components.Generic.Menu.Item
           className="bn-menu-item"
           icon={<Download size={15} />}

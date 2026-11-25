@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, FileText, Pin, Table2, X } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import { PageHoverCard } from './PageHoverCard';
@@ -42,8 +42,10 @@ export default function TabBar({
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const longPressTimer = useRef<number | null>(null);
+  const longPressResetTimer = useRef<number | null>(null);
   const touchStartPos = useRef<{ x: number; y: number } | null>(null);
   const didLongPress = useRef(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const clearLongPress = () => {
     if (longPressTimer.current) {
@@ -53,8 +55,25 @@ export default function TabBar({
     touchStartPos.current = null;
   };
 
+  const clearAllTouchTimers = () => {
+    clearLongPress();
+    if (longPressResetTimer.current) {
+      window.clearTimeout(longPressResetTimer.current);
+      longPressResetTimer.current = null;
+    }
+  };
+
+  const openMenuAt = (id: string, clientX: number, clientY: number) => {
+    setMenu({
+      id,
+      x: Math.max(8, Math.min(clientX, window.innerWidth - 260)),
+      y: Math.max(8, Math.min(clientY, window.innerHeight - 260)),
+    });
+  };
+
   useEffect(() => {
     const onCaptureClick = (e: MouseEvent) => {
+      if ((e.target as Element | null)?.closest?.('.tab-menu')) return;
       if (didLongPress.current) {
         e.preventDefault();
         e.stopPropagation();
@@ -62,6 +81,7 @@ export default function TabBar({
       }
     };
     const onCaptureContextMenu = (e: MouseEvent) => {
+      if ((e.target as Element | null)?.closest?.('.tab-menu')) return;
       if (didLongPress.current) {
         e.preventDefault();
         e.stopPropagation();
@@ -72,8 +92,29 @@ export default function TabBar({
     return () => {
       window.removeEventListener('click', onCaptureClick, true);
       window.removeEventListener('contextmenu', onCaptureContextMenu, true);
+      clearAllTouchTimers();
     };
   }, []);
+
+  useEffect(() => {
+    if (tabs.length <= 1) {
+      clearAllTouchTimers();
+      didLongPress.current = false;
+      setMenu(null);
+    }
+  }, [tabs.length]);
+
+  useLayoutEffect(() => {
+    if (!menu || !menuRef.current) return;
+    const r = menuRef.current.getBoundingClientRect();
+    const maxLeft = Math.max(8, window.innerWidth - r.width - 8);
+    const maxTop = Math.max(8, window.innerHeight - r.height - 8);
+    const clampedX = Math.max(8, Math.min(menu.x, maxLeft));
+    const clampedY = Math.max(8, Math.min(menu.y, maxTop));
+    if (clampedX !== menu.x || clampedY !== menu.y) {
+      setMenu((m) => (m ? { ...m, x: clampedX, y: clampedY } : m));
+    }
+  }, [menu]);
 
   const onTouchStart = (id: string, e: React.TouchEvent) => {
     clearLongPress();
@@ -83,11 +124,7 @@ export default function TabBar({
     touchStartPos.current = { x: clientX, y: clientY };
     longPressTimer.current = window.setTimeout(() => {
       didLongPress.current = true;
-      setMenu({
-        id,
-        x: Math.max(8, Math.min(clientX, window.innerWidth - 240)),
-        y: Math.max(8, Math.min(clientY, window.innerHeight - 260)),
-      });
+      openMenuAt(id, clientX, clientY);
       longPressTimer.current = null;
     }, 450);
   };
@@ -105,10 +142,17 @@ export default function TabBar({
   const onTouchEnd = () => {
     clearLongPress();
     if (didLongPress.current) {
-      window.setTimeout(() => {
+      if (longPressResetTimer.current) window.clearTimeout(longPressResetTimer.current);
+      longPressResetTimer.current = window.setTimeout(() => {
         didLongPress.current = false;
+        longPressResetTimer.current = null;
       }, 400);
     }
+  };
+
+  const onTouchCancel = () => {
+    clearLongPress();
+    didLongPress.current = false;
   };
   if (tabs.length <= 1) return null; // a single doc needs no tab strip
   const isPinned = (id: string) => pinned.includes(id);
@@ -169,7 +213,7 @@ export default function TabBar({
                   onTouchStart={(e) => onTouchStart(id, e)}
                   onTouchMove={onTouchMove}
                   onTouchEnd={onTouchEnd}
-                  onTouchCancel={clearLongPress}
+                  onTouchCancel={onTouchCancel}
                   onClick={() => {
                     if (didLongPress.current) return;
                     onSelect(id);
@@ -182,11 +226,7 @@ export default function TabBar({
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setMenu({
-                      id,
-                      x: Math.max(8, Math.min(e.clientX, window.innerWidth - 240)),
-                      y: Math.max(8, Math.min(e.clientY, window.innerHeight - 260)),
-                    });
+                    openMenuAt(id, e.clientX, e.clientY);
                   }}
                   onDragStart={(e) => {
                     setDragId(id);
@@ -258,7 +298,7 @@ export default function TabBar({
               closeMenu();
             }}
           />
-          <div className="menu tab-menu" style={{ position: 'fixed', left: menu.x, top: menu.y, right: 'auto', zIndex: 320 }}>
+          <div ref={menuRef} className="menu tab-menu" style={{ position: 'fixed', left: menu.x, top: menu.y, right: 'auto', zIndex: 320 }}>
             <button onClick={act(() => onTogglePin(menu.id))}>
               <Pin size={15} /> {isPinned(menu.id) ? t('Unpin tab') : t('Pin tab')}
             </button>

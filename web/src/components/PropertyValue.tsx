@@ -62,6 +62,53 @@ function chip(opt: PropOption | undefined, fallback: string) {
   );
 }
 
+type PopoverPos = {
+  left: number;
+  top?: number;
+  bottom?: number;
+  width: number;
+  maxHeight: number;
+};
+
+function usePopoverPos(
+  open: boolean,
+  anchorRef: React.RefObject<HTMLElement | null>,
+  minWidth = 240,
+): PopoverPos | null {
+  const [pos, setPos] = useState<PopoverPos | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !anchorRef.current) {
+      setPos(null);
+      return;
+    }
+    const update = () => {
+      const el = anchorRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const width = Math.min(Math.max(r.width, minWidth), vw - 16);
+      const left = Math.max(8, Math.min(r.left, vw - width - 8));
+      const spaceBelow = vh - r.bottom - 12;
+      const spaceAbove = r.top - 12;
+      const below = spaceBelow >= 240 || spaceBelow >= spaceAbove;
+      setPos({
+        left,
+        width,
+        top: below ? r.bottom + 4 : undefined,
+        bottom: below ? undefined : vh - r.top + 4,
+        maxHeight: Math.max(200, below ? spaceBelow : spaceAbove),
+      });
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [open, anchorRef, minWidth]);
+
+  return pos;
+}
+
 // SelectCell is the Notion-style editor for select / multiselect cells: click to
 // open a popover where you can search, create an option inline, pick each
 // option's colour, or delete it. Rendered through a Portal with a viewport-
@@ -101,32 +148,7 @@ export function SelectCell({
   const [q, setQ] = useState('');
   const [colorFor, setColorFor] = useState<string | null>(null); // option id being recoloured
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const [pos, setPos] = useState<{
-    left: number;
-    top?: number;
-    bottom?: number;
-    width: number;
-    maxHeight: number;
-  } | null>(null);
-
-  useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return;
-    const r = triggerRef.current.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const width = Math.min(Math.max(r.width, 240), vw - 16);
-    const left = Math.max(8, Math.min(r.left, vw - width - 8));
-    const spaceBelow = vh - r.bottom - 12;
-    const spaceAbove = r.top - 12;
-    const below = spaceBelow >= 240 || spaceBelow >= spaceAbove;
-    setPos({
-      left,
-      width,
-      top: below ? r.bottom + 4 : undefined,
-      bottom: below ? undefined : vh - r.top + 4,
-      maxHeight: Math.max(200, (below ? spaceBelow : spaceAbove)),
-    });
-  }, [open]);
+  const pos = usePopoverPos(open, triggerRef, 240);
 
   const close = () => {
     setOpen(false);
@@ -372,6 +394,10 @@ export function checklistItems(value: unknown): ChecklistItem[] {
 /** The compact face of a checklist: a bar and "3/5". Used on cards and in
     table cells, where a full list would blow up the row. */
 function ChecklistSummary({ items, compact }: { items: ChecklistItem[]; compact?: boolean }) {
+  // The label flips, everywhere at once, between a percentage and the bare
+  // count: one tap on it is the switch. It stops the click there, or the tap
+  // would also open the row (or the list) underneath it.
+  const [frac, toggleFrac] = useChecklistFrac();
   // A half-typed sub-task must not dilute the percentage, so the summary counts
   // only items that say something.
   const named = items.filter((i) => i.text.trim() !== '');
@@ -379,10 +405,6 @@ function ChecklistSummary({ items, compact }: { items: ChecklistItem[]; compact?
   const done = named.filter((i) => i.done).length;
   if (!total) return compact ? null : <span className="prop-empty" />;
   const pct = Math.round((done / total) * 100);
-  // The label flips, everywhere at once, between a percentage and the bare
-  // count: one tap on it is the switch. It stops the click there, or the tap
-  // would also open the row (or the list) underneath it.
-  const [frac, toggleFrac] = useChecklistFrac();
   return (
     <span className="prop-bar prop-checklist-sum" title={frac ? `${pct}%` : `${done} / ${total}`}>
       <span className="prop-bar-track">
@@ -407,9 +429,11 @@ function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
   const [open, setOpen] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const triggerRef = useRef<HTMLSpanElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const focusIdRef = useRef<string | null>(null);
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+  const pos = usePopoverPos(open, triggerRef, 260);
   const ro = readOnly || !onChange;
 
   const write = (next: ChecklistItem[]) => onChange!(next.length ? next : null);
@@ -427,7 +451,8 @@ function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (!boxRef.current?.contains(target) && !triggerRef.current?.contains(target)) {
         close();
       }
     };
@@ -442,32 +467,13 @@ function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
         el.focus();
         const len = el.value.length;
         el.setSelectionRange(len, len);
+        focusIdRef.current = null;
       }
-      focusIdRef.current = null;
     }
-  }, [items, open]);
+  }, [items, open, pos]);
 
-  // Read-only cells and the collapsed state show the summary; the list itself
-  // only appears once someone opens it, so a table row stays one line high.
-  if (ro || !open) {
-    const summary = <ChecklistSummary items={items} compact={compact} />;
-    if (ro) return summary;
-    return (
-      <span
-        className="prop-checklist-toggle"
-        onClick={() => {
-          if (items.length === 0) {
-            const firstId = 'i' + Date.now().toString(36) + '0';
-            focusIdRef.current = firstId;
-            write([{ id: firstId, text: '', done: false }]);
-          }
-          setOpen(true);
-        }}
-      >
-        {items.length ? summary : <span className="prop-empty">{t('+ Sub-task')}</span>}
-      </span>
-    );
-  }
+  const summary = <ChecklistSummary items={items} compact={compact} />;
+  if (ro) return summary;
 
   const toggle = (id: string) => write(items.map((i) => (i.id === id ? { ...i, done: !i.done } : i)));
   const setText = (id: string, text: string) => write(items.map((i) => (i.id === id ? { ...i, text } : i)));
@@ -496,15 +502,16 @@ function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, it: ChecklistItem, index: number) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       toggle(it.id);
       return;
     }
     if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       close();
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       if (!it.text.trim()) {
         close();
@@ -580,87 +587,132 @@ function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
   };
 
   return (
-    <div className="prop-checklist" ref={boxRef}>
-      <ChecklistSummary items={items} />
-      {items.map((it, idx) => (
-        <div
-          key={it.id}
-          className={
-            'pcl-item' +
-            (it.done ? ' is-done' : '') +
-            (dragId === it.id ? ' pcl-dragging' : '') +
-            (dropTarget?.id === it.id ? (dropTarget.after ? ' pcl-drop-after' : ' pcl-drop-before') : '')
+    <>
+      <span
+        ref={triggerRef}
+        className="prop-checklist-toggle"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (open) {
+            close();
+            return;
           }
-          onDragOver={(e) => {
-            if (!dragId || dragId === it.id) return;
-            e.preventDefault();
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = 'move';
-            const bounds = e.currentTarget.getBoundingClientRect();
-            setDropTarget({
-              id: it.id,
-              after: e.clientY > bounds.top + bounds.height / 2,
-            });
-          }}
-          onDragLeave={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-              if (dropTarget?.id === it.id) setDropTarget(null);
-            }
-          }}
-          onDrop={(e) => {
-            if (!dragId || dragId === it.id) return;
-            e.preventDefault();
-            e.stopPropagation();
-            const bounds = e.currentTarget.getBoundingClientRect();
-            moveItem(dragId, it.id, e.clientY > bounds.top + bounds.height / 2);
-            setDragId(null);
-            setDropTarget(null);
-          }}
-        >
-          <span
-            className="pcl-drag-handle"
-            draggable
-            title={t('Drag to reorder')}
-            onDragStart={(e) => {
+          if (items.length === 0) {
+            const firstId = 'i' + Date.now().toString(36) + '0';
+            focusIdRef.current = firstId;
+            write([{ id: firstId, text: '', done: false }]);
+          }
+          setOpen(true);
+        }}
+      >
+        {items.length ? summary : <span className="prop-empty">{t('+ Sub-task')}</span>}
+      </span>
+      {open && pos && (
+        <Portal>
+          <div
+            className="select-backdrop"
+            onClick={(e) => {
               e.stopPropagation();
-              e.dataTransfer.effectAllowed = 'move';
-              e.dataTransfer.setData('text/plain', it.id);
-              setDragId(it.id);
+              close();
             }}
-            onDragEnd={() => {
-              setDragId(null);
-              setDropTarget(null);
-            }}
-          >
-            <GripVertical size={13} />
-          </span>
-          <input type="checkbox" checked={it.done} onChange={() => toggle(it.id)} />
-          <input
-            ref={(el) => {
-              if (el) inputRefs.current.set(it.id, el);
-              else inputRefs.current.delete(it.id);
-            }}
-            className="pcl-text"
-            value={it.text}
-            placeholder={t('Sub-task')}
-            onChange={(e) => setText(it.id, e.target.value)}
-            onKeyDown={(e) => onKeyDown(e, it, idx)}
-            onPaste={(e) => onPaste(e, it, idx)}
           />
-          <button type="button" className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
-            <Trash2 size={12} />
-          </button>
-        </div>
-      ))}
-      <div className="pcl-actions">
-        <button type="button" className="pcl-add" onClick={() => add()}>
-          <Plus size={12} /> {t('Sub-task')}
-        </button>
-        <button type="button" className="pcl-add" onClick={close}>
-          {t('Done')}
-        </button>
-      </div>
-    </div>
+          <div
+            className="select-menu prop-checklist"
+            ref={boxRef}
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              top: pos.top ?? 'auto',
+              bottom: pos.bottom ?? 'auto',
+              width: pos.width,
+              maxHeight: pos.maxHeight,
+              overflowY: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ChecklistSummary items={items} />
+            {items.map((it, idx) => (
+              <div
+                key={it.id}
+                className={
+                  'pcl-item' +
+                  (it.done ? ' is-done' : '') +
+                  (dragId === it.id ? ' pcl-dragging' : '') +
+                  (dropTarget?.id === it.id ? (dropTarget.after ? ' pcl-drop-after' : ' pcl-drop-before') : '')
+                }
+                onDragOver={(e) => {
+                  if (!dragId || dragId === it.id) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.dataTransfer.dropEffect = 'move';
+                  const bounds = e.currentTarget.getBoundingClientRect();
+                  setDropTarget({
+                    id: it.id,
+                    after: e.clientY > bounds.top + bounds.height / 2,
+                  });
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                    if (dropTarget?.id === it.id) setDropTarget(null);
+                  }
+                }}
+                onDrop={(e) => {
+                  if (!dragId || dragId === it.id) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const bounds = e.currentTarget.getBoundingClientRect();
+                  moveItem(dragId, it.id, e.clientY > bounds.top + bounds.height / 2);
+                  setDragId(null);
+                  setDropTarget(null);
+                }}
+              >
+                <span
+                  className="pcl-drag-handle"
+                  draggable
+                  title={t('Drag to reorder')}
+                  onDragStart={(e) => {
+                    e.stopPropagation();
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', it.id);
+                    setDragId(it.id);
+                  }}
+                  onDragEnd={() => {
+                    setDragId(null);
+                    setDropTarget(null);
+                  }}
+                >
+                  <GripVertical size={13} />
+                </span>
+                <input type="checkbox" checked={it.done} onChange={() => toggle(it.id)} />
+                <input
+                  ref={(el) => {
+                    if (el) inputRefs.current.set(it.id, el);
+                    else inputRefs.current.delete(it.id);
+                  }}
+                  className="pcl-text"
+                  value={it.text}
+                  placeholder={t('Sub-task')}
+                  onChange={(e) => setText(it.id, e.target.value)}
+                  onKeyDown={(e) => onKeyDown(e, it, idx)}
+                  onPaste={(e) => onPaste(e, it, idx)}
+                />
+                <button type="button" className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+            <div className="pcl-actions">
+              <button type="button" className="pcl-add" onClick={() => add()}>
+                <Plus size={12} /> {t('Sub-task')}
+              </button>
+              <button type="button" className="pcl-add" onClick={close}>
+                {t('Done')}
+              </button>
+            </div>
+          </div>
+        </Portal>
+      )}
+    </>
   );
 }
 
@@ -788,6 +840,8 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const boxRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const pos = usePopoverPos(open, boxRef, 240);
   const ro = readOnly || !onChange;
 
   useEffect(() => {
@@ -801,7 +855,8 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!boxRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
@@ -845,57 +900,86 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
       <button type="button" className="relation-open" onClick={() => setOpen((v) => !v)}>
         {shown ?? <span className="prop-empty">{t('＋ Person')}</span>}
       </button>
-      {open && (
-        <div className="menu relation-menu">
-          <input
-            className="prop-input"
-            autoFocus
-            placeholder={pool ? t('Search…') : t('Search or type a name…')}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter takes the single match, else what was typed — so somebody
-              // without an account can be entered without leaving the keyboard.
-              if (e.key !== 'Enter') return;
-              e.preventDefault();
-              if (filtered.length === 1) choose(filtered[0].userId);
-              else if (query.trim() && !pool) choose(query.trim());
+      {open && pos && (
+        <Portal>
+          <div
+            className="select-backdrop"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
             }}
           />
-          <div className="relation-options">
-            {filtered.map((m) => (
-              <button
-                key={m.userId}
-                type="button"
-                className={'relation-option' + (holds(m) ? ' on' : '')}
-                onClick={() => choose(m.userId)}
-              >
-                <span className="relation-check">{holds(m) ? '✓' : ''}</span>
-                <PersonChip raw={m.userId} members={members} />
-              </button>
-            ))}
-            {q && !pool && !filtered.some((m) => m.name.toLowerCase() === q) && (
-              <button type="button" className="relation-option" onClick={() => choose(query.trim())}>
-                <span className="relation-check" />
-                {t('Use “{name}”', { name: query.trim() })}
-              </button>
-            )}
-            {!candidates.length && !q && <div className="relation-empty">{t('No members')}</div>}
-            {values.length > 0 && (
-              <button
-                type="button"
-                className="relation-option danger"
-                onClick={() => {
-                  write([]);
+          <div
+            ref={menuRef}
+            className="menu relation-menu"
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              top: pos.top ?? 'auto',
+              bottom: pos.bottom ?? 'auto',
+              right: 'auto',
+              width: pos.width,
+              maxHeight: pos.maxHeight,
+              zIndex: 901,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              className="prop-input"
+              autoFocus
+              placeholder={pool ? t('Search…') : t('Search or type a name…')}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.stopPropagation();
                   setOpen(false);
-                }}
-              >
-                <span className="relation-check" />
-                {t('Remove')}
-              </button>
-            )}
+                  return;
+                }
+                // Enter takes the single match, else what was typed — so somebody
+                // without an account can be entered without leaving the keyboard.
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                if (filtered.length === 1) choose(filtered[0].userId);
+                else if (query.trim() && !pool) choose(query.trim());
+              }}
+            />
+            <div className="relation-options">
+              {filtered.map((m) => (
+                <button
+                  key={m.userId}
+                  type="button"
+                  className={'relation-option' + (holds(m) ? ' on' : '')}
+                  onClick={() => choose(m.userId)}
+                >
+                  <span className="relation-check">{holds(m) ? '✓' : ''}</span>
+                  <PersonChip raw={m.userId} members={members} />
+                </button>
+              ))}
+              {q && !pool && !filtered.some((m) => m.name.toLowerCase() === q) && (
+                <button type="button" className="relation-option" onClick={() => choose(query.trim())}>
+                  <span className="relation-check" />
+                  {t('Use “{name}”', { name: query.trim() })}
+                </button>
+              )}
+              {!candidates.length && !q && <div className="relation-empty">{t('No members')}</div>}
+              {values.length > 0 && (
+                <button
+                  type="button"
+                  className="relation-option danger"
+                  onClick={() => {
+                    write([]);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="relation-check" />
+                  {t('Remove')}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        </Portal>
       )}
     </div>
   );
@@ -940,6 +1024,8 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const boxRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const pos = usePopoverPos(open, boxRef, 240);
   const ro = readOnly || !onChange;
 
   useEffect(() => {
@@ -958,7 +1044,8 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!boxRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
@@ -1098,7 +1185,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
         // itself opens the row.
         if (!canEdit) {
           return (
-            <PageHoverCard key={i} page={pageMeta} side="bottom">
+            <PageHoverCard key={row.id} page={pageMeta} side="bottom">
               <button
                 type="button"
                 className={cls}
@@ -1115,7 +1202,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
           );
         }
         return (
-          <PageHoverCard key={i} page={pageMeta} side="bottom">
+          <PageHoverCard key={row.id} page={pageMeta} side="bottom">
             <span className="relation-chip-wrap">
               <button
                 type="button"
@@ -1183,35 +1270,65 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
           <span className="prop-empty">{t('＋ Link')}</span>
         </button>
       )}
-      {open && (
-        <div className="menu relation-menu">
-          <input
-            className="prop-input"
-            autoFocus
-            placeholder={t('Search…')}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+      {open && pos && (
+        <Portal>
+          <div
+            className="select-backdrop"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+            }}
           />
-          <div className="relation-options">
-            {filtered.length === 0 && <div className="relation-empty">{t('No rows')}</div>}
-            {filtered.map((o) => (
-              <button
-                key={o.id}
-                type="button"
-                className={'relation-option' + (ids.includes(o.id) ? ' on' : '')}
-                onClick={() => toggle(o.id)}
-              >
-                <span className="relation-check">{ids.includes(o.id) ? '✓' : ''}</span>
-                {o.icon && (
-                  <span className="relation-icon">
-                    <PageIcon icon={o.icon} size={16} />
-                  </span>
-                )}
-                {o.title || 'Untitled'}
-              </button>
-            ))}
+          <div
+            ref={menuRef}
+            className="menu relation-menu"
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              top: pos.top ?? 'auto',
+              bottom: pos.bottom ?? 'auto',
+              right: 'auto',
+              width: pos.width,
+              maxHeight: pos.maxHeight,
+              zIndex: 901,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              className="prop-input"
+              autoFocus
+              placeholder={t('Search…')}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOpen(false);
+                }
+              }}
+            />
+            <div className="relation-options">
+              {filtered.length === 0 && <div className="relation-empty">{t('No rows')}</div>}
+              {filtered.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  className={'relation-option' + (ids.includes(o.id) ? ' on' : '')}
+                  onClick={() => toggle(o.id)}
+                >
+                  <span className="relation-check">{ids.includes(o.id) ? '✓' : ''}</span>
+                  {o.icon && (
+                    <span className="relation-icon">
+                      <PageIcon icon={o.icon} size={16} />
+                    </span>
+                  )}
+                  {o.title || 'Untitled'}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </Portal>
       )}
     </div>
   );
