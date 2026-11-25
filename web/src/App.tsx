@@ -2401,7 +2401,6 @@ export default function App() {
           by mobile.css above the breakpoint, so nothing here has to know how
           wide the window is. */}
       <MobileDock
-        tabCount={openTabs.length}
         aiEnabled={aiEnabled && sidebarMode === 'docs'}
         onOpenSidebar={openSidebar}
         onOpenTabs={() => setTabsSheetOpen(true)}

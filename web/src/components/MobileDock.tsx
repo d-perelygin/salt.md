@@ -18,14 +18,12 @@ import { t } from '../i18n';
  *  markup, the accessible names and the tab order are the same in both worlds;
  *  only CSS decides which one the reader is in. */
 export default function MobileDock({
-  tabCount,
   aiEnabled,
   onOpenSidebar,
   onOpenTabs,
   onSearch,
   onAi,
 }: {
-  tabCount: number;
   aiEnabled: boolean;
   onOpenSidebar: () => void;
   onOpenTabs: () => void;
@@ -55,9 +53,6 @@ export default function MobileDock({
       >
         <span className="dock-icon">
           <LayoutGrid size={19} />
-          {/* Two characters at most: the sheet is where a count of twenty-six
-              gets read, the dock only has to say "several". */}
-          {tabCount > 1 && <span className="dock-count">{tabCount > 9 ? '9+' : tabCount}</span>}
         </span>
         <span className="dock-label">{t('Tabs')}</span>
       </button>

@@ -6769,8 +6769,12 @@ body.is-unsched-carry .tl-end-space {
     top: 0;
     left: 0;
     bottom: 0;
-    width: 84vw;
-    max-width: 320px;
+    /* Wider than the 320px cap the desktop drawer used: page titles and the
+       row's + / ⋯ were sharing one line with only 20px of slack, and every
+       long title came out as an ellipsis. 88vw still leaves a strip of the
+       page visible to tap the menu shut on. */
+    width: 88vw;
+    max-width: 364px;
     z-index: 200;
     transform: translateX(-100%);
     transition: transform 0.22s ease;

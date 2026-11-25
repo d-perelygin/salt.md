@@ -81,22 +81,6 @@
 
 /* How many documents are open — the same information the tab strip carried, in
    the one place a thumb can see it. */
-.dock-count {
-  position: absolute;
-  top: -5px;
-  left: 11px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 9.5px;
-  font-weight: 650;
-  line-height: 15px;
-  text-align: center;
-}
-
 /* The dock's one action, marked as one. */
 .dock-btn.dock-primary {
   color: var(--accent);
@@ -469,63 +453,6 @@
   .menu-label {
     padding: 8px 12px 4px;
     font-size: 12px;
-  }
-
-  /* The count on the tabs slot: information, not an alarm, and not a grey
-     disc either — a filled badge at 10px reads as a notification somebody
-     wants attention for. It is a number, muted, with a halo of the dock's own
-     colour so it stays legible over the icon's strokes. */
-  .dock-count {
-    background: none;
-    color: var(--muted);
-    padding: 0;
-    min-width: 0;
-    font-size: 10px;
-    line-height: 12px;
-    text-shadow: 0 0 3px var(--bg), 0 0 3px var(--bg), 0 0 2px var(--bg);
-  }
-
-  /* A result's tab menu becomes a sheet like every other menu on a phone. A
-     popover placed next to a row inside the search sheet lands on the field
-     or on the results — there is no free corner to hang it in. */
-  .search-row-menu {
-    left: 0 !important;
-    right: 0 !important;
-    top: auto !important;
-    bottom: 0 !important;
-    width: auto;
-    min-width: 0;
-    max-width: none;
-    padding: 2px 12px calc(12px + env(safe-area-inset-bottom));
-    border: none;
-    border-top: 1px solid var(--border-strong);
-    border-radius: 18px 18px 0 0;
-    background: var(--glass);
-    -webkit-backdrop-filter: blur(18px);
-    backdrop-filter: blur(18px);
-    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
-  }
-
-  .search-row-backdrop {
-    background: rgba(0, 0, 0, 0.38);
-  }
-
-  /* The ⋯ on a search result is a touch target first: a hover-revealed
-     control does not exist on a phone. */
-  .search-modal .search-result {
-    position: relative;
-  }
-
-  .search-modal .search-row-menu-btn {
-    opacity: 1;
-    width: 36px;
-    height: 36px;
-    right: 4px;
-    top: 6px;
-  }
-
-  .search-modal .result-body {
-    padding-right: 34px;
   }
 
   /* The AI panel's own list, at the same size as every other list on the
