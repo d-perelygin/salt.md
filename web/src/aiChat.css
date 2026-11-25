@@ -30,6 +30,22 @@
   font-size: 14px;
   min-height: 40px;
 }
+/* The chats view's own drawer button: this view has no document topbar, so
+   without it the tree is unreachable once the sidebar is closed. */
+.ai-view-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  color: var(--muted);
+}
+.ai-view-menu:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
 .ai-topbar .ai-avatar {
   width: 26px;
   height: 26px;

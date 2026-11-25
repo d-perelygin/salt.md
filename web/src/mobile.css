@@ -455,6 +455,103 @@
     font-size: 12px;
   }
 
+  /* The count on the tabs slot: information, not an alarm. The accent is the
+     app's one colour for "this needs you" and two open documents do not. */
+  .dock-count {
+    background: var(--muted);
+    color: var(--bg);
+  }
+
+  /* A result's tab menu becomes a sheet like every other menu on a phone. A
+     popover placed next to a row inside the search sheet lands on the field
+     or on the results — there is no free corner to hang it in. */
+  .search-row-menu {
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: 0 !important;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 2px 12px calc(12px + env(safe-area-inset-bottom));
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+  }
+
+  .search-row-menu::before {
+    content: '';
+    flex: none;
+    width: 34px;
+    height: 4px;
+    margin: 6px auto 8px;
+    border-radius: 2px;
+    background: var(--border-strong);
+  }
+
+  .search-row-backdrop {
+    background: rgba(0, 0, 0, 0.38);
+  }
+
+  /* The ⋯ on a search result is a touch target first: a hover-revealed
+     control does not exist on a phone. */
+  .search-modal .search-result {
+    position: relative;
+  }
+
+  .search-modal .search-row-menu-btn {
+    opacity: 1;
+    width: 36px;
+    height: 36px;
+    right: 4px;
+    top: 6px;
+  }
+
+  .search-modal .result-body {
+    padding-right: 34px;
+  }
+
+  /* The AI panel's own list, at the same size as every other list on the
+     phone. It was written for a 400px desktop card and read as fine print on
+     a full-width sheet. */
+  .ai-panel-zero .ai-zero-item {
+    min-height: 46px;
+    padding: 9px 10px;
+    gap: 12px;
+    font-size: 15.5px;
+  }
+
+  .ai-panel-zero .ai-zero-badge {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    font-size: 17px;
+  }
+
+  .ai-panel-zero .ai-zero-section {
+    font-size: 12.5px;
+    padding: 10px 6px 4px;
+  }
+
+  .ai-panel-zero .ai-zero-context {
+    font-size: 14.5px;
+    padding: 10px 12px;
+  }
+
+  .ai-panel-zero .ai-zero-context-badge {
+    font-size: 12px;
+  }
+
+  /* A second drawer button in the panel head: the dock's Menu is right there
+     under the sheet, so this one only ever gets pressed by accident. */
+  .ai-panel-sidebarbtn {
+    display: none;
+  }
+
   /* The strip's job is done by the dock's badge and the sheet behind it. The
      strip is still rendered (and still handles its own menu on a wide window),
      just never on a phone. */

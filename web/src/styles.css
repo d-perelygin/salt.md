@@ -2113,6 +2113,51 @@ body:has(.icon-picker) .bn-side-menu {
   background: var(--hover);
 }
 
+/* The row is a div with a button in it (a result that also owns a menu cannot
+   be a button). Keep the cursor and the keyboard focus ring honest. */
+.search-result {
+  position: relative;
+  cursor: pointer;
+}
+
+/* A result's own tab menu (open in new tab, pin, close). Quiet until the row
+   is under the pointer; always there on a touch screen. */
+.search-row-menu-btn {
+  position: absolute;
+  right: 6px;
+  top: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.search-result:hover .search-row-menu-btn,
+.search-result:focus-within .search-row-menu-btn,
+.search-row-menu-btn:focus-visible {
+  opacity: 0.75;
+}
+
+.search-row-menu-btn:hover {
+  opacity: 1;
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.search-row-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 310;
+}
+
+.search-row-menu {
+  z-index: 320;
+}
+
 .result-icon {
   font-size: 17px;
   margin-top: 1px;

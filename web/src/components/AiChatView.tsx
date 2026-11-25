@@ -8,7 +8,7 @@ import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Table2 } from 'lucide-react';
+import { FileText, Menu as MenuIcon, Table2 } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import { renderTextWithMentions } from './aiChatHelpers';
 
@@ -33,6 +33,9 @@ export default function AiChatView(props: {
   onOpenPage?: (id: string) => void;
   onThreadCreated: (id: string) => void;
   onThreadsChanged: () => void;
+  /** The chats view replaces the document, so it is the only screen with no
+   *  way to reach the tree — every other view keeps the topbar's menu. */
+  onOpenSidebar?: () => void;
 }) {
   const [threads, setThreads] = useState<AiThread[]>([]);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -492,6 +495,17 @@ export default function AiChatView(props: {
     <div className="ai-chat-root">
       <div className="ai-chat-main">
         <div className="ai-topbar">
+          {props.onOpenSidebar && (
+            <button
+              type="button"
+              className="ai-view-menu"
+              onClick={props.onOpenSidebar}
+              title={t('Menu')}
+              aria-label={t('Menu')}
+            >
+              <MenuIcon size={18} />
+            </button>
+          )}
           <span className="ai-avatar">✨</span>
           <span className="ai-crumb">{t('AI')}</span>
           <span className="ai-crumb">/</span>

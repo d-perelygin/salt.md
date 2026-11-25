@@ -2220,6 +2220,7 @@ export default function App() {
           <AiChatView
             threadId={activeChatId}
             pagesById={pagesById}
+            onOpenSidebar={openSidebar}
             onOpenPage={(id) => navigate(id)}
             onThreadCreated={(id) => {
               setActiveChatId(id);
@@ -2506,6 +2507,10 @@ export default function App() {
           onMissing={handleMissing}
           onSwitchWorkspace={switchWorkspace}
           onClose={() => setSearchOpen(false)}
+          openTabs={openTabs}
+          pinnedTabs={pinnedTabs}
+          onCloseTab={closeTab}
+          onTogglePinTab={togglePinTab}
           onNavigate={(id) => {
             setSearchOpen(false);
             navigate(id);
