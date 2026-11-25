@@ -84,6 +84,27 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   );
   await p.locator('.tabs-sheet-dismiss').click();
 
+  // --- every menu is a thumb-sized menu ------------------------------------
+  // Reported from a real phone: the tree row's ⋯ menu was 184px wide with
+  // 13px rows. It is the same .menu component in a dozen places, so the
+  // measurement is what keeps all of them honest.
+  await slots.nth(0).click();
+  await eventually(async () => (await p.locator('.sidebar.open').count()) === 1);
+  await p.locator('.tree-item', { hasText: 'Phone A' }).first().hover();
+  const rowActions = p.locator('.tree-item', { hasText: 'Phone A' }).first().locator('.tree-actions button').last();
+  await rowActions.click();
+  await eventually(async () => (await p.locator('.tree-actions .menu').count()) === 1);
+  const menuBox = await p.locator('.tree-actions .menu').first().boundingBox();
+  assert(menuBox && menuBox.width >= 232, 'a phone menu is wide enough for its longest row');
+  const rowBox = await p.locator('.tree-actions .menu button').first().boundingBox();
+  assert(rowBox && rowBox.height >= 44, 'a phone menu row is a thumb-sized target');
+  await p.keyboard.press('Escape');
+  await eventually(async () => (await p.locator('.tree-actions .menu').count()) === 0);
+  // The drawer covers the left two thirds of the screen, so the tap that closes
+  // it has to be on the part of the backdrop its own edges leave free.
+  await p.locator('.sidebar-backdrop').click({ position: { x: 370, y: 400 } });
+  await eventually(async () => (await p.locator('.sidebar.open').count()) === 0);
+
   // --- search fills the screen ---------------------------------------------
   await slots.nth(2).click();
   await eventually(async () => (await p.locator('.search-modal').count()) === 1);

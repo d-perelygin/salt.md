@@ -422,6 +422,39 @@
     display: flex;
   }
 
+  /* Every menu on a phone, once. The popover is sized for a mouse at a desk —
+     13px rows, 180px wide — and it is the one component that appears in a
+     dozen places (tree rows, workspace, sort, tags, views). Scaling it here is
+     the difference between a menu and a guessing game; the three page menus
+     that become bottom sheets below override what they need. */
+  .menu {
+    min-width: 236px;
+    max-width: calc(100vw - 24px);
+    padding: 6px;
+    border-radius: 12px;
+  }
+
+  .menu button,
+  .menu .menu-item {
+    min-height: 44px;
+    padding: 10px 12px;
+    gap: 10px;
+    font-size: 15px;
+    border-radius: 9px;
+  }
+
+  .menu-sep {
+    flex: 0 0 1px;
+    height: 1px;
+    margin: 6px 4px;
+    background: var(--border-strong);
+  }
+
+  .menu-label {
+    padding: 8px 12px 4px;
+    font-size: 12px;
+  }
+
   /* The strip's job is done by the dock's badge and the sheet behind it. The
      strip is still rendered (and still handles its own menu on a wide window),
      just never on a phone. */
@@ -473,6 +506,9 @@
     top: auto;
     bottom: 0;
     width: auto;
+    /* The dialogs' sizing above is for a popover; a sheet is the width of the
+       screen, so its cap has to be lifted or it stops 12px short on each side. */
+    max-width: none;
     min-width: 0;
     max-height: 74dvh;
     overflow-y: auto;
