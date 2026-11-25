@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import { api, ApiError } from '../api';
 import Portal from './Portal';
 import { confirm } from '../dialog';
@@ -140,7 +141,7 @@ export default function WorkspaceMembers({
                   title={m.userId === myUserId ? t('Leave') : t('Remove')}
                   onClick={() => void remove(m)}
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               )}
             </div>

@@ -96,10 +96,14 @@ function condValues(v: unknown): string[] {
  *  properties never hold: the rule stays silent rather than misfiring. */
 export function propCondHolds(schema: PropDef[], rowProps: Record<string, unknown>, cond: WorkflowPropCond): boolean {
   const def = schema.find((p) => p.id === cond.prop);
-  if (!def || !cond.value) return false;
+  if (!def) return false;
+  const want = cond.values && cond.values.length > 0 ? cond.values : [cond.value];
+  if (want.length === 0 || (want.length === 1 && !want[0])) return false;
   const vals = condValues(rowProps[cond.prop]);
   const hit =
-    def.type === 'multiselect' ? vals.includes(cond.value) : vals.length > 0 && vals[0] === cond.value;
+    def.type === 'multiselect'
+      ? want.some((w) => vals.includes(w))
+      : vals.length > 0 && want.includes(vals[0]);
   return cond.op === 'is_not' ? !hit : hit;
 }
 
@@ -798,4 +802,199 @@ export async function postMoveComment(rowId: string, comment: string | null): Pr
   } catch {
     toast(t('Comment not saved'));
   }
+}
+
+/** One section of a process document: a generated header plus its text. */
+export interface CodeSection {
+  header: string;
+  text: string;
+}
+
+/** Split a process document into its preamble (constants and comments above
+ *  the first rule) and its rule sections. Mirrors the server's rule headers,
+ *  so the Code tab can partition compiled rules back to visual ones. */
+export function splitCodeDocument(source: string): { preamble: string; sections: CodeSection[] } {
+  const lines = source.split('\n');
+  const headerAt = (i: number) => /^rule\s+"((?:[^"\\]|\\.)*)":\s*$/.exec(lines[i]);
+  let first = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (headerAt(i)) {
+      first = i;
+      break;
+    }
+  }
+  if (first < 0) return { preamble: source, sections: [] };
+  const sections: CodeSection[] = [];
+  let start = first;
+  let m = headerAt(first);
+  for (let i = first + 1; i <= lines.length; i++) {
+    const h = i < lines.length ? headerAt(i) : null;
+    if (h || i === lines.length) {
+      const body = lines.slice(start, i).join('\n').trimEnd();
+      if (m && body) sections.push({ header: unquoteCodeName(m[1]), text: body + '\n' });
+      if (!h) break;
+      start = i;
+      m = h;
+    }
+  }
+  return { preamble: lines.slice(0, first).join('\n'), sections };
+}
+
+function unquoteCodeName(s: string): string {
+  return s.replace(/\\(.)/g, '$1');
+}
+
+/** Headers the Code tab matches parsed rules back to visual ones, plus the
+ *  visual rules rendered as one text with a shared name counter. */
+export function generateVisualCode(
+  rules: WorkflowRule[],
+  schema: PropDef[],
+  members: Member[],
+  statusPropId: string,
+): { headers: string[]; text: string } {
+  const q = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  const prop = (id: string) => schema.find((p) => p.id === id);
+  const propName = (id: string) => prop(id)?.name ?? id;
+  const optName = (propId: string, optId: string) =>
+    prop(propId)?.options?.find((o) => o.id === optId)?.name ?? optId;
+  const memberName = (id: string) => members.find((m) => m.userId === id)?.name ?? id;
+  const takenNames = new Map<string, number>();
+  const ruleName = (base: string) => {
+    const n = takenNames.get(base) ?? 0;
+    takenNames.set(base, n + 1);
+    return n === 0 ? base : `${base} ${n + 1}`;
+  };
+
+  const condValue = (propId: string, v: string) => {
+    const def = prop(propId);
+    if (def?.type === 'select' || def?.type === 'multiselect') return q(optName(propId, v));
+    if (def?.type === 'number') return v;
+    return q(v);
+  };
+
+  const actionLine = (a: WorkflowAction): string | null => {
+    switch (a.type) {
+      case 'set_prop': {
+        const def = prop(a.prop);
+        const p = q(propName(a.prop));
+        const v = a.value;
+        if (typeof v === 'string') {
+          if (def?.type === 'date' && v.toLowerCase() === 'today') return `set ${p} = today`;
+          if (def?.type === 'select') return `set ${p} = ${q(optName(a.prop, v))}`;
+          if (def?.type === 'number' || def?.type === 'checkbox') return `set ${p} = ${v}`;
+          return `set ${p} = ${q(v)}`;
+        }
+        if (Array.isArray(v)) {
+          const names = (v as unknown[]).map((x) =>
+            def?.type === 'person' ? q(memberName(String(x))) : q(optName(a.prop, String(x))),
+          );
+          return `set ${p} = [${names.join(', ')}]`;
+        }
+        if (typeof v === 'number' || typeof v === 'boolean') return `set ${p} = ${String(v)}`;
+        return null;
+      }
+      case 'set_today':
+        return `set ${q(propName(a.prop))} = today`;
+      case 'assign_me':
+        return `assign me to ${q(propName(a.prop))}`;
+      case 'require_prop':
+        return `ask ${q(propName(a.prop))} ${a.mode === 'always' ? 'always' : 'if empty'}`;
+      case 'require_comment':
+        return `ask comment ${a.mode === 'always' ? 'always' : 'if empty'}`;
+      case 'webhook':
+        return `webhook ${a.url}`;
+      default:
+        return null;
+    }
+  };
+
+  const headers: string[] = [];
+  const lines: string[] = [];
+  for (const r of rules) {
+    const base = r.when.type === 'created' ? 'On create' : `To ${optName(statusPropId, r.when.to)}`;
+    headers.push(ruleName(base));
+    lines.push(`rule ${q(headers[headers.length - 1])}:`);
+    if (r.when.type === 'created') {
+      lines.push('  when created');
+    } else {
+      const froms = r.allowFrom ?? [];
+      const to = q(optName(statusPropId, r.when.to));
+      if (froms.length === 1) {
+        lines.push(`  when ${q(optName(statusPropId, froms[0]))} becomes ${to}`);
+      } else {
+        lines.push(`  when any becomes ${to}`);
+        if (froms.length > 1) {
+          lines.push(`  only from ${froms.map((f) => q(optName(statusPropId, f))).join(', ')}`);
+        }
+      }
+    }
+    if (r.precondition?.checklistProp) lines.push(`  needs checklist ${q(propName(r.precondition.checklistProp))}`);
+    if (r.precondition?.requiredProp) lines.push(`  needs filled ${q(propName(r.precondition.requiredProp))}`);
+    for (const c of r.whenProps ?? []) {
+      const vals = c.values && c.values.length > 0 ? c.values : [c.value];
+      lines.push(`  if ${q(propName(c.prop))} is ${c.op === 'is_not' ? 'not ' : ''}${vals.map((v) => condValue(c.prop, v)).join(', ')}`);
+    }
+    if (r.do.length > 0) {
+      lines.push('  do:');
+      for (const a of r.do) {
+        const line = actionLine(a);
+        if (line) lines.push(`    ${line}`);
+      }
+    }
+    lines.push('');
+  }
+  return { headers, text: lines.join('\n').trimEnd() + (lines.length > 0 ? '\n' : '') };
+}
+
+/** Canonical layout for a process document: two-space indentation by block
+ *  depth, one blank line between rules, no trailing spaces, no blank runs.
+ *  Formatting never changes what a line says — it only moves it — so it is
+ *  safe to press on text that has not compiled yet, and idempotent on text
+ *  that has. Top-level lines (a rule header, a constant, a comment that sat
+ *  at column 0) stay at column 0; everything else takes the block's depth. */
+export function formatCode(source: string): string {
+  const out: string[] = [];
+  let level = 0;
+  let pendingBlank = false;
+
+  const push = (line: string, indent: number) => {
+    if (pendingBlank && out.length > 0 && out[out.length - 1] !== '') out.push('');
+    pendingBlank = false;
+    out.push('  '.repeat(indent) + line);
+  };
+
+  for (const raw of source.split('\n')) {
+    const line = raw.trim();
+    if (line === '') {
+      pendingBlank = true;
+      continue;
+    }
+    const origIndent = raw.length - raw.trimStart().length;
+    const isHeader = /^rule\s+"(?:[^"\\]|\\.)*"\s*:?$/.test(line);
+    const isConstant = /^[A-Za-z_][\w-]*\s*=/.test(line);
+    const isComment = line.startsWith('#');
+
+    if (isHeader) {
+      const head = /:$/.test(line) ? line : line + ':';
+      // One blank line before every rule but the first.
+      if (out.length > 0) pendingBlank = true;
+      push(head, 0);
+      level = 1;
+      continue;
+    }
+    if (isConstant || (isComment && origIndent === 0)) {
+      push(line, 0);
+      continue;
+    }
+    if (/^do\s*:$/.test(line)) {
+      push('do:', Math.max(level, 1));
+      level = Math.max(level, 1) + 1;
+      continue;
+    }
+    push(line, Math.max(level, 1));
+  }
+
+  // A blank line separates rules; the document ends with exactly one newline.
+  const body = out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+  return body === '' ? '' : body + '\n';
 }

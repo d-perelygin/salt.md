@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -105,6 +106,30 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	// one, so a view-only save cannot strand rules pointing nowhere.
 	workflowTouched := sent(body.Workflow)
 	workflowJSON := ""
+	codeRefs, codeBlocks := 0, 0
+	// Renames ride the schema save: the stored schema names the old ones,
+	// the incoming schema the new ones. Draft code is rewritten before it
+	// validates; a schema-only save rewrites the stored code instead, so
+	// the next workflow save never meets new names with old sources.
+	var renames []codeRename
+	var oldSchema []PropSchema
+	if hasSchema {
+		var storedSchema, storedWorkflow string
+		_ = s.db.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, id).Scan(&storedSchema, &storedWorkflow)
+		oldSchema = parseSchemaProps(storedSchema)
+		renames = diffSchemaNames(oldSchema, parseSchemaProps(string(body.Schema)))
+		if len(renames) > 0 && !workflowTouched {
+			if stored := parseWorkflow(storedWorkflow); stored != nil && len(stored.Code) > 0 {
+				members := s.codeMembersOf(id)
+				if r, b := rewriteCodeWorkflow(stored, oldSchema, members, renames); b > 0 {
+					if raw, err := json.Marshal(stored); err == nil {
+						_, _ = s.db.Exec(`UPDATE collections SET workflow = ? WHERE page_id = ?`, string(raw), id)
+					}
+					codeRefs, codeBlocks = r, b
+				}
+			}
+		}
+	}
 	if workflowTouched {
 		var cfg workflowConfig
 		if err := json.Unmarshal(body.Workflow, &cfg); err != nil {
@@ -118,7 +143,24 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 			if !hasSchema {
 				_ = s.db.QueryRow(`SELECT schema FROM collections WHERE page_id = ?`, id).Scan(&effSchema)
 			}
-			if err := validateWorkflow(&cfg, parseSchemaProps(effSchema)); err != nil {
+			schema := parseSchemaProps(effSchema)
+			members := s.codeMembersOf(id)
+			if len(renames) > 0 {
+				r, b := rewriteCodeWorkflow(&cfg, oldSchema, members, renames)
+				codeRefs += r
+				codeBlocks += b
+			}
+			if err := validateWorkflow(&cfg, schema); err != nil {
+				httpError(w, 400, err.Error())
+				return
+			}
+			// Code blocks compile server-side: the stored rules always match
+			// the stored source, and missing block ids are assigned.
+			if err := validateWorkflowCode(&cfg, schema, members); err != nil {
+				httpError(w, 400, err.Error())
+				return
+			}
+			if err := compileWorkflowCode(&cfg, schema, members); err != nil {
 				httpError(w, 400, err.Error())
 				return
 			}
@@ -132,6 +174,15 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 		wfCol, wfHolder = ", workflow", ", ?"
 		wfSet = ", workflow = excluded.workflow"
 		wfArgs = []any{workflowJSON}
+	}
+	// Same-named columns break every name-based lookup (process code,
+	// filters), so they never get stored. Reads of older duplicates stay
+	// untouched; the next save renames one side first.
+	if hasSchema {
+		if err := validateSchemaNames(parseSchemaProps(string(body.Schema))); err != nil {
+			httpError(w, 400, err.Error())
+			return
+		}
 	}
 	var err error
 	switch {
@@ -164,10 +215,233 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 	var stored struct{ schema, views, workflow string }
 	s.db.QueryRow(`SELECT schema, views, workflow FROM collections WHERE page_id = ?`, id).Scan(&stored.schema, &stored.views, &stored.workflow)
 	out := map[string]json.RawMessage{"schema": json.RawMessage(stored.schema), "views": json.RawMessage(stored.views)}
+	// A rename that landed in code sources is announced, not silent: the
+	// dialog toasts how many references moved.
+	if codeBlocks > 0 {
+		out["codeRenames"] = json.RawMessage(fmt.Sprintf(`{"refs":%d,"blocks":%d}`, codeRefs, codeBlocks))
+	}
 	if strings.TrimSpace(stored.workflow) != "" {
 		out["workflow"] = json.RawMessage(stored.workflow)
 	}
 	writeJSON(w, out)
+}
+
+// A compiled rule of a whole-process document: the header as written, the
+// resolved rule when it is clean, or the problems that block it.
+type compiledDocRule struct {
+	Header   string         `json:"header"`
+	Line     int            `json:"line"`
+	Rule     *workflowRule  `json:"rule,omitempty"`
+	CodeOnly bool           `json:"codeOnly"`
+	Reason   string         `json:"reason"`
+	Errors   []codeDiagJSON `json:"errors"`
+}
+
+type codeDiagJSON struct {
+	Line    int    `json:"line"`
+	Message string `json:"message"`
+}
+
+// handleCompileWorkflowText compiles the Code tab's whole-process document:
+// every `rule` section becomes the rule JSON the List tab stores, reports
+// its problems, or flags it as code-only (OR value lists, named constants).
+// The client partitions by header: known headers update visual rules,
+// unknown ones are code or new rules.
+func (s *Server) handleCompileWorkflowText(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !s.canWriteReq(r, id) {
+		httpError(w, 404, "page not found")
+		return
+	}
+	var body struct {
+		Source       string `json:"source"`
+		StatusPropID string `json:"statusPropId"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		httpError(w, 400, "invalid JSON")
+		return
+	}
+	var schemaRaw, workflowRaw string
+	_ = s.db.QueryRow(`SELECT schema, workflow FROM collections WHERE page_id = ?`, id).Scan(&schemaRaw, &workflowRaw)
+	schema := parseSchemaProps(schemaRaw)
+	stored := parseWorkflow(workflowRaw)
+	statusPropID := strings.TrimSpace(body.StatusPropID)
+	if statusPropID == "" && stored != nil {
+		statusPropID = stored.StatusPropID
+	}
+	fail := func(rules []compiledDocRule, errs []codeDiagJSON) {
+		if rules == nil {
+			rules = []compiledDocRule{}
+		}
+		if errs == nil {
+			errs = []codeDiagJSON{}
+		}
+		writeJSON(w, map[string]any{"rules": rules, "errors": errs})
+	}
+	if statusPropID == "" {
+		fail(nil, []codeDiagJSON{{Message: "pick a status property first"}})
+		return
+	}
+	byID := map[string]PropSchema{}
+	for _, p := range schema {
+		byID[p.ID] = p
+	}
+	status, ok := byID[statusPropID]
+	if !ok {
+		fail(nil, []codeDiagJSON{{Message: "unknown status property"}})
+		return
+	}
+	validOpt := map[string]bool{}
+	for _, o := range status.Options {
+		validOpt[o.ID] = true
+	}
+	members := s.codeMembersOf(id)
+	f, diags := parseWorkflowCode(body.Source)
+	// Attribute every diagnostic to its rule by line; anything before the
+	// first header is global.
+	ruleIdxAt := func(line int) int {
+		idx := -1
+		for i := range f.rules {
+			if f.rules[i].headLine <= line {
+				idx = i
+			}
+		}
+		return idx
+	}
+	perRule := make([][]codeDiagJSON, len(f.rules))
+	var global []codeDiagJSON
+	emit := func(line int, msg string) {
+		d := codeDiagJSON{Line: line, Message: msg}
+		if i := ruleIdxAt(line); i >= 0 {
+			perRule[i] = append(perRule[i], d)
+		} else {
+			global = append(global, d)
+		}
+	}
+	for _, d := range diags {
+		emit(d.Line, d.Msg)
+	}
+	out := make([]compiledDocRule, 0, len(f.rules))
+	for i := range f.rules {
+		cr := &f.rules[i]
+		entry := compiledDocRule{Header: cr.name, Line: cr.headLine}
+		rules, rdiags := resolveWorkflowCode("compile", &codeFile{rules: []codeRule{*cr}}, schema, status, members)
+		for _, d := range rdiags {
+			emit(d.Line, d.Msg)
+		}
+		if len(rules) == 0 {
+			entry.Errors = perRule[i]
+			out = append(out, entry)
+			continue
+		}
+		if err := validateWorkflowRule(rules[0], "rule", byID, validOpt); err != nil {
+			perRule[i] = append(perRule[i], codeDiagJSON{Message: err.Error()})
+		}
+		entry.Rule = &rules[0]
+		entry.CodeOnly = codeOnlyReason(cr) != ""
+		entry.Reason = codeOnlyReason(cr)
+		entry.Errors = perRule[i]
+		if entry.Errors == nil {
+			entry.Errors = []codeDiagJSON{}
+		}
+		out = append(out, entry)
+	}
+	if global == nil {
+		global = []codeDiagJSON{}
+	}
+	writeJSON(w, map[string]any{"rules": out, "errors": global})
+}
+
+// codeOnlyReason names the code-only feature a parsed rule uses, or "" when
+// the List tab can show it: OR value lists and named constants have no
+// visual editor.
+func codeOnlyReason(r *codeRule) string {
+	for _, c := range r.conds {
+		if len(c.vals) > 1 {
+			return "or"
+		}
+	}
+	usesConst := r.from != nil && r.from.dline != 0 || r.to.dline != 0
+	if usesConst {
+		return "constants"
+	}
+	for _, a := range r.allowFrom {
+		if a.dline != 0 {
+			return "constants"
+		}
+	}
+	for _, n := range []*codeNameRef{r.checklist, r.required} {
+		if n != nil && n.dline != 0 {
+			return "constants"
+		}
+	}
+	for _, c := range r.conds {
+		if c.prop.dline != 0 {
+			return "constants"
+		}
+		for _, v := range c.vals {
+			if v.dline != 0 {
+				return "constants"
+			}
+		}
+	}
+	for _, a := range r.actions {
+		if a.kind == "webhook" && a.dline != 0 {
+			return "constants"
+		}
+		if a.prop.dline != 0 {
+			return "constants"
+		}
+		if a.val.dline != 0 {
+			return "constants"
+		}
+		for _, it := range a.val.items {
+			if it.dline != 0 {
+				return "constants"
+			}
+		}
+	}
+	return ""
+}
+
+// handleValidateWorkflow checks a workflow draft (visual rules plus code
+// blocks) against the stored schema without saving anything. The code tab
+// calls it debounced while the user types; every problem comes back with
+// its block name and line.
+func (s *Server) handleValidateWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !s.canWriteReq(r, id) {
+		httpError(w, 404, "page not found")
+		return
+	}
+	var body struct {
+		Workflow json.RawMessage `json:"workflow"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		httpError(w, 400, "invalid JSON")
+		return
+	}
+	var cfg workflowConfig
+	if err := json.Unmarshal(body.Workflow, &cfg); err != nil {
+		writeJSON(w, map[string]any{"errors": []any{map[string]any{"message": "workflow is not valid JSON"}}})
+		return
+	}
+	var schemaRaw string
+	_ = s.db.QueryRow(`SELECT schema FROM collections WHERE page_id = ?`, id).Scan(&schemaRaw)
+	schema := parseSchemaProps(schemaRaw)
+	type diagJSON struct {
+		Block   string `json:"block"`
+		Line    int    `json:"line"`
+		Message string `json:"message"`
+	}
+	errs := []diagJSON{}
+	if err := validateWorkflow(&cfg, schema); err != nil {
+		errs = append(errs, diagJSON{Message: err.Error()})
+	}
+	for _, d := range checkWorkflowCode(&cfg, schema, s.codeMembersOf(id)) {
+		errs = append(errs, diagJSON{Block: d.Block, Line: d.Line, Message: d.Msg})
+	}
+	writeJSON(w, map[string]any{"errors": errs})
 }
 
 // handleCollectionRows returns a collection's child rows filtered, sorted and
@@ -181,7 +455,8 @@ func (s *Server) handlePutCollection(w http.ResponseWriter, r *http.Request) {
 //	                           same shape (repeatable); ANDed inside, ORed
 //	                           between groups; a repeatable `filter` beside
 //	                           them holds for every group
-//	sort=<propId>:<asc|desc>
+//	sort=<propId>:<asc|desc>[,<propId>:<asc|desc>...] — repeatable; the first
+//	key wins ties, like SQL ORDER BY
 type collectionRow struct {
 	ID       string          `json:"id"`
 	Title    string          `json:"title"`
@@ -220,6 +495,113 @@ type rowFilter struct {
 	Prop, Op, Value string
 	Values          []string
 	Value2          string
+	// Kind is the property's type where where() has to compare differently,
+	// "number" or "checkbox", and empty otherwise. Set per query by
+	// typeFilters, because where() has no schema.
+	Kind string
+	// CaseSensitive is the reader's choice on the title condition. Off — the
+	// default — means "contains" folds case, in every alphabet: SQLite's LIKE
+	// folds ASCII alone, so "АвШк" never found "авшк".
+	CaseSensitive bool
+}
+
+// typeFilters tells each condition what kind of property it is on, where
+// that changes the comparison. A number is stored as a JSON number and a
+// ticked box as JSON true, and comparing either with the filter's text
+// matched nothing: "Qty is 5" and "Done is Checked" found no rows (#95).
+func (s *Server) typeFilters(collectionID string, filters []rowFilter) []rowFilter {
+	schema, _, err := s.loadCollection(collectionID)
+	if err != nil {
+		return filters
+	}
+	kinds := map[string]string{}
+	for _, p := range schema {
+		id, _ := p["id"].(string)
+		switch t, _ := p["type"].(string); t {
+		case "number", "checkbox":
+			kinds[id] = t
+		}
+	}
+	out := make([]rowFilter, len(filters))
+	for i, f := range filters {
+		f.Kind = kinds[f.Prop]
+		out[i] = f
+	}
+	return out
+}
+
+// resolvePersonFilters resolves "@me" in filters on PERSON properties of the
+// collection to the viewer's ID (and name), so a view "Assignee is Me" works
+// dynamically for whoever opens it.
+func (s *Server) resolvePersonFilters(collectionID string, filters []rowFilter, u *user) []rowFilter {
+	schema, _, err := s.loadCollection(collectionID)
+	if err != nil {
+		return filters
+	}
+	persons := map[string]bool{}
+	for _, p := range schema {
+		if id, _ := p["id"].(string); id != "" {
+			if t, _ := p["type"].(string); t == "person" {
+				persons[id] = true
+			}
+		}
+	}
+	if len(persons) == 0 {
+		return filters
+	}
+	out := make([]rowFilter, len(filters))
+	for i, f := range filters {
+		if persons[f.Prop] {
+			f = f.resolvePerson(u)
+		}
+		out[i] = f
+	}
+	return out
+}
+
+// resolvePerson turns "@me" into the person asking: their id, and their name
+// as well, because a person an agent wrote as plain text is matched by name,
+// the way the chip in the browser matches it. Nobody signed in is nobody, a
+// value no row holds, so the condition keeps filtering instead of dropping
+// out the way a condition without a value does.
+//
+// Only where whole values are compared. Under contains, "@me" is text like
+// any other, the same as in the browser (matchesFilter).
+func (f rowFilter) resolvePerson(u *user) rowFilter {
+	if f.Op != "" && f.Op != "is" && f.Op != "is_not" {
+		return f
+	}
+	target := []string{"__nobody__"}
+	if u != nil && u.ID != "" {
+		target = []string{u.ID}
+		if u.Name != "" && u.Name != u.ID {
+			target = append(target, u.Name)
+		}
+	}
+	expand := func(v string) []string {
+		if v == "@me" {
+			return target
+		}
+		return []string{v}
+	}
+	isMe := f.Value == "@me"
+	if len(f.Values) > 0 {
+		var next []string
+		for _, v := range f.Values {
+			next = append(next, expand(v)...)
+		}
+		f.Values = next
+	} else if isMe {
+		f.Values = target
+	}
+	if isMe {
+		if u != nil && u.ID != "" {
+			f.Value = u.ID
+		} else {
+			f.Value = "__nobody__"
+		}
+	}
+	return f
 }
 
 // vals is what the condition actually compares against: the set if there is one,
@@ -239,6 +621,27 @@ func isNumeric(s string) bool {
 	return err == nil
 }
 
+// privateRowRule is the SQL condition that keeps other people's private rows
+// out of everything that reads a collection's rows. The visibility switch in
+// the page header applies to database rows too. The row list honoured it first;
+// the Markdown export, get_page over MCP, the calendar feed and a publicly
+// shared collection went on reading every row, so a row hidden in the app was
+// readable four other ways. Every reader of rows goes through this now.
+//
+// userID "" is somebody without an account, reading a shared link: no private
+// row at all, whoever owns it. Workspace admins still see everything, the same
+// rule as in forbiddenPrivateAncestor.
+func (s *Server) privateRowRule(userID, colID string) (string, []any) {
+	if userID == "" {
+		return "visibility != 'private'", nil
+	}
+	wsAdmin := 0
+	if s.isWorkspaceAdmin(userID, s.pageWorkspace(colID)) {
+		wsAdmin = 1
+	}
+	return "(? = 1 OR visibility != 'private' OR owner_id = ?)", []any{wsAdmin, userID}
+}
+
 // where builds the SQL for one filter condition and the arguments to go with
 // it. An empty condition means "does not filter": an unsafe property id, a
 // comparison with nothing to compare against, or a half-built range. The
@@ -249,6 +652,12 @@ func isNumeric(s string) bool {
 // the same id — see TEMPLATE_FILTER).
 const templateFilterProp = "@template"
 
+// The row's own title as a filterable column: "title contains …" and "title
+// matches /…/" — the two questions a long table cannot answer by eye. A
+// pseudo-property like the template condition, saved in the same Filter shape
+// (the client uses the same id — see TITLE_FILTER).
+const titleFilterProp = "@title"
+
 // The two orders that are not about a column: when the row was made and when
 // it was last touched. Pseudo-properties, like the template condition — a view
 // saves them in the same Sort shape as any column, and the client offers them
@@ -257,6 +666,54 @@ const sortCreatedProp = "@created"
 const sortUpdatedProp = "@updated"
 
 func (f rowFilter) where() (string, []any) {
+	if f.Prop == titleFilterProp {
+		// A title is text, so the literal comparison is INSTR, not LIKE:
+		// SQLite's LIKE folds ASCII case behind the reader's back, which made
+		// "Match case" a promise the database did not keep. lower_u folds the
+		// alphabet properly when the reader asked to ignore case.
+		lt, lv := "title", "?"
+		if !f.CaseSensitive {
+			lt, lv = "lower_u(title)", "lower_u(?)"
+		}
+		switch f.Op {
+		case "is_empty":
+			return "TRIM(COALESCE(title, '')) = ''", nil
+		case "is_not_empty":
+			return "TRIM(COALESCE(title, '')) != ''", nil
+		case "matches":
+			// An unfinished pattern is not a filter yet: comparing with it
+			// would empty the table while it is being typed.
+			pat := f.Value
+			if !f.CaseSensitive {
+				pat = "(?i)" + pat
+			}
+			if compileRegexp(pat) == nil {
+				return "", nil
+			}
+			return "regexp(?, title)", []any{pat}
+		case "is":
+			if f.Value == "" {
+				return "", nil
+			}
+			return lt + " = " + lv, []any{f.Value}
+		case "is_not":
+			if f.Value == "" {
+				return "", nil
+			}
+			return lt + " != " + lv, []any{f.Value}
+		case "not_contains":
+			if f.Value == "" {
+				return "", nil
+			}
+			return "INSTR(" + lt + ", " + lv + ") = 0", []any{f.Value}
+		case "contains", "":
+			if f.Value == "" {
+				return "", nil
+			}
+			return "INSTR(" + lt + ", " + lv + ") > 0", []any{f.Value}
+		}
+		return "", nil
+	}
 	if f.Prop == templateFilterProp {
 		// "is a template" is the checked value; anything else — and "is not a
 		// template" with it — asks for the other half.
@@ -332,6 +789,11 @@ func (f rowFilter) where() (string, []any) {
 	for i, v := range vals {
 		anyOf[i] = v
 	}
+	if op == "is" || op == "is_not" {
+		if cond, args, ok := f.typedIs(ex, op, vals); ok {
+			return cond, args
+		}
+	}
 	// The value may be stored as a scalar or inside a list (multiselect, a
 	// relation): both spellings have to answer the same question. A checklist
 	// stores objects ({id, text, done}), so the comparison runs against each
@@ -373,8 +835,11 @@ func (f rowFilter) where() (string, []any) {
 		// so "true" found every row with a ticked box. A scalar yields itself
 		// from json_each, so plain text columns answer through the same
 		// expression — no separate branch.
+		//
+		// Case is folded by lower_u rather than by LIKE, which folds ASCII
+		// alone: "авшк" found nothing where the browser found the row.
 		like := "%" + f.Value + "%"
-		return "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE " + textOf + " LIKE ?)", []any{like}
+		return "EXISTS (SELECT 1 FROM json_each(props, '$." + f.Prop + "') WHERE lower_u(" + textOf + ") LIKE lower_u(?))", []any{like}
 	case "gt", "lt":
 		cmp := ">"
 		if op == "lt" {
@@ -396,62 +861,115 @@ func (f rowFilter) where() (string, []any) {
 	return "", nil
 }
 
-// privateRowRule is the SQL condition that keeps other people's private rows
-// out of everything that reads a collection's rows. The visibility switch in
-// the page header applies to database rows too. The row list honoured it first;
-// the Markdown export, get_page over MCP, the calendar feed and a publicly
-// shared collection went on reading every row, so a row hidden in the app was
-// readable four other ways. Every reader of rows goes through this now.
+// typedIs is "is" and "is not" on a number or a checkbox, compared the way the
+// browser compares them in its second pass (matchesFilter). ok is false where
+// the plain text comparison applies.
 //
-// userID "" is somebody without an account, reading a shared link: no private
-// row at all, whoever owns it. Workspace admins still see everything, the same
-// rule as in forbiddenPrivateAncestor.
-func (s *Server) privateRowRule(userID, colID string) (string, []any) {
-	if userID == "" {
-		return "visibility != 'private'", nil
+// A number matches as a number, so 5 and 5.0 are one value, and still as text,
+// because a number written as text through the API ("5") always matched.
+// A box matches ticked when it holds JSON true; a box nobody touched has no
+// value at all and counts as unticked, as it does on screen.
+func (f rowFilter) typedIs(ex, op string, vals []string) (string, []any, bool) {
+	var cond string
+	var args []any
+	switch f.Kind {
+	case "number":
+		var nums, texts []any
+		for _, v := range vals {
+			if n, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+				nums = append(nums, n)
+				texts = append(texts, v)
+			}
+		}
+		if len(nums) == 0 {
+			return "", nil, false
+		}
+		holders := strings.TrimSuffix(strings.Repeat("?, ", len(nums)), ", ")
+		cond = "(" + ex + " IN (" + holders + ") OR " + ex + " IN (" + holders + "))"
+		args = append(nums, texts...)
+		if op == "is_not" {
+			return "(" + ex + " IS NULL OR NOT " + cond + ")", args, true
+		}
+		return cond, args, true
+	case "checkbox":
+		var ticked, unticked bool
+		for _, v := range vals {
+			switch strings.ToLower(strings.TrimSpace(v)) {
+			case "true":
+				ticked = true
+			case "false":
+				unticked = true
+			}
+		}
+		if !ticked && !unticked {
+			return "", nil, false
+		}
+		// COALESCE, because a missing value makes json_type NULL, and NOT NULL
+		// is NULL too: the untouched box would drop out of "is Unchecked".
+		isTicked := "COALESCE(json_type(props, '$." + f.Prop + "'), '') = 'true'"
+		switch {
+		case ticked && unticked:
+			cond = "1 = 1"
+		case ticked:
+			cond = isTicked
+		default:
+			cond = "NOT " + isTicked
+		}
+		if op == "is_not" {
+			return "NOT (" + cond + ")", nil, true
+		}
+		return cond, nil, true
 	}
-	wsAdmin := 0
-	if s.isWorkspaceAdmin(userID, s.pageWorkspace(colID)) {
-		wsAdmin = 1
-	}
-	return "(? = 1 OR visibility != 'private' OR owner_id = ?)", []any{wsAdmin, userID}
+	return "", nil, false
 }
 
 // collectionRowsQuery filters, sorts and paginates a collection's rows in
 // SQLite and injects computed (rollup/formula/relation) values. Shared by the
 // REST handler and the MCP query_rows tool so both behave identically.
 //
-// groups are ORed; the conditions inside one group are ANDed. A flat filter
-// list is one group. Empty groups constrain nothing.
-func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter, sortParam string, limit, offset int, today time.Time) (list []map[string]any, total int, err error) {
-	where := []string{"parent_id = ?", "trashed_at IS NULL"}
-	args := []any{colID}
+// flat is ANDed as it stands; groups are ORed, the conditions inside one group
+// ANDed, and the two together read "this AND (that OR those)". A group with no
+// complete condition constrains nothing.
+//
+// today is the day relative date words ("today", "today-1M") resolve against:
+// the viewer's day, sent by the interface with every query. Zero means the
+// caller does not know it (agents, old clients) and the server's day applies.
+func (s *Server) collectionRowsQuery(u *user, colID string, flat []rowFilter, groups [][]rowFilter, sortParam string, limit, offset int, today time.Time) (list []map[string]any, total int, err error) {
 	now := today
 	if now.IsZero() {
 		now = time.Now()
 	}
 	// A relative day names a different date every day. Resolve it now, per
-	// query, so a saved view stays live — and only on date properties (see
+	// query, so a saved view stays live, and only on date properties (see
 	// resolveSmartDates), so a status option named "Today" keeps working.
-	// Hide other people's private rows. The visibility switch in the page header
-	// applies to database rows too, but this query never honoured it: through the
-	// row list every workspace member read titles and properties of ALL rows,
-	// including the ones marked private.
-	//
-	// The condition belongs in the SQL, not behind the LIMIT: filtering afterwards
-	// would falsify paging and the total count. Workspace admins still see
-	// everything — the same rule as in forbiddenPrivateAncestor.
-	wsAdmin := 0
-	if s.isWorkspaceAdmin(u.ID, s.pageWorkspace(colID)) {
-		wsAdmin = 1
+	// Similarly, "@me" in person properties resolves to the viewing user.
+	flat = s.typeFilters(colID, s.resolvePersonFilters(colID, s.resolveSmartDates(colID, flat, now), u))
+	resolved := make([][]rowFilter, len(groups))
+	for i, g := range groups {
+		resolved[i] = s.typeFilters(colID, s.resolvePersonFilters(colID, s.resolveSmartDates(colID, g, now), u))
 	}
-	where = append(where, "(? = 1 OR visibility != 'private' OR owner_id = ?)")
-	args = append(args, wsAdmin, u.ID)
+	groups = resolved
+	where := []string{"parent_id = ?", "trashed_at IS NULL"}
+	args := []any{colID}
+	// Other people's private rows stay out. The condition belongs in the SQL,
+	// not behind the LIMIT: filtering afterwards would falsify paging and the
+	// total count.
+	var uid string
+	if u != nil {
+		uid = u.ID
+	}
+	rule, ruleArgs := s.privateRowRule(uid, colID)
+	where = append(where, rule)
+	args = append(args, ruleArgs...)
 	// Restricted subtrees (fork): hide rows under a restricted node the caller
 	// neither owns nor holds a grant on. Skipped entirely when the workspace
 	// holds no restricted page, so the common case pays nothing — and for
 	// admins the SQL short-circuits on the leading flag.
-	if wsAdmin == 0 && s.hasRestrictedInWorkspace(s.pageWorkspace(colID)) {
+	wsAdmin := 0
+	if uid != "" && s.isWorkspaceAdmin(uid, s.pageWorkspace(colID)) {
+		wsAdmin = 1
+	}
+	if uid != "" && wsAdmin == 0 && s.hasRestrictedInWorkspace(s.pageWorkspace(colID)) {
 		where = append(where, `NOT EXISTS (
 			WITH RECURSIVE anc(id, parent_id, visibility, owner_id) AS (
 				SELECT p2.id, p2.parent_id, p2.visibility, p2.owner_id FROM pages p2 WHERE p2.id = row.id
@@ -462,11 +980,19 @@ func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter
 			WHERE anc.visibility = 'restricted' AND anc.owner_id != ?
 				AND COALESCE(g.access, '') NOT IN ('view', 'edit')
 		)`)
-		args = append(args, u.ID, u.ID)
+		args = append(args, uid, uid)
+	}
+	// The flat list is a term of its own beside the OR of the groups. Copied
+	// into every group instead, it made an unfinished group match whatever the
+	// flat list matched, so adding a condition could widen the answer.
+	for _, f := range flat {
+		if cond, cargs := f.where(); cond != "" {
+			where = append(where, cond)
+			args = append(args, cargs...)
+		}
 	}
 	ors := make([]string, 0, len(groups))
 	for _, g := range groups {
-		g = s.resolveSmartDates(colID, g, now)
 		ands := make([]string, 0, len(g))
 		for _, f := range g {
 			cond, cargs := f.where()
@@ -490,20 +1016,26 @@ func (s *Server) collectionRowsQuery(u *user, colID string, groups [][]rowFilter
 
 	orderSQL := "position, created_at"
 	if sortParam != "" {
-		propID, dir, _ := strings.Cut(sortParam, ":")
-		d := "ASC"
-		if strings.EqualFold(dir, "desc") {
-			d = "DESC"
-		}
-		switch propID {
-		case sortCreatedProp:
-			orderSQL = "created_at " + d + ", position"
-		case sortUpdatedProp:
-			orderSQL = "updated_at " + d + ", position"
-		default:
-			if safePropID(propID) {
-				orderSQL = "json_extract(props, '$." + propID + "') " + d + ", position"
+		keys := []string{}
+		for _, part := range strings.Split(sortParam, ",") {
+			propID, dir, _ := strings.Cut(strings.TrimSpace(part), ":")
+			d := "ASC"
+			if strings.EqualFold(dir, "desc") {
+				d = "DESC"
 			}
+			switch propID {
+			case sortCreatedProp:
+				keys = append(keys, "created_at "+d)
+			case sortUpdatedProp:
+				keys = append(keys, "updated_at "+d)
+			default:
+				if safePropID(propID) {
+					keys = append(keys, "json_extract(props, '$."+propID+"') "+d)
+				}
+			}
+		}
+		if len(keys) > 0 {
+			orderSQL = strings.Join(keys, ", ") + ", position"
 		}
 	}
 
@@ -566,10 +1098,14 @@ type filterJSON struct {
 	Value    string   `json:"value"`
 	Values   []string `json:"values"`
 	Value2   string   `json:"value2"`
+	// CaseSensitive is only sent by the condition on a row's title, where the
+	// reader can ask for it. Everywhere else the comparison is what it was.
+	CaseSensitive bool `json:"caseSensitive"`
 }
 
 func (f filterJSON) rowFilter() rowFilter {
-	return rowFilter{Prop: f.Property, Op: f.Op, Value: f.Value, Values: f.Values, Value2: f.Value2}
+	return rowFilter{Prop: f.Property, Op: f.Op, Value: f.Value, Values: f.Values,
+		Value2: f.Value2, CaseSensitive: f.CaseSensitive}
 }
 
 // parseFilterGroups reads repeatable filter_group params: one JSON array of
@@ -594,20 +1130,6 @@ func parseFilterGroups(vals []string) [][]rowFilter {
 		}
 	}
 	return groups
-}
-
-// distributeFilters folds a flat filter list into every OR group: `filter`
-// beside `filter_group` reads "this AND (that OR those)". Without groups the
-// flat list is the one group there is.
-func distributeFilters(flat []rowFilter, groups [][]rowFilter) [][]rowFilter {
-	if len(groups) == 0 {
-		return [][]rowFilter{flat}
-	}
-	out := make([][]rowFilter, 0, len(groups))
-	for _, g := range groups {
-		out = append(out, append(append([]rowFilter{}, flat...), g...))
-	}
-	return out
 }
 
 func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
@@ -658,7 +1180,7 @@ func (s *Server) handleCollectionRows(w http.ResponseWriter, r *http.Request) {
 	if day, ok := parseTodayParam(q.Get("today")); ok {
 		today = day
 	}
-	list, total, err := s.collectionRowsQuery(requestUser(r), colID, distributeFilters(filters, parseFilterGroups(q["filter_group"])), q.Get("sort"), limit, offset, today)
+	list, total, err := s.collectionRowsQuery(requestUser(r), colID, filters, parseFilterGroups(q["filter_group"]), strings.Join(q["sort"], ","), limit, offset, today)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return

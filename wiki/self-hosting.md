@@ -54,7 +54,7 @@ Two variables change what it does:
 | Variable | Effect |
 | --- | --- |
 | `BIN_DIR=/path` | install there instead of the automatic choice |
-| `SALT_VERSION=v1.6.13` | download that release tag instead of `latest` |
+| `SALT_VERSION=v1.1.7` | download that release tag instead of `latest` |
 
 The tag needs its leading `v`: it goes into the download URL unchanged.
 
@@ -80,6 +80,45 @@ unprivileged user, sets `SALT_ADDR=:8420` and `SALT_DATA=/data`, declares
 it is meant to get, so salt.md assumes a small machine. See
 [Memory](#memory-and-what-it-changes) for what that costs you.
 
+### Podman (rootless)
+
+Use the same image with rootless Podman, as your ordinary user without `sudo`.
+The memory limit requires cgroup v2.
+
+```sh
+podman run -d --name salt \
+  -p 127.0.0.1:8420:8420 -v salt-data:/data --memory=4g \
+  ghcr.io/saltmd/salt.md:latest
+```
+
+Open `http://127.0.0.1:8420` on the host. For a remote server, use an SSH tunnel
+or [reverse proxy](domain.md). The named volume keeps the database and uploads
+when the container is removed. See [Memory](#memory-and-what-it-changes) for
+why the limit matters.
+
+#### With systemd (Quadlet)
+
+For startup and crash recovery, use the supplied `deploy/salt.container`.
+This requires a Podman installation with Quadlet. If the quick-start container
+is running, stop and remove it first (`podman stop --time 20 salt`, then
+`podman rm salt`); the service reuses its `salt-data` volume.
+
+From a checkout, without overwriting an existing `salt.container`:
+
+```sh
+mkdir -p ~/.config/containers/systemd
+cp -i deploy/salt.container ~/.config/containers/systemd/salt.container
+systemctl --user daemon-reload
+systemctl --user start salt.service
+```
+
+Quadlet generates the service and its startup link; do not enable the generated
+unit manually. It starts with your user manager. To run at boot and after logout,
+an administrator can run `loginctl enable-linger USERNAME`.
+Read logs with `journalctl --user -u salt.service`. To update, pull
+`ghcr.io/saltmd/salt.md:latest` with Podman, then run
+`systemctl --user restart salt.service`.
+
 ### Docker Compose
 
 The repository ships a `docker-compose.yml`. Run it from a checkout:
@@ -104,7 +143,7 @@ make build     # frontend, then backend
 ```
 
 Needs Go 1.25, which is what `go.mod` requires. The frontend is built with
-Node 20 in the container image and in the release workflow; no minimum Node
+Node 22 in the container image and in the release workflow; no minimum Node
 version is declared anywhere, so that is what has been proven rather than a
 floor.
 
@@ -355,7 +394,7 @@ written whenever the figure is worked out, which happens before anything else at
 startup, so it appears above every other line here, and again later whenever a
 PDF is sized up.
 
-**`salt.md 1.6.16 listening on :8420 (data: /opt/salt/data)`**
+**`salt.md v1.1.7 listening on :8420 (data: /opt/salt/data)`**
 The server is up. Two variants: `(TLS, data: …)` when you supplied a certificate
 pair, and `(auto-HTTPS for notes.example.com, data: …)` when the built-in
 Let's Encrypt path is active. That one listens on `:443` and answers the ACME
@@ -383,7 +422,7 @@ A clean shutdown prints `received terminated, shutting down…`, then
 
 ```
 GET /api/health
-{"status":"ok","version":"1.6.16"}
+{"status":"ok","version":"v1.1.7"}
 ```
 
 No credential needed. It **pings the database**, so it distinguishes a
@@ -392,8 +431,8 @@ the response is `503` with `{"status":"unavailable"}`. Point an uptime monitor,
 a Docker health check or an orchestrator at it.
 
 One inconsistency to know about when you compare strings: a release **binary**
-is stamped with the tag as written (`v1.6.16`), while the **container image** is
-stamped without the leading `v` (`1.6.16`). Same release, two spellings.
+is stamped with the tag as written (`v1.1.7`), while the **container image** is
+stamped without the leading `v` (`1.1.7`). Same release, two spellings.
 
 Instance settings → **Maintenance** shows the same facts in the browser:
 *Version* (with the Go version and the OS/arch it was built for), *Uptime*,
@@ -476,6 +515,15 @@ SALT_DATA=/opt/salt/data salt backup /var/backups/salt-$(date +%F).tar.gz
 This is **safe against a running instance**: it opens its own read connection,
 which WAL mode allows. That makes it a cron job rather than an outage. The admin
 dialog says the same: *"For automatic backups, run `./salt backup` from cron."*
+
+**Check its exit status.** A file under `files/` that cannot be read (wrong
+owner, mode 000) is left out, everything else still goes into the archive, and
+the command ends with status 1 and names the file: *"backup written to …, but
+incomplete: 1 file(s) could not be read and are not in the archive:
+files/…"*. Any other failure, a full disk for one, removes the half-written
+archive and also ends with status 1. Only a complete archive prints *"Backup
+written to …"* and exits 0. The download in the admin dialog refuses an
+incomplete archive instead and writes the file names to the server log.
 
 Watch the free space on the **destination** filesystem. The snapshot is written
 uncompressed next to the destination as `<destination>.db.tmp` first and only
@@ -669,20 +717,20 @@ from), and a container image on GHCR tagged both with the version and as
 `latest`.
 
 **Installed with the script:** re-run it. Pin with
-`SALT_VERSION=v1.6.13` if you do not want the newest.
+`SALT_VERSION=v1.1.7` if you do not want the newest.
 
 **By hand, with the checksum verified:**
 
 ```sh
-mkdir -p /tmp/salt-1.6.16 && cd /tmp/salt-1.6.16
+mkdir -p /tmp/salt-1.1.7 && cd /tmp/salt-1.1.7
 wget -O salt-linux-amd64 \
-  https://github.com/saltmd/salt.md/releases/download/v1.6.16/salt-linux-amd64
+  https://github.com/saltmd/salt.md/releases/download/v1.1.7/salt-linux-amd64
 wget -O SHA256SUMS.txt \
-  https://github.com/saltmd/salt.md/releases/download/v1.6.16/SHA256SUMS.txt
+  https://github.com/saltmd/salt.md/releases/download/v1.1.7/SHA256SUMS.txt
 grep salt-linux-amd64 SHA256SUMS.txt | sha256sum -c -
 
 systemctl stop salt
-SALT_DATA=/opt/salt/data /opt/salt/salt backup /var/backups/salt-before-1.6.16.tar.gz
+SALT_DATA=/opt/salt/data /opt/salt/salt backup /var/backups/salt-before-1.1.7.tar.gz
 cp -a /opt/salt/salt /opt/salt/salt.bak
 install -m 755 salt-linux-amd64 /opt/salt/salt
 systemctl start salt
@@ -690,7 +738,7 @@ systemctl start salt
 
 The `SALT_DATA=` on the backup line is not decoration. That shell is sitting in
 the download directory and knows nothing about the unit's `Environment=` lines,
-so without it the command looks in `/tmp/salt-1.6.16/data` and stops with
+so without it the command looks in `/tmp/salt-1.1.7/data` and stops with
 "no database at …".
 
 Download into a **fresh, empty directory**. `wget` without `-O` does not

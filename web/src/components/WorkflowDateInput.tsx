@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { t } from '../i18n';
-import { resolveSmartDate } from '../smartdate';
-import { formatDay } from '../format';
+import { formatDay, resolveSmartDate } from '../format';
 
 // A date value the way collection filters enter one (see DateFilterValue in
 // CollectionView): an Exact calendar day, or a Relative word the server

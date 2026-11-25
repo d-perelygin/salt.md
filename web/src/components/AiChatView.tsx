@@ -2,18 +2,21 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
+import { toast } from '../toast';
 import type { PageMeta } from '../types';
 import AiAgentStep, { type AiStep } from './AiAgentStep';
+import AiRunSummary from './AiRunSummary';
 import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
-import { FileText, Menu as MenuIcon, Table2 } from 'lucide-react';
+import { FileText, Menu as MenuIcon, Table2, ArrowDown, ArrowUpRight, BarChart3, Brain, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Paperclip, Plus, Quote, RefreshCw, Search, Sparkles, SpellCheck, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import { renderTextWithMentions } from './aiChatHelpers';
 
-interface Msg { role: string; content: string }
+interface Msg { role: string; content: string; createdAt?: string; runId?: string }
 interface AttachedFile { name: string; text: string }
+interface MemoryEntry { id: string; workspaceId: string; content: string; createdAt: string; updatedAt: string }
 
 function formatDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -33,6 +36,8 @@ export default function AiChatView(props: {
   onOpenPage?: (id: string) => void;
   onThreadCreated: (id: string) => void;
   onThreadsChanged: () => void;
+  /** Start an empty chat without going through the sidebar. */
+  onNewChat?: () => void;
   /** The chats view replaces the document, so it is the only screen with no
    *  way to reach the tree — every other view keeps the topbar's menu. */
   onOpenSidebar?: () => void;
@@ -44,7 +49,7 @@ export default function AiChatView(props: {
   // live state (a brand-new thread's fetch resolves with [] mid-stream and
   // would otherwise wipe the user's own just-sent message).
   const streamingRef = useRef(false);
-  const [histSteps, setHistSteps] = useState<AiStep[]>([]);
+  const [runList, setRunList] = useState<any[]>([]);
   const [traceOpen, setTraceOpen] = useState(false);
   const [input, setInput] = useState('');
   const [quote, setQuote] = useState('');
@@ -54,7 +59,6 @@ export default function AiChatView(props: {
   const [runId, setRunId] = useState<string | null>(null);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [runElapsed, setRunElapsed] = useState(0);
-  const [histDurationMs, setHistDurationMs] = useState<number | null>(null);
   const [artifacts, setArtifacts] = useState<string[]>([]);
   const [waitingApproval, setWaitingApproval] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState<{ runId: string; question: string; options: { label: string; description?: string }[]; multiple: boolean } | null>(null);
@@ -66,37 +70,79 @@ export default function AiChatView(props: {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [memories, setMemories] = useState<MemoryEntry[] | null>(null);
+  const [memDraft, setMemDraft] = useState('');
+  const [memWorkspaceOnly, setMemWorkspaceOnly] = useState(true);
+  const memMenuRef = useRef<HTMLSpanElement>(null);
+  useMenuDismiss(memoryOpen, memMenuRef, () => setMemoryOpen(false));
   const attachMenuRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(attachMenuOpen, attachMenuRef, () => setAttachMenuOpen(false));
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const inputBoxRef = useRef<HTMLTextAreaElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const syncBackdrop = () => {
+    const ta = inputBoxRef.current;
+    const bd = backdropRef.current;
+    if (ta && bd) { bd.scrollTop = ta.scrollTop; bd.scrollLeft = ta.scrollLeft; }
+  };
 
   const tid = props.threadId;
+  const tidRef = useRef<string | null>(tid);
+  useEffect(() => { tidRef.current = tid; }, [tid]);
+  // Thread the live run belongs to. Switching threads detaches the UI from a
+  // run that belongs elsewhere (it keeps going server-side); switching back
+  // re-attaches through the effect below.
+  const runThreadRef = useRef<string | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   useEffect(() => {
     api.listAIThreads().then((r) => setThreads(r as AiThread[])).catch(() => {});
   }, [tid]);
 
   // History: messages, past runs (for the Worked-for row), and artifacts.
-  // History fetches never overwrite live streaming state (see streamingRef).
+  // History fetches never overwrite live streaming state (see streamingRef),
+  // and late answers never land on a thread that is no longer selected.
   useEffect(() => {
+    // Detach from a run that belongs to another thread: it keeps going
+    // server-side, the UI just stops following it.
+    if (streamingRef.current && runThreadRef.current !== tid) {
+      streamingRef.current = false;
+      // runThreadRef stays: the run is still live, just not followed here.
+      try { readerRef.current?.cancel(); } catch { /* already closed */ }
+      readerRef.current = null;
+      setAgentBusy(false);
+      setRunId(null);
+      setWaitingApproval(false);
+      setSteps([]);
+      setRunStatus('');
+      setPendingQuestion(null);
+    }
     if (!tid) {
       setMessages([]);
       setSteps([]);
-      setHistSteps([]);
       setArtifacts([]);
-      setHistDurationMs(null);
+      setRunList([]);
       setLastError(null);
       setLastRun(null);
       return;
     }
+    // Reset per-thread UI at once: the previous thread must not flash through
+    // while its replacement loads.
+    setSteps([]);
+    setRunList([]);
+    setLastError(null);
+    setLastRun(null);
+    let alive = true;
     Promise.all([
       api.getAIThreadMessages(tid).catch(() => [] as Msg[]),
       api.getAIThreadRuns(tid).catch(() => [] as any[]),
     ]).then(([rawMsgs, runs]) => {
-      if (streamingRef.current) return;
+      if (!alive || tidRef.current !== tid) return;
+      if (streamingRef.current && runThreadRef.current === tid) return;
       const msgs = [...rawMsgs];
+      setRunList(Array.isArray(runs) ? (runs as any[]) : []);
       const ids: string[] = [];
       let latest: any = null;
       for (const run of runs) {
@@ -118,20 +164,8 @@ export default function AiChatView(props: {
         setLastRun(null);
       }
       setMessages(msgs);
-      if (latest && latest.startedAt && latest.finishedAt && latest.status !== 'running' && latest.status !== 'queued') {
-        const ms = Date.parse(latest.finishedAt) - Date.parse(latest.startedAt);
-        if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
-        // Show the trace of the latest finished run.
-        api.getAIRunSteps(latest.id).then((st) => {
-          if (Array.isArray(st) && st.length && !streamingRef.current) {
-            setHistSteps(st as AiStep[]);
-            setTraceOpen(false);
-          }
-        }).catch(() => {});
-      } else {
-        setHistDurationMs(null);
-      }
     }).catch(() => {});
+    return () => { alive = false; };
   }, [tid]);
 
   useEffect(() => {
@@ -187,10 +221,44 @@ export default function AiChatView(props: {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [pendingQuestion, picked, freeText]);
 
-  function onInputChange(v: string) {
+  // Composer draft survives unmounts (Chat/Home switch) and thread
+  // switches: one draft per thread, restored when coming back.
+  const draftKey = (t: string | null) => 'salt-ai-draft:v:' + (t ?? 'new');
+  useEffect(() => {
+    try {
+      setInput(localStorage.getItem(draftKey(tid)) ?? '');
+    } catch { setInput(''); }
+    setMentionQuery(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tid]);
+  function clearDraft() {
+    try { localStorage.removeItem(draftKey(tidRef.current)); } catch { /* ignore */ }
+  }
+
+  // The mention query is whatever an @ started right before the caret —
+  // anywhere in the text, not just at its end. A @ in the middle of a word
+  // (an email address) does not count: it needs whitespace or the line start
+  // in front of it.
+  function mentionQueryAt(value: string, caret: number | null): string | null {
+    const pos = caret ?? value.length;
+    const before = value.slice(0, pos);
+    const m = before.match(/@([^@\n]{0,60})$/);
+    if (!m) return null;
+    const at = pos - m[0].length;
+    if (at > 0 && !/\s/.test(before[at - 1])) return null;
+    return m[1];
+  }
+
+  function onInputChange(v: string, caret: number | null = null) {
     setInput(v);
-    const m = v.match(/@([^@]{0,60})$/);
-    setMentionQuery(m ? m[1] : null);
+    try { localStorage.setItem(draftKey(tidRef.current), v); } catch { /* ignore */ }
+    setMentionQuery(mentionQueryAt(v, caret ?? v.length));
+  }
+
+  function refreshMentionFromCaret() {
+    const el = inputBoxRef.current;
+    if (!el) return;
+    setMentionQuery(mentionQueryAt(el.value, el.selectionStart ?? el.value.length));
   }
 
   function mentionMatches(): PageMeta[] {
@@ -203,20 +271,38 @@ export default function AiChatView(props: {
 
   function pickMention(p: PageMeta) {
     const title = p.title || 'Untitled';
-    setInput((cur) => cur.replace(/@[^@]{0,60}$/, '@' + title + ' '));
+    const el = inputBoxRef.current;
+    const pos = el?.selectionStart ?? input.length;
+    const before = input.slice(0, pos);
+    const after = input.slice(pos);
+    const replaced = before.replace(/@[^@\n]{0,60}$/, '@' + title + ' ');
+    const next = replaced + after;
+    setInput(next);
+    try { localStorage.setItem(draftKey(tidRef.current), next); } catch { /* ignore */ }
     setMentionQuery(null);
-    window.setTimeout(() => inputBoxRef.current?.focus(), 0);
+    window.setTimeout(() => {
+      const ta = inputBoxRef.current;
+      if (!ta) return;
+      ta.focus();
+      const caret = replaced.length;
+      try { ta.setSelectionRange(caret, caret); } catch { /* ignore */ }
+    }, 0);
   }
 
   function triggerMentionInInput() {
-    const next = input ? (input.endsWith(' ') ? input + '@' : input + ' @') : '@';
-    onInputChange(next);
+    const el = inputBoxRef.current;
+    const pos = el && document.activeElement === el && el.selectionStart !== null ? el.selectionStart : input.length;
+    const before = input.slice(0, pos);
+    const after = input.slice(pos);
+    const sep = before === '' || /\s$/.test(before) ? '' : ' ';
+    const next = before + sep + '@' + after;
+    const caret = before.length + sep.length + 1;
+    onInputChange(next, caret);
     window.setTimeout(() => {
-      const el = inputBoxRef.current;
-      if (el) {
-        el.focus();
-        el.setSelectionRange(next.length, next.length);
-      }
+      const ta = inputBoxRef.current;
+      if (!ta) return;
+      ta.focus();
+      try { ta.setSelectionRange(caret, caret); } catch { /* ignore */ }
     }, 0);
   }
 
@@ -285,57 +371,25 @@ export default function AiChatView(props: {
   // Agent run: the model works with tools and the trace streams in as
   // Thinking/Script steps, OpenChamber-style. May pause for approval.
   // With reuseTask the user message is already in the thread (retry).
-  async function runAsAgent(reuseTask?: string) {
-    if (agentBusy) return;
-    const text = (reuseTask ?? input).trim();
-    if (!text) return;
-    if (!reuseTask) setInput('');
-    const id = await ensureThread(text);
-    if (!id) return;
-    if (!reuseTask) setMessages((m) => [...m, { role: 'user', content: text }]);
-    setLastRun(null);
-    setLastError(null);
-    setPendingQuestion(null);
-    setPicked([]);
-    setFreeText('');
-    qKeyRef.current = '';
-    streamingRef.current = true;
-    setAgentBusy(true);
-    setRunStatus(t('Working…'));
-    setWaitingApproval(false);
-    setSteps([]);
-    setTraceOpen(true);
-    setHistDurationMs(null);
-    setRunStartedAt(Date.now());
-    setRunElapsed(0);
+  // Consume one run's SSE stream into this thread's UI. Belongs to
+  // myTid: if the user switches threads mid-run the loop stops and the
+  // re-attach effect below picks the run up on return.
+  async function consumeRun(runId: string, myTid: string, fullTask: string) {
+    const res = await fetch(`/api/ai/runs/${runId}/events`, { credentials: 'same-origin' });
+    if (!res.ok || !res.body) throw new Error('no events');
+    const reader = res.body.getReader();
+    readerRef.current = reader;
     try {
-      const refs = resolveMentions(text);
-      const refBlock = refs.length
-        ? 'Referenced pages (read them with get_page first):\n' + refs.map((m) => `- ${m.title} (id: ${m.id})`).join('\n') + '\n\n'
-        : '';
-      const filesBlock = files.length
-        ? 'Attached files:\n' + files.filter((f) => f.text).slice(0, 3).map((f) => `--- ${f.name} ---\n${f.text.slice(0, 4000)}`).join('\n') + '\n\n'
-        : '';
-      const fullTask = reuseTask ? reuseTask : (refBlock + filesBlock + (quote ? `Context quote:\n${quote}\n\n` : '') + text);
-      const r = await api.createAIRun({
-        threadId: id,
-        task: fullTask,
-        prompt: reuseTask ? undefined : text,
-        retry: !!reuseTask,
-        pageId: props.pageId,
-      });
-      setRunId(r.id);
-      setQuote('');
-      setFiles([]);
-      const res = await fetch(`/api/ai/runs/${r.id}/events`, { credentials: 'same-origin' });
-      if (!res.ok || !res.body) throw new Error('no events');
-      const reader = res.body.getReader();
       const dec = new TextDecoder();
       let buf = '';
       const seen = new Set<string>();
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        if (tidRef.current !== myTid) {
+          try { reader.cancel(); } catch { /* already closed */ }
+          return;
+        }
         buf += dec.decode(value, { stream: true });
         const lines = buf.split('\n');
         buf = lines.pop() || '';
@@ -363,10 +417,10 @@ export default function AiChatView(props: {
                 try {
                   const q = JSON.parse(j.pendingArgs);
                   if (q && typeof q.question === 'string' && Array.isArray(q.options)) {
-                    const key = r.id + '|' + q.question;
+                    const key = runId + '|' + q.question;
                     if (qKeyRef.current !== key) {
                       qKeyRef.current = key;
-                      setPendingQuestion({ runId: r.id, question: q.question, options: q.options.slice(0, 6), multiple: !!q.multiple });
+                      setPendingQuestion({ runId, question: q.question, options: q.options.slice(0, 6), multiple: !!q.multiple });
                       setPicked([]);
                       setFreeText('');
                     }
@@ -374,7 +428,7 @@ export default function AiChatView(props: {
                 } catch { /* ignore */ }
               }
               if (j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled') {
-                setLastRun({ id: r.id, task: fullTask, status: j.status, error: err });
+                setLastRun({ id: runId, task: fullTask, status: j.status, error: err });
                 setPendingQuestion(null);
                 break;
               }
@@ -382,41 +436,144 @@ export default function AiChatView(props: {
           } catch { /* ignore */ }
         }
       }
-      const msgs = await api.getAIThreadMessages(id).catch(() => [] as Msg[]);
-      if (msgs.length) setMessages(msgs as Msg[]);
-      try {
-        const done = await api.getAIRun(r.id).catch(() => null) as any;
-        if (done && done.startedAt && done.finishedAt) {
-          const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
-          if (Number.isFinite(ms) && ms >= 0) setHistDurationMs(ms);
-        }
-        const runs = await api.getAIThreadRuns(id).catch(() => [] as any[]);
-        const ids: string[] = [];
-        for (const run of runs as any[]) {
-          try {
-            const arr = JSON.parse(run.artifacts || '[]');
-            if (Array.isArray(arr)) for (const pid of arr) if (typeof pid === 'string' && !ids.includes(pid)) ids.push(pid);
-          } catch { /* ignore */ }
-        }
-        setArtifacts(ids);
-      } catch { /* ignore */ }
+    } finally {
+      try { reader.releaseLock(); } catch { /* already closed */ }
+      if (readerRef.current === reader) readerRef.current = null;
+    }
+  }
+
+  async function runAsAgent(reuseTask?: string) {
+    if (agentBusy) return;
+    const text = (reuseTask ?? input).trim();
+    if (!text) return;
+    if (!reuseTask) { setInput(''); clearDraft(); }
+    const id = await ensureThread(text);
+    if (!id) return;
+    if (!reuseTask) setMessages((m) => [...m, { role: 'user', content: text }]);
+    setLastRun(null);
+    setLastError(null);
+    setPendingQuestion(null);
+    setPicked([]);
+    setFreeText('');
+    qKeyRef.current = '';
+    streamingRef.current = true;
+    runThreadRef.current = id;
+    setAgentBusy(true);
+    setRunStatus(t('Working…'));
+    setWaitingApproval(false);
+    setSteps([]);
+    setTraceOpen(true);
+    setRunStartedAt(Date.now());
+    setRunElapsed(0);
+    try {
+      const refs = resolveMentions(text);
+      const refBlock = refs.length
+        ? 'Referenced pages (read them with get_page first):\n' + refs.map((m) => `- ${m.title} (id: ${m.id})`).join('\n') + '\n\n'
+        : '';
+      const filesBlock = files.length
+        ? 'Attached files:\n' + files.filter((f) => f.text).slice(0, 3).map((f) => `--- ${f.name} ---\n${f.text.slice(0, 4000)}`).join('\n') + '\n\n'
+        : '';
+      const fullTask = reuseTask ? reuseTask : (refBlock + filesBlock + (quote ? `Context quote:\n${quote}\n\n` : '') + text);
+      const r = await api.createAIRun({
+        threadId: id,
+        task: fullTask,
+        prompt: reuseTask ? undefined : text,
+        retry: !!reuseTask,
+        pageId: props.pageId,
+      });
+      setRunId(r.id);
+      setQuote('');
+      setFiles([]);
+      await consumeRun(r.id, id, fullTask);
+      // The thread may have changed while the run streamed: only the thread
+      // the run belongs to takes its results.
+      if (tidRef.current === id) {
+        const msgs = await api.getAIThreadMessages(id).catch(() => [] as Msg[]);
+        if (msgs.length) setMessages(msgs as Msg[]);
+        // Fresh threads still carry their first-message slice as a title;
+        // upgrade it from the conversation once, never over a rename.
+        void api.autoThreadTitle(id, false).then((r) => {
+          if (tidRef.current === id && r && (r as any).generated) props.onThreadsChanged();
+        }).catch(() => {});
+        try {
+          const runs = await api.getAIThreadRuns(id).catch(() => [] as any[]);
+          if (Array.isArray(runs)) setRunList(runs as any[]);
+          const ids: string[] = [];
+          for (const run of runs as any[]) {
+            try {
+              const arr = JSON.parse(run.artifacts || '[]');
+              if (Array.isArray(arr)) for (const pid of arr) if (typeof pid === 'string' && !ids.includes(pid)) ids.push(pid);
+            } catch { /* ignore */ }
+          }
+          setArtifacts(ids);
+        } catch { /* ignore */ }
+      }
       props.onThreadsChanged();
     } catch (err: any) {
       setLastError(err?.message || t('Run failed'));
       setRunStatus(t('Run failed'));
     } finally {
-      setAgentBusy(false);
-      setRunId(null);
-      setWaitingApproval(false);
-      streamingRef.current = false;
+      // Another thread's run finishing must not clear this thread's UI.
+      if (runThreadRef.current === id) {
+        runThreadRef.current = null;
+        streamingRef.current = false;
+        setAgentBusy(false);
+        setRunId(null);
+        setWaitingApproval(false);
+      }
     }
   }
+
+  // Coming back to a thread whose run is still going re-attaches the UI to
+  // it; otherwise the thread would sit silent until the run ends.
+  useEffect(() => {
+    if (!tid || streamingRef.current) return;
+    let alive = true;
+    void api.getAIThreadRuns(tid).catch(() => [] as any[]).then((runs) => {
+      if (!alive || !Array.isArray(runs) || tidRef.current !== tid) return;
+      const active = (runs as any[]).find((r) => r && (r.status === 'running' || r.status === 'queued' || r.status === 'waiting_approval' || r.status === 'waiting_user'));
+      if (!active || streamingRef.current) return;
+      streamingRef.current = true;
+      runThreadRef.current = tid;
+      setAgentBusy(true);
+      setRunId(active.id);
+      try {
+        const ms = Date.parse(active.startedAt);
+        setRunStartedAt(Number.isFinite(ms) ? ms : Date.now());
+      } catch { setRunStartedAt(Date.now()); }
+      setRunElapsed(0);
+      setRunStatus(active.progress || active.status || '');
+      setSteps([]);
+      setTraceOpen(true);
+      void consumeRun(active.id, tid, active.task || '').then(async () => {
+        if (tidRef.current !== tid) return;
+        setAgentBusy(false);
+        setRunId(null);
+        setWaitingApproval(false);
+        const msgs = await api.getAIThreadMessages(tid).catch(() => [] as Msg[]);
+        if (tidRef.current !== tid) return;
+        if (msgs.length) setMessages(msgs as Msg[]);
+        const rs = await api.getAIThreadRuns(tid).catch(() => [] as any[]);
+        if (tidRef.current !== tid) return;
+        if (Array.isArray(rs)) setRunList(rs as any[]);
+        props.onThreadsChanged();
+      }).catch(() => {
+        if (tidRef.current !== tid) return;
+        setAgentBusy(false);
+        setRunId(null);
+        setWaitingApproval(false);
+      });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [tid]);
 
   async function decide(approved: boolean) {
     if (!runId) return;
     try {
       await api.approveAIRun(runId, approved);
-    } catch { /* the run will time out on its own */ }
+    } catch (e) {
+      toast((e as Error).message || t('The approval did not reach the agent'));
+    }
   }
 
   async function submitAnswer() {
@@ -426,7 +583,11 @@ export default function AiChatView(props: {
     if (parts.length === 0) return;
     try {
       await api.answerAIRun(pendingQuestion.runId, parts.join('; '));
-    } catch { /* the run may have timed out or been cancelled */ }
+    } catch (e) {
+      // Silent before: a run left by a previous process rejected the answer
+      // with a 409 and the question simply vanished.
+      toast((e as Error).message || t('The answer did not reach the agent'));
+    }
     setPendingQuestion(null);
     setPicked([]);
     setFreeText('');
@@ -454,30 +615,87 @@ export default function AiChatView(props: {
   // Page-scoped chips only make sense with a page in context; in the global
   // view they would promise something the chat cannot see.
   const chipPageId = props.pageId || active?.pageId || '';
-  const showTrace = steps.length > 0 || histSteps.length > 0;
-  const showZeroState = messages.length === 0 && !agentBusy && steps.length === 0 && histSteps.length === 0 && !lastError;
-  const liveDuration = agentBusy && runStartedAt !== null ? runElapsed : null;
-  const doneDuration = !agentBusy ? histDurationMs : null;
+  const memWorkspaceId = props.pageId ? props.pagesById.get(props.pageId)?.workspaceId ?? '' : '';
 
-  // The trace ("Worked for …") sits ABOVE the answer it produced; while a run
-  // streams there is no answer yet, so it stays below the question.
+  // Agent memory: durable notes the agent keeps about the user. Global notes
+  // always apply; workspace notes apply to the current page's workspace.
+  async function loadMemories() {
+    try {
+      const r = (await api.listAIMemory()) as MemoryEntry[];
+      setMemories(Array.isArray(r) ? r : []);
+    } catch {
+      setMemories([]);
+    }
+  }
+  async function addMemory() {
+    const text = memDraft.trim();
+    if (!text) return;
+    try {
+      const ws = memWorkspaceId && memWorkspaceOnly ? memWorkspaceId : '';
+      await api.addAIMemory(text, ws);
+      setMemDraft('');
+      await loadMemories();
+    } catch { /* keep the draft */ }
+  }
+  async function forgetMemory(id: string) {
+    try {
+      await api.deleteAIMemory(id);
+      setMemories((prev) => (prev ?? []).filter((m) => m.id !== id));
+    } catch { /* keep it */ }
+  }
+  const showTrace = steps.length > 0;
+  const showZeroState = messages.length === 0 && !agentBusy && steps.length === 0 && !lastError;
+  const liveDuration = agentBusy && runStartedAt !== null ? runElapsed : null;
+
+  // Finished runs attach above the answer they produced: the first assistant
+  // message created at or after the run finished; stragglers go last.
+  // Each finished run belongs above the answer it produced. New answers
+  // carry their run's id, so the match is exact; older rows (and runs that
+  // produced no answer, like instant failures) fall back to the latest message
+  // the run could have answered — usually its own question.
+  const runTargets = new Map<number, any[]>();
+  {
+    const done = runList.filter(
+      (r) => r && r.finishedAt && (r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled'),
+    );
+    const order = [...done].sort((a, b) => Date.parse(a.finishedAt) - Date.parse(b.finishedAt));
+    const used = new Set<number>();
+    for (const r of order) {
+      let at = messages.findIndex((m) => m.role === 'assistant' && (m as Msg).runId === r.id);
+      if (at < 0) {
+        const end = r.finishedAt as string;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (used.has(i) || !messages[i].createdAt || (messages[i].createdAt as string) > end) continue;
+          at = i;
+          break;
+        }
+      }
+      if (at < 0) at = messages.length;
+      else used.add(at);
+      const list = runTargets.get(at) ?? [];
+      list.push(r);
+      runTargets.set(at, list);
+    }
+  }
+
+  // The live trace sits ABOVE the answer it will produce; while a run streams
+  // there is no answer yet, so it stays below the question. Finished runs
+  // render through their own per-message rows above.
   const traceEl = showTrace ? (
             <div style={{ margin: '8px 0' }}>
               <div className="ai-actions-bar">
                 <button className="ai-actions-toggle" onClick={() => setTraceOpen((v) => !v)} type="button">
-                  <span style={{ fontSize: 10 }}>{traceOpen ? '▼' : '▶'}</span>
+                  <span style={{ display: 'inline-flex' }}>{traceOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
                   <span>
                     {liveDuration !== null
                       ? `${t('Working for')} ${formatDuration(liveDuration)} … (${steps.length})`
-                      : doneDuration !== null
-                        ? `${t('Worked for')} ${formatDuration(doneDuration)} (${steps.length > 0 ? steps.length : histSteps.length} ${t('steps')})`
-                        : `${t('Agent actions')} (${steps.length > 0 ? steps.length : histSteps.length})`}
+                      : `${t('Agent actions')} (${steps.length})`}
                   </span>
                 </button>
               </div>
               {traceOpen && (
                 <div className="ai-actions-list">
-                  {(steps.length > 0 ? steps : histSteps).map((s) => <AiAgentStep key={s.id} step={s} />)}
+                  {steps.map((s) => <AiAgentStep key={s.id} step={s} />)}
                 </div>
               )}
               {runStatus && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{runStatus}</div>}
@@ -506,16 +724,98 @@ export default function AiChatView(props: {
               <MenuIcon size={18} />
             </button>
           )}
-          <span className="ai-avatar">✨</span>
+          <span className="ai-avatar"><Sparkles size={16} /></span>
           <span className="ai-crumb">{t('AI')}</span>
           <span className="ai-crumb">/</span>
-          <span className="ai-title">{active?.title || t('New chat')}{pageTitle ? ` · 📄 ${pageTitle}` : ''}</span>
+          <span className="ai-title">{active?.title || t('New chat')}{pageTitle ? ` · ${pageTitle}` : ''}</span>
+          {/* Only next to a chat that exists: on an empty one there is nothing
+              to leave, and a plus that starts the chat you are already in is
+              noise. */}
+          {props.threadId && (
+            <button
+              className="ai-iconbtn ai-newchat-btn"
+              type="button"
+              title={t('New chat')}
+              aria-label={t('New chat')}
+              onClick={() => props.onNewChat?.()}
+            >
+              <Plus size={14} />
+            </button>
+          )}
+          <span style={{ flex: 1 }} />
+          <span style={{ position: 'relative', display: 'inline-flex' }} ref={memMenuRef}>
+            <button
+              className="ai-iconbtn"
+              title={t('Memory')}
+              type="button"
+              onClick={() => {
+                const next = !memoryOpen;
+                setMemoryOpen(next);
+                if (next && memories === null) void loadMemories();
+              }}
+            >
+              <Brain size={15} />
+            </button>
+            {memoryOpen && (
+              <div
+                style={{
+                  position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 400,
+                  background: 'var(--card)', color: 'var(--fg)',
+                  border: '1px solid var(--border)', borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(0,0,0,.25)', width: 320, maxWidth: '80vw',
+                  maxHeight: 320, overflow: 'auto', padding: 10,
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{t('Memory')}</div>
+                {memories === null ? (
+                  <div className="dialog-hint">{t('Loading…')}</div>
+                ) : memories.length === 0 ? (
+                  <div className="dialog-hint" style={{ marginBottom: 8 }}>{t('Nothing memorized yet.')}</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                    {memories.map((m) => (
+                      <div key={m.id} style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                        <span style={{ flex: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.content}</span>
+                        <button className="ai-iconbtn" type="button" title={t('Forget')} onClick={() => void forgetMemory(m.id)}>
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    className="prop-input"
+                    style={{ flex: 1, minWidth: 0 }}
+                    value={memDraft}
+                    onChange={(e) => setMemDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void addMemory();
+                      }
+                    }}
+                    placeholder={t('Remember this…')}
+                  />
+                  <button className="btn-sm primary" type="button" disabled={!memDraft.trim()} onClick={() => void addMemory()}>
+                    {t('Remember')}
+                  </button>
+                </div>
+                {memWorkspaceId && (
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    <input type="checkbox" checked={memWorkspaceOnly} onChange={(e) => setMemWorkspaceOnly(e.target.checked)} />
+                    {t('This workspace only')}
+                  </label>
+                )}
+              </div>
+            )}
+          </span>
         </div>
         <div className="ai-chat-body">
           {showZeroState && (
             <div className="ai-view-zero">
               <div className="ai-view-zero-hero">
-                <span className="ai-view-zero-spark">✨</span>
+                <span className="ai-view-zero-spark"><Sparkles size={26} /></span>
                 <h2>{t('How can I help you today?')}</h2>
               </div>
 
@@ -534,24 +834,24 @@ export default function AiChatView(props: {
                     }
                   }}
                 >
-                  <span className="ai-zero-badge">📝</span>
+                  <span className="ai-zero-badge"><FileText size={15} /></span>
                   <span className="ai-zero-label">{t('Summarize this page')}</span>
                 </button>
                 <button
                   type="button"
                   className="ai-zero-item"
                   onClick={() => {
+                    const next = t('Fix grammar, spelling, and punctuation in the following text. Reply with the corrected text only.') + '@';
                     if (chipPageId) {
-                      void runAsAgent(t('Translate this page'));
+                      void runAsAgent(t('Fix grammar, spelling, and punctuation on this page. Reply with the corrected text only.'));
                     } else {
-                      const next = t('Translate') + ' @';
                       onInputChange(next);
                       window.setTimeout(() => inputBoxRef.current?.focus(), 0);
                     }
                   }}
                 >
-                  <span className="ai-zero-badge">🌐</span>
-                  <span className="ai-zero-label">{t('Translate this page')}</span>
+                  <span className="ai-zero-badge"><SpellCheck size={15} /></span>
+                  <span className="ai-zero-label">{t('Fix grammar')}</span>
                 </button>
                 <button
                   type="button"
@@ -566,7 +866,7 @@ export default function AiChatView(props: {
                     }
                   }}
                 >
-                  <span className="ai-zero-badge">📊</span>
+                  <span className="ai-zero-badge"><BarChart3 size={15} /></span>
                   <span className="ai-zero-label">{t('Analyze for insights')}</span>
                 </button>
                 <button
@@ -582,7 +882,7 @@ export default function AiChatView(props: {
                     }
                   }}
                 >
-                  <span className="ai-zero-badge">✅</span>
+                  <span className="ai-zero-badge"><SquareCheck size={15} /></span>
                   <span className="ai-zero-label">{t('Extract action items')}</span>
                 </button>
                 <button
@@ -590,7 +890,7 @@ export default function AiChatView(props: {
                   className="ai-zero-item"
                   onClick={() => fileRef.current?.click()}
                 >
-                  <span className="ai-zero-badge">↓</span>
+                  <span className="ai-zero-badge"><ArrowDown size={15} /></span>
                   <span className="ai-zero-label">{t('Attach file or CSV')}</span>
                 </button>
                 <button
@@ -598,7 +898,7 @@ export default function AiChatView(props: {
                   className="ai-zero-item"
                   onClick={triggerMentionInInput}
                 >
-                  <span className="ai-zero-badge" data-tone="plain">↗</span>
+                  <span className="ai-zero-badge" data-tone="plain"><ArrowUpRight size={15} /></span>
                   <span className="ai-zero-label">{t('Link workspace page or collection')}</span>
                 </button>
               </div>
@@ -607,6 +907,9 @@ export default function AiChatView(props: {
           {messages.map((m, i) => (
             <Fragment key={i}>
             {i === traceAt && traceEl}
+            {(runTargets.get(i) ?? []).map((r) => (
+              <AiRunSummary key={r.id} run={r} />
+            ))}
             <div className={m.role === 'user' ? 'ai-msg user' : 'ai-msg assistant'}>
               {m.role === 'user' ? (
                 <div className="ai-bubble-user">{renderTextWithMentions(m.content, props.pagesById, true)}</div>
@@ -616,19 +919,19 @@ export default function AiChatView(props: {
                   {m.content && (
                     <div className="ai-msg-actions">
                       <button className="ai-iconbtn" onClick={() => copyText(m.content, i)} title={t('Copy')}>
-                        {copiedIdx === i ? '✓' : '⧉'}
+                        {copiedIdx === i ? <Check size={14} /> : <Copy size={14} />}
                       </button>
                       {i === messages.length - 1 && (
                         <button className="ai-iconbtn" onClick={() => {
                           const lu = [...messages].reverse().find((x) => x.role === 'user');
                           if (lu) void runAsAgent(lu.content);
                         }} disabled={agentBusy} title={t('Regenerate')}>
-                          ↻
+                          <RefreshCw size={14} />
                         </button>
                       )}
                       {props.pageId && (
                         <button className="ai-iconbtn" onClick={() => insertIntoPage(m.content)} title={t('Insert into page')}>
-                          ⬇
+                          <ArrowDown size={14} />
                         </button>
                       )}
                     </div>
@@ -639,6 +942,9 @@ export default function AiChatView(props: {
             </Fragment>
           ))}
           {traceAt >= messages.length && traceEl}
+          {(runTargets.get(messages.length) ?? []).map((r) => (
+            <AiRunSummary key={r.id} run={r} />
+          ))}
           {lastError && (
             <AiErrorCard
               error={lastError}
@@ -648,7 +954,7 @@ export default function AiChatView(props: {
           )}
           {pendingQuestion && (
             <div className="ai-question-card">
-              <div className="ai-question-title"><span>❓</span><span>{pendingQuestion.question}</span></div>
+              <div className="ai-question-title"><span><CircleHelp size={15} /></span><span>{pendingQuestion.question}</span></div>
               <div className="ai-question-options">
                 {pendingQuestion.options.map((o, idx) => {
                   const on = picked.includes(o.label);
@@ -669,7 +975,7 @@ export default function AiChatView(props: {
                         <span className="ai-question-opt-label">{o.label}</span>
                         {o.description && <span className="ai-question-opt-desc">{o.description}</span>}
                       </div>
-                      {on && <span className="ai-question-opt-check">✓</span>}
+                      {on && <span className="ai-question-opt-check"><Check size={13} /></span>}
                     </button>
                   );
                 })}
@@ -698,7 +1004,7 @@ export default function AiChatView(props: {
                   const title = props.pagesById.get(id)?.title || t('Untitled page');
                   return (
                     <button key={id} className="ai-artifact-chip" onClick={() => props.onOpenPage?.(id)} title={title}>
-                      <span>📄</span>
+                      <span><FileText size={14} /></span>
                       <span>{title}</span>
                     </button>
                   );
@@ -710,16 +1016,16 @@ export default function AiChatView(props: {
         </div>
         {quote && (
           <div className="ai-quote">
-            <span style={{ flex: 1, whiteSpace: 'pre-wrap', maxHeight: 80, overflow: 'auto' }}>❝ {quote}</span>
-            <button className="ai-iconbtn" onClick={() => setQuote('')} title={t('Remove quote')}>×</button>
+            <span style={{ flex: 1, whiteSpace: 'pre-wrap', maxHeight: 80, overflow: 'auto' }}><Quote size={13} /> {quote}</span>
+            <button className="ai-iconbtn" onClick={() => setQuote('')} title={t('Remove quote')}><X size={13} /></button>
           </div>
         )}
         {files.length > 0 && (
           <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
             {files.map((f, i) => (
               <span key={i} className="ai-filechip">
-                📎 {f.name}{!f.text ? ` (${t('unreadable')})` : ''}
-                {' '}<button className="ai-iconbtn" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} title={t('Remove')}>×</button>
+                <Paperclip size={13} /> {f.name}{!f.text ? ` (${t('unreadable')})` : ''}
+                {' '}<button className="ai-iconbtn" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} title={t('Remove')}><X size={13} /></button>
               </span>
             ))}
           </div>
@@ -755,8 +1061,8 @@ export default function AiChatView(props: {
           <div className="ai-composer">
             <div className="ai-input-wrap">
               {input && (
-                <div className="ai-input-backdrop" aria-hidden="true">
-                  {renderTextWithMentions(input, props.pagesById, false)}
+                <div className="ai-input-backdrop" aria-hidden="true" ref={backdropRef}>
+                  {input.length > 20000 ? input : renderTextWithMentions(input, props.pagesById, false)}
                   {input.endsWith('\n') ? '\n ' : ''}
                 </div>
               )}
@@ -765,10 +1071,15 @@ export default function AiChatView(props: {
                 className={input ? 'ai-input-mirrored' : undefined}
                 value={input}
                 rows={2}
+                onScroll={syncBackdrop}
+                onSelect={() => refreshMentionFromCaret()}
+                onKeyUp={() => refreshMentionFromCaret()}
+                onClick={() => refreshMentionFromCaret()}
                 onChange={(e) => {
-                  onInputChange(e.target.value);
+                  onInputChange(e.target.value, e.target.selectionStart);
                   e.target.style.height = 'auto';
                   e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+                  syncBackdrop();
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape' && mentionQuery !== null) {
@@ -817,7 +1128,7 @@ export default function AiChatView(props: {
                         triggerMentionInInput();
                       }}
                     >
-                      📄 {t('Mention note (@)')}
+                      <FileText size={14} /> {t('Mention note (@)')}
                     </button>
                     <button
                       type="button"
@@ -826,13 +1137,13 @@ export default function AiChatView(props: {
                         fileRef.current?.click();
                       }}
                     >
-                      💻 {t('File from computer')}
+                      <Upload size={14} /> {t('File from computer')}
                     </button>
                   </div>
                 )}
               </div>
-              <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.json,.pdf" style={{ display: 'none' }} onChange={(e) => void attachPicked(e)} />
-              <AiApprovalSelect value={approval} onChange={setApproval} />
+              <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.rtf,.log,.pdf,.docx,.xlsx,.pptx,.odt" style={{ display: 'none' }} onChange={(e) => void attachPicked(e)} />
+              <AiApprovalSelect value={approval} onChange={setApproval} compact />
               <span className="spacer" />
               <button className="ai-send" onClick={() => void runAsAgent()} disabled={agentBusy} title={t('Send')}>{agentBusy ? '…' : '↑'}</button>
               {agentBusy && runId && (

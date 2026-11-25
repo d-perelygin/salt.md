@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -66,22 +67,43 @@ func (s *Server) mcpRevisions(u *user, pageID, action, revisionID string, limit 
 			return "", fmt.Errorf("revision_id is required for action=restore — call action=list for the ids")
 		}
 		return s.mcpRestoreRevision(u, pageID, revisionID)
+	case "restore_original":
+		// The oldest state still kept: the page before its first recorded
+		// change. Spelled out as an action because an agent that overwrote a
+		// page it never read should not have to page through the list and guess
+		// which id came before it.
+		id := s.oldestRevision(pageID)
+		if id == "" {
+			return "", fmt.Errorf("page %s has no revisions yet — there is no earlier state to restore", pageID)
+		}
+		return s.mcpRestoreRevision(u, pageID, id)
 	}
-	return "", fmt.Errorf("unknown action %q — use list (the default), get or restore", action)
+	return "", fmt.Errorf("unknown action %q — use list (the default), get, restore or restore_original", action)
 }
 
 // --- comments ---------------------------------------------------------------
 
 // mcpComments replaces get_comments, add_comment and resolve_comment.
 // delete_comment stays its own tool: see the note at the top of this file.
-func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID string, resolved *bool) (string, error) {
+func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID, agent, label string, resolved *bool) (string, error) {
 	switch action {
 	case "", "list":
 		list, err := s.pageComments(pageID)
 		if err != nil {
 			return "", err
 		}
-		out, err := json.Marshal(list)
+		type quotedComment struct {
+			commentJSON
+			Quote string `json:"quote,omitempty"`
+		}
+		comments := make([]quotedComment, 0, len(list))
+		for _, c := range list {
+			// Agents need the passage, not the collaborative editor's positions.
+			quote := commentQuote(c.Anchor)
+			c.Anchor = nil
+			comments = append(comments, quotedComment{c, quote})
+		}
+		out, err := json.Marshal(comments)
 		if err != nil {
 			return "", err
 		}
@@ -90,9 +112,12 @@ func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID s
 		if strings.TrimSpace(body) == "" {
 			return "", fmt.Errorf("body is required for action=add")
 		}
+		// Every comment added here comes through an agent's credential, so it
+		// always carries an agent: "generic" when the caller names none (#116).
+		agent, label := commentAgent(agent, label)
 		id := newID()
-		if _, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			id, pageID, blockID, u.ID, u.Name, strings.TrimSpace(body), now()); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO comments (id, page_id, block_id, author_id, author_name, body, created_at, agent, agent_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, pageID, blockID, u.ID, u.Name, strings.TrimSpace(body), now(), agent, label); err != nil {
 			return "", err
 		}
 		return "Added comment " + id, nil
@@ -104,7 +129,7 @@ func (s *Server) mcpComments(u *user, pageID, action, body, blockID, commentID s
 		// comment. Without resolving it to its page, a guessed comment id would
 		// write into somebody else's workspace.
 		pid, ok := s.commentPage(commentID)
-		if !ok || !s.canWrite(u.ID, pid) {
+		if !ok || !s.canWrite(u.ID, pid) || !s.credentialMayEnter(u, s.pageWorkspace(pid)) {
 			return "", fmt.Errorf("comment %q not found", commentID)
 		}
 		want := action == "resolve"
@@ -135,7 +160,7 @@ func (s *Server) mcpSetSharing(base requestBase, pageID string, public *bool, ex
 // mcpSetTrashed replaces trash_page and restore_page. Both directions are
 // reversible — the trash keeps the page — so this is state, not destruction,
 // and belongs in one tool.
-func (s *Server) mcpSetTrashed(pageID string, trashed *bool) (string, error) {
+func (s *Server) mcpSetTrashed(pageID string, trashed *bool, confirm bool) (string, error) {
 	if trashed == nil {
 		return "", fmt.Errorf("trashed is required (true to move to the trash, false to restore)")
 	}
@@ -145,6 +170,25 @@ func (s *Server) mcpSetTrashed(pageID string, trashed *bool) (string, error) {
 	ids, err := subtreeIDs(s.db, pageID)
 	if err != nil || len(ids) == 0 {
 		return "", fmt.Errorf("page %q not found", pageID)
+	}
+	if !confirm {
+		// A page that still holds something is not a stray empty note. Say what
+		// would go and ask once, rather than sweep a whole sub-tree away on the
+		// strength of a guessed id.
+		var title, content string
+		var trashedAt sql.NullString
+		s.db.QueryRow(`SELECT title, content, trashed_at FROM pages WHERE id = ?`, pageID).Scan(&title, &content, &trashedAt)
+		if trashedAt.Valid {
+			return "", fmt.Errorf("page %q is already in the trash — nothing to do", pageID)
+		}
+		nonEmpty := strings.TrimSpace(content) != "" && content != "[]"
+		if nonEmpty || len(ids) > 1 {
+			label := title
+			if strings.TrimSpace(label) == "" {
+				label = "Untitled"
+			}
+			return "", fmt.Errorf("trashing %q takes %d sub-page(s) and %d bytes of content with it; the trash keeps them, but nothing is restored automatically. Call again with confirm=true to do it", label, len(ids)-1, len(content))
+		}
 	}
 	idArgs := make([]any, len(ids))
 	for i, v := range ids {
@@ -170,7 +214,7 @@ func (s *Server) mcpSetTrashed(pageID string, trashed *bool) (string, error) {
 // than two tools that answer the same question at different zoom levels.
 func (s *Server) mcpGetLinks(u *user, pageID, wsID string, kinds []string, includeNodes bool) (string, error) {
 	if pageID != "" {
-		out, err := s.mcpBacklinks(u.ID, pageID)
+		out, err := s.mcpBacklinks(u, pageID)
 		if err != nil {
 			return "", err
 		}
@@ -196,7 +240,7 @@ func (s *Server) mcpGetLinks(u *user, pageID, wsID string, kinds []string, inclu
 func (s *Server) mcpWorkspace(u *user, wsID, name, icon, from string) (string, error) {
 	if wsID == "" {
 		if narrowedToWorkspaces(u) {
-			return "", fmt.Errorf("this connection is limited to particular workspaces, so it cannot create new ones — it would not be able to open them")
+			return "", fmt.Errorf("this connection is limited to particular workspaces, so it cannot create new ones. It would not be able to open them")
 		}
 		if icon != "" {
 			return "", fmt.Errorf("pass workspace_id to set an icon — a new workspace is created with a name only")

@@ -280,7 +280,7 @@ button {
 }
 
 .tree-item:hover {
-  background-color: var(--hover); /* siehe .tree-item.active: keine Kurzschreibweise */
+  background-color: var(--hover); /* see .tree-item.active: no shorthand */
 }
 
 /* The active page carries colour rather than mere grey — it is findable at a
@@ -494,7 +494,7 @@ button {
   display: none;
 }
 
-/* ---- Page tags (Welle 25/28) ---- */
+/* ---- Page tags (W25, W28) ---- */
 .page-tags {
   display: flex;
   flex-wrap: wrap;
@@ -607,7 +607,7 @@ button {
   color: var(--text);
 }
 
-/* ---- Document tabs (Welle 26) ---- */
+/* ---- Document tabs (W26) ---- */
 .tab-bar {
   display: flex;
   align-items: stretch;
@@ -2521,6 +2521,416 @@ body:has(.icon-picker) .bn-side-menu {
   padding: 22px;
 }
 
+/* Version history: two panes — the versions on the left, the page as it
+   looked on the right with what changed marked. A list of timestamps with the
+   words "Changes were not recorded" under each is not a history; the reader
+   came to see the sentence that used to be there. */
+.rev-dialog {
+  width: min(1120px, 96vw);
+  height: min(780px, 88vh);
+  display: flex;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.rev-list-pane {
+  flex: 0 0 300px;
+  width: 300px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+.rev-list-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 16px 10px;
+}
+.rev-list-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.rev-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.rev-group select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 3px 6px;
+}
+.rev-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+.rev-group-block {
+  border-top: 1px solid var(--border);
+}
+.rev-group-block:first-child {
+  border-top: 0;
+}
+.rev-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 6px 5px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.rev-group-head:hover {
+  color: var(--fg);
+}
+.rev-group-count {
+  margin-left: auto;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--muted);
+}
+.rev-item {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rev-item:hover {
+  background: var(--hover);
+}
+.rev-item.is-active {
+  background: var(--active);
+}
+.rev-item-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.rev-item.is-active .rev-item-dot {
+  background: var(--accent);
+}
+.rev-item-main {
+  flex: 1;
+  min-width: 0;
+}
+.rev-item-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.rev-item-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+}
+.rev-item-author {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rev-item-summary {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rev-list-foot {
+  margin: 0;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.rev-doc-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+}
+.rev-doc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.rev-doc-when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rev-doc-moment {
+  font-size: 13px;
+  font-weight: 600;
+}
+.rev-doc-author {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.rev-doc-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+.rev-props {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 18px 0;
+}
+.rev-prop {
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.rev-doc-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px clamp(18px, 5%, 64px) 40px;
+}
+.rev-doc-empty,
+.rev-doc-loading {
+  flex: 1;
+}
+/* A change is a region of the page, not a line of a diff: the block keeps its
+   place and its formatting, and the mark says what happened to it. */
+.rev-line {
+  margin: 0 -6px;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.rev-line--added {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.rev-line--changed {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.rev-line--removed {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+/* The change the footer points at. A scroll alone leaves the reader guessing
+   which of five marked blocks is "3 of 7". */
+.rev-line.is-current,
+.rev-doc-title.is-current {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 1px;
+}
+.rev-add {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: inherit;
+}
+.rev-del {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.rev-doc-title {
+  margin: 2px 0 14px;
+  padding: 2px 6px;
+  font-size: 28px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+.rev-p {
+  margin: 4px 0;
+  line-height: 1.62;
+}
+.rev-h {
+  margin: 16px 0 6px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.rev-h1 {
+  font-size: 22px;
+}
+.rev-h2 {
+  font-size: 18px;
+}
+.rev-h3 {
+  font-size: 15.5px;
+}
+.rev-li {
+  display: flex;
+  gap: 8px;
+  margin: 3px 0;
+  line-height: 1.55;
+}
+.rev-bullet {
+  flex: 0 0 auto;
+  min-width: 12px;
+  color: var(--muted);
+}
+.rev-bullet--num {
+  font-variant-numeric: tabular-nums;
+}
+.rev-box {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border: 1.5px solid var(--border);
+  border-radius: 3px;
+}
+.rev-box.on {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.rev-done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.rev-quote {
+  margin: 6px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+.rev-code {
+  margin: 8px 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+}
+.rev-rule {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.rev-figure {
+  position: relative;
+  margin: 10px 0;
+}
+.rev-figure img {
+  display: block;
+  max-width: 100%;
+  border-radius: 8px;
+}
+.rev-figure figcaption {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.rev-media-mark {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--card);
+  font-weight: 700;
+}
+.rev-table-wrap {
+  margin: 10px 0;
+  overflow-x: auto;
+}
+.rev-table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.rev-table td {
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+.rev-callout {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--sidebar-bg);
+}
+.rev-callout-ic {
+  flex: 0 0 auto;
+}
+.rev-doc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 9px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+.rev-doc-count {
+  font-variant-numeric: tabular-nums;
+}
+.rev-doc-nav {
+  display: flex;
+  gap: 4px;
+}
+@media (max-width: 820px) {
+  .rev-dialog {
+    flex-direction: column;
+    width: 96vw;
+    height: 92vh;
+  }
+  .rev-list-pane {
+    flex: 0 0 34%;
+    width: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .rev-list-foot {
+    display: none;
+  }
+}
 .dialog.wide {
   width: min(680px, 94vw);
 }
@@ -2761,6 +3171,8 @@ body:has(.icon-picker) .bn-side-menu {
 
 .collection-toolbar {
   display: flex;
+  flex-wrap: wrap;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -2797,6 +3209,7 @@ body:has(.icon-picker) .bn-side-menu {
 
 .view-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
 }
 
@@ -2820,7 +3233,13 @@ body:has(.icon-picker) .bn-side-menu {
 
 .collection-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  /* When the toolbar wraps, the view's controls keep to the right, where
+     they are on one row and where the wiki says they are, and so does a New
+     that wraps on its own. */
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .btn-sm {
@@ -2953,7 +3372,7 @@ body:has(.icon-picker) .bn-side-menu {
   opacity: 0;
 }
 
-/* Die schwebende Karte folgt dem Zeiger. */
+/* The floating card follows the pointer. */
 .board-drag-ghost {
   position: fixed;
   z-index: 400;
@@ -2972,8 +3391,8 @@ body:has(.icon-picker) .bn-side-menu {
   transform: rotate(2deg);
 }
 
-/* Karten laden zum Ziehen ein. */
-.board-card { touch-action: pan-y; } /* vertikal scrollen bleibt, horizontal = ziehen */
+/* Cards invite dragging: vertical swipes still scroll, horizontal ones drag. */
+.board-card { touch-action: pan-y; }
 
 .board-col-head {
   display: flex;
@@ -2987,6 +3406,13 @@ body:has(.icon-picker) .bn-side-menu {
 /* Chip + count stay grouped on the left; the add button sits on its own at
    the right end of the row, pushed there by .board-col-head's
    justify-content: space-between. */
+.board-col-head-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
 .board-col-head-left {
   display: flex;
   align-items: center;
@@ -3004,6 +3430,15 @@ body:has(.icon-picker) .bn-side-menu {
 .board-count {
   font-size: 12px;
   color: var(--muted);
+}
+/* While a card is in the air, a column the process refuses for it is dimmed
+   and locked in the header — the same mark the status select shows, at the
+   moment the drop would happen. Drop it there anyway and the toast explains. */
+.board-chip.is-blocked { opacity: 0.5; }
+.board-col-lock {
+  display: inline-flex;
+  color: var(--muted);
+  opacity: 0.85;
 }
 
 .board-cards {
@@ -3161,6 +3596,7 @@ body:has(.icon-picker) .bn-side-menu {
   font-size: 12.5px;
   color: var(--muted);
   line-height: 1.45;
+  white-space: pre-line;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -3783,6 +4219,7 @@ body.is-col-resizing {
 .prop-text-chip {
   font-size: 12px;
   color: var(--muted);
+  white-space: pre-line;
 }
 
 .prop-select,
@@ -3814,6 +4251,12 @@ body.is-col-resizing {
   display: inline-block;
   min-width: 40px;
   min-height: 18px;
+}
+.prop-textarea {
+  display: block;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.45;
 }
 
 .prop-empty {
@@ -4124,6 +4567,16 @@ body.is-col-resizing {
   color: var(--fg);
   border-color: var(--border);
 }
+/* A proposal waiting in Code while the reader is on another tab. */
+.workflow-tab-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
 /* Read-only process map: statuses left to right, arrows for allowed moves,
  * a dashed box for the on-creation rules. Horizontal scroll when many. */
 .workflow-scheme {
@@ -4141,13 +4594,15 @@ body.is-col-resizing {
   transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
 }
 /* Roads no rule guards: allowed by default, drawn dashed so the map shows
- *  the open roads apart from the guarded ones. */
+ *  the open roads apart from the guarded ones. Faint on purpose — they are
+ *  the majority of the ink and carry no information; the toggle above hides
+ *  them outright. */
 .workflow-scheme-svg .free path {
   stroke-dasharray: 5 4;
-  opacity: 0.55;
+  opacity: 0.18;
 }
 .workflow-scheme-svg .free polygon {
-  opacity: 0.55;
+  opacity: 0.18;
 }
 .workflow-scheme-svg polygon {
   fill: currentColor;
@@ -4161,6 +4616,10 @@ body.is-col-resizing {
   fill: var(--muted);
   font-size: 11px;
 }
+.workflow-scheme-countbg {
+  fill: var(--card);
+  stroke: var(--border);
+}
 .workflow-scheme-node {
   fill: var(--sidebar-bg);
   stroke: var(--border);
@@ -4170,6 +4629,31 @@ body.is-col-resizing {
   stroke: var(--accent);
   stroke-width: 2;
   fill: var(--hover);
+}
+/* Roles read off the frame, not just the flag dot: a trap is somewhere a
+   card enters and never leaves, an unreachable stage no move can enter. */
+.workflow-scheme-node.is-trap {
+  stroke: var(--danger);
+  stroke-width: 2;
+}
+.workflow-scheme-node.is-unreachable {
+  stroke: #b58a3b;
+  stroke-dasharray: 6 3;
+}
+/* A row of toggles above the map itself. */
+.workflow-free-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: 8px;
+  width: fit-content;
+}
+.workflow-free-toggle input[type='checkbox'] {
+  cursor: pointer;
+  margin: 0;
 }
 .workflow-scheme-svg g.is-dimmed {
   opacity: 0.15;
@@ -4222,6 +4706,189 @@ body.is-col-resizing {
 }
 .workflow-scheme-rule {
   font-size: 13px;
+}
+.workflow-scheme-link {
+  cursor: pointer;
+}
+
+/* Fullscreen process workspace. The same tree as inline, stretched to the
+ * viewport: fixed positioning escapes the dialog's box, and the dialog's
+ * overlay already owns the stacking context. Code stays editable in here —
+ * that is the point of the mode. Below modals that are raised over it
+ * (toasts, confirms) and above everything else.
+ */
+.workflow-full {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  /* The dialog's own surface, not the page's: rule blocks are painted in
+     --sidebar-bg, and on --bg the step was three points in the dark theme
+     (7 vs 11 instead of 7 vs 17) — cards lost their edge in fullscreen
+     while they read fine inline. Same surface, same contrast. */
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+}
+.workflow-full .workflow-view-toggle {
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.workflow-full-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-right: 10px;
+  white-space: nowrap;
+}
+.workflow-canvas {
+  min-height: 0;
+}
+.workflow-full .workflow-canvas {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.workflow-full .workflow-pane-scheme {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  /* Center the map when it is smaller than the viewport; margin: auto on
+     the child (below) keeps the top reachable when it is bigger, which plain
+     centering would cut off. */
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg) 35%, transparent) transparent;
+}
+/* The map scrolls as one with its on-creation box, in the outer container:
+   an inner scroller would trap the mouse wheel (vertical deltas never move
+   it sideways) and hide the overflow behind its own box. */
+.workflow-full .workflow-pane-scheme .workflow-scheme {
+  overflow: visible;
+  margin: auto 0;
+  flex: none;
+}
+/* A scrollbar you can see: overlay scrollbars hide until touched, which
+   reads as "not scrollable". Painted only when there is somewhere to go
+   (overflow is auto, so no overflow means no bar). */
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar-track,
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--fg) 30%, transparent);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 6px;
+}
+.workflow-full .workflow-pane-scheme::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--fg) 55%, transparent);
+  background-clip: content-box;
+}
+/* The list beside the map, or alone. The side width is a reading column,
+ * not a full screen: rules are short rows and would stretch thin. */
+.workflow-full .workflow-pane-list {
+  flex: 0 0 400px;
+  max-width: min(430px, 44vw);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 14px;
+}
+.workflow-full .workflow-canvas[data-view='list'] .workflow-pane-list {
+  flex: 1 1 auto;
+  max-width: 900px;
+  margin: 0 auto;
+  border-left: none;
+  padding: 20px;
+  width: 100%;
+}
+/* Code gets the room it never had in the dialog, in a column narrow enough
+ * to read. The AI panel floats over the right edge, as everywhere else. */
+.workflow-full .workflow-pane-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+.workflow-full .workflow-pane-code .workflow-code {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.workflow-full .workflow-pane-code .cw-area {
+  min-height: 52vh;
+}
+/* The chat panel is fixed at the right edge. While it is open, the code
+ * column gives up its width instead of hiding text under the panel; below
+ * 1100px the panel covers most of the screen anyway. */
+@media (min-width: 1100px) {
+  body.ai-panel-open .workflow-full .workflow-pane-code {
+    padding-right: 432px;
+  }
+}
+.workflow-view-spacer {
+  flex: 1;
+}
+/* Map stages and guarded arrows behave like buttons. */
+.workflow-scheme-svg g[role='button'] {
+  outline: none;
+}
+.workflow-scheme-svg g[role='button']:focus-visible rect {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+/* Free (unguarded) arrows have no rule block to jump to — not clickable. */
+.workflow-scheme-svg g.free .workflow-scheme-hit {
+  cursor: default;
+}
+@media (max-width: 760px) {
+  .workflow-full .workflow-canvas {
+    flex-direction: column;
+  }
+  .workflow-full .workflow-pane-scheme {
+    flex: 0 0 42%;
+    border-bottom: 1px solid var(--border);
+    padding: 12px;
+  }
+  .workflow-full .workflow-pane-list,
+  .workflow-full .workflow-canvas[data-view='list'] .workflow-pane-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-width: none;
+    border-left: none;
+  }
+  .workflow-full .workflow-pane-code {
+    padding: 10px;
+  }
+}
+/* A phone cannot hold the title, three tabs and three actions on one row.
+ * The title takes its own line and the rest wraps; without this the Save
+ * button sat off the right edge of the screen. */
+@media (max-width: 640px) {
+  .workflow-full .workflow-view-toggle {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 10px;
+  }
+  .workflow-full-title {
+    flex: 1 1 100%;
+    margin: 0 0 2px;
+  }
+  .workflow-full .workflow-view-spacer {
+    display: none;
+  }
+  .workflow-full .workflow-view-tab {
+    padding: 4px 10px;
+  }
 }
 .workflow-chips {
   display: flex;
@@ -4311,6 +4978,404 @@ button.workflow-issue {
 }
 .workflow-sim-row .dialog-hint {
   margin: 0;
+}
+
+/* Process code tab: a read-only rendering of the visual rules plus one
+ * plain-text editor per code block with server-reported errors. */
+.workflow-code {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.workflow-code-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.workflow-code-pre {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--sidebar-bg);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.workflow-code-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.workflow-code-block-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workflow-code-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+.workflow-code-count {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.workflow-code-area {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+  tab-size: 4;
+}
+.workflow-code-area-bad {
+  border-color: var(--destructive);
+}
+
+/* Two layers over one textarea: the <pre> paints the keywords, the textarea
+ * holds the caret and the real text (transparent), so selection, undo and IME
+ * stay the browser's own. Both children share the same metrics by using the
+ * textarea to size the box and the <pre> to fill it. */
+.cw-wrap {
+  position: relative;
+  /* Gutter width follows the digit count, so 9 lines and 1000 lines both sit
+     flush against the text instead of leaving a ragged gap. */
+  --cw-gutter: calc(var(--cw-digits, 2) * 1ch + 16px);
+  --cw-pad: 8px 10px;
+}
+/* One logical line is one visual line: the server reports errors by line, and
+ * a wrapped line would make that number point somewhere else on screen. */
+.cw-wrap .cw-pre,
+.cw-wrap .cw-area {
+  /* The two layers must advance character for character: identical family,
+     weight and ligature settings, or the caret drifts into the middle of the
+     painted glyphs. */
+  font-weight: 400;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: var(--cw-pad);
+  padding-left: calc(var(--cw-gutter) + 12px);
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 6px;
+  tab-size: 4;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  letter-spacing: normal;
+}
+.cw-gutter {
+  position: absolute;
+  /* Above the textarea, which fills the box: numbers must stay clickable and
+     the text never reaches into the gutter (padding-left keeps it out). */
+  z-index: 2;
+  top: 1px;
+  bottom: 1px;
+  left: 1px;
+  width: calc(var(--cw-gutter) + 6px);
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  border-radius: 6px 0 0 6px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  user-select: none;
+  pointer-events: none;
+}
+.cw-gutter-inner {
+  padding-top: 8px;
+  will-change: transform;
+}
+.cw-ln {
+  height: 19.2px;
+  padding-right: 8px;
+  text-align: right;
+  opacity: 0.55;
+  pointer-events: auto;
+  cursor: default;
+}
+.cw-ln-err {
+  color: var(--destructive);
+  opacity: 1;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cw-pre {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg);
+  overflow: hidden;
+  pointer-events: none;
+}
+.cw-area {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--fg);
+}
+.cw-area::placeholder {
+  color: transparent;
+}
+.cw-area::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.cw-placeholder {
+  position: absolute;
+  top: 9px;
+  left: calc(var(--cw-gutter) + 23px);
+  right: 11px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+/* Grammar colours: green keywords, warm strings, muted comments. */
+.cw-kw {
+  color: #8b5cf6;
+}
+[data-theme='dark'] .cw-kw {
+  color: #b39dff;
+}
+.cw-str {
+  color: #0f7b4f;
+}
+[data-theme='dark'] .cw-str {
+  color: #6fd39b;
+}
+.cw-num {
+  color: #b45309;
+}
+[data-theme='dark'] .cw-num {
+  color: #e2a55b;
+}
+.cw-bi {
+  color: #b45309;
+  font-style: italic;
+}
+[data-theme='dark'] .cw-bi {
+  color: #e2a55b;
+}
+.cw-com {
+  color: var(--muted);
+  font-style: italic;
+}
+/* Typing help: the list sits under the caret, above the gutter and the
+ * painted text. Narrow on purpose — one label, one kind, one hint. */
+.cw-complete {
+  position: absolute;
+  z-index: 4;
+  width: 272px;
+  max-height: 228px;
+  overflow-y: auto;
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  font-size: 12.5px;
+}
+.cw-complete-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 4px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cw-complete-item.is-active {
+  background: var(--hover);
+}
+.cw-complete-kind {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--muted);
+}
+.cw-kind-kw {
+  background: #8b5cf6;
+}
+[data-theme='dark'] .cw-kind-kw {
+  background: #b39dff;
+}
+.cw-kind-st {
+  background: var(--accent);
+}
+.cw-kind-pr {
+  background: #0f7b4f;
+}
+[data-theme='dark'] .cw-kind-pr {
+  background: #6fd39b;
+}
+.cw-complete-label {
+  font-family: var(--mono, ui-monospace, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cw-complete-detail {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 136px;
+}
+.cw-complete-foot {
+  margin-top: 2px;
+  padding: 4px 6px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.workflow-code-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* Escape hatches beside a paused List: fix it where it lives, or throw the
+ * half-written draft away. */
+.workflow-issue-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+/* The pause notice also sits in the fullscreen side panel, which is 400px
+ * wide: side-by-side buttons squeezed the sentence to one word per line. */
+.workflow-locked-notice {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.workflow-locked-notice > span:first-child {
+  flex: 1 1 220px;
+}
+.workflow-code-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--destructive);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+/* The "this only lives in code" ask: move the rule or keep editing it. */
+/* The AI button and the proposal banner read as one affordance: same accent,
+ * so "the agent can change this" is visible without a second colour. */
+.workflow-ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.workflow-code-move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.workflow-code-silence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.workflow-code-move-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.workflow-code-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+/* Locked rows in the List tab: code blocks readable here, edited in Code. */
+.workflow-code-locks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.workflow-code-lock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  font-size: 13px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
+}
+.workflow-code-lock-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.workflow-code-lock-meta {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 /* The shared select editor inside a rule row: it renders inline-block by
@@ -4479,7 +5544,166 @@ button.workflow-issue {
   font-size: 12px;
 }
 
-/* Relation picker */
+/* A lookup cell whose value lives in another record. It reads as text — a
+   column of pills turns a table into a gallery — and the way to the record it
+   comes from sits beside the field. Several records put their values on one
+   line, joined with a semicolon, and open a list on click: a join is never
+   edited as a string, every write lands in its own record. */
+.prop-lookup-inline {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+}
+.prop-lookup-field {
+  flex: 1;
+  min-width: 0;
+}
+.prop-lookup-field .prop-input,
+.prop-lookup-field .prop-textarea {
+  width: 100%;
+}
+/* The way to the record exists while the field is being edited: reading a
+   table should not carry a button in every cell. Its place is reserved even
+   while it is invisible — a button that appears on focus must not narrow the
+   field underneath, or the text rewraps and the editor outgrows its box. */
+.prop-lookup-open {
+  flex: 0 0 auto;
+  display: inline-flex;
+  visibility: hidden;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.65;
+}
+.prop-lookup-inline:focus-within .prop-lookup-open {
+  visibility: visible;
+}
+.prop-lookup-open:hover {
+  background: var(--hover);
+  color: var(--fg);
+  opacity: 1;
+}
+.prop-lookup-many {
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+}
+.prop-lookup,
+.prop-lookup-plain {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  background: none;
+  padding: 1px 2px;
+  margin: -1px -2px;
+  border-radius: 4px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.prop-lookup {
+  cursor: text;
+}
+.prop-lookup:hover {
+  background: var(--hover);
+}
+
+/* The list behind a multi-record lookup: one block per record, each with its
+   own title, the way to open it, and the field that belongs to it. */
+.lookup-menu {
+  overflow-y: auto;
+}
+.lookup-menu-row {
+  padding: 7px 6px 5px;
+  border-bottom: 1px solid var(--border);
+}
+.lookup-menu-row:last-child {
+  border-bottom: 0;
+}
+.lookup-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.lookup-menu-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+.lookup-menu-open {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.lookup-menu-open:hover {
+  background: var(--hover);
+}
+/* A menu opened to edit is not a cell being read: the field is drawn as a
+   field, so it is obvious where to type without clicking first. */
+.lookup-menu-field {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  /* The field is a field, at the size every other field in the app uses — not
+     whatever the menu around it happens to inherit. */
+  font-size: 13px;
+  line-height: 1.45;
+}
+.lookup-menu-field:focus-within {
+  border-color: var(--border-strong);
+}
+.lookup-menu-field .prop-input,
+.lookup-menu-field .prop-textarea {
+  width: 100%;
+  font-size: 13px;
+  /* The wrapper is the field here: an inner border (and the accent ring a
+     focused input draws) would read as a box inside a box. */
+  border-color: transparent;
+  background: transparent;
+}
+.lookup-menu-field .prop-input:focus,
+.lookup-menu-field .prop-input:hover {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* The column that carries linked values says so once, in its header, instead
+   of marking every cell. */
+.th-link {
+  display: inline-flex;
+  margin-left: 4px;
+  color: var(--muted);
+  opacity: 0.75;
+  vertical-align: -2px;
+}
 
 .relation-value {
   position: relative;
@@ -4544,6 +5768,36 @@ button.relation-chip:hover {
 .relation-open-btn:hover {
   color: var(--accent);
   background: var(--hover);
+}
+
+/* The way out of a link the picker cannot toggle: a related row that is in the
+   trash, or one whose page is gone. Only those chips render it — the ordinary
+   chip stays as calm as it was, and unlinking a live row is still the picker. */
+.relation-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  border-radius: 4px;
+}
+.relation-remove-btn:hover {
+  color: var(--accent);
+  background: var(--hover);
+}
+
+/* A related row that is in the trash: still linked (restoring brings it back),
+   named rather than printed as an id, and visibly parked. */
+.relation-chip.is-trashed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.75;
+}
+.relation-chip.is-trashed svg {
+  flex: none;
 }
 
 /* On cards a relation chip folds instead of forcing the card wider than its
@@ -4801,6 +6055,29 @@ button.relation-chip:hover {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+/* How many span units to show at once: the − N + stepper at the foot of the
+   period menu (one control: period and count are picked in the same place). */
+.cal-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+.view-tab-menu .cal-count {
+  margin: 2px 4px 4px;
+  justify-content: space-between;
+}
+.cal-count .btn-sm:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.cal-count-num {
+  min-width: 1.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
 .cal-grids {
@@ -5424,7 +6701,7 @@ body.is-unsched-carry .tl-end-space {
 
 /* Print: drop the app chrome, show the page content full width. */
 
-/* ---- Print / PDF: a clean typeset document, no app chrome (Welle 27) ---- */
+/* ---- Print / PDF: a clean typeset document, no app chrome (W27) ---- */
 @page {
   margin: 18mm 16mm;
 }
@@ -5595,6 +6872,141 @@ body.is-unsched-carry .tl-end-space {
   gap: 6px;
 }
 
+/* The document minimap: thin bars at the viewport's right edge, one per
+   heading, longer for higher headings (Notion-style). Hovering the rail
+   opens the headings as clickable entries (mouse); a tap jumps straight
+   there. Clicking a bar or an entry jumps to it. At rest the bars read
+   uniform; the current one lights up only while the popup is open. Shown
+   everywhere but phones, the peek panel (no room to spare) and print. */
+.outline-minimap {
+  position: fixed;
+  right: 14px;
+  /* A third down, not dead center: the eye lands there first. */
+  top: 33%;
+  transform: translateY(-50%);
+  z-index: 60;
+  display: none;
+}
+/* The rail floats over the page edge, so it stays out of the text's way
+   even in a half-width window; only phones and the peek panel (which has no
+   room to spare) and print go without. */
+@media (min-width: 600px) {
+  .outline-minimap {
+    display: block;
+  }
+  .peek-panel .outline-minimap {
+    display: none;
+  }
+}
+@media print {
+  .outline-minimap {
+    display: none;
+  }
+}
+.outline-bars {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 8px 4px 8px 12px;
+}
+.outline-bar {
+  display: block;
+  /* The button itself is just a tall hit target; the visible strip is
+     painted by ::before so its corner radius is exact, not derived from
+     the padding box. */
+  height: 13px;
+  padding: 0 2px 0 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.outline-bar::before {
+  content: '';
+  display: block;
+  height: 2px;
+  margin-top: 6px;
+  border-radius: 1px;
+  background-color: color-mix(in srgb, var(--fg) 60%, transparent);
+  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+}
+.outline-bar:hover::before {
+  background-color: var(--fg);
+}
+/* At rest every bar reads the same: no highlight while the rail is idle.
+   The white glow lives only under an open popup — like Notion, where the
+   current section lights up once the outline is showing. */
+.outline-bar.is-on::before {
+  background-color: color-mix(in srgb, var(--fg) 60%, transparent);
+  box-shadow: none;
+}
+.outline-minimap.is-open .outline-bar.is-on::before {
+  background-color: var(--fg);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fg) 70%, transparent);
+}
+@keyframes outline-popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0) scale(1);
+  }
+}
+.outline-popup {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 264px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  padding: 6px;
+  animation: outline-popup-in 0.15s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .outline-popup {
+    animation: none;
+  }
+}
+.outline-popup-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 6px 8px 4px;
+}
+.outline-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 5px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.outline-item:hover {
+  background: var(--hover);
+}
+.outline-item.is-on {
+  color: var(--accent);
+}
+
 .bn-bookmark-input {
   width: 100%;
 }
@@ -5675,10 +7087,14 @@ body.is-unsched-carry .tl-end-space {
 
 /* Agent keys from listed addresses only (Access tab). An address list is read
    column by column, so it is set in the monospace face the config blocks use. */
-.agent-addresses {
+.prop-input.agent-addresses {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   resize: vertical;
+  /* The settings body is a scrolling flex column; without this the box was
+     squeezed to one clipped line. */
+  flex-shrink: 0;
+  min-height: 7em;
 }
 
 .agent-addresses-actions {
@@ -5701,6 +7117,29 @@ body.is-unsched-carry .tl-end-space {
 
 .settings-body {
   min-height: 240px;
+}
+
+/* Plain data table for the AI usage tab: full width, quiet header, numbers
+   right-aligned. */
+.settings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.settings-table th,
+.settings-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.settings-table td.num,
+.settings-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .settings-check {
@@ -6143,6 +7582,8 @@ body.is-unsched-carry .tl-end-space {
   border-radius: 8px;
   vertical-align: middle;
   font-weight: 500;
+  /* "read-write" is one label; in a narrow row it broke at the hyphen. */
+  white-space: nowrap;
 }
 
 .token-scope.read {
@@ -6584,6 +8025,63 @@ body.is-unsched-carry .tl-end-space {
   gap: 6px;
 }
 
+/* The grip is the condition's own, at its head: dragging the block reorders
+   it inside its group and across the OR divider. touch-action none keeps a
+   phone from scrolling the popover instead of moving the row. */
+.fs-drag {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  margin: -2px 0 -2px -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+.fs-drag:hover {
+  color: var(--foreground);
+  background: var(--hover);
+}
+.fs-drag:active {
+  cursor: grabbing;
+}
+.fs-filter.is-drag-source {
+  opacity: 0.45;
+}
+.fs-filter.is-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.fs-filter.is-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+/* Sorts have no box of their own, so the same line goes across the row. */
+.fs-sort-row.is-drag-source {
+  opacity: 0.45;
+}
+.fs-sort-row.is-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.fs-sort-row.is-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+body.filter-dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+/* Right-click on a condition: fixed at the pointer, above the popover, and
+   overruling .menu's own right edge (which would otherwise stretch the box). */
+.filter-menu {
+  right: auto;
+  z-index: 330;
+  min-width: 170px;
+}
+
 .fs-filter-head .fs-label {
   flex: 1;
   font-weight: 500;
@@ -6612,10 +8110,83 @@ body.is-unsched-carry .tl-end-space {
   flex: 1;
   min-width: 0;
 }
+/* The case switch sits beside the value, not inside it: it is about the whole
+   condition, and it must not stretch like the input. */
+.fs-filter-value .fs-case {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.fs-filter-value .fs-case.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 
 .fs-filter-value .prop-select,
 .fs-filter-value .prop-input {
   border: 1px solid var(--border);
+}
+
+.fs-filter-value .fs-person-value {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-person-btn {
+  width: 100%;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fs-person-btn:hover {
+  background: var(--hover);
+}
+
+.fs-person-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.menu.relation-menu.fs-person-menu {
+  position: relative;
+  top: 4px;
+  left: 0;
+  right: auto;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  z-index: 50;
+}
+
+.fs-person-menu .relation-options {
+  max-height: 200px;
+}
+
+.fs-person-mename {
+  opacity: 0.65;
+  font-size: 12px;
 }
 
 /* The tick list. Several values are ONE condition now, so "not A and not H" is
@@ -6715,6 +8286,13 @@ body.is-unsched-carry .tl-end-space {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  border-radius: 10px;
+}
+/* A group with no rows offers nothing to aim at; while a condition is in the
+   air, the end of a group is worth showing. */
+.fs-group.is-drop-end {
+  outline: 1px dashed var(--accent);
+  outline-offset: 3px;
 }
 
 .fs-or {
@@ -7007,6 +8585,12 @@ body.is-unsched-carry .tl-end-space {
   top: 34px;
   right: auto;
   min-width: 200px;
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+}
+
+.ws-menu > * {
+  flex-shrink: 0;
 }
 
 .ws-menu button {
@@ -7037,6 +8621,70 @@ body.is-unsched-carry .tl-end-space {
   width: 300px;
   padding: 10px;
   gap: 8px;
+}
+
+/* ---------- Unified share dialog (Share | Publish tabs) ---------- */
+
+.share-dialog {
+  right: 0;
+  top: 30px;
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  max-height: min(72vh, 620px);
+  overflow-y: auto;
+  padding: 12px;
+  gap: 10px;
+}
+
+/* Share | Publish tabs: the same quiet segmented control as the schema
+   editor's Properties | Process — one look for tabs everywhere. */
+.share-tabs {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 10px;
+}
+
+.share-dialog .share-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.share-dialog .share-tab:hover {
+  color: var(--fg);
+}
+
+.share-dialog .share-tab.is-on {
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+/* The two old menus now live one level down, as tab panels: drop their
+   floating chrome (position, frame) and the rows the dialog itself covers —
+   the tabs above and the outside-click dismissal around it. */
+.share-dialog .access-menu,
+.share-dialog .share-menu {
+  position: static;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  padding: 2px;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+.share-dialog .access-title,
+.share-dialog .share-actions-full {
+  display: none;
 }
 
 .share-hint {
@@ -7190,6 +8838,7 @@ body.is-unsched-carry .tl-end-space {
 
 .share-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   justify-content: flex-end;
 }
@@ -7305,14 +8954,15 @@ body.is-unsched-carry .tl-end-space {
 
 /* ---------- Scrollbars ---------- */
 
-/* Hidden entirely — scrolling still works via wheel, trackpad, touch and
-   keyboard; the bars themselves are just noise. Both mechanisms are needed:
-   `scrollbar-width` (the standard property) for Firefox AND Chrome 121+,
-   `::-webkit-` for Safari/older WebKit. Never set `scrollbar-width` per
-   element to something visible again: the moment the standard property is
-   set (it used to be `thin` on .board-cards), Chrome ignores EVERY
-   ::-webkit rule on that element and paints its default bars — that is
-   exactly how the board columns got white scrollbars in dark mode. */
+/* Hidden almost everywhere: scrolling still works via wheel, trackpad, touch
+   and keyboard, and the bars themselves are just noise. Both mechanisms are
+   needed: `scrollbar-width` (the standard property) for Firefox AND Chrome
+   121+, `::-webkit-` for Safari/older WebKit. No per-element exceptions:
+   boards scroll like everything else, so Chrome keeps honouring the
+   ::-webkit rules. Setting `thin` or `auto` on an element makes Chrome ignore
+   EVERY ::-webkit rule on it and paint its default bars: `thin` on
+   .board-cards is exactly how the board columns once got white scrollbars in
+   dark mode. The same goes for `scrollbar-color`, so it is not set anywhere. */
 * {
   scrollbar-width: none;
 }
@@ -7323,7 +8973,10 @@ body.is-unsched-carry .tl-end-space {
   display: none;
 }
 
-/* ---- Named tag colour palette (Welle 28), Notion-style ---- */
+/* Boards scroll like everything else: wheel, trackpad, touch and keyboard.
+   No separate visible bar. */
+
+/* ---- Named tag colour palette (W28), Notion-style ---- */
 .tag-gray   { background: hsl(220 14% 90%); color: hsl(220 10% 34%); }
 .tag-brown  { background: hsl(28 30% 87%);  color: hsl(25 40% 34%); }
 .tag-orange { background: hsl(32 85% 90%);  color: hsl(28 70% 36%); }
@@ -7371,7 +9024,7 @@ body.is-unsched-carry .tl-end-space {
 .db-row-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: middle; }
 .db-row-tags .row-tag { font-size: 11px; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
 
-/* ---- Page description (Welle 27) ---- */
+/* ---- Page description (W27) ---- */
 .page-description {
   margin: 0 0 8px;
   font-size: 15px;
@@ -7402,7 +9055,7 @@ body.is-unsched-carry .tl-end-space {
 }
 .row-prop {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 14px;
   padding: 2px 0;
   min-height: 30px;
@@ -7433,7 +9086,9 @@ body.is-unsched-carry .tl-end-space {
 .row-prop-value .prop-text {
   display: inline-block;
   max-width: 100%;
-  white-space: normal;
+  /* The line breaks a value holds are part of it (#108). The table keeps one
+     line per row; here and on cards they show. */
+  white-space: pre-wrap;
   font-size: 14px;
 }
 .row-prop-value .prop-date {
@@ -7444,7 +9099,7 @@ body.is-unsched-carry .tl-end-space {
 .ws-img { width: 18px; height: 18px; border-radius: 4px; object-fit: cover; flex: none; vertical-align: -4px; }
 .ws-emoji { font-size: 15px; line-height: 1; }
 
-/* Workspace switcher avatar + menu items (Welle 27) */
+/* Workspace switcher avatar + menu items (W27) */
 .ws-caret { margin-left: auto; color: var(--muted); flex: none; }
 .ws-letter {
   width: 18px; height: 18px; border-radius: 5px; flex: none;
@@ -7465,7 +9120,7 @@ body.is-unsched-carry .tl-end-space {
 .ws-menu .menu-item { display: flex; align-items: center; gap: 8px; }
 .ws-menu .menu-item svg { flex: none; color: var(--muted); }
 
-/* ---- Select / Multiselect cell editor (Welle 29) ---- */
+/* ---- Select / Multiselect cell editor (W29) ---- */
 .select-cell { display: inline-block; max-width: 100%; }
 .select-cell-value {
   display: inline-flex;
@@ -7525,6 +9180,11 @@ body.is-unsched-carry .tl-end-space {
 .select-back:hover { background: var(--hover); color: var(--fg); }
 .select-editing-name { padding: 4px 6px 8px; }
 .select-option-check { margin-left: auto; color: var(--muted); display: inline-flex; }
+/* A status move the process refuses for this row: marked, never hidden. The
+   chip fades and a lock takes the check's place, with the reason on hover —
+   the option stays pickable and the same reason returns as a toast. */
+.select-option.is-blocked .prop-chip { opacity: 0.5; }
+.select-option.is-blocked .select-option-check { color: var(--muted); opacity: 0.8; }
 .select-option-more {
   padding: 4px 8px;
   color: var(--muted);
@@ -7548,7 +9208,7 @@ body.is-unsched-carry .tl-end-space {
 .select-empty { padding: 8px; font-size: 12.5px; color: var(--muted); }
 .tag-color-opt.danger { color: var(--danger); }
 
-/* ---- Tags + editable select props on Board / Gallery / Calendar cards (Welle 30) ---- */
+/* ---- Tags + editable select props on Board / Gallery / Calendar cards (W30) ---- */
 .card-tags { margin: 4px 0 2px; }
 .card-prop-edit { display: block; }
 .card-prop-edit .select-cell { width: 100%; }
@@ -7556,7 +9216,7 @@ body.is-unsched-carry .tl-end-space {
 .cal-event-tags { display: inline-flex; flex-wrap: wrap; gap: 3px; margin-left: 4px; }
 .cal-event-tags .row-tag { font-size: 10px; padding: 0 5px; }
 
-/* ---- Sidebar cleanup (Welle 31) ---- */
+/* ---- Sidebar cleanup (W31) ---- */
 .sidebar-footer-row {
   display: flex;
   align-items: center;
@@ -7810,7 +9470,7 @@ body.is-unsched-carry .tl-end-space {
 
 /* Tag chips deliberately WITHOUT a shadow — the colour is enough (user feedback, W43). */
 
-/* ---- Karten: Hover mit Lift + farbigem Schein ---- */
+/* ---- Cards: a lift and a coloured glow on hover ---- */
 
 .gallery-card {
   transition: box-shadow 0.18s ease, transform 0.15s ease, border-color 0.15s ease;
@@ -7833,7 +9493,7 @@ body.is-unsched-carry .tl-end-space {
   box-shadow: 0 4px 14px rgba(var(--accent-rgb), 0.12);
 }
 
-/* ---- Sidebar: Anlege-Buttons leuchten beim Hover ---- */
+/* ---- Sidebar: the create buttons light up on hover ---- */
 
 .new-page {
   border-radius: 8px;
@@ -7855,7 +9515,7 @@ body.is-unsched-carry .tl-end-space {
     0 4px 24px rgba(var(--accent-rgb), 0.1);
 }
 
-/* ---- Workspace-Knopf: Regenbogen-Ring beim Hover (Taskade-Badge) ---- */
+/* ---- Workspace button: a rainbow ring on hover (Taskade badge) ---- */
 
 .ws-btn {
   position: relative;
@@ -7870,7 +9530,7 @@ body.is-unsched-carry .tl-end-space {
     0 2px 12px rgba(var(--glow-pink), 0.12);
 }
 
-/* ---- Suchfeld: leuchtet beim Fokus/Hover dezent ---- */
+/* ---- Search field: a subtle glow on focus and hover ---- */
 
 .sidebar-search {
   transition: box-shadow 0.18s ease, border-color 0.15s ease;
@@ -8157,7 +9817,7 @@ body.is-unsched-carry .tl-end-space {
   box-shadow: 0 2px 10px rgba(var(--accent-rgb), 0.1);
 }
 
-/* ---- Dialoge: neutral-elegant (kein Rainbow) ---- */
+/* ---- Dialogs: neutral and quiet (no rainbow) ---- */
 
 .dialog {
   position: relative;
@@ -8305,7 +9965,7 @@ a.btn {
   color: var(--fg);
 }
 
-/* ---- W43: Anlege-Zeile unter dem Titel (Emoji / Cover / Beschreibung) ---- */
+/* ---- W43: the add row under the title (emoji / cover / description) ---- */
 
 .head-adders {
   position: relative;
@@ -8978,6 +10638,30 @@ a.btn {
   padding: 0 0 80px;
   overflow-y: auto;
 }
+/* The one way out of a read-only share for a reader who can actually edit:
+   only rendered when the access check says yes (see handlePublicEditAccess). */
+.public-edit-link {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 560;
+  text-decoration: none;
+}
+.public-edit-link:hover {
+  background: var(--hover);
+}
+
 .public-collection {
   max-width: 1100px;
   margin: 0 auto;
@@ -10897,7 +12581,7 @@ a,
   margin: 12px 0;
 }
 
-/* ---------- Kanban: Dichte und Lesbarkeit (Trello-Vorbild) ---------- */
+/* ---------- Kanban: density and legibility (after Trello) ---------- */
 
 /* Empty select fields disappear and come back on hover. Without that, a row of
    placeholders sits under every title. On touch there is no hover — there you
@@ -10929,7 +12613,7 @@ a,
 :root[data-theme='light'] .prop-date.is-overdue { color: #c2410c; }
 :root[data-theme='light'] .prop-date.is-soon { color: #a16207; }
 
-/* URL als kompakter Verweis statt als volle Zeile Rohtext. */
+/* A URL as a compact link instead of a full line of raw text. */
 .prop-url-chip {
   display: inline-flex;
   align-items: center;
@@ -11080,6 +12764,18 @@ a,
 }
 .cp-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .cp-author { font-weight: 600; font-size: 13px; }
+.cp-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cp-agent::before {
+  content: '·';
+  margin-right: 1px;
+}
 .cp-time { font-size: 11.5px; color: var(--muted); margin-left: auto; }
 .cp-body {
   font-size: 13.5px;
@@ -11262,7 +12958,7 @@ a,
   border-color: var(--fg);
 }
 
-/* ---------- W97: Profil-2FA-Zeile, Passwort-Fehler, Nutzerverwaltung ---------- */
+/* ---------- W97: profile 2FA row, password errors, user management ---------- */
 
 .profile-2fa-row {
   display: flex;
@@ -11428,7 +13124,7 @@ a,
 }
 .ws-access-name { font-weight: 600; font-size: 13.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Rollenauswahl als Segment-Schalter — ein Klick setzt die Rolle. */
+/* The role picker as a segmented switch: one click sets the role. */
 .ws-role-seg {
   display: inline-flex;
   border: 1px solid var(--border);
@@ -12343,21 +14039,9 @@ body:has(.confirm-dialog) .dialog:not(.confirm-dialog) {
   }
 }
 
-/* --- the view's own menu ------------------------------------------------------
-   It lives in the toolbar with filter, sort and columns, because that row is
-   already "settings for the view you are on". Inside the tab it was a smudge in
-   the pill, and it had to reserve room in a row where nothing else does — which
-   pushed every tab apart at rest. */
-
-.view-menu-wrap {
-  position: relative;
-  display: inline-flex;
-}
-
+/* The view menu (rename / move / remove of one view) opens from its tab, so
+   its positioning is set from the pointer. Only the width is shared. */
 .view-tab-menu {
-  top: 30px;
-  right: 0;
-  left: auto;
   min-width: 170px;
 }
 
@@ -12367,6 +14051,22 @@ body:has(.confirm-dialog) .dialog:not(.confirm-dialog) {
 .token-origin {
   font-variant-numeric: tabular-nums;
   font-family: var(--mono, ui-monospace, monospace);
+}
+
+/* A signed-in connection has more to say than a token (since when, and from
+   where), so its details get a line of their own under the name. Beside it,
+   as a token's do, they squeezed the name into a narrow column. */
+.grant-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.grant-row-meta {
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
 /* --- the consent screen -------------------------------------------------------
@@ -13557,3 +15257,46 @@ body:has(.live-down) .update-banner {
   white-space: nowrap;
 }
 
+/* Compact clipboard action inside the public-link field. */
+.share-link-row { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.share-link-row .share-input { flex: 1; min-width: 0; border: 0; margin: 0; background: transparent; }
+.share-copy { flex: 0 0 32px; margin-right: 3px; }
+.share-copy:disabled { opacity: .4; }
+
+.share-copy-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* A URL cell edits in place; opening the destination is a separate target. */
+.prop-url-value { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.prop-url-edit { flex: 1; min-width: 0; border: 0; background: transparent; padding: 3px 0; text-align: left; cursor: text; font: inherit; }
+.prop-url-edit span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prop-url-open { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; height: 24px; color: var(--muted); border-radius: 4px; }
+.prop-url-open:hover { color: var(--accent); background: var(--hover); }
+.prop-url-value :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Inline comments use the same quiet accent as the rest of the editor. */
+.salt-comment-highlight {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: inset 0 -2px var(--accent);
+  cursor: pointer;
+}
+.cp-item.is-active { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 3px; }
+.cp-quote, .cp-pending {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0;
+  padding: 7px 9px;
+  border: 0;
+  border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--fg);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.cp-quote { cursor: pointer; }
+.cp-quote:disabled { cursor: default; border-color: var(--muted); }
+.cp-quote small { display: block; color: var(--muted); margin-top: 4px; }
+.cp-pending { display: flex; gap: 8px; justify-content: space-between; max-height: 100px; overflow: auto; }
+.cp-pending button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 18px; align-self: start; }

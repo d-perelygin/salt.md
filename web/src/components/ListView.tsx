@@ -1,6 +1,7 @@
-import type { PropDef, PropOption } from '../types';
+import type { LookupCell, PropDef, PropOption } from '../types';
 import PropertyValue from './PropertyValue';
 import { tagColorClass } from '../tags';
+import { FileText } from 'lucide-react';
 import { PageIcon } from '../pageIcon';
 import { t } from '../i18n';
 import { openCollectionRow, openPageAux } from '../pageOpen';
@@ -11,6 +12,7 @@ interface Row {
   icon: string;
   props: Record<string, unknown>;
   tags?: string[];
+  lookup?: Record<string, LookupCell>;
 }
 
 // A list view is deliberately NOT a narrow table: no column grid, no header
@@ -55,7 +57,7 @@ export default function ListView({
           onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
         >
           <span className="list-row-icon">
-            <PageIcon icon={r.icon} size={17} fallback="📄" />
+            <PageIcon icon={r.icon} size={17} fallback={<FileText size={17} />} />
           </span>
           <span className="list-row-title">{r.title || t('Untitled')}</span>
           {r.tags && r.tags.length > 0 && (
@@ -76,6 +78,8 @@ export default function ListView({
                   key={p.id}
                   def={p}
                   value={r.props?.[p.id]}
+                  rowProps={r.props}
+                  lookup={r.lookup?.[p.id]}
                   compact
                   readOnly={readOnly}
                   onChange={readOnly ? undefined : (v) => onSetProp(r.id, p.id, v)}

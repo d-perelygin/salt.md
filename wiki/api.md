@@ -147,18 +147,31 @@ workspace created next month is covered too.
 
 `POST /oauth/token` answers `access_token`, `token_type`, `expires_in`
 (3600), `refresh_token` and `scope`. **The refresh token rotates**: each refresh
-replaces the grant, so the previous refresh token stops working.
+hands out a new one, and the previous one stops working five minutes later. The
+grant itself stays the same one, with its id, its creation date and its last
+use, so the list of connections below does not change under you every hour.
+
+Those five minutes are for clients that renew from several places at once, as
+hosted connectors do. Inside them the previous token is answered with the same
+new refresh token and a fresh access token, so it does not matter which answer
+the client stores last. A refresh leaves the access token it replaces alone, and
+that token runs out by itself. After the five minutes, or once the connection
+has been ended, the previous token gets `invalid_grant`, and the server log says
+`oauth: refused renewal from <address>: <reason>`. The fail2ban filter does not
+read that line, because these requests come from the address of the agent
+platform.
 
 ### Connections you have granted
 
 | Method and path | What it does |
 | --- | --- |
-| `GET /api/oauth/grants` | what is connected to your account: client name, scope, workspaces, when and from where it was last used |
+| `GET /api/oauth/grants` | what is connected to your account: `id`, `clientName`, `scope`, `workspaces` (comma-separated ids, empty for all), `createdAt` (when it was approved), and `lastUsedAt` and `lastUsedIp` |
 | `DELETE /api/oauth/grants/{id}` | disconnect: the grant and every access token minted from it go at once |
 
-Both need a browser sign-in. This is the counterpart to the token list, and it
-is the only way to cut off an agent that signed in: revoking a token does
-nothing to a grant.
+Both need a browser sign-in, and the **Signed-in connections** list in the
+**API tokens** dialog is built on them. This is the counterpart to the token
+list: revoking a token does nothing to a grant, and ending a grant does nothing
+to a token.
 
 ### What a token is, and what it is not
 
@@ -174,9 +187,10 @@ list of workspaces. It is not an administrator's pass.
   `workspace_scoped`.
 - **Administration needs a browser.** Account management, *changing* instance
   settings, the instance backup, invitations, two-factor, minting further
-  tokens, workspace rules, emergency access and discarding a page's raw trail
-  all refuse a token with `403` and the code `session_required`. Without that
-  rule a token handed to an agent could issue itself a wider one.
+  tokens, the calendar key, workspace rules, a workspace's rule for agents,
+  emergency access and discarding a page's raw trail all refuse a token with
+  `403` and the code `session_required`. Without that rule a token handed to an
+  agent could issue itself a wider one.
 - **Reading the admin views is the exception.** `GET /api/settings` and
   `GET /api/admin/info` check the admin flag and nothing else, so an admin's
   token, read-only included, gets the settings object and the instance figures.
@@ -209,7 +223,7 @@ are the calls that hand you a document:
 Failures carry an English sentence and, usually, a machine-readable code:
 
 ```json
-{ "error": "This action requires signing in through a browser — an API token is not enough.",
+{ "error": "This action requires signing in through a browser. An API token is not enough.",
   "code": "session_required" }
 ```
 
@@ -375,16 +389,18 @@ GET /api/collections/{id}/rows?filter={"property":"due","op":"between","value":"
 `value2` is the upper bound of `between`, inclusive; without it the condition
 does nothing.
 
-A `filter_group` param carries one OR group: a JSON array of conditions in the
-same shape, ANDed inside. Groups are ORed between each other:
+Conditions can also be combined with OR. `filter_group` is repeatable too, and
+each one is a JSON array of conditions in the object spelling: the conditions
+inside one group must all hold, and a row needs to pass only one group. Every
+`filter` holds on top of that, so the two together read "this AND (that OR
+those)". A group without one complete condition is ignored:
 
 ```
-GET /api/collections/{id}/rows?filter_group=[{"property":"status","op":"is","value":"done"}]&filter_group=[{"property":"priority","op":"is","value":"high"}]
+GET /api/collections/{id}/rows?filter=status:is_not:done&filter_group=[{"property":"owner","op":"is","value":"ada"}]&filter_group=[{"property":"due","op":"lt","value":"2026-04-01"}]
 ```
 
-Combined with repeatable `filter`, those distribute into every group, so
-`filter=due:gt:2026-01-01` beside the two groups above reads "due after
-January 1st AND (done OR high priority)". `sort` is
+A saved view keeps flat filters only, because that is all the interface shows.
+`sort` is
 `prop:asc` or `prop:desc`. The answer is
 `{"rows": […], "total": n, "offset": …, "limit": …}`, where `total` counts the
 whole filtered set, not the page. Rollups, formulas and backrelations are filled
@@ -493,10 +509,14 @@ itself reversible. [Comments and notes](comments-and-notes.md) and
 (`open`, `strict` or `closed`) and `treeMode` (`split` or `mixed`). Two of them
 answer `403` even to a workspace admin: `autoJoin` (every new account becomes a
 member) is an instance-wide decision and belongs to the owner, and a personal
-space can never be opened to everyone at all.
+space can never be opened to everyone at all. `agentAccess` needs a browser
+sign-in and answers a token `session_required`: what agents may do is a
+person's decision, not an agent's.
 
 **`POST /api/workspaces` has two refusals worth expecting.** A workspace-scoped
-credential gets `403` with `workspace_scoped`. And when an admin has switched
+credential gets `403` with `workspace_scoped`, and so it does from
+`POST /api/workspaces/import` and `POST /api/library/{id}`, which create a
+workspace as well. And when an admin has switched
 user-created workspaces off, everybody who is not an admin gets `403` with
 "creating workspaces is disabled on this instance. Ask an admin".
 
@@ -581,6 +601,7 @@ them:
 | `GET /api/public/form/{token}` | a public form's fillable fields, and nothing else about the database |
 | `POST /api/public/form/{token}/submit` | create a row from an anonymous submission |
 | `GET /public/{token}/files/{name}?exp=…&sig=…` | one upload referenced by the shared page, through a signed address the page mints at render time; only that page's files, never the rest of `/files/` |
+| `GET /public/{token}/files/{name}` | the same upload by the link alone: the token is the credential, a password-protected link needs the cookie its password form sets, and the page's own files are the whole scope |
 
 A share protected by a password wants it in the `X-Share-Password` header and
 answers `403` without it. An expired link is deleted the moment it is asked for

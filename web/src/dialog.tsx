@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, X } from 'lucide-react';
 import Portal from './components/Portal';
 import { t } from './i18n';
 import type { PromptField } from './workflow';
 import { SelectCell, checklistItems } from './components/PropertyValue';
 import WorkflowDateInput from './components/WorkflowDateInput';
 import type { ChecklistItem, PropDef } from './types';
+import { imeComposing } from './keys';
 
 // In-app confirm / prompt dialogs (replacing native window.confirm/prompt,
 // which look out of place and can't be styled). Promise-based: call
@@ -291,7 +292,7 @@ function ChecklistAsk({
             onPaste={(e) => onPaste(e, it, idx)}
           />
           <button type="button" className="pcl-del" title={t('Delete')} onClick={() => remove(it.id)}>
-            ✕
+            <X size={14} />
           </button>
         </div>
       ))}
@@ -443,7 +444,7 @@ export function DialogHost() {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') ok();
+                if (e.key === 'Enter' && !imeComposing(e)) ok();
               }}
             />
           )}

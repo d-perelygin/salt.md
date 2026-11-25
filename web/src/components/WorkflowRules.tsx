@@ -1,9 +1,12 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { PropDef, WorkflowAction, WorkflowConfig, WorkflowPropCond, WorkflowRule } from '../types';
+import { Check, Lock, Maximize2, TriangleAlert, X } from 'lucide-react';
 import { t } from '../i18n';
 import { SelectCell, loadMembers, type Member } from './PropertyValue';
 import { confirm } from '../dialog';
 import WorkflowDateInput from './WorkflowDateInput';
+import WorkflowCode, { CodeLockRows } from './WorkflowCode';
+import { processView, readProcessPart, writeProcessPart, type ProcessView } from '../processSession';
 import {
   analyzeWorkflow,
   condDisplay,
@@ -29,15 +32,27 @@ function defaultTargetId(options: { id: string }[] | undefined): string {
 }
 
 export default function WorkflowRules({
+  collectionId,
   schema,
   workflow,
   onChange,
   highlightRuleId,
+  onSave,
+  onClose,
+  onCodeLockedChange,
 }: {
+  collectionId: string;
   schema: PropDef[];
   workflow: WorkflowConfig | undefined;
   highlightRuleId?: string | null;
   onChange: (w: WorkflowConfig | undefined) => void;
+  /** Save and close belong to the dialog; the fullscreen map hides its
+   *  buttons, so it carries its own pair. */
+  onSave?: () => void;
+  onClose?: () => void;
+  /** Telling the dialog that the Code draft does not compile lets Save
+   *  refuse to close on a stale model. */
+  onCodeLockedChange?: (locked: boolean) => void;
 }) {
   const selectProps = schema.filter((p) => p.type === 'select');
   // A stale statusPropId (the property was deleted or retyped since) must not
@@ -47,6 +62,9 @@ export default function WorkflowRules({
       ? workflow.statusPropId
       : selectProps[0]?.id) ?? '';
   const rules = workflow?.rules ?? [];
+  // Visual plus compiled code: the bar counts what runs, not one half.
+  const totalRules =
+    rules.length + (workflow?.code ?? []).reduce((n, b) => n + (b.rules?.length ?? 0), 0);
 
   const statusProp = schema.find((p) => p.id === statusPropId);
   const statusOpts = statusProp?.options ?? [];
@@ -66,9 +84,85 @@ export default function WorkflowRules({
     commit({ statusPropId, rules: rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
 
   const [openRule, setOpenRule] = useState<string | null>(rules[0]?.id ?? null);
+  // Hovering a rule block in the list lights its arrows on the map —
+  // the reverse direction of clicking a map arrow, which opens the block.
+  const [hoverRuleId, setHoverRuleId] = useState<string | null>(null);
   const [newTarget, setNewTarget] = useState('');
-  // List edits the rules; Scheme is a read-only map of where cards can go.
-  const [view, setView] = useState<'list' | 'scheme'>('list');
+  // List edits the rules; Scheme is a read-only map of where cards can go;
+  // Code edits the process as text. The map and the simulator see the united
+  // rule list (visual plus the last-saved compiled code), the list edits
+  // the visual half only.
+  // Restored after a reload; a normal open starts on the list.
+  const [view, setView] = useState<ProcessView>(() => processView(collectionId) ?? 'list');
+  useEffect(() => {
+    writeProcessPart(collectionId, 'view', view);
+  }, [collectionId, view]);
+  const [codeFocus, setCodeFocus] = useState<{ target: string; n: number } | null>(null);
+  // While the Code text has errors, visual editing pauses: applying a List
+  // edit would silently discard the broken draft. The notice below sends
+  // the reader to fix them.
+  const [codeLocked, setCodeLocked] = useState(false);
+  // Bumped to make the Code tab throw a broken draft away.
+  const [codeDiscard, setCodeDiscard] = useState(0);
+  // A proposal can arrive (or already wait) while the reader is on List or
+  // Scheme; the Code tab keeps its own copy, this only points at it.
+  const [codeProposal, setCodeProposal] = useState(false);
+  useEffect(() => {
+    onCodeLockedChange?.(codeLocked);
+  }, [codeLocked, onCodeLockedChange]);
+  const united = useMemo(() => {
+    if (!workflow) return workflow;
+    const codeRules = (workflow.code ?? []).flatMap((b) => b.rules ?? []);
+    return codeRules.length > 0 ? { ...workflow, rules: [...workflow.rules, ...codeRules] } : workflow;
+  }, [workflow]);
+  // Fullscreen map: the scheme on the left, the same collapsible rule list
+  // on the right. Shares every bit of state with the inline views below.
+  // Restored after a reload, like the view above.
+  const [fullScheme, setFullScheme] = useState(() => readProcessPart(collectionId, 'full') === '1');
+  useEffect(() => {
+    writeProcessPart(collectionId, 'full', fullScheme ? '1' : null);
+  }, [collectionId, fullScheme]);
+  // Open (unguarded) roads are noise next to guarded transitions: shown faint
+  // unless the switch below hides them outright. One state for both map
+  // instances, so inline and fullscreen never disagree.
+  const [showFree, setShowFree] = useState(true);
+  const graphRef = useRef<HTMLDivElement>(null);
+  // The AI panel is deliberately painted below modals; while this fullscreen
+  // map owns the screen it must come back above, or "Ask AI" in the Code tab
+  // answers behind the map.
+  useEffect(() => {
+    document.body.classList.toggle('workflow-full-open', fullScheme);
+    return () => document.body.classList.remove('workflow-full-open');
+  }, [fullScheme]);
+  useEffect(() => {
+    if (!fullScheme) return;
+    const onKey = (e: KeyboardEvent) => {
+      // A confirm above the overlay (rule delete) handles its own Escape;
+      // closing the map underneath it would strand the user.
+      if (e.key === 'Escape' && !document.querySelector('.confirm-dialog')) setFullScheme(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [fullScheme]);
+  // A mouse wheel only carries a vertical delta: when the map has nowhere
+  // to scroll vertically but overflows sideways (the usual case), spend the
+  // delta on the horizontal axis. Trackpads send both axes, pinches send
+  // ctrl/meta and Shift+wheel already arrives horizontal — all native, all
+  // left alone. React's wheel listener is passive, so this is a native one.
+  useEffect(() => {
+    if (!fullScheme) return;
+    const el = graphRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth > el.clientWidth + 1) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [fullScheme]);
   useEffect(() => {
     if (highlightRuleId) setOpenRule(highlightRuleId);
   }, [highlightRuleId]);
@@ -214,8 +308,8 @@ export default function WorkflowRules({
       const rows: SimRow[] = [];
       for (const o of statusOpts) {
         if (o.id === from) continue;
-        const matched = matchRules(workflow, schema, {}, from, o.id);
-        const targeted = (rules ?? []).filter(
+        const matched = matchRules(united, schema, {}, from, o.id);
+        const targeted = (united?.rules ?? []).filter(
           (r) => r.when.type === 'status_to' && (r.when as { to: string }).to === o.id,
         );
         if (targeted.length > 0 && matched.length === 0) {
@@ -285,30 +379,79 @@ export default function WorkflowRules({
     );
   }
 
-  return (
-    <div className="workflow-list">
-      <div className="workflow-view-toggle" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === 'list'}
-          className={'workflow-view-tab' + (view === 'list' ? ' workflow-view-tab-on' : '')}
-          onClick={() => setView('list')}
-        >
-          {t('List')}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === 'scheme'}
-          className={'workflow-view-tab' + (view === 'scheme' ? ' workflow-view-tab-on' : '')}
-          onClick={() => setView('scheme')}
-        >
-          {t('Scheme')}
-        </button>
+  // Clicking a stage or an arrow on the map opens the matching rule block
+  // and scrolls it into view — in the List tab, or in the fullscreen panel.
+  // Two animation frames: one for the state commit, one for the paint.
+  const locateOnMap = (target: { ruleId: string } | { groupKey: string }) => {
+    if ('ruleId' in target && target.ruleId.startsWith('code:')) {
+      // A map click on a code edge lands in the Code tab.
+      setView('code');
+      setCodeFocus({ target: 'code', n: Date.now() });
+      return;
+    }
+    if (!fullScheme) setView('list');
+    let ruleId: string | null = null;
+    let groupKey: string | null = null;
+    if ('ruleId' in target) {
+      ruleId = target.ruleId;
+    } else {
+      groupKey = target.groupKey;
+      const g = groups.find((x) => x.key === groupKey);
+      if (g && g.rules.length > 0) ruleId = g.rules[0].id;
+    }
+    if (ruleId) setOpenRule(ruleId);
+    const attr = ruleId ? 'data-rule-id' : 'data-group-key';
+    const key = (ruleId ?? groupKey) as string;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        // In fullscreen, scope the search to the visible list pane; the
+        // inline one is hidden at the same time.
+        const scope = fullScheme ? document.querySelector('.workflow-pane-list') : document;
+        scope
+          ?.querySelector(`[${attr}="${CSS.escape(key)}"]`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }),
+    );
+  };
+
+  // Shown instead of the List while the Code text has errors.
+  const lockedNotice = (
+    <div className="workflow-issues">
+      <div className="workflow-issue workflow-issue-error workflow-locked-notice">
+        <span>
+          <TriangleAlert size={13} /> {t('Visual editing is paused until the code errors are fixed')}
+        </span>
+        <span className="workflow-issue-actions">
+          <button
+            type="button"
+            className="btn-sm"
+            onClick={() => {
+              setView('code');
+              setCodeFocus({ target: 'code', n: Date.now() });
+            }}
+          >
+            {t('Go to Code')}
+          </button>
+          <button
+            type="button"
+            className="btn-sm"
+            onClick={() => {
+              setCodeDiscard((n) => n + 1);
+              setCodeLocked(false);
+            }}
+          >
+            {t('Discard code changes')}
+          </button>
+        </span>
       </div>
-      {view === 'list' ? (
-      <>
+    </div>
+  );
+
+  // One JSX tree, two mount points: the List tab and the fullscreen right
+  // panel render the same element. Safe because every input here is
+  // controlled and nothing carries an id — the copies never clash.
+  const listView = (
+    <>
       <label className="schema-template-row">
         <span>{t('Status property')}</span>
         <select className="prop-select" value={statusPropId} onChange={(e) => setStatus(e.target.value)}>
@@ -344,7 +487,7 @@ export default function WorkflowRules({
                 }}
               >
                 <span>
-                  {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+                  {iss.severity === 'error' ? <TriangleAlert size={13} /> : '! '}{issueText(iss)}
                 </span>
                 {fixableKinds.has(iss.kind) && (
                   <span
@@ -373,7 +516,7 @@ export default function WorkflowRules({
                 className={'workflow-issue ' + (iss.severity === 'error' ? 'workflow-issue-error' : 'workflow-issue-warn')}
               >
                 <span>
-                  {iss.severity === 'error' ? '✕ ' : '! '}{issueText(iss)}
+                  {iss.severity === 'error' ? <TriangleAlert size={13} /> : '! '}{issueText(iss)}
                 </span>
                 {fixableKinds.has(iss.kind) && (
                   <button type="button" className="workflow-fix" onClick={() => applyFix(iss)}>
@@ -389,7 +532,7 @@ export default function WorkflowRules({
       {flatList.map((it) => {
         if (it.kind === 'head') {
           return (
-            <div key={it.key} className="workflow-group-head">
+            <div key={it.key} className="workflow-group-head" data-group-key={it.group.key}>
               <span>{it.group.key === 'created' ? t('On creation') : t('Entering {name}', { name: it.group.title })}</span>
             </div>
           );
@@ -402,7 +545,13 @@ export default function WorkflowRules({
             ? t('a row is created')
             : `${statusProp?.name ?? ''} → ${statusOpts.find((o) => o.id === whenTo)?.name ?? whenTo}`;
         return (
-          <div key={r.id} className={'schema-item' + (errorRules.has(r.id) ? ' schema-item-error' : '')}>
+          <div
+            key={r.id}
+            className={'schema-item' + (errorRules.has(r.id) ? ' schema-item-error' : '')}
+            data-rule-id={r.id}
+            onMouseEnter={() => setHoverRuleId(r.id)}
+            onMouseLeave={() => setHoverRuleId((h) => (h === r.id ? null : h))}
+          >
             <div
               className="workflow-head"
               role="button"
@@ -431,7 +580,7 @@ export default function WorkflowRules({
                   void askRemoveRule(r.id);
                 }}
               >
-                ✕
+                <X size={14} />
               </button>
               {!open && ifSummary(r) && <span className="workflow-if-summary">{ifSummary(r)}</span>}
             </div>
@@ -567,9 +716,13 @@ export default function WorkflowRules({
                   <label>{t('Only if value')}</label>
                   {(r.whenProps ?? []).map((c, ci) => {
                     const cdef = schema.find((p) => p.id === c.prop);
+                    // The matcher (and the code tab) read `values` first:
+                    // keep the single-value editor and the list in sync.
                     const setCond = (next: WorkflowPropCond) =>
                       updateRule(r.id, {
-                        whenProps: (r.whenProps ?? []).map((x, j) => (j === ci ? next : x)),
+                        whenProps: (r.whenProps ?? []).map((x, j) =>
+                          j === ci ? { ...next, values: next.value ? [next.value] : [] } : x,
+                        ),
                       });
                     return (
                       <div key={ci} className="workflow-row">
@@ -628,7 +781,7 @@ export default function WorkflowRules({
                             })
                           }
                         >
-                          ✕
+                          <X size={14} />
                         </button>
                       </div>
                     );
@@ -667,7 +820,6 @@ export default function WorkflowRules({
                 <div className="workflow-row">
                   <select
                     className="prop-select"
-                    defaultValue=""
                     value=""
                     onChange={(e) => {
                       const at = e.target.value as WorkflowAction['type'];
@@ -710,6 +862,14 @@ export default function WorkflowRules({
           </div>
         );
       })}
+
+      <CodeLockRows
+        blocks={workflow?.code ?? []}
+        onOpen={() => {
+          setView('code');
+          setCodeFocus({ target: 'code', n: Date.now() });
+        }}
+      />
 
       <div className="workflow-row">
         <select
@@ -765,42 +925,175 @@ export default function WorkflowRules({
           {(simRows ?? []).map((r) => (
             <div key={r.to} className="workflow-sim-row">
               <span>
-                {r.verdict === 'ok' ? '✓' : r.verdict === 'ask' ? '? ' : '✕ '}→ {r.toName}
+                {r.verdict === 'ok' ? <Check size={13} /> : r.verdict === 'ask' ? '? ' : <X size={13} />}→ {r.toName}
               </span>
               {r.detail.length > 0 && <span className="dialog-hint">{r.detail.join(' · ')}</span>}
             </div>
           ))}
         </div>
       )}
-      </>
-      ) : (
-      <WorkflowScheme
-        workflow={workflow}
-        schema={schema}
-        statusOpts={statusOpts}
-        issues={issues}
-        statusReady={!!statusPropId && statusOpts.length > 0}
-      />
+    </>
+  );
+
+  // One tab row serves both sizes. In fullscreen it also carries the title,
+  // Save and Close, because the dialog's own footer is behind the overlay.
+  const tabs = (
+    <div className="workflow-view-toggle" role="tablist">
+      {fullScheme && (
+        <span className="workflow-full-title">
+          {t('Process')}
+          {totalRules > 0 && ` · ${totalRules}`}
+        </span>
       )}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'list'}
+        className={'workflow-view-tab' + (view === 'list' ? ' workflow-view-tab-on' : '')}
+        onClick={() => setView('list')}
+      >
+        {t('List')}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'scheme'}
+        className={'workflow-view-tab' + (view === 'scheme' ? ' workflow-view-tab-on' : '')}
+        onClick={() => setView('scheme')}
+      >
+        {t('Scheme')}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'code'}
+        className={'workflow-view-tab' + (view === 'code' ? ' workflow-view-tab-on' : '')}
+        onClick={() => {
+          setView('code');
+          setCodeProposal(false);
+        }}
+        title={codeProposal ? t('The AI left a suggestion in Code') : undefined}
+      >
+        {t('Code')}
+        {codeProposal && <span className="workflow-tab-dot" aria-hidden="true" />}
+      </button>
+      <span className="workflow-view-spacer" />
+      {fullScheme && onClose && (
+        <button type="button" className="btn-sm" onClick={onClose}>
+          {t('Cancel')}
+        </button>
+      )}
+      {fullScheme && onSave && (
+        <button type="button" className="btn-sm primary" onClick={onSave}>
+          {t('Save')}
+        </button>
+      )}
+      <button
+        type="button"
+        className="icon-btn workflow-full-btn"
+        title={fullScheme ? t('Close') : t('Open full screen')}
+        aria-label={fullScheme ? t('Close') : t('Open full screen')}
+        onClick={() => setFullScheme((v) => !v)}
+      >
+        {fullScheme ? <X size={15} /> : <Maximize2 size={15} />}
+      </button>
+    </div>
+  );
+
+  // All three views live in the same tree and are hidden with CSS rather than
+  // unmounted. Fullscreen used to mount a second copy, which lost the Code
+  // draft on every toggle; keeping one instance is also why the map and the
+  // list now agree on what is open.
+  const showScheme = view === 'scheme';
+  const showList = view === 'list' || (fullScheme && showScheme);
+  const showCode = view === 'code';
+
+  return (
+    <div
+      className={'workflow-list' + (fullScheme ? ' workflow-full' : '')}
+      role={fullScheme ? 'dialog' : undefined}
+      aria-modal={fullScheme ? 'true' : undefined}
+      aria-label={fullScheme ? t('Process') : undefined}
+    >
+      {tabs}
+      <div className="workflow-canvas" data-view={view}>
+        <div
+          className="workflow-pane workflow-pane-scheme"
+          style={showScheme ? undefined : { display: 'none' }}
+          ref={graphRef}
+        >
+          <WorkflowScheme
+            workflow={united}
+            schema={schema}
+            statusOpts={statusOpts}
+            issues={issues}
+            statusReady={!!statusPropId && statusOpts.length > 0}
+            onLocate={locateOnMap}
+            activeRuleId={openRule}
+            hoverRuleId={hoverRuleId}
+            showFree={showFree}
+            onToggleFree={() => setShowFree((v) => !v)}
+          />
+        </div>
+        <div
+          className="workflow-pane workflow-pane-list"
+          style={showList ? undefined : { display: 'none' }}
+        >
+          {codeLocked ? lockedNotice : listView}
+        </div>
+        <div
+          className="workflow-pane workflow-pane-code"
+          style={showCode ? undefined : { display: 'none' }}
+        >
+          <WorkflowCode
+            collectionId={collectionId}
+            schema={schema}
+            workflow={workflow}
+            statusPropId={statusPropId}
+            focus={codeFocus}
+            onChange={commit}
+            onCodeLockedChange={setCodeLocked}
+            discardTick={codeDiscard}
+            onSave={onSave}
+            onProposalChange={(has) => setCodeProposal(has && view !== 'code')}
+          />
+        </div>
+      </div>
     </div>
   );
 }
 
-/** Read-only map of the process: statuses left to right, one arrow per
- *  allowed transition (×N when several rules share it), a dashed box for
- *  the on-creation rules. Preview only — editing stays in the list. */
+
+/** Map of the process: statuses left to right, one arrow per allowed
+ *  transition (×N when several rules share it), a dashed box for the
+ *  on-creation rules. Clicking a stage or an arrow jumps to the matching
+ *  rule block (onLocate); editing itself stays in the list. */
 function WorkflowScheme({
   workflow,
   schema,
   statusOpts,
   issues,
   statusReady,
+  onLocate,
+  showFree,
+  onToggleFree,
+  activeRuleId,
+  hoverRuleId,
 }: {
   workflow: WorkflowConfig | undefined;
   schema: PropDef[];
   statusOpts: { id: string; name: string }[];
   issues: WorkflowIssue[];
   statusReady: boolean;
+  onLocate: (target: { ruleId: string } | { groupKey: string }) => void;
+  // The rule block currently open in the list: its arrows stay lit so the
+  // map never loses the thread after a click-to-locate.
+  activeRuleId: string | null;
+  // The rule block under the pointer in the list: temporary, like a hover.
+  hoverRuleId: string | null;
+  // Whether the unguarded open roads are drawn at all (faint when shown).
+  showFree: boolean;
+  onToggleFree: () => void;
 }) {
   if (!statusReady) {
     return (
@@ -812,6 +1105,21 @@ function WorkflowScheme({
   const rules = workflow?.rules ?? [];
   const live = new Set(statusOpts.map((o) => o.id));
   const propName = (id: string) => schema.find((p) => p.id === id)?.name ?? id;
+  const optName = (id: string) => statusOpts.find((o) => o.id === id)?.name ?? id;
+  // Map stages and guarded arrows behave like buttons: Enter/Space work like
+  // a click. Free (unguarded) arrows have no rule block to jump to and stay
+  // inert.
+  const keyActivate = (fn: () => void) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: fn,
+    onKeyDown: (ev: ReactKeyboardEvent) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        fn();
+      }
+    },
+  });
   type Edge = { from: string; to: string; rules: WorkflowRule[]; free: boolean };
   const edgeMap = new Map<string, Edge>();
   const targeted = new Set<string>();
@@ -841,14 +1149,46 @@ function WorkflowScheme({
       if (!edgeMap.has(k)) edgeMap.set(k, { from: f.id, to: to.id, rules: [], free: true });
     }
   }
-  const edges = [...edgeMap.values()];
+  const edges = [...edgeMap.values()].filter((e) => showFree || !e.free);
   const created = rules.filter((r) => r.when.type === 'created');
   const idx = new Map(statusOpts.map((o, i) => [o.id, i] as const));
-  const spanOf = (e: Edge) => Math.abs(idx.get(e.from)! - idx.get(e.to)!);
   const fwd = edges.filter((e) => idx.get(e.from)! < idx.get(e.to)!);
   const bwd = edges.filter((e) => idx.get(e.from)! > idx.get(e.to)!);
-  const topH = fwd.length > 0 ? 30 + 24 * Math.max(...fwd.map(spanOf)) : 16;
-  const botH = bwd.length > 0 ? 26 + 24 * Math.max(...bwd.map(spanOf)) : 12;
+  // Lanes, not nested arcs: overlapping horizontals get different lanes, so
+  // no two of them ever share paint (touching at a node counts as overlap —
+  // a chained A→B→C must not read as one long road). Greedy interval-graph
+  // coloring; stable because edgeMap keeps insertion order.
+  const assignLanes = (list: Edge[]): Map<Edge, number> => {
+    const at = (e: Edge) => {
+      const a = idx.get(e.from)!;
+      const b = idx.get(e.to)!;
+      return [Math.min(a, b), Math.max(a, b)] as const;
+    };
+    const sorted = [...list].sort((x, y) => {
+      const [ax, bx] = [at(x), at(y)];
+      return ax[0] - bx[0] || bx[1] - ax[1];
+    });
+    const ends: number[] = [];
+    const out = new Map<Edge, number>();
+    for (const e of sorted) {
+      const [l, r] = at(e);
+      let lane = ends.findIndex((end) => end < l);
+      if (lane === -1) {
+        lane = ends.length;
+        ends.push(r);
+      } else {
+        ends[lane] = r;
+      }
+      out.set(e, lane);
+    }
+    return out;
+  };
+  const laneF = assignLanes(fwd);
+  const laneB = assignLanes(bwd);
+  const lanesF = fwd.length > 0 ? Math.max(...laneF.values()) + 1 : 0;
+  const lanesB = bwd.length > 0 ? Math.max(...laneB.values()) + 1 : 0;
+  const topH = lanesF > 0 ? 30 + (lanesF - 1) * 22 : 16;
+  const botH = lanesB > 0 ? 26 + (lanesB - 1) * 22 : 12;
   const NW = 148;
   const NH = 52;
   const GAP = 56;
@@ -874,8 +1214,9 @@ function WorkflowScheme({
     ];
     return parts.length > 0 ? parts.join(' · ') : t('Guard only');
   };
-  // Arrowhead at the end of a quadratic curve, drawn by hand — markers do
-  // not inherit the theme colour reliably.
+  // Arrowhead at the end of a segment, drawn by hand — markers do not
+  // inherit the theme colour reliably. The tangent comes from the control
+  // point: pass a point straight above/below the tip for a vertical arrow.
   const head = (cx: number, cy: number, x2: number, y2: number): string => {
     const dx = x2 - cx;
     const dy = y2 - cy;
@@ -890,18 +1231,41 @@ function WorkflowScheme({
   };
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
+  // A clicked stage keeps only its own roads lit until the canvas (or the
+  // same stage again) clears it. Nodes do not know rules, so the spotlight
+  // is a node; the pinned set below merges it with rule-based lights.
+  const [spotNode, setSpotNode] = useState<string | null>(null);
+  // One predicate for every place that asks "is this edge lit": the open
+  // rule block, the list row under the pointer, the spotlighted stage, or
+  // an ordinary map hover. Kept in one place so the paint order, the dim
+  // rule and the node rings can never disagree about what is lit.
+  const ruleLit = (r: WorkflowRule) => r.id === activeRuleId || r.id === hoverRuleId;
+  const edgeLit = (e: Edge) =>
+    e.rules.some(ruleLit) ||
+    (spotNode !== null && (e.from === spotNode || e.to === spotNode)) ||
+    (hoveredNode !== null && (e.from === hoveredNode || e.to === hoveredNode)) ||
+    hoveredEdge === `${e.from}>${e.to}`;
+  const anyLit =
+    hoveredNode !== null ||
+    hoveredEdge !== null ||
+    spotNode !== null ||
+    hoverRuleId !== null ||
+    activeRuleId !== null;
 
   const renderEdge = (e: Edge) => {
     const i = idx.get(e.from)!;
     const j = idx.get(e.to)!;
     const above = i < j;
-    const h = 30 + 24 * (Math.abs(i - j) - 1);
+    const lane = (above ? laneF : laneB).get(e)!;
     const x1 = X(i) + NW / 2;
     const x2 = X(j) + NW / 2;
     const y0 = above ? topH : topH + NH;
     const s = above ? -1 : 1;
-    const cx = (x1 + x2) / 2;
-    const cy = y0 + s * 2 * h;
+    // A step: out of the node edge, across on its own lane, back in.
+    // The final approach is vertical, so the hand-drawn head gets a
+    // vertical tangent instead of the old curve one.
+    const ly = y0 + s * (18 + lane * 22);
+    const step = `M ${x1} ${y0} L ${x1} ${ly} L ${x2} ${ly} L ${x2} ${y0}`;
     const tip = e.free
       ? t('Allowed — no rule')
       : [
@@ -925,13 +1289,14 @@ function WorkflowScheme({
             ),
           ]),
         ].join('\n');
-    const apexY = y0 + s * h;
     const edgeKey = `${e.from}>${e.to}`;
-    const isOut = hoveredNode === e.from;
-    const isIn = hoveredNode === e.to;
-    const isEdgeHovered = hoveredEdge === edgeKey;
-    const isConn = isOut || isIn || isEdgeHovered;
-    const isDim = (hoveredNode !== null || hoveredEdge !== null) && !isConn;
+    const isConn = edgeLit(e);
+    const isDim = anyLit && !isConn;
+    // Hover keeps its old meaning (outgoing/incoming legs) through the same
+    // two flags; pinned edges join the lit set from the side. A spotlighted
+    // stage reads like a hovered one, so its fan keeps the direction tint.
+    const isOut = hoveredNode === e.from || (spotNode !== null && e.from === spotNode);
+    const isIn = hoveredNode === e.to || (spotNode !== null && e.to === spotNode);
     const cls = [
       e.free ? 'free' : '',
       isConn ? 'is-active' : '',
@@ -939,29 +1304,58 @@ function WorkflowScheme({
       isIn ? 'is-incoming' : '',
       isDim ? 'is-dimmed' : '',
     ].filter(Boolean).join(' ');
+    // The first rule on the arrow is the block that opens; a shared arrow
+    // lands on the first of its ×N.
+    const pickEdge = () => {
+      if (e.rules.length > 0) onLocate({ ruleId: e.rules[0].id });
+    };
+    // The count sits on the horizontal leg with its own backdrop, so it
+    // never drowns in crossings the way the old on-curve label did.
+    const midX = (x1 + x2) / 2;
+    const countY = ly + (above ? -8 : 16);
     return (
       <g
         key={edgeKey}
         className={cls || undefined}
         onMouseEnter={() => setHoveredEdge(edgeKey)}
         onMouseLeave={() => setHoveredEdge((h) => (h === edgeKey ? null : h))}
+        aria-label={e.rules.length > 0 ? `${optName(e.from)} → ${optName(e.to)}` : undefined}
+        {...(e.rules.length > 0 ? keyActivate(pickEdge) : {})}
       >
         {tip && <title>{tip}</title>}
-        <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} />
-        <polygon points={head(cx, cy, x2, y0)} />
-        <path d={`M ${x1} ${y0} Q ${cx} ${cy} ${x2} ${y0}`} className="workflow-scheme-hit" />
+        <path d={step} />
+        <polygon points={head(x2, y0 + s * 12, x2, y0)} />
+        <path d={step} className="workflow-scheme-hit" />
         {e.rules.length > 1 && (
-          <text x={cx} y={apexY + (above ? -6 : 14)} textAnchor="middle" className="workflow-scheme-count">
-            ×{e.rules.length}
-          </text>
+          <>
+            <rect
+              x={midX - 15}
+              y={countY - 11}
+              width={30}
+              height={15}
+              rx={7.5}
+              className="workflow-scheme-countbg"
+            />
+            <text x={midX} y={countY} textAnchor="middle" className="workflow-scheme-count">
+              ×{e.rules.length}
+            </text>
+          </>
         )}
       </g>
     );
   };
   return (
     <div className="workflow-scheme">
+      <label className="workflow-free-toggle">
+        <input type="checkbox" checked={showFree} onChange={onToggleFree} />
+        {t('Open roads')}
+      </label>
       {created.length > 0 && (
-        <div className="workflow-scheme-created">
+        <div
+          className="workflow-scheme-created workflow-scheme-link"
+          aria-label={t('On creation')}
+          {...keyActivate(() => onLocate({ groupKey: 'created' }))}
+        >
           <div className="workflow-scheme-created-head">
             {t('On creation')} · {created.length}
           </div>
@@ -972,38 +1366,46 @@ function WorkflowScheme({
           ))}
         </div>
       )}
-      <svg className="workflow-scheme-svg" width={width} height={height} role="img">
-        {((hoveredNode || hoveredEdge)
-          ? [...edges].sort((a, b) => {
-              const aActive =
-                (hoveredNode && (a.from === hoveredNode || a.to === hoveredNode)) ||
-                hoveredEdge === `${a.from}>${a.to}`
-                  ? 1
-                  : 0;
-              const bActive =
-                (hoveredNode && (b.from === hoveredNode || b.to === hoveredNode)) ||
-                hoveredEdge === `${b.from}>${b.to}`
-                  ? 1
-                  : 0;
-              return aActive - bActive;
-            })
+      <svg
+        className="workflow-scheme-svg"
+        width={width}
+        height={height}
+        role="img"
+        onClick={(e) => {
+          // Empty canvas clears the spotlight; a node or an arrow handles
+          // its own click and never reaches here (see below).
+          if (!(e.target as Element).closest?.('g[role="button"]')) setSpotNode(null);
+        }}
+      >
+        {(anyLit
+          ? [...edges].sort((a, b) => Number(edgeLit(a)) - Number(edgeLit(b)))
           : edges
         ).map(renderEdge)}
         {statusOpts.map((o, i) => {
           const flag = flagOf(o.id);
-          const isNodeHovered = hoveredNode === o.id;
-          const isNodeConnected = hoveredEdge
-            ? edges.some(
-                (e) => `${e.from}>${e.to}` === hoveredEdge && (e.from === o.id || e.to === o.id),
-              )
-            : false;
+          // Roles read off the frame, not just the dot: a trap reads red, an
+          // unreachable stage amber and dashed. The dot stays — it carries
+          // the tooltip with the why.
+          const roleCls =
+            flag?.kind === 'trap' ? ' is-trap' : flag?.kind === 'unreachable' ? ' is-unreachable' : '';
+          const lit =
+            hoveredNode === o.id ||
+            spotNode === o.id ||
+            edges.some(
+              (e) => edgeLit(e) && (e.from === o.id || e.to === o.id),
+            );
           return (
             <g
               key={o.id}
-              className={isNodeHovered || isNodeConnected ? 'is-hovered' : undefined}
+              className={lit ? 'is-hovered' : undefined}
               onMouseEnter={() => setHoveredNode(o.id)}
               onMouseLeave={() => setHoveredNode((h) => (h === o.id ? null : h))}
               style={{ cursor: 'pointer' }}
+              aria-label={o.name}
+              {...keyActivate(() => {
+                setSpotNode((s) => (s === o.id ? null : o.id));
+                onLocate({ groupKey: `to:${o.id}` });
+              })}
             >
               <title>{o.name}</title>
               <rect
@@ -1012,10 +1414,7 @@ function WorkflowScheme({
                 width={NW}
                 height={NH}
                 rx={8}
-                className={
-                  'workflow-scheme-node' +
-                  (isNodeHovered || isNodeConnected ? ' is-hovered' : '')
-                }
+                className={'workflow-scheme-node' + roleCls + (lit ? ' is-hovered' : '')}
               />
               <text x={X(i) + NW / 2} y={topH + NH / 2 + 5} textAnchor="middle" className="workflow-scheme-label">
                 {short(o.name)}
@@ -1056,7 +1455,7 @@ function ActionRow({
           onChange={(e) => onChange({ type: 'webhook', url: e.target.value })}
         />
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-          ✕
+          <X size={14} />
         </button>
       </div>
     );
@@ -1091,7 +1490,7 @@ function ActionRow({
           <option value="always">{t('Always')}</option>
         </select>
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-          ✕
+          <X size={14} />
         </button>
       </div>
     );
@@ -1110,7 +1509,7 @@ function ActionRow({
           <option value="if_empty">{t('If none yet')}</option>
         </select>
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-          ✕
+          <X size={14} />
         </button>
       </div>
     );
@@ -1137,7 +1536,7 @@ function ActionRow({
         </select>
         <SetValueInput def={def} value={action.value} onChange={setValue} />
         <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-          ✕
+          <X size={14} />
         </button>
       </div>
     );
@@ -1161,7 +1560,7 @@ function ActionRow({
           ))}
       </select>
       <button type="button" className="icon-btn danger" onClick={onRemove} title={t('Remove')}>
-        ✕
+        <X size={14} />
       </button>
     </div>
   );

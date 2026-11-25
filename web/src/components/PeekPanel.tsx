@@ -53,7 +53,9 @@ export default function PeekPanel({
       // closes itself) — closing the panel under it would strand the click
       // that opened it and surprise nobody in a good way.
       const t = e.target as Element | null;
-      if (t?.closest?.('.peek-panel .menu')) return;
+      // A portalled layer (a select menu lives on the body, not in the panel)
+      // owns Escape too: it closes itself, and the panel must stay.
+      if (t?.closest?.('.menu, .select-menu, .select-backdrop, .fs-popover, [role="dialog"], [role="listbox"]')) return;
       // A pinned panel is one you asked to keep: Escape is not its master.
       if (pinnedRef.current) return;
       closeRef.current();

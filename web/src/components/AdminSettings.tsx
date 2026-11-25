@@ -60,6 +60,7 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
     pageNums: true, comments: false, links: true, landscape: false,
   });
   const [allowUserWs, setAllowUserWs] = useState(true);
+  const [createPersonalWs, setCreatePersonalWs] = useState(true);
   // Agent keys from listed addresses only (server/agent_addresses.go).
   const [agentAddr, setAgentAddr] = useState({ on: false, list: '', anthropic: '' });
   const [aiEnabled, setAiEnabled] = useState(true);
@@ -70,7 +71,8 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
   const [passSet, setPassSet] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-  const [tab, setTab] = useState<'general' | 'access' | 'email' | 'proxy' | 'webhooks' | 'documents' | 'maintenance'>('general');
+  const [tab, setTab] = useState<'general' | 'access' | 'email' | 'proxy' | 'webhooks' | 'documents' | 'maintenance' | 'ai'>('general');
+  const [aiStats, setAiStats] = useState<{ userId: string; name: string; messages: number; runs: number; runsOk: number; runsFailed: number; tokensIn: number; tokensOut: number; lastActive: string | null }[] | null>(null);
   const [hooks, setHooks] = useState<Webhook[] | null>(null);
   const [hookURL, setHookURL] = useState('');
   const [hookEvents, setHookEvents] = useState<string[]>(['page.created', 'page.updated']);
@@ -117,6 +119,7 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
           oidcClientId: v.oidcClientId,
           oidcClientSecret: '',
           oidcName: v.oidcName,
+          msTenant: v.msTenant ?? '',
         });
         setTrustProxy(v.trustProxy);
         setPdf({
@@ -125,6 +128,7 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
           comments: v.pdfComments, links: v.pdfLinks, landscape: v.pdfLandscape,
         });
         setAllowUserWs(v.allowUserWorkspaces !== false);
+        setCreatePersonalWs(v.createPersonalWorkspaces !== false);
         setAgentAddr({ on: v.agentAddressesOn, list: v.agentAddresses, anthropic: v.anthropicAddresses });
         setAiEnabled(v.aiEnabled !== false);
         setAiDefaultBaseUrl(v.aiDefaultBaseUrl || 'https://api.openai.com/v1');
@@ -144,7 +148,8 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
     // The access tab shows the admin's own address beside the agent list.
     if ((tab === 'maintenance' || tab === 'access') && !info) void api.adminInfo().then(setInfo).catch(() => {});
     if (tab === 'webhooks' && hooks === null) void api.webhooks().then(setHooks).catch(() => setHooks([]));
-  }, [tab, info, hooks]);
+    if (tab === 'ai' && aiStats === null) void api.aiStats().then(setAiStats).catch(() => setAiStats([]));
+  }, [tab, info, hooks, aiStats]);
 
   // Live tunnel status while the proxy or access tab is open (the OAuth cards
   // derive the public redirect URI from a running tunnel).
@@ -181,10 +186,10 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
     }
   };
 
-  const tunnel = async (action: string, token?: string) => {
+  const tunnel = async (action: string, token?: string, on?: boolean) => {
     setTunnelBusy(true);
     try {
-      await api.tunnelAction(action, token);
+      await api.tunnelAction(action, token, on);
       setPa(await api.publicAccess());
       if (action === 'start-token') setTunnelToken('');
     } catch (e) {
@@ -241,6 +246,7 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
         pdfLinks: pdf.links,
         pdfLandscape: pdf.landscape,
         allowUserWorkspaces: allowUserWs,
+        createPersonalWorkspaces: createPersonalWs,
         agentAddressesOn: agentAddr.on,
         agentAddresses: agentAddr.list,
         aiEnabled,
@@ -263,6 +269,7 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
         oidcClientId: s.oidcClientId,
         oidcClientSecret: s.oidcClientSecret,
         oidcName: s.oidcName,
+        msTenant: s.msTenant,
       });
       toast.success(t('Settings saved'));
       window.dispatchEvent(new CustomEvent('salt:me-reload'));
@@ -330,6 +337,7 @@ ingress:
     { id: 'webhooks', label: t('Webhooks') },
     { id: 'documents', label: t('Documents') },
     { id: 'maintenance', label: t('Maintenance') },
+    { id: 'ai', label: t('AI') },
   ];
 
   return (
@@ -426,7 +434,21 @@ ingress:
                     </label>
                     <p className="dialog-hint settings-hint">
                       {t(
-                        'Off: only admins create workspaces. On (default): anyone can create one of their own and becomes its admin — they then manage the members of THEIR workspace only, not the instance.',
+                        'Off: only admins create workspaces. On (default): anyone can create one of their own and becomes its admin. They then manage the members of THEIR workspace only, not the instance.',
+                      )}
+                    </p>
+
+                    <label className="check-label" style={{ marginTop: 10 }}>
+                      <input
+                        type="checkbox"
+                        checked={createPersonalWs}
+                        onChange={(e) => setCreatePersonalWs(e.target.checked)}
+                      />
+                      {t('Create personal workspace for new users')}
+                    </label>
+                    <p className="dialog-hint settings-hint">
+                      {t(
+                        'Off: new users join existing workspaces only. On (default): each new user gets their own personal workspace and becomes its admin.',
                       )}
                     </p>
 
@@ -451,14 +473,14 @@ ingress:
                           {insecure && (
                             <p className="dialog-hint settings-hint pa-warn">
                               {t(
-                                '⚠ Google and Microsoft accept HTTPS redirect URIs only (localhost aside). Start a tunnel (the “Domain & proxy” tab) or enter a public HTTPS base URL under “General” — it then appears here on its own.',
+                                '⚠ Google and Microsoft accept HTTPS redirect URIs only (localhost aside). Start a tunnel (the “Domain & proxy” tab) or enter a public HTTPS base URL under “General”. It then appears here on its own.',
                               )}
                             </p>
                           )}
                           {!s.publicBaseUrl && quickUrl && (
                             <p className="dialog-hint settings-hint pa-warn">
                               {t(
-                                '⚠ This is the URL of the running quick tunnel — it changes on every start. For OAuth that lasts, use a named tunnel or your own domain and enter it as the base URL.',
+                                '⚠ This is the URL of the running quick tunnel. It changes on every start. For OAuth that lasts, use a named tunnel or your own domain and enter it as the base URL.',
                               )}
                             </p>
                           )}
@@ -490,6 +512,13 @@ ingress:
                       <input className="prop-input" placeholder="00000000-0000-…" value={s.msClientId} onChange={(e) => set('msClientId', e.target.value)} />
                       <label>{t('Client secret')}</label>
                       <input className="prop-input" type="password" placeholder={oauthSet.ms ? t('•••••• (stored)') : t('secret value')} value={s.msClientSecret} onChange={(e) => set('msClientSecret', e.target.value)} />
+                      <label>{t('Tenant (optional)')}</label>
+                      <input className="prop-input" placeholder="contoso.onmicrosoft.com" value={s.msTenant} onChange={(e) => set('msTenant', e.target.value)} />
+                      <p className="dialog-hint settings-hint">
+                        {t(
+                          'Needed when the app registration accepts accounts from your own organisation only (single tenant), and useful to keep accounts from other organisations out of the sign-in. Enter the directory (tenant) ID or a verified domain. Empty (default): any organisation and personal accounts.',
+                        )}
+                      </p>
                     </div>
                     <div className="pa-card">
                       <strong>{t('Custom identity provider (OIDC)')}</strong>
@@ -557,7 +586,7 @@ ingress:
 
                 {tab === 'email' && (
                   <>
-                    <h3>{t('Sending through Google / Microsoft — no SMTP')}</h3>
+                    <h3>{t('Sending through Google / Microsoft (no SMTP)')}</h3>
                     {mail.provider ? (
                       <>
                         <div className="pa-status pa-running">
@@ -586,7 +615,7 @@ ingress:
                       <div className="pa-card">
                         <p className="dialog-hint settings-hint" style={{ margin: 0 }}>
                           {t(
-                            'Uses the OAuth apps from the Access tab: connect once and invitations go out through the chosen mailbox — no SMTP needed. Store and save the client ID and secret there first, then connect here. In the sign-in window you may pick any account at all — including a dedicated sending mailbox such as noreply@example.com; it does not have to be the account you sign in with.',
+                            'Uses the OAuth apps from the Access tab: connect once and invitations go out through the chosen mailbox, no SMTP needed. Store and save the client ID and secret there first, then connect here. In the sign-in window you may pick any account at all, including a dedicated sending mailbox such as noreply@example.com; it does not have to be the account you sign in with.',
                           )}
                         </p>
                         <div className="settings-row">
@@ -632,7 +661,7 @@ ingress:
 
                 {tab === 'proxy' && (
                   <>
-                    <h3>{t('Public access — built in, no proxy of your own')}</h3>
+                    <h3>{t('Public access (built in, no proxy of your own)')}</h3>
                     {pa && (pa.status === 'running' || pa.status === 'starting') && (
                       <div className={'pa-status pa-' + pa.status}>
                         <span className="pa-dot" />
@@ -645,7 +674,7 @@ ingress:
                           </>
                         )}
                         {pa.status === 'running' && pa.mode === 'token' && (
-                          <>{t('Tunnel connected — reachable under the hostname set in the Cloudflare dashboard.')}</>
+                          <>{t('Tunnel connected, reachable under the hostname set in the Cloudflare dashboard.')}</>
                         )}
                         <button className="btn-sm" disabled={tunnelBusy} onClick={() => void tunnel('stop')}>{t('Stop')}</button>
                       </div>
@@ -663,7 +692,7 @@ ingress:
                       <p className="dialog-hint settings-hint">
                         {t('One click, no account: creates a temporary')} <code>trycloudflare.com</code>{' '}
                         {t(
-                          'URL pointing at this instance. The URL changes on every start — ideal for trying things out and sharing quickly.',
+                          'URL pointing at this instance. The URL changes on every start. Ideal for trying things out and sharing quickly.',
                         )}{' '}
                         {!pa?.cloudflaredHere && t('On first start salt.md downloads the official cloudflared automatically.')}
                       </p>
@@ -708,11 +737,53 @@ ingress:
                       </div>
                     </div>
 
+                    {pa?.cloudflaredHere && (
+                      <div className="pa-card">
+                        <strong>{t('cloudflared')}</strong>
+                        <p className="dialog-hint settings-hint">
+                          {pa.cloudflaredVersion
+                            ? t('Version {version} in use.', { version: pa.cloudflaredVersion })
+                            : t('The version in use could not be read.')}{' '}
+                          {pa.cloudflaredBehind &&
+                            t('{latest} is available.', { latest: pa.cloudflaredLatest })}
+                          {!pa.cloudflaredBehind && pa.cloudflaredLatest && t('That is the newest release.')}
+                          {!pa.cloudflaredManaged &&
+                            ' ' +
+                              t(
+                                'This copy was installed on the system, not by salt.md, so it is updated by whatever installed it.',
+                              )}
+                        </p>
+                        {pa.cloudflaredCheckError && (
+                          <p className="dialog-hint settings-hint pa-warn">{pa.cloudflaredCheckError}</p>
+                        )}
+                        {pa.cloudflaredManaged && (
+                          <div className="settings-row">
+                            <label className="settings-check">
+                              <input
+                                type="checkbox"
+                                checked={pa.cloudflaredAutoUpdate}
+                                disabled={tunnelBusy}
+                                onChange={(e) => void tunnel('cloudflared-autoupdate', undefined, e.target.checked)}
+                              />
+                              <span>{t('Keep it up to date automatically (checked daily, checksum verified)')}</span>
+                            </label>
+                            <button
+                              className="btn-sm"
+                              disabled={tunnelBusy || pa.cloudflaredUpdating}
+                              onClick={() => void tunnel('update-cloudflared')}
+                            >
+                              {tunnelBusy ? t('Please wait…') : t('Check now')}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="pa-card">
                       <strong>{t('3 · Straight to HTTPS (no Cloudflare, e.g. a VPS)')}</strong>
                       <p className="dialog-hint settings-hint">
                         {t(
-                          'salt.md fetches its own Let’s Encrypt certificate and listens on 80/443 — no Caddy or nginx needed. Requirements: the domain’s DNS A record points at this server and ports 80 and 443 are reachable. Restart after saving.',
+                          'salt.md fetches its own Let’s Encrypt certificate and listens on 80/443, no Caddy or nginx needed. Requirements: the domain’s DNS A record points at this server and ports 80 and 443 are reachable. Restart after saving.',
                         )}
                       </p>
                       <div className="settings-row">
@@ -730,7 +801,7 @@ ingress:
                       </div>
                     </div>
 
-                    <h3>{t('Manual — your own reverse proxy')}</h3>
+                    <h3>{t('Manual (your own reverse proxy)')}</h3>
                     <label className="settings-check">
                       <input type="checkbox" checked={trustProxy} onChange={(e) => setTrustProxy(e.target.checked)} />
                       <span>
@@ -739,7 +810,7 @@ ingress:
                     </label>
                     <p className="dialog-hint settings-hint">
                       {t(
-                        'Only switch this on when salt.md runs behind Caddy, nginx or a Cloudflare tunnel — the instance then sees real client IPs (sign-in protection, audit log). Leave it off without a proxy, or an attacker could forge their IP.',
+                        'Only switch this on when salt.md runs behind Caddy, nginx or a Cloudflare tunnel. The instance then sees real client IPs (sign-in protection, audit log). Leave it off without a proxy, or an attacker could forge their IP.',
                       )}
                     </p>
                     <label>{t('Internal address of the instance (upstream)')}</label>
@@ -765,12 +836,12 @@ ingress:
                     <h3>{t('Tell other tools when something changes')}</h3>
                     <p className="dialog-hint settings-hint">
                       {t(
-                        'Instead of other programs asking over and over whether anything is new, salt.md calls an address of your choosing when a page is created, changed or thrown away. That is what Zapier, Make and n8n need — and through them, everything else.',
+                        'Instead of other programs asking over and over whether anything is new, salt.md calls an address of your choosing when a page is created, changed or thrown away. That is what Zapier, Make and n8n need, and through them, everything else.',
                       )}
                     </p>
                     <p className="dialog-hint settings-hint">
                       {t(
-                        'The message says WHICH page and what happened to it — never the content. So a URL entered by mistake cannot turn into a steady export of what people write.',
+                        'The message says WHICH page and what happened to it, never the content. So a URL entered by mistake cannot turn into a steady export of what people write.',
                       )}
                     </p>
 
@@ -828,7 +899,7 @@ ingress:
 
                     {freshSecret && (
                       <div className="hook-secret">
-                        <strong>{t('Copy this secret now — it is shown only once.')}</strong>
+                        <strong>{t('Copy this secret now. It is shown only once.')}</strong>
                         <p className="dialog-hint">
                           {t(
                             'Your receiver uses it to check that a message really came from us. We send it as a signature in the X-Salt-Signature header.',
@@ -844,7 +915,7 @@ ingress:
                     <h3>{t('Configured')}</h3>
                     {hooks === null && <div className="dialog-hint">{t('Loading…')}</div>}
                     {hooks?.length === 0 && (
-                      <div className="dialog-hint">{t('Nothing yet — nobody is being called.')}</div>
+                      <div className="dialog-hint">{t('Nothing yet. Nobody is being called.')}</div>
                     )}
                     {hooks?.map((h) => (
                       <div key={h.id} className="hook-row">
@@ -867,6 +938,41 @@ ingress:
                         </button>
                       </div>
                     ))}
+                  </>
+                )}
+                {tab === 'ai' && (
+                  <>
+                    <label>{t('AI usage')}</label>
+                    {aiStats === null ? (
+                      <div className="dialog-hint">{t('Loading…')}</div>
+                    ) : aiStats.length === 0 ? (
+                      <div className="dialog-hint">{t('No AI usage yet.')}</div>
+                    ) : (
+                      <table className="settings-table">
+                        <thead>
+                          <tr>
+                            <th>{t('User')}</th>
+                            <th>{t('Messages')}</th>
+                            <th>{t('Runs')}</th>
+                            <th>{t('Tokens in')}</th>
+                            <th>{t('Tokens out')}</th>
+                            <th>{t('Last activity')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {aiStats.map((r) => (
+                            <tr key={r.userId}>
+                              <td>{r.name || r.userId}</td>
+                              <td className="num">{r.messages}</td>
+                              <td className="num">{r.runsOk}/{r.runs}</td>
+                              <td className="num">{r.tokensIn}</td>
+                              <td className="num">{r.tokensOut}</td>
+                              <td>{(r.lastActive ?? '').slice(0, 10) || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                   </>
                 )}
                 {tab === 'documents' && (
@@ -894,7 +1000,7 @@ ingress:
                       ))}
                     </div>
                     <p className="dialog-hint settings-hint">
-                      {t('salt.md lays the pages out itself and the browser only puts them on paper, so nothing of the browser gets printed along — no address, no date in the corner.')}
+                      {t('salt.md lays the pages out itself and the browser only puts them on paper, so nothing of the browser gets printed along: no address, no date in the corner.')}
                     </p>
                     <p className="dialog-hint settings-hint">
                       {t('These are the defaults. The panel beside a print view can deviate for one document, and that choice travels in the link.')}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, MoreHorizontal, PanelRight, Pin, SlidersHorizontal, X } from 'lucide-react';
+import { ExternalLink, FileText, MoreHorizontal, PanelRight, Pin, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../api';
 import type { PageMeta, SearchResult, User } from '../types';
 import Portal from './Portal';
@@ -11,6 +11,7 @@ import { t } from '../i18n';
 import { compare } from '../format';
 import { openPage, openPageAux, peekPage } from '../pageOpen';
 import { matchCommands, paletteCommands, runPaletteCommand, workspaceSwitchCommands, type PaletteCommand } from '../commands';
+import { imeComposing } from '../keys';
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -53,9 +54,8 @@ interface Props {
   onClose: () => void;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
-  /** The pages that are open as tabs, and what can be done to one from here.
-   *  Search is where people find a page they already have open, so the tab's
-   *  own actions belong beside the result rather than only in the strip. */
+  /** The pages open as tabs, and what can be done to one from here. Search is
+   *  where people find a page they already have open. */
   openTabs?: string[];
   pinnedTabs?: string[];
   onCloseTab?: (id: string) => void;
@@ -302,7 +302,7 @@ export default function SearchModal({
   };
 
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.nativeEvent.isComposing) return; // don't hijack IME composition keys
+    if (imeComposing(e)) return; // don't hijack IME composition keys
     if (e.key === 'Escape') onClose();
     else if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -506,7 +506,7 @@ export default function SearchModal({
                       if (e.key === 'Enter') openPageId(r.id);
                     }}
                   >
-                    <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
+                    <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback={<FileText size={16} />} /></span>
                     <span className="result-body">
                       <span className="result-title">{r.title || t('Untitled')}</span>
                       {context && <span className="result-context">{context}</span>}
@@ -548,7 +548,7 @@ export default function SearchModal({
                       onClick={(e) => openRowClick(e, r.id)}
                       onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                     >
-                      <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
+                      <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback={<FileText size={16} />} /></span>
                       <span className="result-body">
                         <span className="result-title">{r.title || t('Untitled')}</span>
                       </span>

@@ -1,4 +1,6 @@
-node_modules/
+# Without the slash: a symlinked node_modules is a file to git, and the
+# trailing slash let one into 1.1.2.
+node_modules
 web/dist/*
 !web/dist/.gitkeep
 data/

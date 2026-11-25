@@ -17,6 +17,8 @@ export interface ToastAction {
 export interface ToastOptions {
   sticky?: boolean;
   action?: ToastAction;
+  /** How long a non-sticky toast stays, in ms. Absent = the kind's default. */
+  duration?: number;
 }
 
 export interface ToastPayload {
@@ -24,12 +26,13 @@ export interface ToastPayload {
   kind: ToastKind;
   sticky?: boolean;
   action?: ToastAction;
+  duration?: number;
 }
 
 function base(message: string, kind: ToastKind = 'error', opts?: ToastOptions) {
   window.dispatchEvent(
     new CustomEvent<ToastPayload>('salt:toast', {
-      detail: { message, kind, sticky: opts?.sticky, action: opts?.action },
+      detail: { message, kind, sticky: opts?.sticky, action: opts?.action, duration: opts?.duration },
     }),
   );
 }

@@ -53,7 +53,7 @@ so links minted while one was running stop working when it is restarted.
 A **named** Cloudflare tunnel never appears in that list at all. salt.md hands
 the traffic to Cloudflare and never learns the hostname you chose in the
 dashboard; the status line says exactly that:
-`Tunnel connected — reachable under the hostname set in the Cloudflare dashboard.`
+`Tunnel connected, reachable under the hostname set in the Cloudflare dashboard.`
 With a named tunnel, filling in the field is not optional.
 
 ### Sign-in resolves it slightly differently
@@ -95,8 +95,8 @@ appear here either.
 
 Two warnings show up under those fields when they apply:
 
-- `⚠ Google and Microsoft accept HTTPS redirect URIs only (localhost aside). Start a tunnel (the “Domain & proxy” tab) or enter a public HTTPS base URL under “General” — it then appears here on its own.`
-- `⚠ This is the URL of the running quick tunnel — it changes on every start. For OAuth that lasts, use a named tunnel or your own domain and enter it as the base URL.`
+- `⚠ Google and Microsoft accept HTTPS redirect URIs only (localhost aside). Start a tunnel (the “Domain & proxy” tab) or enter a public HTTPS base URL under “General”. It then appears here on its own.`
+- `⚠ This is the URL of the running quick tunnel. It changes on every start. For OAuth that lasts, use a named tunnel or your own domain and enter it as the base URL.`
 
 Connecting a mailbox uses a **different** redirect URI on the same base
 (`/api/admin/mail-oauth/google/callback`, and the same with `microsoft`), and
@@ -107,9 +107,9 @@ console alongside the sign-in one, or the mail connection fails at the last step
 ## Route 1: the built-in Cloudflare tunnel
 
 **Instance settings → `Domain & proxy`.** The tab has two halves, and their
-headings are what to scan for: `Public access — built in, no proxy of your own`
+headings are what to scan for: `Public access (built in, no proxy of your own)`
 holds the three numbered cards (this route and the next), and
-`Manual — your own reverse proxy` everything below them (Route 3).
+`Manual (your own reverse proxy)` everything below them (Route 3).
 
 ![The public address: what share links and agents are told to use.](img/admin-domain.png)
 
@@ -120,9 +120,31 @@ not administer, and on a home line with no fixed address. No port forwarding.
 salt.md runs `cloudflared` itself. It looks for the program on the system's
 `PATH` first, then at `bin/cloudflared` inside the data directory
 (`bin/cloudflared.exe` on Windows), and only if neither has it does it download
-the official release over HTTPS. What triggers that download is a tunnel
-**start**: normally an admin pressing a button, but also the automatic restart
-of a stored tunnel after a reboot, which happens with nobody watching.
+the official release over HTTPS, checked against the SHA256 GitHub records for
+the file; a download that does not match is not installed. What triggers that
+download is a tunnel **start**: normally an admin pressing a button, but also
+the automatic restart of a stored tunnel after a reboot, which happens with
+nobody watching.
+
+### Keeping cloudflared current
+
+The copy salt.md downloaded is kept up to date. A few minutes after the server
+starts, and then once a day, salt.md asks for the newest cloudflared release;
+when it is newer than the one in `bin/`, the new file is downloaded, checked the
+same way, and put in place, and a running permanent tunnel is restarted on it,
+which takes it offline for a few seconds. A quick tunnel keeps running on the old
+file until it is started again, because a restart would change its address.
+Every update leaves a line in the log:
+`tunnel: cloudflared 2026.7.2 replaced by 2026.10.1 (checksum verified)`.
+
+Once cloudflared exists, the **Domain & proxy** tab shows a **cloudflared** card
+with the version in use, whether a newer one is out, **Keep it up to date
+automatically (checked daily, checksum verified)** (on by default) and
+**Check now**, which checks and updates at once. An instance that never started
+a tunnel never asks anybody anything.
+
+A cloudflared found on `PATH` is the system's: salt.md shows its version and
+that a newer one exists, and leaves updating it to whatever installed it.
 
 Builds exist for Linux (x86-64, arm64, 386, arm), macOS (x86-64, arm64) and
 Windows (x86-64). Anything else answers `install cloudflared manually`. Put the
@@ -168,7 +190,7 @@ Then, in salt.md:
    stored, the placeholder reads `•••••• (token stored)` and you never have to
    paste it again.
 2. Press **`Connect`**.
-3. Wait for `Tunnel connected — reachable under the hostname set in the
+3. Wait for `Tunnel connected, reachable under the hostname set in the
    Cloudflare dashboard.`
 4. Go to **General** and set the public base URL to `https://notes.example.com`.
 

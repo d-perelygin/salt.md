@@ -10,11 +10,7 @@ linking it, attaching files to it, copying it, printing it. What goes *inside*
 the body is [Editor blocks](editor-blocks.md).
 
 Every page has an address of the form `/p/<id>`, and that is what the browser
-shows while you read it — with a readable prefix when the page has a title:
-`/p/<slug>-<id>`, e.g. `/p/edity-s-uchastnikami-hhb-23fef292b33fcc3a840241b995608bca`.
-The slug is a transliterated title for convenient typing and changes with the
-title; only the trailing `<id>` identifies the page, so an old link keeps
-working and the address bar is corrected to the fresh slug without a reload.
+shows while you read it.
 
 ## Creating a page
 
@@ -200,7 +196,7 @@ drawn as a proper tree item rather than as a row, so it keeps its full ⋯ menu.
 salt.md keeps several pages open at once, like an editor rather than like a web
 page. Three ways to open one in a new tab:
 
-- **Open in new tab**, the first entry of the sidebar ⋯ menu — and of a board
+- **Open in new tab**, the first entry of the sidebar ⋯ menu and of a board
   card's ⋯ menu.
 - **⌘-click** (Ctrl-click on Windows and Linux) a row in the sidebar tree, a
   card on a board, a row in any collection view, or a note in the notes column.
@@ -218,19 +214,9 @@ document needs no tab bar. Each tab shows the page's icon and title; click one
 to switch, click its `×` or middle-click it to close. Closing the active tab
 lands you on the tab that slides into its place.
 
-Right-click a tab for its menu: **Pin tab** / **Unpin tab**, **Move left** /
-**Move right**, **Close tab**, **Close other tabs**, **Close tabs to the
-right**. Tabs can also be dragged along the strip. A pinned tab leads the
-strip, is never navigated in place — following a link from it opens the page
-after it instead — and survives *Close other tabs* and *Close tabs to the
-right*. Pins and the order are remembered in this browser together with the
-tabs themselves.
-
 `Ctrl+Alt+←` and `Ctrl+Alt+→` cycle through the open tabs. The shortcut is
 ignored while you are typing, and it deliberately does not use ⌘: on macOS
-`⌘⌥←/→` is the browser's own tab switch. `Ctrl+Alt+Shift+←/→` moves the active
-tab along the strip instead, `Ctrl+Alt+P` pins or unpins it, and `Ctrl+Alt+W`
-closes it.
+`⌘⌥←/→` is the browser's own tab switch.
 
 ## The sidebar ⋯ menu
 
@@ -400,8 +386,9 @@ hang off the page id, which does not change: a move takes them with it.
 
 **Duplicate** in the sidebar ⋯ makes a deep copy: the page, its whole subtree,
 and (for a collection) its property schema and its views. The copy is added at
-the **end of the same list** as the original, titled **Copy of <name>**, and you
-are taken to it. Duplicate the first of ten sub-pages and the copy appears
+the **end of the same list** as the original, titled **Copy of <name>** in the
+language of whoever made it (a page without a title gives a copy without one),
+and you are taken to it. Duplicate the first of ten sub-pages and the copy appears
 tenth, not second.
 
 Only the parts you are allowed to read are copied. A branch you cannot see is
@@ -429,7 +416,8 @@ globe, and **⋯** (*More*).
 | **Version history** | always | the revision list; see [History](history-and-audit.md) |
 | **Show comments** / **Hide comments** | narrow screens only, and not on a collection | toggles the panel |
 | **Make it private** / **Make it visible to the workspace** | narrow screens only | the same as the lock icon |
-| **Share to web (read-only link)** | narrow screens only | the same as the globe |
+| **Page access…** | always | opens the share dialog on the **Share** tab |
+| **Share to web (read-only link)** | narrow screens only | opens the same dialog on the **Publish** tab |
 | **Import (.md / .zip)** | you can edit | reads a Markdown file or a zip; see [Import and export](import-export.md) |
 | **Markdown (.md)** | always | downloads this page as Markdown |
 | **Web page (.html)** | always | downloads a document as a standalone HTML file. On a collection it falls back to Markdown: a table is the faithful form of its rows, so what arrives is a `.md` file |
@@ -468,11 +456,13 @@ looking at, so what you print is the table, board or calendar as arranged.
 
 ## Privacy and sharing, in one line each
 
-The **lock** toggles a page between *Visible to the workspace* and
-*Private (only you)*, and the setting is inherited by everything under it. The
-**globe** mints a read-only link anyone can open without signing in, with an
-optional expiry (*Never*, *In 1 day*, *In 7 days*, *In 30 days*) and an optional
-password, and **Stop sharing** revokes it. Both are covered properly in
+The **lock** opens the share dialog on the **Share** tab, with the workspace
+access list (*Visible to the workspace*, *Private (only you)*, chosen members),
+and the setting is inherited by everything under it. The **globe** opens the
+same dialog on the **Publish** tab, where **Share publicly** mints a read-only
+link anyone can open without signing in, with an optional expiry (*Never*,
+*In 1 day*, *In 7 days*, *In 30 days*) and an optional password, and
+**Stop sharing** revokes it. Both are covered properly in
 [Permissions](permissions.md) and [Sharing](sharing.md).
 
 ## Saving, and what else lives on a page

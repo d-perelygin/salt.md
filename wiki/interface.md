@@ -82,7 +82,7 @@ workspace name rather than clicking Yes. See [Workspaces](workspaces.md) and
 Two round buttons top right:
 
 - **Library (every page)** opens the full-screen library over the page. It has
-  its own tab strip (**Recently used**, **Favorites**, **Shared**, **Private**,
+  its own tab strip (**Recently used**, **Favorites**, **Workspace**, **Private**,
   **All pages**, **Graph** and **Tree · agent view**), with a workspace picker, a
   filter box and a sort menu. See [Library](library.md).
 - **Collapse the sidebar** slides it away. On a desktop it does not disappear:
@@ -282,29 +282,21 @@ the second tab: one document needs no tab bar.
 
 - **Clicking a page anywhere does not add a tab.** It navigates the tab you are
   in, the way a browser tab does. Use ⌘-click, middle-click or *Open in new tab*
-  to add one — the gestures work on a sidebar row, a board card, a row in any
-  collection view and a note in the notes column, and a board card's ⋯ menu
-  carries the entry too.
+  to add one. The gestures work on a sidebar row, a board card, a row in any
+  collection view, a note in the notes column and an entry of the sub-pages
+  block, and a board card's ⋯ menu carries the entry too.
 - A new tab opens directly after the active one and is focused.
-- **✕** closes a tab, and so does a **middle-click** on it. A right-click
-  opens the tab's menu: pin it, move it along the strip, close it, close
-  everything but it and the pins, or close everything to its right. Tabs can
-  also be dragged, and `Ctrl+Alt+Shift+←/→` moves the focused one.
-- A **pinned** tab leads the strip and keeps its place: following a link from
-  it opens the page after it instead of replacing it, and the bulk closes
-  leave it alone.
+- **✕** closes a tab, and so does a **middle-click** on it.
 - Closing the active tab activates the neighbour that slides into its place.
   Closing the last one does not leave you on an empty screen; a page is picked
   for you.
 - Back and forward restore the exact set of tabs that entry had, not just the
   address.
-- Switching workspace leaves the tabs alone: it focuses the tab you last had
-  open there, or opens that page in a new tab right after the current one —
-  never by replacing the tab you are leaving. A tab can go on showing a page
-  from a workspace the sidebar is no longer displaying.
-- The set of open tabs, their order and their pins are remembered in this
-  browser. A tab whose page was trashed or deleted elsewhere drops out on its
-  own, within a moment of the change arriving, so no ghost tabs pile up.
+- Switching workspace leaves the tabs alone. A tab can go on showing a page from
+  a workspace the sidebar is no longer displaying.
+- The set of open tabs is remembered in this browser. A tab whose page was
+  trashed or deleted elsewhere drops out on its own, within a moment of the
+  change arriving, so no ghost tabs pile up.
 
 ## The topbar
 
@@ -324,8 +316,8 @@ The icons, left to right:
 | speech bubble | **Show comments** / **Hide comments** | opens the comment panel; carries the number of open comments. Not shown on a collection: its *rows* carry comments, not the collection itself |
 | panel | **Show structure** / **Hide structure** | the structure panel (see below) |
 | star | **Add to favorites** / **Remove from favorites** | |
-| padlock | **Private (only you): click to share with the workspace** / **Visible to the workspace: click to make it private** | see [Permissions](permissions.md) |
-| globe | **Share to web (read-only link)** | see below |
+| padlock | **Private (only you): click to share with the workspace** / **Visible to the workspace: click to make it private** | opens the share dialog on the **Share** tab; see [Permissions](permissions.md) |
+| globe | **Share to web (read-only link)** | opens the same dialog on the **Publish** tab; see below |
 | **⋯** | **More** | everything below |
 
 If an agent said how long it expected to be, the tooltip ends with **checked in
@@ -346,9 +338,8 @@ Four things, top to bottom:
    Empty: **No files**. See [Files](files.md).
 4. ***Linked from***: the pages that link here. Empty: **Nothing links here**.
 
-Clicking a **PDF**, a Word document (**.docx**) or a spreadsheet (**.xlsx**)
-opens it full-screen in a preview with **Download** and **Close**; Escape
-closes it too. Every other kind of file opens in a new tab.
+Clicking a **PDF** opens it full-screen in a preview with **Download** and
+**Close**; Escape closes it too. Every other kind of file opens in a new tab.
 
 The structure panel and the comment panel share the same strip on the right, so
 opening one closes the other. Both remember whether they were open, in this
@@ -356,10 +347,12 @@ browser, across pages.
 
 ### Sharing to the web
 
-The globe opens a small menu: the read-only link in a field that selects itself
-when you click it, **Expires:** with **Never**, **In 1 day**, **In 7 days** or
-**In 30 days**, an optional **Password (optional)** field, and two buttons,
-**Copy** and **Stop sharing**. See [Sharing](sharing.md).
+The globe opens the share dialog on its **Publish** tab and publishes nothing
+by itself: **Expires:** with **Never**, **In 1 day**, **In 7 days** or
+**In 30 days**, an optional **Password (optional)** field, and **Create link**.
+The lock button opens the same dialog on the **Share** tab instead. Once the
+link exists the Publish tab shows it in a field that selects itself when you
+click it, with **Copy** and **Stop sharing**. See [Sharing](sharing.md).
 
 ### The ⋯ menu
 
@@ -431,6 +424,7 @@ where the document tree would be: the same cards, the same **All** and
 | `⌘K` / `Ctrl+K` | opens the search dialog; pressing it again closes it |
 | `⌥N` / `Alt+N` | a new page at the top level of the current workspace |
 | `Ctrl+Alt+←` / `Ctrl+Alt+→` | previous / next tab, wrapping around. Ignored while you are typing, and needs at least two tabs. `⌘` is deliberately not part of it: that combination belongs to the browser |
+| `Alt+Shift+T` | reopens the last tab you closed, the way a browser does, and again for the one before it. The last twenty are kept; a page since deleted or no longer readable is skipped |
 | `↑` `↓` `Enter` | in the search dialog, once you have typed: move through the results, open the selected one. The recently-opened list is click-only |
 | `Escape` | closes the search dialog, any open menu, an image opened full-screen, a file preview, the icon picker, and a confirmation |
 | `Enter` | confirms a dialog that asks for a single line of text |

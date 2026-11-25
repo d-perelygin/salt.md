@@ -264,7 +264,7 @@ page: yours and a colleague's are different lists over the same pages.
 ### Public share link
 
 A page published as a read-only link that works without an account. The globe in
-the page header mints it and shows it. Two things can be set on it: an **expiry**
+the page header opens its menu, where **Create link** mints it. Two things can be set on it: an **expiry**
 (*Never*, *In 1 day*, *In 7 days*, *In 30 days*) and an optional **password**.
 **Stop sharing** revokes it, and the link stops working at once.
 
@@ -455,7 +455,8 @@ tied to a fixed list of workspaces is refused when it tries to create one.
 Tokens are created and deleted under **API tokens** in the account menu, where
 each one shows its scope, its workspaces, and when and from where it was last
 used: a token that rides in a URL cannot be kept secret, so the defence is
-noticing.
+noticing. Connections sit in the same dialog under **Signed-in connections**,
+shown the same way and ended there.
 
 See [API access](api.md), [Agent access](agent-access.md) and
 [Permissions](permissions.md).

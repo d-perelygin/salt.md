@@ -135,6 +135,7 @@ export const api = {
       publicBaseUrl: string;
       trustProxy: boolean;
       allowUserWorkspaces: boolean;
+      createPersonalWorkspaces: boolean;
       agentAddressesOn: boolean;
       agentAddresses: string;
       anthropicAddresses: string;
@@ -165,6 +166,7 @@ export const api = {
       oidcClientId: string;
       oidcSecretSet: boolean;
       oidcName: string;
+      msTenant: string;
       mailProvider: string;
       mailAddress: string;
       mailFrom: string;
@@ -210,9 +212,18 @@ export const api = {
       httpsDomain: string;
       httpsEnabled: boolean;
       localUrl: string;
+      // The cloudflared in use and the newest release (server/tunnel_update.go).
+      cloudflaredVersion: string;
+      cloudflaredLatest: string;
+      cloudflaredBehind: boolean;
+      cloudflaredManaged: boolean;
+      cloudflaredCheckedAt: string;
+      cloudflaredCheckError: string;
+      cloudflaredUpdating: boolean;
+      cloudflaredAutoUpdate: boolean;
     }>('/api/admin/public-access'),
-  tunnelAction: (action: string, token?: string) =>
-    req<unknown>('/api/admin/tunnel', { method: 'POST', body: JSON.stringify({ action, token }) }),
+  tunnelAction: (action: string, token?: string, on?: boolean) =>
+    req<unknown>('/api/admin/tunnel', { method: 'POST', body: JSON.stringify({ action, token, on }) }),
   auditPrune: () =>
     req<{ removed: number; days: number }>('/api/admin/audit-prune', { method: 'POST' }),
   putSettings: (patch: Record<string, unknown>) =>
@@ -389,6 +400,16 @@ export const api = {
       body: JSON.stringify({ parentId, title, type, props, workspaceId, idempotencyKey }),
     }),
   getPage: (id: string) => req<Page>(`/api/pages/${id}`),
+  // Titles (and trash state) for relation ids the picker's list does not hold.
+  // A chip must name the row it points at; printing the id is not a name.
+  resolvePages: (ids: string[]) =>
+    req<{ pages: { id: string; title: string; icon: string; trashed: boolean }[] }>(
+      '/api/pages/resolve',
+      { method: 'POST', body: JSON.stringify({ ids }) },
+    ),
+  // What a permanent delete would clear: links into the page and its subtree.
+  pageReferences: (id: string) =>
+    req<{ links: number; rows: number }>(`/api/pages/${id}/references`),
   updatePage: (
     id: string,
     patch: Partial<{
@@ -419,10 +440,12 @@ export const api = {
   // fromTemplate: instantiate a template (copy keeps the title).
   // asTemplate: save as template — the COPY becomes the template (snapshot),
   // the original stays a normal page.
-  duplicatePage: (id: string, fromTemplate = false, asTemplate = false) =>
+  // title: what to call the copy, in the reader's language (the server's own
+  // default is English).
+  duplicatePage: (id: string, fromTemplate = false, asTemplate = false, title = '') =>
     req<{ id: string }>(
       `/api/pages/${id}/duplicate${fromTemplate ? '?fromTemplate=1' : asTemplate ? '?asTemplate=1' : ''}`,
-      { method: 'POST' },
+      { method: 'POST', ...(title ? { body: JSON.stringify({ title }) } : {}) },
     ),
   importMarkdown: (parentId: string | null, title: string, markdown: string) =>
     req<{ id: string }>('/api/import', {
@@ -468,9 +491,13 @@ export const api = {
     opts: {
       limit?: number;
       offset?: number;
-      filters?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[];
-      filterGroups?: { property: string; op?: string; value: string; values?: string[]; value2?: string }[][];
+      filters?: { property: string; op?: string; value: string; values?: string[]; value2?: string; caseSensitive?: boolean }[];
+      filterGroups?: { property: string; op?: string; value: string; values?: string[]; value2?: string; caseSensitive?: boolean }[][];
       sort?: { property: string; dir: 'asc' | 'desc' } | null;
+      // Extra sort keys after the first, in priority order. Travels as
+      // repeated sort params; the server reads them as one ORDER BY.
+      // Prefer sorts; the single sort is kept for older callers.
+      sorts?: { property: string; dir: 'asc' | 'desc' }[];
       // The viewer's day as YYYY-MM-DD: relative date words ("today",
       // "today-1M") resolve against it, not the server's day.
       today?: string;
@@ -480,18 +507,19 @@ export const api = {
     if (opts.limit) p.set('limit', String(opts.limit));
     if (opts.offset) p.set('offset', String(opts.offset));
     if (opts.today) p.set('today', opts.today);
-    const encode = (f: { property: string; op?: string; value: string; values?: string[]; value2?: string }) => {
+    const encode = (f: { property: string; op?: string; value: string; values?: string[]; value2?: string; caseSensitive?: boolean }) => {
       // A set of values and a range do not fit in a colon-separated string, so
       // anything beyond the simple case travels as JSON. The server reads both
       // — the short form is what curl, a bookmarked URL and every older client
       // sends, and it keeps working unchanged.
-      if (f.values?.length || f.value2) return JSON.stringify(f);
+      if (f.values?.length || f.value2 || f.caseSensitive) return JSON.stringify(f);
       return `${f.property}:${f.op ?? ''}:${f.value}`;
     };
     for (const f of opts.filters ?? []) p.append('filter', encode(f));
     // One filter_group param per OR group; each is a JSON array of conditions.
     for (const g of opts.filterGroups ?? []) p.append('filter_group', JSON.stringify(g));
-    if (opts.sort) p.set('sort', `${opts.sort.property}:${opts.sort.dir}`);
+    const sorts = [...(opts.sorts ?? []), ...(opts.sort && !(opts.sorts ?? []).length ? [opts.sort] : [])];
+    for (const s of sorts) p.append('sort', `${s.property}:${s.dir}`);
     return req<{
       rows: {
         id: string;
@@ -516,6 +544,34 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(config),
     }),
+  /** Dry-runs a process draft (visual rules plus code blocks) against the
+   *  stored schema. The code tab calls it while the user types; every
+   *  problem comes back with its block name and line. */
+  validateWorkflow: (pageId: string, workflow: import('./types').WorkflowConfig) =>
+    req<{ errors: { block: string; line: number; message: string }[] }>(
+      `/api/collections/${pageId}/workflow/validate`,
+      { method: 'POST', body: JSON.stringify({ workflow }) },
+    ),
+  /** A process-code proposal the in-app agent left for this page. Empty when
+   *  nothing is waiting; the Code tab offers Apply/Dismiss. */
+  workflowProposal: (pageId: string) =>
+    req<{ source?: string; summary?: string; at?: string }>(
+      `/api/collections/${pageId}/workflow/proposal`,
+    ),
+  dismissWorkflowProposal: (pageId: string) =>
+    req<{ ok: boolean }>(`/api/collections/${pageId}/workflow/proposal`, { method: 'DELETE' }),
+
+  /** Compiles the Code tab's whole-process document into per-rule verdicts:
+   *  the rule JSON for clean sections, problems with line numbers, or a
+   *  code-only flag (OR value lists, named constants) with the reason. */
+  compileWorkflowText: (pageId: string, source: string, statusPropId: string) =>
+    req<{
+      rules: { header: string; line: number; rule?: import('./types').WorkflowRule; codeOnly: boolean; reason: string; errors: { line: number; message: string }[] }[];
+      errors: { line: number; message: string }[];
+    }>(`/api/collections/${pageId}/workflow/compile-text`, {
+      method: 'POST',
+      body: JSON.stringify({ source, statusPropId }),
+    }),
 
   /** `pageId` narrows the log to one page — "what happened to this row",
    *  which otherwise means scrolling a whole workspace fifty entries at a time. */
@@ -534,6 +590,8 @@ export const api = {
     ),
   restoreRevision: (pageId: string, revId: string) =>
     req<{ ok: boolean }>(`/api/pages/${pageId}/revisions/${revId}/restore`, { method: 'POST' }),
+  copyRevision: (pageId: string, revId: string) =>
+    req<{ id: string; parentId: string }>(`/api/pages/${pageId}/revisions/${revId}/copy`, { method: 'POST' }),
 
   listComments: (pageId: string) => req<import('./types').Comment[]>(`/api/pages/${pageId}/comments`),
   // Open comments per page of a workspace, in one go — for the counters on
@@ -541,10 +599,10 @@ export const api = {
   // handleCommentCounts).
   commentCounts: (workspaceId: string) =>
     req<Record<string, number>>(`/api/comment-counts?workspaceId=${encodeURIComponent(workspaceId)}`),
-  createComment: (pageId: string, body: string, blockId = '') =>
+  createComment: (pageId: string, body: string, blockId = '', anchor?: import('./types').CommentAnchor) =>
     req<{ id: string }>(`/api/pages/${pageId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ body, blockId }),
+      body: JSON.stringify({ body, blockId, anchor }),
     }),
   resolveComment: (id: string, resolved: boolean) =>
     req<{ ok: boolean }>(`/api/comments/${id}/resolve`, {
@@ -703,6 +761,10 @@ export const api = {
 
   // Public collection sharing (anonymous side). Password travels in
   // X-Share-Password, same as the single-page public API.
+  /** Whether the reader of a share link may also EDIT the page behind it.
+   *  A signed-in colleague gets `edit` and the internal address to open. */
+  publicEditAccess: (token: string) =>
+    req<{ edit: boolean; href: string }>(`/api/public/access/${token}`),
   publicCollection: (token: string, password?: string) =>
     req<PublicCollectionConfig>(`/api/public/c/${token}`, {
       headers: password ? { 'X-Share-Password': password } : undefined,
@@ -785,7 +847,7 @@ export const api = {
       if (file.size > api.uploadMaxBytes) {
         reject(
           new ApiError(
-            t('File too large ({size}) — 50 MB max.', { size: formatBytes(file.size) }),
+            t('File too large ({size}), 50 MB max.', { size: formatBytes(file.size) }),
             413,
             'file_too_large',
           ),
@@ -832,7 +894,7 @@ export const api = {
       };
       xhr.onerror = () => {
         finish();
-        reject(new ApiError(t('Upload failed — no connection to the server.'), 0));
+        reject(new ApiError(t('Upload failed: no connection to the server.'), 0));
       };
       xhr.send(fd);
     }),
@@ -840,16 +902,38 @@ export const api = {
   getAISettings: () => req<{ baseUrl: string; model: string; format: string; temperature: number; hasKey: boolean; approval: string }>('/api/ai/settings'),
   putAISettings: (body: { baseUrl?: string; model?: string; format?: string; temperature?: number; apiKey?: string; approval?: string }) =>
     req<{ ok: boolean }>('/api/ai/settings', { method: 'PUT', body: JSON.stringify(body) }),
-  listAIThreads: (pageId?: string) =>
-    req<any[]>(`/api/ai/threads${pageId ? `?page_id=${encodeURIComponent(pageId)}` : ''}`),
+  listAIThreads: (pageId?: string, archived = false) => {
+    const q = new URLSearchParams();
+    if (pageId) q.set('page_id', pageId);
+    if (archived) q.set('archived', '1');
+    const sfx = q.toString();
+    return req<any[]>(`/api/ai/threads${sfx ? '?' + sfx : ''}`);
+  },
+  archiveAIThread: (id: string, archived: boolean) =>
+    req<{ ok: boolean }>(`/api/ai/threads/${id}/archive`, { method: 'POST', body: JSON.stringify({ archived }) }),
   createAIThread: (body: { workspaceId?: string; pageId?: string; title?: string }) =>
     req<{ id: string }>('/api/ai/threads', { method: 'POST', body: JSON.stringify(body) }),
   getAIThreadMessages: (id: string) => req<any[]>(`/api/ai/threads/${id}/messages`),
   deleteAIThread: (id: string) => req<{ ok: boolean }>(`/api/ai/threads/${id}`, { method: 'DELETE' }),
   renameAIThread: (id: string, title: string) =>
     req<{ ok: boolean }>(`/api/ai/threads/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  autoThreadTitle: (id: string, force = true) =>
+    req<{ title: string; generated: boolean }>(`/api/ai/threads/${id}/title`, {
+      method: 'POST',
+      body: JSON.stringify({ force }),
+    }),
   markAIThreadRead: (id: string) =>
     req<{ ok: boolean }>(`/api/ai/threads/${id}/read`, { method: 'POST', body: '{}' }),
+  listAIMemory: (workspaceId?: string) => {
+    const q = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
+    return req<{ id: string; workspaceId: string; content: string; createdAt: string; updatedAt: string }[]>(`/api/ai/memory${q}`);
+  },
+  addAIMemory: (content: string, workspaceId?: string) =>
+    req<{ id: string }>('/api/ai/memory', { method: 'POST', body: JSON.stringify({ content, workspaceId: workspaceId ?? '' }) }),
+  deleteAIMemory: (id: string) =>
+    req<{ ok: boolean }>(`/api/ai/memory/${id}`, { method: 'DELETE' }),
+  aiStats: () =>
+    req<{ userId: string; name: string; messages: number; runs: number; runsOk: number; runsFailed: number; tokensIn: number; tokensOut: number; lastActive: string | null }[]>('/api/ai/stats'),
   createAIRun: (body: { threadId?: string; task: string; prompt?: string; retry?: boolean; pageId?: string }) =>
     req<{ id: string; threadId: string }>('/api/ai/runs', { method: 'POST', body: JSON.stringify(body) }),
   getAIRun: (id: string) => req<any>(`/api/ai/runs/${id}`),

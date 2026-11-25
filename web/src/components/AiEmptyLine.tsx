@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { useAiEnabled } from '../aiState';
@@ -192,7 +193,7 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
       style={{ top: anchor.top - 6, left: anchor.left - 8, width: anchor.width + 16 }}
       contentEditable={false}
     >
-      <span className="ai-empty-spark">✨</span>
+      <span className="ai-empty-spark"><Sparkles size={14} /></span>
       {busy ? (
         <>
           <span className="ai-empty-sent">{sent}</span>

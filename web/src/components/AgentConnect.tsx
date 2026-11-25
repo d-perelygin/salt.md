@@ -55,11 +55,17 @@ const img = (file: string, mono = false) => (
 
 // Hints live apart from the agent table so that t() runs at render time —
 // a module-level constant would freeze whatever language was active at import.
+//
+// A hint names another product's menus, and those move: Claude's custom
+// connectors left Settings for Customize (#115). Its words follow Anthropic's
+// help article on custom connectors (support.claude.com, article 11175166),
+// and the catalogs use that article's own translations, since those are the
+// labels Claude shows in that language.
 const agentHint = (id: string): string =>
   ({
-    'claude-app': t('Settings → Connectors → “Add custom connector” — paste the URL, nothing else.'),
+    'claude-app': t('Customize → Connectors → “+ Add” → “Add custom connector”: a name and the URL, nothing else.'),
     'claude-code': t('One command in the terminal and you are done.'),
-    chatgpt: t('Settings → Connectors (Developer Mode) — paste the URL.'),
+    chatgpt: t('Settings → Connectors (Developer Mode): paste the URL.'),
     codex: t('Add it to ~/.codex/config.toml.'),
     cursor: t('In .cursor/mcp.json (project) or ~/.cursor/mcp.json (global).'),
     openclaw: t('Register it as an MCP server in the OpenClaw configuration.'),
@@ -67,6 +73,11 @@ const agentHint = (id: string): string =>
     gemini: t('Add it to ~/.gemini/settings.json.'),
     other: t('Any MCP-capable client (streamable HTTP).'),
   })[id] ?? '';
+
+// The one entry that is a description rather than a product's name, so the one
+// entry that gets translated. AGENTS itself is a module constant, where t() would
+// resolve once and keep that language forever.
+const agentName = (a: AgentDef) => (a.id === 'other' ? t('Other agent') : a.name);
 
 const AGENTS: AgentDef[] = [
   {
@@ -185,7 +196,7 @@ export default function AgentConnectModal({
       const chosen = wsScope === 'current' && currentWs ? [currentWs] : [];
       const res = await api.createToken('agent', scope, chosen);
       setToken(res.token);
-      toast.success(t('Token created — shown only once'));
+      toast(t('Token created, shown only once'));
     } catch (e) {
       toast((e as Error).message || t('The token could not be created'));
     } finally {
@@ -210,7 +221,7 @@ export default function AgentConnectModal({
           </h2>
           <p className="dialog-hint">
             {t(
-              'salt.md is AI-native: the built-in MCP server lets any agent read, write and search pages and maintain collections. There are two ways in — signing in, or a token that lives in the address.',
+              'salt.md is AI-native: the built-in MCP server lets any agent read, write and search pages and maintain collections. There are two ways in: signing in, or a token that lives in the address.',
             )}
           </p>
 
@@ -250,8 +261,8 @@ export default function AgentConnectModal({
           <div className="agent-token">
             {token ? (
               <div className="agent-token-fresh">
-                <code onClick={() => { void navigator.clipboard?.writeText(token); toast.success(t('Token copied')); }}>{token}</code>
-                <span className="dialog-hint">{t('Visible only now — already filled into the snippet below.')}</span>
+                <code onClick={() => { void navigator.clipboard?.writeText(token); toast(t('Token copied')); }}>{token}</code>
+                <span className="dialog-hint">{t('Visible only now, already filled into the snippet below.')}</span>
               </div>
             ) : (
               <>
@@ -287,14 +298,14 @@ export default function AgentConnectModal({
                 onClick={() => setAgent(a)}
               >
                 <span className="agent-logo">{a.logo}</span>
-                <span className="agent-name">{a.name}</span>
+                <span className="agent-name">{agentName(a)}</span>
               </button>
             ))}
           </div>
 
           <div className="conf-block agent-snippet">
             <div className="conf-head">
-              <span>{agent.name} — {agentHint(agent.id)}</span>
+              <span>{agentName(agent)}: {agentHint(agent.id)}</span>
               <button className="btn-sm" onClick={copy}>
                 {copied ? <Check size={13} /> : <Copy size={13} />} {t('Copy')}
               </button>
@@ -306,20 +317,20 @@ export default function AgentConnectModal({
 
           {how === 'signin' ? (
             <p className="dialog-hint settings-hint">
-              {t('Paste this and the client sends you here to approve it — you pick the workspaces then. If it asks for a token instead, it cannot sign in yet: use the other way.')}
+              {t('Paste this and the client sends you here to approve it. You pick the workspaces then. If it asks for a token instead, it cannot sign in yet: use the other way.')}
             </p>
           ) : (
             effToken === TOKEN_PH && (
               <p className="dialog-hint settings-hint">
-                {t('Create a token above (or paste one) — it is filled into the snippet automatically.')}
+                {t('Create a token above (or paste one). It is filled into the snippet automatically.')}
               </p>
             )
           )}
           {url.startsWith('http://') && !/^http:\/\/(localhost|127\.)/.test(url) && (
             <p className="dialog-hint settings-hint pa-warn">
-              {t('⚠ Cloud agents (claude.ai, say) cannot reach')} <code>{url}</code>{' '}
+              {t('⚠ Cloud agents (claude.ai, say) cannot reach')} <code>{url}</code>.{' '}
               {t(
-                '— make the instance public for that (Instance settings → Domain & proxy) and connect through the public URL. Local CLIs on the same network work directly.',
+                'Make the instance public for that (Instance settings → Domain & proxy) and connect through the public URL. Local CLIs on the same network work directly.',
               )}
             </p>
           )}
@@ -336,7 +347,7 @@ export default function AgentConnectModal({
               <span className="agent-skill-title">{t('Teach the agent how you work here')}</span>
               <span className="agent-skill-sub">
                 {t(
-                  'A skill with the playbook, this workspace and its rules. It installs a short block into the repository so the next session knows it too — without being told again.',
+                  'A skill with the playbook, this workspace and its rules. It installs a short block into the repository so the next session knows it too, without being told again.',
                 )}
               </span>
             </div>

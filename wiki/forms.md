@@ -45,13 +45,13 @@ another one. It is the same view machinery in all three places.
 
 The new view is called *Form* and appears as the last tab.
 
-To rename it, double-click the tab, or open the `⋯` button on the view bar
-(tooltip **View options**) and choose **Rename view**. That opens a small dialog
-with the current name filled in; its confirm button reads **Rename**.
+To rename it, double-click the tab, or right-click it (on a touch screen, press
+and hold) and choose **Rename view**. That opens a small dialog with the current
+name filled in; its confirm button reads **Rename**.
 
-The same `⋯` menu holds **Move left** and **Move right**, which change the tab
-order, and, since the public link serves the first form view, they also decide
-which form the world sees. It also holds **Remove view**, which deletes the view
+The same menu holds **Move left** and **Move right**, which change the tab order,
+and, since the public link serves the first form view, they also decide which
+form the world sees. It also holds **Remove view**, which deletes the view
 you are on. All four of these appear only when the collection has more than one
 view: a collection with no view has nothing to render, so the last one cannot be
 removed and has nowhere to move to.

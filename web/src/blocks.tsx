@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
 import { createReactBlockSpec } from '@blocknote/react';
-import { Table2, Sparkles, RotateCw, Settings, FileText } from 'lucide-react';
+import { Table2, Sparkles, RotateCw, Settings, FileText, Bookmark } from 'lucide-react';
 import { useBlockCtx } from './blockContext';
+import { api } from './api';
+import AiErrorCard from './components/AiErrorCard';
+import { useAiEnabled } from './aiState';
 import { openPage, openPageAux } from './pageOpen';
 import { MERMAID_REV, renderMermaid } from './mermaidLoader';
 import { PageIcon } from './pageIcon';
 import CollectionView, { type EmbedState } from './components/CollectionView';
 import { PageHoverCard } from './components/PageHoverCard';
 import { plural, t } from './i18n';
-import { api } from './api';
-import AiErrorCard from './components/AiErrorCard';
-import { useAiEnabled } from './aiState';
+import { imeComposing } from './keys';
 
-// Custom salt.md block types (Welle 17): callout, table of contents, bookmark.
+// Custom salt.md block types (W17): callout, table of contents, bookmark.
 // Columns are ours (columnsSpec, at the end of this file) and wired in pageLink.tsx.
 
 // safeHref collapses any non-http(s)/mailto URL to '#'. A bookmark url can be
@@ -87,19 +88,30 @@ interface TocEntry {
   text: string;
 }
 
+/** The words of a run of inline nodes. A heading may hold more than plain
+ *  text — a link keeps its words one level down ({"type":"link", "content":
+ *  [{"text":"the handbook"}]}), and reading only the top level dropped them,
+ *  so a heading that was one link read as "Untitled". */
+function inlineWords(nodes: unknown): string {
+  if (!Array.isArray(nodes)) return '';
+  let out = '';
+  for (const n of nodes as { text?: unknown; content?: unknown }[]) {
+    if (typeof n?.text === 'string') out += n.text;
+    if (Array.isArray(n?.content)) out += inlineWords(n.content);
+  }
+  return out;
+}
+
 function collectHeadings(blocks: unknown[], out: TocEntry[]) {
   for (const b of blocks as {
     id?: string;
     type?: string;
     props?: { level?: number };
-    content?: { text?: string }[];
+    content?: unknown[];
     children?: unknown[];
   }[]) {
     if (b?.type === 'heading' && b.id) {
-      const text = (b.content ?? [])
-        .map((c) => c.text ?? '')
-        .join('')
-        .trim();
+      const text = inlineWords(b.content).trim();
       out.push({ id: b.id, level: b.props?.level ?? 1, text: text || t('Untitled') });
     }
     if (b?.children?.length) collectHeadings(b.children, out);
@@ -243,7 +255,7 @@ export const bookmarkSpec = createReactBlockSpec(
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 e.stopPropagation();
-                if (e.key === 'Enter' && draft.trim()) {
+                if (e.key === 'Enter' && !imeComposing(e) && draft.trim()) {
                   let u = draft.trim();
                   if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
                   editor.updateBlock(block, { props: { url: u } } as never);
@@ -282,7 +294,7 @@ export const bookmarkSpec = createReactBlockSpec(
           rel="noopener noreferrer"
           contentEditable={false}
         >
-          <span className="bn-bookmark-icon">🔖</span>
+          <span className="bn-bookmark-icon"><Bookmark size={16} /></span>
           <span className="bn-bookmark-body">
             <span className="bn-bookmark-url">{url}</span>
             <span className="bn-bookmark-host">{host}</span>

@@ -48,6 +48,7 @@ const REGIONS = [
   'en-GB', 'en-US', 'en-IE', 'en-AU', 'en-CA',   // i18n-ok: same
   'fr-FR', 'fr-CH', 'it-IT', 'es-ES', 'nl-NL',   // i18n-ok: same
   'pl-PL', 'pt-BR', 'sv-SE', 'da-DK', 'cs-CZ',   // i18n-ok: same
+  'zh-CN', 'zh-TW', 'zh-HK',                     // i18n-ok: same
 ];
 
 export function LanguageTimeModal({ onClose }: { onClose: () => void }) {
@@ -111,7 +112,7 @@ export function LanguageTimeModal({ onClose }: { onClose: () => void }) {
           <h2>{t('Language and time')}</h2>
           <p className="dialog-hint">
             {t(
-              'Automatic follows this browser and is right most of the time. Set a value yourself when it is not — a laptop on the wrong continent, or a language you read but do not want your dates in.',
+              'Automatic follows this browser and is right most of the time. Set a value yourself when it is not: a laptop on the wrong continent, or a language you read but do not want your dates in.',
             )}
           </p>
 
@@ -122,7 +123,7 @@ export function LanguageTimeModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => change({ language: e.target.value })}
           >
             <option value="">
-              {t('Automatic ({value})', {
+              {t('Automatic · {value}', {
                 value: LOCALES[localeNow()] ?? localeNow(),
               })}
             </option>
@@ -146,11 +147,11 @@ export function LanguageTimeModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => change({ region: e.target.value })}
           >
             <option value="">
-              {t('Automatic ({value})', { value: regionLabel(automaticFormatTag(prefs)) })}
+              {t('Automatic · {value}', { value: regionLabel(automaticFormatTag(prefs)) })}
             </option>
             {REGIONS.map((tag) => (
               <option key={tag} value={tag}>
-                {regionLabel(tag)} — {tag}
+                {regionLabel(tag)} · {tag}
               </option>
             ))}
           </select>
@@ -161,7 +162,7 @@ export function LanguageTimeModal({ onClose }: { onClose: () => void }) {
             value={prefs.timeZone ?? ''}
             onChange={(e) => change({ timeZone: e.target.value })}
           >
-            <option value="">{t('Automatic ({value})', { value: resolvedTimeZone() })}</option>
+            <option value="">{t('Automatic · {value}', { value: resolvedTimeZone() })}</option>
             {zones.map((z) => (
               <option key={z} value={z}>
                 {z}
@@ -176,7 +177,7 @@ export function LanguageTimeModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => change({ clock: e.target.value })}
           >
             <option value="">
-              {t('Automatic ({value})', {
+              {t('Automatic · {value}', {
                 value: resolvedClock() === '12' ? t('12-hour') : t('24-hour'),
               })}
             </option>
@@ -191,7 +192,7 @@ export function LanguageTimeModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => change({ weekStart: e.target.value })}
           >
             <option value="">
-              {t('Automatic ({value})', {
+              {t('Automatic · {value}', {
                 value: weekdayLabel(firstWeekday()),
               })}
             </option>

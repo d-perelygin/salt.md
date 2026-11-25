@@ -184,6 +184,13 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 // point a relation at a database in somebody else's workspace.
 func (s *Server) handleUseBlueprint(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
+	// A blueprint becomes a new workspace, so the rule for creating one applies
+	// (see handleCreateWorkspace): a narrowed credential could not open it.
+	if narrowedToWorkspaces(u) {
+		httpErrorCode(w, http.StatusForbidden, "workspace_scoped",
+			"This connection is limited to particular workspaces, so it cannot create new ones. It would not be able to open them.")
+		return
+	}
 	id := r.PathValue("id")
 	_, byID := loadLibrary()
 	entry, ok := byID[id]

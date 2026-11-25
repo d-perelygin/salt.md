@@ -31,6 +31,10 @@ type pubView struct {
 	// Set from ?print=1, which the dock's printer points at from the
 	// continuous view — one click prints instead of two.
 	AutoPrint bool
+	// EditHref is set when the reader is signed in AND may write the page: the
+	// public view then offers one way back into the app. Empty for everyone
+	// else, which is the normal case.
+	EditHref string
 }
 
 // publicDocView reads the public view mode off the link. Anything but an
@@ -212,6 +216,9 @@ func pubTOC(toc []tocEntry) string {
 // continuous mode is deliberately plain — text on white, like the editor —
 // while the paged mode reuses the sheets untouched.
 const pubDocStyle = `
+.pub-edit{position:fixed;top:16px;right:16px;z-index:51;display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #e3e2df;border-radius:999px;padding:8px 16px;box-shadow:0 2px 10px rgba(0,0,0,.1);color:#1f1f1d;font:inherit;font-size:14px;font-weight:600;text-decoration:none}
+.pub-edit:hover{background:#f5f5f4}
+.pub-edit svg{width:15px;height:15px}
 .pub-fab{position:fixed;top:16px;left:16px;z-index:50;width:40px;height:40px;display:none;align-items:center;justify-content:center;background:#fff;border:1px solid #e3e2df;border-radius:50%;box-shadow:0 2px 10px rgba(0,0,0,.1);cursor:pointer;color:#1f1f1d}
 .pub-fab:hover{background:#f5f5f4}
 .pub-fab svg{width:20px;height:20px}

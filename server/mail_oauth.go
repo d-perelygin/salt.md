@@ -39,7 +39,7 @@ func (s *Server) mailProviderConfigured() (provider, address string) {
 	return p, s.setting("mail_oauth_address", "")
 }
 
-// ---- Admin-Consent-Flow ----
+// ---- Admin consent flow ----
 
 func (s *Server) handleMailOAuthStart(w http.ResponseWriter, r *http.Request) {
 	if !requestUser(r).IsAdmin {
@@ -47,7 +47,7 @@ func (s *Server) handleMailOAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pname := r.PathValue("provider")
-	prov, ok := oauthProviders[pname]
+	prov, ok := s.oauthEndpoints(pname)
 	if !ok {
 		httpError(w, 404, "unknown provider")
 		return
@@ -107,7 +107,7 @@ func (s *Server) handleMailOAuthCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	pname := r.PathValue("provider")
-	prov, ok := oauthProviders[pname]
+	prov, ok := s.oauthEndpoints(pname)
 	if !ok {
 		httpError(w, 404, "unknown provider")
 		return
@@ -129,14 +129,14 @@ func (s *Server) handleMailOAuthCallback(w http.ResponseWriter, r *http.Request)
 	}
 	c, err := r.Cookie(mailOauthCookie)
 	if err != nil {
-		fail("mail_oauth_expired", "Expired — please connect again.")
+		fail("mail_oauth_expired", "Expired. Please connect again.")
 		return
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(c.Value)
 	var tx oauthTx
 	if err != nil || json.Unmarshal(raw, &tx) != nil || tx.Provider != pname ||
 		tx.Exp < time.Now().Unix() || tx.State == "" || tx.State != r.URL.Query().Get("state") {
-		fail("mail_oauth_bad_state", "Could not be verified — please connect again.")
+		fail("mail_oauth_bad_state", "Could not be verified. Please connect again.")
 		return
 	}
 	code := r.URL.Query().Get("code")
@@ -172,16 +172,16 @@ func (s *Server) handleMailOAuthCallback(w http.ResponseWriter, r *http.Request)
 	if json.Unmarshal(body, &tok) != nil || tok.Error != "" {
 		msg := tok.ErrorDesc
 		if msg == "" {
-			msg = "Token-Antwort unlesbar"
+			msg = "token response unreadable"
 		}
 		fail("mail_oauth_provider", "The provider refused the connection.", msg)
 		return
 	}
 	if tok.RefreshToken == "" {
-		fail("mail_oauth_no_refresh", "No refresh token received — remove the access in your account settings and connect again.")
+		fail("mail_oauth_no_refresh", "No refresh token received. Remove the access in your account settings and connect again.")
 		return
 	}
-	email, _, _ := parseIDToken(tok.IDToken)
+	email, _, _, _ := parseIDToken(tok.IDToken)
 	if email == "" && prov.userinfoURL != "" && tok.AccessToken != "" {
 		email, _ = s.fetchUserinfo(prov.userinfoURL, tok.AccessToken, "")
 	}
@@ -223,7 +223,7 @@ func (s *Server) handleMailTest(w http.ResponseWriter, r *http.Request) {
 // refreshedAccessToken swaps the stored refresh token for a fresh access
 // token (mail is rare — no cache needed).
 func (s *Server) refreshedAccessToken(provider string) (string, error) {
-	prov := oauthProviders[provider]
+	prov, _ := s.oauthEndpoints(provider)
 	clientID, clientSecret := s.oauthClient(provider)
 	refresh := s.setting("mail_oauth_refresh", "")
 	if clientID == "" || refresh == "" {
@@ -257,7 +257,7 @@ func (s *Server) refreshedAccessToken(provider string) (string, error) {
 		if msg == "" {
 			msg = tok.Error
 		}
-		return "", coded("mail_refresh_failed", "The connection to the mailbox has expired — connect it again.", msg)
+		return "", coded("mail_refresh_failed", "The connection to the mailbox has expired. Connect it again.", msg)
 	}
 	// Microsoft rotates refresh tokens — keep the new one.
 	if tok.RefreshToken != "" && tok.RefreshToken != refresh {
@@ -266,7 +266,7 @@ func (s *Server) refreshedAccessToken(provider string) (string, error) {
 	return tok.AccessToken, nil
 }
 
-// rfc2047 encodes a header value (Umlaute im Betreff!).
+// rfc2047 encodes a header value (umlauts in a subject line!).
 func rfc2047(v string) string {
 	ascii := true
 	for _, r := range v {

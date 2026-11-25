@@ -283,7 +283,7 @@ function DbRows({
                   <span className="chevron spacer" />
                 )}
                 <span className="tree-icon"><PageIcon icon={r.icon} size={14} fallback={<FileText size={14} />} /></span>
-                <span className="tree-title">{r.title || 'Untitled'}</span>
+                <span className="tree-title">{r.title || t('Untitled')}</span>
                 <AgentDot pageId={r.id} />
                 {/* Until now a row could only get sub-pages through MCP — the
                     interface offered no way at all, so the dossier under a deal
@@ -437,7 +437,7 @@ function FlatRow({
           />
         </span>
         <span className="sb-flat-text">
-          <span className="tree-title">{p.title || 'Untitled'}</span>
+          <span className="tree-title">{p.title || t('Untitled')}</span>
           {parentLabel && <span className="sb-flat-parent">{parentLabel}</span>}
         </span>
         {action && (
@@ -747,7 +747,7 @@ function TreeItem({
             <span className="chevron spacer" />
           )}
           <span className="tree-icon"><PageIcon icon={p.icon} size={15} fallback={p.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />} /></span>
-          <span className="tree-title">{p.title || 'Untitled'}</span>
+          <span className="tree-title">{p.title || t('Untitled')}</span>
           {p.shared && (
             <span className="tree-shared" title={t('Shared')}>
               <Globe size={12} />
@@ -1381,7 +1381,7 @@ export default function Sidebar({
         throw new Error(err?.error || t('Import failed (HTTP {status})', { status: res.status }));
       }
       const out = (await res.json()) as { workspaceId: string; name: string; pages: number };
-      toast.success(t('Imported “{name}” — {pages}', { name: out.name, pages: plural(out.pages, '{n} page', '{n} pages') }));
+      toast(t('Imported “{name}” ({pages})', { name: out.name, pages: plural(out.pages, '{n} page', '{n} pages') }));
       onWorkspacesChanged();
       onSwitchWorkspace(out.workspaceId);
     } catch (err) {
@@ -1454,7 +1454,7 @@ export default function Sidebar({
           />
         </div>
         <div className="sidebar-header-actions">
-          <button className="icon-btn" title={t('Library — every page')} onClick={onOpenIndex}>
+          <button className="icon-btn" title={t('Library (every page)')} onClick={onOpenIndex}>
             <Library size={17} />
           </button>
           {collapsed ? (
@@ -1526,7 +1526,7 @@ export default function Sidebar({
         </SidebarSection>
       )}
       {sidebarMode === 'docs' && tagCounts.length > 0 && (
-        <SidebarSection id="tags" label="Tags" icon={<Tag size={17} />} count={tagCounts.length}>
+        <SidebarSection id="tags" label={t('Tags')} icon={<Tag size={17} />} count={tagCounts.length}>
           <div className="tag-cloud">
               {tagCounts.map(([t, n]) => (
                 <button
@@ -1573,7 +1573,7 @@ export default function Sidebar({
               <span className="tree-icon">
                 <PageIcon icon={p.icon} size={15} fallback={p.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />} />
               </span>
-              <span className="tree-title">{p.title || 'Untitled'}</span>
+              <span className="tree-title">{p.title || t('Untitled')}</span>
           {/* Same reason as in the table: seeing who is on something should not
               depend on which view you happen to have open. */}
           <AgentDot pageId={p.id} />
@@ -1665,7 +1665,7 @@ export default function Sidebar({
                 <span className="tree-icon">
                   <PageIcon icon={p.icon} size={15} fallback={<LayoutTemplate size={15} />} />
                 </span>
-                <span className="tree-title">{p.title || 'Untitled'}</span>
+                <span className="tree-title">{p.title || t('Untitled')}</span>
                 <span
                   className="tree-actions"
                   ref={tplMenuFor === p.id ? tplActionsRef : undefined}
@@ -1809,7 +1809,7 @@ export default function Sidebar({
         {bgLogOpen && currentWs && (
           <BreakGlassLog
             workspaceId={currentWs}
-            workspaceName={activeWs?.name ?? 'Workspace'}
+            workspaceName={activeWs?.name ?? t('Workspace')}
             onClose={() => setBgLogOpen(false)}
           />
         )}

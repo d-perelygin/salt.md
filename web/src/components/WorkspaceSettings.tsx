@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Workspace } from '../types';
 import Portal from './Portal';
@@ -63,6 +63,11 @@ export default function WorkspaceSettings({
 }: Props) {
   useExclusiveModal(onClose);
   const [busy, setBusy] = useState(false);
+  // Refresh workspace metadata on open so a rules proposal submitted by an
+  // agent over MCP while this tab was already open shows up without a reload.
+  useEffect(() => {
+    onChanged();
+  }, [onChanged]);
   // Empty means the default, everywhere: no third state to handle, and an
   // instance that never touched these reads as today's behaviour.
   const access = ws.agentAccess || 'open';
@@ -165,7 +170,7 @@ export default function WorkspaceSettings({
               </label>
             )}
 
-            {isOwner && row(<ShieldAlert size={16} />, t('Emergency access log'), t('Who looked in as the instance owner — and why'), onOpenBreakGlass)}
+            {isOwner && row(<ShieldAlert size={16} />, t('Emergency access log'), t('Who looked in as the instance owner, and why'), onOpenBreakGlass)}
 
             <h3 className="ws-section">{t('Layout')}</h3>
             {/* The answer to "in a documentation workspace the databases belong
@@ -185,13 +190,13 @@ export default function WorkspaceSettings({
               t('Workspace rules'),
               ws.rulesProposal
                 ? t('A rules proposal is waiting for review')
-                : t('Conventions everyone — especially agents — follows in this workspace'),
+                : t('Conventions everyone (especially agents) follows in this workspace'),
               onOpenRules,
             )}
 
             <h3 className="ws-section">{t('Data')}</h3>
             {row(<FileText size={16} />, t('Files'), t('Every uploaded file in this workspace, with the page carrying it'), onOpenFiles)}
-            {row(<Download size={16} />, t('Export workspace'), t('Native archive — importable one to one'), () => api.download(`/api/workspaces/${ws.id}/export`))}
+            {row(<Download size={16} />, t('Export workspace'), t('Native archive, importable one to one'), () => api.download(`/api/workspaces/${ws.id}/export`))}
             {row(<FileText size={16} />, t('Export as Markdown'), t('Readable anywhere, without the databases'), () => api.download(`/api/export?workspace=${ws.id}`))}
             {row(<Upload size={16} />, t('Import workspace…'), t('A native archive from another instance'), onImport)}
             {row(<Trash2 size={16} />, t('Delete workspace'), t('Takes every page in it along'), onDelete, true)}

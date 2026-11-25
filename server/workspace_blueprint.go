@@ -65,7 +65,7 @@ func (s *Server) blueprintWorkspace(u *user, name, sourceWS string) (string, err
 	}
 	sources = readable
 	if len(sources) == 0 {
-		return "", fmt.Errorf("workspace %q has no databases to copy — nothing to use as a blueprint", sourceWS)
+		return "", fmt.Errorf("workspace %q has no databases to copy: nothing to use as a blueprint", sourceWS)
 	}
 
 	var rules string

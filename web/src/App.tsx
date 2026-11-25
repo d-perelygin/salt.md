@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from './api';
 import { serverMessage } from './serverErrors';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, Menu, Sparkles, CloudOff } from 'lucide-react';
 import type { Me, PageMeta, User, Workspace } from './types';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
@@ -58,12 +58,13 @@ import { pageIdFromPathname, pagePath, pageSlugTitle } from './pageUrl';
 import ShortcutSheet from './components/ShortcutSheet';
 import { guardDrops } from './dropFiles';
 import { setAiEnabledState } from './aiState';
+import { UserContext } from './userContext';
 
 /** Injected by the build; false everywhere except the website's framed demo. */
 declare const __SALT_DEMO__: boolean;
 
-/** Schriftwahl: 'system' laesst alles wie bisher, 'brand' schaltet die
- *  mitgelieferten Inter- und JetBrains-Mono-Schriften ein. */
+/** Font choice: 'system' leaves everything as it was, 'brand' switches on
+ *  the bundled Inter and JetBrains Mono fonts. */
 export type FontPref = 'system' | 'brand';
 
 // Feedback from the mail OAuth consent redirect (/?mailOauth=ok|<code>).
@@ -192,6 +193,9 @@ export default function App() {
   // Refs mirror the latest values so the stable useCallback handlers below can
   // read them without being re-created on every navigation.
   const activeRef = useRef<string | null>(currentId);
+  // Tabs that were closed, newest first. Shift+Option+T brings the last one
+  // back — a closed tab is a keystroke away, not a memory.
+  const closedTabsRef = useRef<string[]>([]);
   const [pageNonce, setPageNonce] = useState(0);
   const tabsRef = useRef<string[]>(openTabs);
   useEffect(() => {
@@ -303,12 +307,20 @@ export default function App() {
   // Quote handed to the side panel by in-document Ask AI (selection as a
   // quote — the document itself is never modified).
   const [aiQuote, setAiQuote] = useState<string | null>(null);
+  // A question the caller already phrased (the Code tab's AI button): the
+  // composer opens with it instead of an empty box.
+  const [aiDraft, setAiDraft] = useState<string | null>(null);
+  // A panel summoned from inside a modal must be painted above it. Normal
+  // openings keep the panel below modals, which is deliberate.
+  const [aiRaised, setAiRaised] = useState(false);
   useEffect(() => {
     const onAsk = (e: Event) => {
       if (!aiEnabled) return;
-      const d = (e as CustomEvent<{ selection?: string }>).detail;
+      const d = (e as CustomEvent<{ selection?: string; draft?: string; raised?: boolean }>).detail;
       if (d?.selection) setAiQuote(d.selection);
       else setAiQuote(null);
+      setAiDraft(d?.draft ?? null);
+      setAiRaised(!!d?.raised);
       setAiChatOpen(true);
     };
     window.addEventListener('salt:ai-ask', onAsk);
@@ -336,6 +348,13 @@ export default function App() {
       /* best-effort */
     }
   }, [sidebarMode]);
+  // The fullscreen process workspace narrows its code column while the chat
+  // panel is open, so the panel floats beside the text instead of over it.
+  useEffect(() => {
+    const open = aiEnabled && sidebarMode === 'docs' && aiChatOpen;
+    document.body.classList.toggle('ai-panel-open', open);
+    return () => document.body.classList.remove('ai-panel-open');
+  }, [aiEnabled, sidebarMode, aiChatOpen]);
   const [aiThreads, setAiThreads] = useState<AiThread[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(() => {
     try {
@@ -609,10 +628,7 @@ export default function App() {
         // here too, one frame later (W112).
         if (m.authenticated && m.prefs) void applyPrefs(m.prefs);
         if (m.version && m.version !== BUILD_VERSION) {
-          toast.info(t('A new version is available — reload the page'), {
-            sticky: true,
-            action: { label: t('Reload'), run: hardReload },
-          });
+          toast(t('A new version is available: reload the page'));
         }
         if (m.authenticated) void loadAll();
       })
@@ -985,19 +1001,20 @@ export default function App() {
           type: string;
           version?: string;
           collection?: string;
+          page?: string;
           id?: string;
         };
         if (msg.type === 'hello' && msg.version && msg.version !== BUILD_VERSION && !warnedVersion) {
           warnedVersion = true;
-          toast.info(t('A new version is available — reload the page'), {
-            sticky: true,
-            action: { label: t('Reload'), run: hardReload },
-          });
+          toast(t('A new version is available: reload the page'));
         }
         if (msg.type === 'pages') {
           window.clearTimeout(reloadTimer.current);
           reloadTimer.current = window.setTimeout(() => void loadPages(), 250);
         }
+        // A workspace's settings moved (a rules proposal, say): the list holds
+        // them, and an open settings dialog reads from it.
+        if (msg.type === 'workspaces') void loadWorkspaces();
         // A database's rows moved. Passed on as a DOM event rather than through
         // props: only the open CollectionView cares, and only when it is the
         // database named here. Reloading every open view on every event is what
@@ -1005,6 +1022,11 @@ export default function App() {
         // whenever anybody renamed anything.
         if (msg.type === 'rows' && msg.collection) {
           window.dispatchEvent(new CustomEvent('salt:rows', { detail: msg.collection }));
+        }
+        // A process-code proposal is waiting. Names only the page: the text
+        // is fetched through a route that checks read access.
+        if (msg.type === 'workflow-code' && msg.page) {
+          window.dispatchEvent(new CustomEvent('salt:workflow-code', { detail: msg.page }));
         }
         // An agent checked in or out. Content-free on purpose: the list is
         // fetched through a route that checks permissions per page.
@@ -1222,6 +1244,8 @@ export default function App() {
       n.delete(id);
       return n;
     });
+    // Remember what was just closed, so Shift+Option+T can bring it back.
+    closedTabsRef.current = [id, ...closedTabsRef.current.filter((x) => x !== id)].slice(0, 20);
     // The remembered scroll positions die with the tab. The chosen VIEW stays:
     // that is a choice about the collection, not about the tab.
     forgetPageScroll(id);
@@ -1318,6 +1342,33 @@ export default function App() {
     label: () => t('Previous tab'),
     group: () => t('Tabs'),
     run: () => cycleTab(-1),
+  });
+
+  // ⇧⌥T reopens the tab that was closed last. Pages that are gone for good —
+  // deleted, no longer readable — are skipped rather than opening an error.
+  useShortcut({
+    id: 'tabs.reopen',
+    keys: ['alt+shift+t'],
+    // The chord types nothing — it is Option+Shift+T, whose "character" is a
+    // caron — so it is safe to answer it while the caret is in the page.
+    whileTyping: true,
+    label: () => t('Reopen closed tab'),
+    group: () => t('Tabs'),
+    run: () => {
+      const stack = closedTabsRef.current;
+      while (stack.length) {
+        const id = stack.shift()!;
+        if (tabsRef.current.includes(id)) continue;
+        // No meta check. A row opened from a collection is not in the page
+        // tree and its meta is dropped with its tab, so "is it a page we know"
+        // answered no for exactly the tabs people close most — and the entry
+        // was thrown away silently. The app resolves a tab's row meta on open,
+        // and a page that is really gone closes its own tab on the 404.
+        openInNewTab(id);
+        return;
+      }
+      return false;
+    },
   });
 
   // Alt+1 .. Alt+9 (or ⌥⌘1..9) jumps directly to tab 1 through 9.
@@ -1495,9 +1546,12 @@ export default function App() {
 
   useEffect(() => {
     if (!pages) return;
-    // Don't hijack the /invite/<token> route: an authenticated invitee must stay
-    // on the invite screen long enough to accept, not get replaced with a page.
-    if (/^\/invite\/[a-f0-9]+$/.test(window.location.pathname)) return;
+    // Don't hijack the public routes: an authenticated invitee must stay on
+    // the invite screen long enough to accept, and a signed-in colleague who
+    // opens a public link (a collection renders in this same app) must see the
+    // share, not be thrown into the page they had open. A public link used to
+    // bounce a logged-in reader straight into the workspace.
+    if (/^\/(invite|form|public)\/[a-f0-9]+$/.test(window.location.pathname)) return;
     // Nor the consent screen. It renders only once `me` has loaded, and by then
     // this effect had already moved the browser to the last page you had open —
     // the agent's sign-in vanished into the app before anyone could answer it.
@@ -1615,6 +1669,15 @@ export default function App() {
 
   const updateMeta = useCallback((id: string, patch: Partial<PageMeta>) => {
     setPages((prev) => prev?.map((p) => (p.id === id ? { ...p, ...patch } : p)) ?? prev);
+    // A row opened in its own tab is not in the page list, so its tab title
+    // would keep the old name after a rename.
+    setExtraPages((prev) => {
+      const p = prev.get(id);
+      if (!p) return prev;
+      const next = new Map(prev);
+      next.set(id, { ...p, ...patch });
+      return next;
+    });
   }, []);
 
   // Import for the empty-state (no pages yet). The primary import entry point is
@@ -1673,14 +1736,15 @@ export default function App() {
   const duplicatePage = useCallback(
     async (id: string) => {
       try {
-        const r = await api.duplicatePage(id);
+        const title = pages?.find((p) => p.id === id)?.title ?? '';
+        const r = await api.duplicatePage(id, false, false, title ? t('Copy of {title}', { title }) : '');
         await loadPages();
         navigate(r.id);
       } catch {
         toast(t('Could not be duplicated'));
       }
     },
-    [loadPages, navigate],
+    [pages, loadPages, navigate],
   );
 
   const restorePage = useCallback(
@@ -1693,8 +1757,23 @@ export default function App() {
 
   const deleteForever = useCallback(
     async (id: string) => {
+      // What loses a link, before the question is asked. The cleanup clears
+      // those relations for good, so saying how many is the difference between
+      // a confirmation and a surprise.
+      let note = '';
+      try {
+        const refs = await api.pageReferences(id);
+        if (refs.rows > 0) {
+          note =
+            '\n\n' +
+            plural(refs.rows, 'One row links to it and will lose the link.', '{n} rows link to it and will lose the links.');
+          if (refs.links > refs.rows) note += ' ' + t('{n} links in total.', { n: refs.links });
+        }
+      } catch {
+        // The count is a courtesy; a failed read must not block the delete.
+      }
       if (
-        !(await confirm(t('Delete this page and all its sub-pages forever?'), {
+        !(await confirm(t('Delete this page and all its sub-pages forever?') + note, {
           danger: true,
           confirmText: t('Delete'),
         }))
@@ -1860,6 +1939,25 @@ export default function App() {
     }
   }, [me?.authenticated, sidebarMode, activeChatId]);
 
+  // The open editor owns the tab title while it lives (see PageHeader); this
+  // covers everything else — library, graph, search, a fresh chat — and the
+  // gap before the editor mounts.
+  useEffect(() => {
+    if (!me?.authenticated) return;
+    if (sidebarMode === 'chats') {
+      const th = aiThreads.find((t) => t.id === activeChatId);
+      const name = (th?.title || '').trim();
+      document.title = name ? `${name} · salt.md` : 'salt.md';
+      return;
+    }
+    if (!currentId) {
+      document.title = 'salt.md';
+      return;
+    }
+    const p = pagesById.get(currentId);
+    if (p) document.title = p.title ? `${p.title} · salt.md` : 'salt.md';
+  }, [me?.authenticated, sidebarMode, activeChatId, currentId, pagesById, aiThreads]);
+
   // A viewer (read-only workspace role) may not edit; the doc editor renders
   // read-only so a viewer isn't teased with an editable-looking page whose
   // writes the server would only reject.
@@ -1928,7 +2026,13 @@ export default function App() {
   // dismiss the peek. Same detached-node reason as downInsideRef above.
   const downKeepsOpenRef = useRef(false);
   const OUTSIDE_OK =
-    '.peek-panel, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
+    // The peek's own surface, and every layer that can float above it. The
+    // select menu is portalled to the body (a table cell clips it), so its
+    // menu and backdrop are NOT inside .peek-panel — without them a click on
+    // the menu's padding, or on its backdrop, read as a click outside the peek
+    // and closed what the select was opened over.
+    '.peek-panel, .menu, .select-menu, .select-backdrop, .fs-popover, .fs-backdrop, ' +
+    '[role="dialog"], [role="listbox"], .dialog, .modal-overlay';
   // Content the peek stays open over: text being read or edited, controls, and
   // every row, card, chip and bar of the collection views. Anything else — the
   // padding of the page and of the views, an empty day cell, the gaps between
@@ -2020,7 +2124,7 @@ export default function App() {
   if (loadError && !pages) {
     return (
       <div className="empty-state">
-        <div className="empty-emoji">🍂</div>
+        <div className="empty-emoji"><CloudOff size={44} /></div>
         <h2>{t('Cannot reach the server')}</h2>
         <p>{t('salt.md could not load your workspace.')}</p>
         <button className="btn primary" onClick={() => window.location.reload()}>
@@ -2106,7 +2210,8 @@ export default function App() {
   const toaster = <Toaster />;
 
   return (
-    <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '') + (hoverLock ? ' hover-lock' : '')}>
+    <UserContext.Provider value={me?.user ?? null}>
+      <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '') + (hoverLock ? ' hover-lock' : '')}>
       {/* Collapsed-sidebar hover zone (desktop): hovering the left edge slides
           the sidebar in as an overlay without permanently un-collapsing it. */}
       {sidebarCollapsed && <div className="sidebar-hotzone" />}
@@ -2227,6 +2332,7 @@ export default function App() {
               void loadAiThreads();
             }}
             onThreadsChanged={() => void loadAiThreads()}
+            onNewChat={() => setActiveChatId(null)}
           />
         ) : indexOpen ? (
           <IndexView
@@ -2292,14 +2398,14 @@ export default function App() {
           // if someone is left without one anyway (assignment revoked, creation
           // failed), at least say what is going on.
           <div className="empty-state">
-            <button className="menu-btn empty-menu-btn" onClick={openSidebar}>
-              ☰
+            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label={t('Menu')}>
+              <Menu size={18} />
             </button>
             <div className="empty-emoji"><Logo size={52} /></div>
             <h2>{t('No workspace')}</h2>
             <p>
               {t(
-                'Your account currently belongs to no workspace. Ask an admin for access — or create one of your own, if this instance allows it.',
+                'Your account currently belongs to no workspace. Ask an admin for access, or create one of your own, if this instance allows it.',
               )}
             </p>
             {me?.allowUserWorkspaces && (
@@ -2329,12 +2435,12 @@ export default function App() {
           </div>
         ) : (
           <div className="empty-state">
-            <button className="menu-btn empty-menu-btn" onClick={openSidebar}>
-              ☰
+            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label={t('Menu')}>
+              <Menu size={18} />
             </button>
             <div className="empty-emoji"><Logo size={52} /></div>
             <h2>{t('No pages yet')}</h2>
-            <p>{t('Create your first page — or import from Notion (.zip) / Markdown (.md).')}</p>
+            <p>{t('Create your first page, or import from Notion (.zip) / Markdown (.md).')}</p>
             <div className="empty-actions">
               <button className="btn primary" onClick={() => void createPage(null)}>
                 {t('New page')}
@@ -2452,8 +2558,9 @@ export default function App() {
         <button className="ai-fab" onMouseDown={(e) => e.preventDefault()} onClick={() => {
           const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
           if (sel) setAiQuote(sel);
+          setAiRaised(false);
           setAiChatOpen(true);
-        }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 90, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}>✨</button>
+        }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 90, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}><Sparkles size={20} /></button>
       )}
       {aiEnabled && sidebarMode === 'docs' && (
         <AiChatPanel
@@ -2466,12 +2573,17 @@ export default function App() {
             setActiveChatId(id);
             void loadAiThreads();
           }}
+          onThreadsChanged={() => void loadAiThreads()}
           quote={aiQuote}
+          draft={aiDraft}
+          raised={aiRaised}
+          onDraftConsumed={() => setAiDraft(null)}
           onQuoteConsumed={() => setAiQuote(null)}
           onOpenSidebar={openSidebar}
           onClose={() => {
             setAiChatOpen(false);
             setAiQuote(null);
+            setAiRaised(false);
             void loadAiThreads();
           }}
         />
@@ -2535,7 +2647,7 @@ export default function App() {
           }}
         >
           <WifiOff size={13} />
-          {t('Not receiving live updates — reconnect')}
+          {t('Not receiving live updates: reconnect')}
         </button>
       )}
       {toaster}
@@ -2544,5 +2656,6 @@ export default function App() {
       <ImageLightbox />
       <PullToRefresh />
     </div>
+    </UserContext.Provider>
   );
 }

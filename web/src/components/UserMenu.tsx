@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, ApiError } from '../api';
 import type { FontPref } from '../App';
-import type { ApiToken, AuditEntry, User, Workspace } from '../types';
+import type { ApiToken, AuditEntry, OAuthGrant, User, Workspace } from '../types';
 import Portal from './Portal';
 import { confirm, promptText } from '../dialog';
 import { toast } from '../toast';
 import { useExclusiveModal } from '../modal';
-import { formatDay, formatMoment } from '../format';
+import { formatMoment, formatRelative } from '../format';
 import { plural, t } from '../i18n';
 import { AdminSettingsModal, TwoFAModal, CalendarSubModal } from './AdminSettings';
-import { Key, History, CalendarDays, ShieldCheck, Users, Settings, LogOut, Bot, User as UserIcon, Columns2, Type, Languages, Undo2, Keyboard } from 'lucide-react';
+import { Key, History, CalendarDays, ShieldCheck, Users, Settings, LogOut, Bot, User as UserIcon, Columns2, Type, Languages, Undo2, Keyboard, SquareArrowOutUpRight, X } from 'lucide-react';
 import { chordFor } from '../keys';
 import { pagePath } from '../pageUrl';
 import { LanguageTimeModal } from './LanguageTime';
+import { RowOpenModal } from './RowOpenSettings';
 
 export function Avatar({ user, size = 22 }: { user: User; size?: number }) {
   // With an uploaded picture the circle shows the picture, otherwise the
@@ -97,7 +98,7 @@ function ProfileModal({
         onChanged(updated);
       }
       onClose();
-      if (pw) toast.success(t('Password changed — other sessions were signed out'));
+      if (pw) toast(t('Password changed, other sessions were signed out'));
     } catch (err) {
       toast((err as Error).message || t('Saving failed'));
     } finally {
@@ -234,7 +235,7 @@ interface Props {
 
 export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, notesMode, onToggleNotesMode, onOpenShortcuts, fontPref = 'brand', onSetFont }: Props) {
   const [open, setOpen] = useState(false);
-  const [modal, setModal] = useState<'users' | 'tokens' | 'activity' | 'twofa' | 'settings' | 'calendar' | 'profile' | 'langtime' | null>(null);
+  const [modal, setModal] = useState<'users' | 'tokens' | 'activity' | 'twofa' | 'settings' | 'calendar' | 'profile' | 'langtime' | 'rowopen' | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -257,7 +258,7 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
           {onOpenAgents && (
             <button className="agents-menu-item" onClick={() => { setOpen(false); onOpenAgents(); }}>
               <span className="agents-ic"><Bot size={16} /></span>
-              <span className="agents-label">Agents &amp; MCP</span>
+              <span className="agents-label">{t('Agents & MCP')}</span>
             </button>
           )}
           <button onClick={() => { setOpen(false); setModal('profile'); }}>
@@ -298,7 +299,7 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
           {onSetFont && (
             <button
               onClick={() => onSetFont(fontPref === 'brand' ? 'system' : 'brand')}
-              title={t('Inter for text, JetBrains Mono for code and labels — the fonts from the website')}
+              title={t('Inter for text, JetBrains Mono for code and labels (the fonts from the website)')}
             >
               <Type size={16} /> {t('Salt fonts')}
               <span className={'mode-dot' + (fontPref === 'brand' ? ' on' : '')} aria-hidden />
@@ -314,6 +315,9 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
               <Settings size={16} /> {t('Instance settings')}
             </button>
           )}
+          <button onClick={() => { setOpen(false); setModal('rowopen'); }}>
+            <SquareArrowOutUpRight size={16} /> {t('Open rows in new tab')}
+          </button>
           <button className="danger" onClick={onLogout}>
             <LogOut size={16} /> {t('Sign out')}
           </button>
@@ -335,6 +339,7 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
       {modal === 'twofa' && <TwoFAModal onClose={() => setModal(null)} />}
       {modal === 'calendar' && <CalendarSubModal onClose={() => setModal(null)} />}
       {modal === 'langtime' && <LanguageTimeModal onClose={() => setModal(null)} />}
+      {modal === 'rowopen' && <RowOpenModal onClose={() => setModal(null)} />}
       {modal === 'settings' && <AdminSettingsModal onClose={() => setModal(null)} aiDisabled={user.aiDisabled} />}
     </div>
   );
@@ -367,7 +372,7 @@ export function ActivityModal({ onClose, pageId, pageTitle }: { onClose: () => v
     try {
       const r = await api.revertChange(id);
       if (r.reverted.length === 0) {
-        toast.info(t('Nothing was taken back — every value has been changed since.'));
+        toast(t('Nothing was taken back: every value has been changed since.'));
       } else if (r.skipped.length > 0) {
         toast.warning(
           t('{n} taken back, {m} left alone because they changed since.')
@@ -414,8 +419,8 @@ export function ActivityModal({ onClose, pageId, pageTitle }: { onClose: () => v
         <h2>{pageId && pageTitle ? t('Activity: {page}').replace('{page}', pageTitle) : t('Activity log')}</h2>
         <p className="dialog-hint">
           {pageId
-            ? t('Everything that happened to this page — human or agent.')
-            : t('The most recent changes — noting whether a human or an agent made them.')}
+            ? t('Everything that happened to this page (human or agent).')
+            : t('The most recent changes, noting whether a human or an agent made them.')}
         </p>
         <label className="audit-filter">
           <input
@@ -497,10 +502,9 @@ const roleOptions = () => [
   { v: 'admin', label: t('Admin') },
 ];
 
-// Vollwertige Nutzerverwaltung (W98): links die Liste, rechts das Detail —
-// Instanz-Admin-Schalter, Loeschen, und die Workspace-Zugehoerigkeit mit
-// Rolle je Workspace direkt umschaltbar. Neue Nutzer bekommen ihre Workspaces
-// gleich beim Anlegen zugewiesen.
+// Full user management (W98): the list on the left, the detail on the right,
+// with the instance admin switch, deletion, and the role in each workspace
+// switchable in place. New people get their workspaces as they are created.
 function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
   useExclusiveModal(onClose);
   const [users, setUsers] = useState<User[]>([]);
@@ -528,7 +532,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
 
   const setRole = async (userId: string, wsId: string, role: string) => {
     setError(null);
-    // Optimistisch: die Pille reagiert sofort, der Server bestaetigt.
+    // Optimistic: the pill reacts at once, the server confirms.
     setAccess((a) => {
       const rest = a.memberships.filter((m) => !(m.userId === userId && m.workspaceId === wsId));
       return { ...a, memberships: role === 'none' ? rest : [...rest, { userId, workspaceId: wsId, role }] };
@@ -545,15 +549,15 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
   // separates controlled access from a quiet back door.
   const requestBreakGlass = async (wsId: string, wsName: string) => {
     setError(null);
-    const reason = await promptText(t('Emergency access to “{name}” — why?', { name: wsName }), {
+    const reason = await promptText(t('Emergency access to “{name}”: why?', { name: wsName }), {
       placeholder: t('e.g. Legal review ref. …, approved by …'),
     });
     if (!reason?.trim()) return;
     try {
       const res = await api.breakGlass(wsId, reason.trim());
       const until = formatMoment(res.expiresAt, 'time');
-      toast.success(
-        t('Read access to “{name}” until {time} — the people in charge have been told.', {
+      toast(
+        t('Read access to “{name}” until {time}. The people in charge have been told.', {
           name: wsName,
           time: until,
         }),
@@ -662,7 +666,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
     }
     if (impact?.shared.length) {
       lines.push(
-        t('Kept because others work in them: {list} — this person’s private pages there are deleted.', {
+        t('Kept because others work in them: {list}. This person’s private pages there are deleted.', {
           list: impact.shared
             .map((sw) => `“${sw.name}” (${plural(sw.members, '{n} member', '{n} members')})`)
             .join(', '),
@@ -671,7 +675,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
     }
     if (impact?.orphaned.length) {
       lines.push(
-        t('Left with nobody in charge: {list} — the owner takes them on.', {
+        t('Left with nobody in charge: {list}. The owner takes them on.', {
           list: impact.orphaned
             .map((o) => `“${o.name}” (${plural(o.pages, '{n} page', '{n} pages')})`)
             .join(', '),
@@ -685,7 +689,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
         }),
       );
     }
-    lines.push(t('Deactivating is usually enough — nothing is lost that way.'));
+    lines.push(t('Deactivating is usually enough. Nothing is lost that way.'));
     if (
       !(await confirm(t('Permanently delete {name}?', { name: u.name }) + `\n\n${lines.join('\n')}`, {
         danger: true,
@@ -804,7 +808,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
                     {sel.id !== me.id && sel.orgRole !== 'owner' && me.orgRole !== 'owner' && (
                       <span className="dialog-hint">
                         {t(
-                          'Only the owner can delete permanently — the account would take this person’s personal space with it.',
+                          'Only the owner can delete permanently. The account would take this person’s personal space with it.',
                         )}
                       </span>
                     )}
@@ -819,7 +823,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
                     )}
                     {sel.orgRole === 'owner' && (
                       <span className="dialog-hint">
-                        {t('The owner runs this instance — their role is not changed here.')}
+                        {t('The owner runs this instance. Their role is not changed here.')}
                       </span>
                     )}
                   </div>
@@ -844,7 +848,7 @@ function UsersModal({ me, onClose }: { me: User; onClose: () => void }) {
                             <button
                               className="btn-sm"
                               title={t(
-                                'Time-limited access with a stated reason — logged and shown to the people in charge',
+                                'Time-limited access with a stated reason, logged and shown to the people in charge',
                               )}
                               onClick={() => void requestBreakGlass(ws.id, ws.name)}
                             >
@@ -935,7 +939,7 @@ function InvitePanel({
         <div className="invite-avatar-placeholder">+</div>
         <div className="users-detail-id">
           <div className="users-detail-name">{t('Create a new user')}</div>
-          <div className="users-detail-email">{t('Creates the account straight away — no email is sent.')}</div>
+          <div className="users-detail-email">{t('Creates the account straight away. No email is sent.')}</div>
         </div>
       </div>
       <label className="profile-label">{t('Name')}</label>
@@ -983,6 +987,15 @@ function InvitePanel({
   );
 }
 
+// When a credential was last used, the way people say it ("5 minutes ago"), with
+// the exact moment on hover. An instant, so it goes through formatMoment's side
+// of format.ts: the token list used to hand it to formatDay, which printed the
+// UTC clock time as if it were local.
+function lastUsed(iso: string | null) {
+  if (!iso) return t('never used');
+  return <span title={formatMoment(iso, 'full')}>{t('used {date}', { date: formatRelative(iso) })}</span>;
+}
+
 function TokensModal({ onClose }: { onClose: () => void }) {
   useExclusiveModal(onClose);
   const [tokens, setTokens] = useState<ApiToken[]>([]);
@@ -994,8 +1007,21 @@ function TokensModal({ onClose }: { onClose: () => void }) {
   const [fresh, setFresh] = useState<string | null>(null);
   const [copied, setCopied] = useState<'token' | 'cmd' | null>(null);
   const [publicBase, setPublicBase] = useState(window.location.origin);
+  // Agents that signed in instead of carrying a token (oauth_provider.go). Null
+  // until the answer is in: on the list that says who can get in, a slow or
+  // failed request must not look like "nobody".
+  const [grants, setGrants] = useState<OAuthGrant[] | null>(null);
+  const [grantsError, setGrantsError] = useState('');
 
   const load = () => void api.listTokens().then(setTokens);
+  const loadGrants = () =>
+    void api
+      .oauthGrants()
+      .then((list) => {
+        setGrants(list);
+        setGrantsError('');
+      })
+      .catch((e) => setGrantsError(e instanceof Error ? e.message : String(e)));
   useEffect(() => {
     void api
       .publicBase()
@@ -1004,12 +1030,34 @@ function TokensModal({ onClose }: { onClose: () => void }) {
   }, []);
   useEffect(() => {
     load();
+    loadGrants();
     void api.listWorkspaces().then(setWorkspaces);
   }, []);
 
   const wsName = (id: string) => workspaces.find((w) => w.id === id)?.name ?? id;
   const toggleWs = (id: string) =>
     setPickedWs((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+
+  const endGrant = async (g: OAuthGrant) => {
+    const ok = await confirm(
+      t(
+        'End the connection with “{client}”? It stops working at once. To connect again, the agent has to ask for your approval again.',
+        { client: g.clientName },
+      ),
+      { confirmText: t('End connection'), danger: true },
+    );
+    if (!ok) return;
+    try {
+      await api.revokeGrant(g.id);
+      setGrants((list) => list && list.filter((x) => x.id !== g.id));
+      toast(t('Connection ended'));
+    } catch (e) {
+      // Already gone: the client ended it from its own side while this list was
+      // open. Show what is there now rather than claim to have ended it.
+      if (e instanceof ApiError && e.status === 404) loadGrants();
+      else toast(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1046,7 +1094,7 @@ function TokensModal({ onClose }: { onClose: () => void }) {
         </p>
         {fresh && (
           <div className="token-fresh">
-            <div>{t('Copy this token now — it will not be shown again:')}</div>
+            <div>{t('Copy this token now. It will not be shown again:')}</div>
             <code>{fresh}</code>
             <button
               className="btn"
@@ -1058,7 +1106,7 @@ function TokensModal({ onClose }: { onClose: () => void }) {
               {copied === 'token' ? t('Copied ✓') : t('Copy token')}
             </button>
             <div style={{ marginTop: 10 }}>
-              {t('Or connect an agent in one step — paste this into your terminal:')}
+              {t('Or connect an agent in one step. Paste this into your terminal:')}
             </div>
             <code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{mcpCommand}</code>
             <button
@@ -1087,9 +1135,7 @@ function TokensModal({ onClose }: { onClose: () => void }) {
                   ? t('all workspaces')
                   : tk.workspaces.map(wsName).join(', ')}
                 {' · '}
-                {tk.lastUsedAt
-                  ? t('used {date}', { date: formatDay(tk.lastUsedAt) })
-                  : t('never used')}
+                {lastUsed(tk.lastUsedAt)}
                 {/* WHERE from. A token that travels in a URL (/mcp/{token})
                     cannot be kept secret, so the defence is noticing: an
                     address nobody recognises is a question worth asking, and
@@ -1109,7 +1155,7 @@ function TokensModal({ onClose }: { onClose: () => void }) {
                   load();
                 }}
               >
-                ✕
+                <X size={14} />
               </button>
             </div>
           ))}
@@ -1152,6 +1198,60 @@ function TokensModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </form>
+
+        {/* The other kind of key. An agent that signed in holds a grant, not a
+            token, and never appears in the list above, so without this the
+            consent screen's "you can end it at any time" pointed at nothing.
+            The consent screen names this place by these two labels. */}
+        <h3>{t('Signed-in connections')}</h3>
+        <p className="dialog-hint">
+          {t('Agents that signed in with your approval instead of using a token. Ending one stops it at once.')}
+        </p>
+        <div className="user-list">
+          {grantsError && <div className="dialog-error">{grantsError}</div>}
+          {!grants && !grantsError && <div className="dialog-hint">{t('Loading…')}</div>}
+          {grants?.map((g) => {
+            // One comma-separated string, and empty means every workspace,
+            // including the ones made later.
+            const ids = g.workspaces.split(',').map((s) => s.trim()).filter(Boolean);
+            return (
+              <div key={g.id} className="user-row">
+                <div className="grant-row-main">
+                  <span className="user-row-name">
+                    <ShieldCheck size={13} /> {g.clientName}{' '}
+                    <span className={'token-scope ' + (g.scope === 'read' ? 'read' : 'write')}>
+                      {g.scope === 'read' ? t('read-only') : t('read-write')}
+                    </span>
+                  </span>
+                  <span className="grant-row-meta">
+                    {ids.length === 0 ? t('all workspaces') : ids.map(wsName).join(', ')}
+                    {' · '}
+                    {t('connected since {date}', { date: formatMoment(g.createdAt, 'date') })}
+                    {' · '}
+                    {lastUsed(g.lastUsedAt)}
+                    {g.lastUsedIp && (
+                      <>
+                        {' · '}
+                        <span className="token-origin">{g.lastUsedIp}</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+                <button
+                  className="icon-btn danger"
+                  title={t('End connection')}
+                  aria-label={t('End connection')}
+                  onClick={() => void endGrant(g)}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            );
+          })}
+          {grants?.length === 0 && (
+            <div className="dialog-hint">{t('No agent is signed in to your account.')}</div>
+          )}
+        </div>
         <button className="btn dialog-close" onClick={onClose}>{t('Close')}</button>
       </div>
     </div>

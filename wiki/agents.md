@@ -31,7 +31,7 @@ true of it and will save you a debugging session:
 | Address | Must be the one an agent can reach. A cloud agent cannot open a private address, and the connect dialog warns when the instance is on plain `http://` outside localhost. See [Domain and proxy](domain.md). |
 | Batches | A JSON-RPC batch (a top-level array) is refused with `batch requests are not supported`. |
 | Size | The request body is capped at roughly the upload limit plus a third, since base64 inflates. The size is checked against what the request announces before any of the body is read; past that, the answer names the limit and points at `/api/upload`. |
-| Pace | About 240 calls a minute per account, with a burst of 60. Over that, a call comes back with `rate limit exceeded — too many requests, slow down`. |
+| Pace | About 240 calls a minute per account, with a burst of 60. Over that, a call comes back with `rate limit exceeded: too many requests, slow down`. |
 | Deactivated accounts | Refused here in their own right, not only in the browser: `this account has been deactivated`. |
 
 When a client connects, the server introduces itself as **salt.md**, reports its
@@ -63,9 +63,9 @@ the network still works for an agent outside it.
 | --- | --- | --- |
 | The address | `https://salt.example.com/mcp` | `https://salt.example.com/mcp/<token>` |
 | What is secret | Nothing in the address | The address itself |
-| Who decides the reach | The client asks for read, or for read and write. You decide, on a consent screen, which workspaces it gets, and whether it gets anything at all. | Whoever creates the token, in advance: the scope and the workspaces both |
+| Who decides the reach | The client asks for read, or for read and write. You decide, on a consent screen, which of the two it gets, which workspaces, and whether it gets anything at all. | Whoever creates the token, in advance: the scope and the workspaces both |
 | Lifetime | An access token expires after an hour and is renewed in the background | Until it is revoked |
-| Ends by | Revoking the grant (see below, this one is unfinished) | **Revoke**, in the **API tokens** dialog |
+| Ends by | **End connection**, under **Signed-in connections** in the **API tokens** dialog | **Revoke**, in the **API tokens** dialog |
 
 Sign-in is offered first because nothing secret ends up in a configuration file
 or in the logs of every proxy along the way. A client that cannot sign in will
@@ -83,10 +83,11 @@ The consent screen shows the instance name and host at the top, then:
   was chosen by whoever set up the connection*: anyone can register a client
   under any name, so the screen presents the name as a claim rather than as an
   identity.
-- **It will be allowed to**: *read pages*, or *read and change pages*. This half
-  is shown, not chosen. The client asked for it in the request that sent you
-  here, and there is no control to narrow it: your decision is whether to
-  approve what was asked.
+- **It will be allowed to**: *read pages*, or *read and change pages*. What the
+  client asked for is selected to begin with, and you can switch it either way.
+  Many clients ask for nothing in particular, Claude Code's
+  `claude mcp add --transport http` among them, and then *read pages* is
+  selected: pick *read and change pages* if the agent should write.
 - **Where**: **Every workspace, including ones added later**, or **Only the ones
   I pick**. Nothing is ticked to begin with, and **Allow** stays dead until you
   pick something. The difference is not convenience: a list of workspaces is a
@@ -97,15 +98,15 @@ The consent screen shows the instance name and host at the top, then:
 The connection then stays connected. Only the short-lived access token rotates,
 invisibly; nobody signs in again every hour.
 
-**Ending one is the unfinished corner of this.** The consent screen says the
-connection can be ended at any time in your account settings, and that screen
-does not exist yet. The server half does (grants can be listed and revoked at
-`/api/oauth/grants`), but nothing in the interface calls it. Until something
-does, a signed-in connection ends when the client revokes it from its own side,
-or when the account behind it is deactivated or deleted: a deactivated account is
-turned away at the MCP endpoint whatever it is carrying. If a connection has to
-stop today and the client will not do it, deactivating the account is the lever
-that works. See [Administration](administration.md).
+**Ending one.** The consent screen closes by saying where: *your name at the
+bottom of the sidebar → API tokens → Signed-in connections*. Every connection on
+your account is listed there with the client's name, **read-only** or
+**read-write**, its workspaces, since when it has been connected, when it was
+last used and from which address. The ✕ on its row (**End connection**) asks
+first, then ends it at once, together with every access token minted from it; to
+come back, the agent has to ask for your approval again. The client can also end
+a connection from its own side, and a deactivated account is turned away at the
+MCP endpoint whatever it is carrying. See [Agent access](agent-access.md#ending-access).
 
 ### A token in the address
 
@@ -135,6 +136,12 @@ chip, its workspaces (or *all workspaces*), when it was last used or *never
 used*, the address it was last used from, and a **Revoke** button. The address is
 worth a glance now and then: a token that travels in a URL cannot be kept secret,
 so noticing an origin nobody recognises is the defence.
+
+Below the tokens, under **Signed-in connections**, the same dialog lists the
+agents that signed in instead, in the same shape plus *connected since* the day
+they were allowed, each with **End connection** (the ✕) in place of **Revoke**.
+A signed-in agent never appears among the tokens, and a token never appears
+here.
 
 Guessing at tokens is throttled per calling address, and only failures count
 towards the budget. An agent making hundreds of calls a minute with a good token
@@ -220,10 +227,10 @@ because renaming a tool breaks every agent configuration in existence.
 | Tool | For |
 | --- | --- |
 | `search` | Full text across everything the caller may read: titles, content, indexed PDFs. Returns matching passages with their heading path. |
-| `list` | What is there of a kind: pages, templates, tags, workspaces, files, users, cover presets. For files, `under: <page id>` narrows it to one page and its sub-pages. |
-| `get_page` | One page as Markdown; `include_children` returns the whole sub-tree in one answer. |
+| `list` | What is there of a kind: pages, templates, tags, workspaces, files, users, cover presets. `workspace_id` narrows pages, templates, tags and files to one workspace; for files, `under: <page id>` narrows it to one page and its sub-pages. |
+| `get_page` | One page as Markdown; `include_children` returns the whole sub-tree in one answer, `include_notes` adds the page's note trail. |
 | `get_collection` | A database's property schema and its views, with ids. |
-| `query_rows` | Rows with server-side filter, sort and paging, including computed rollups and formulas. |
+| `query_rows` | Rows with server-side filter, sort and paging, including computed rollups and formulas. `filter_groups` adds OR: every condition in `filter` holds, plus one of the groups. |
 | `get_links` | What points at one page, or the whole graph. |
 | `get_workspace` | Name, role, members and their ids, page and database counts, and the workspace rules. |
 | `get_permissions` | Whether a page can be read, written or deleted, and why it is read-only if it is. |
@@ -277,9 +284,10 @@ Three things about those belong here rather than in a parameter list:
 | `update_schema` | Add or change properties, including relations, backrelations and rollups. |
 | `set_view` | Create a view or change one: grouping, filters, sort, hidden columns. |
 | `delete_view` | Remove a view. The last one cannot be deleted. |
-| `get_workflow` | Read the database's business process in plain words. |
+| `get_workflow` | Read the database's business process in plain words. Code blocks come along as read-only source. |
 | `add_workflow_rule` | Add one When/Then rule to the process. |
-| `remove_workflow_rule` | Delete one process rule by id. |
+| `remove_workflow_rule` | Delete one process rule by id. Rules compiled from code (`code:…`) are refused — edit their source instead. |
+| `set_workflow_code` | Replace the whole process with a code document. Use it for OR values, constants, several rules at once, or a rewrite; one simple rule is `add_workflow_rule`. |
 | `embed_database` | Put an existing collection inside a document. |
 
 `set_properties` also takes many rows at once: instead of one page id and its
@@ -302,6 +310,10 @@ database. See [Collections](collections.md) and [Properties](properties.md).
 | `ai_thread_runs` | List the agent runs of one of your chat threads (status, task, timing, artifacts). Read-only. |
 | `ai_run` | Read one agent run: status, task, progress, error, timing, artifacts. Read-only. |
 | `ai_run_steps` | Read the trace of one agent run: plan, tool calls, results, approvals. Read-only. |
+| `read_page_file` | List the uploads one of your pages references, or read one as text: text and data files, HTML/RTF cleaned, PDF, Word, Excel, PowerPoint and OpenDocument — tables and sheets keep their rows and columns, slides keep theirs. Read-only. |
+| `memory_recall` | Recall durable notes the agent stored about you (preferences, context worth keeping across runs). Read-only. |
+| `memory_remember` | Store a durable note about you for future runs. Keep it short — one fact per call. |
+| `memory_forget` | Delete a stored note by id when it is wrong or stale. |
 
 A note cannot be edited or removed afterwards, by the agent that wrote it or by
 anybody else, which is exactly what makes a trail worth reading later. What a
@@ -330,7 +342,7 @@ names using another array from the same response, and a limit, which is how you
 do a trial run of ten records before importing four thousand. See
 [Import and export](import-export.md).
 
-**Every writing tool accepts an idempotency key.** Send the same
+**Every writing tool declares an idempotency key.** Send the same
 `idempotency_key` again on a retry and the first result comes back instead of a
 second page, a second row or a second note. It is the single thing that makes an
 interrupted agent run safe to repeat, and it is worth setting on anything that
@@ -454,7 +466,9 @@ and writes through the same tools, and can keep working after you close the tab.
   instance key and turn AI off globally.
 - **Chat:** a floating button opens a chat panel bound to the current page; a
   second chat in the sidebar covers the whole workspace. Attachments (text,
-  Markdown, CSV, JSON, PDF) are read into the conversation.
+  Markdown, CSV, JSON, PDF, Word, Excel, PowerPoint, OpenDocument) are read
+  into the conversation, and the agent can read the same files off any of your
+  pages with `read_page_file`.
 - **Inline:** selecting text in the editor offers rewrite, summarize, translate
   and grammar fixes, with a preview before the text is replaced.
 - **Background runs:** a task can be handed to the agent ("create a page from
@@ -479,3 +493,9 @@ and writes through the same tools, and can keep working after you close the tab.
 - **Retry and regenerate:** a failed or cancelled run offers Retry with the same
   task; any assistant answer offers ↻ to regenerate it. Assistant answers can
   be copied, and (on a document) inserted into the page below the cursor.
+- **Archive:** chats leave the list through Archive in the thread menu (restorable from the Archived section); archived chats stay readable and searchable.
+- **Memory:** the agent keeps durable notes about you across runs (preferences, facts worth keeping) — the brain button in the chat header lists, adds and forgets them, and the agent reads them on every run.
+- **Thread titles:** a new chat takes its title from the first message; after
+  an agent run the title is upgraded from the recent conversation (never over
+  a manual rename), and "Regenerate title" in the thread menu re-titles any
+  chat from its last messages.

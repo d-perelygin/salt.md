@@ -98,10 +98,14 @@ func (s *Server) mcpReplaceContent(u *user, pageID, md string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Save the OLD state first, then overwrite. Without this a change made by an
-	// agent would be beyond recovery — and get_page_history would stay empty even
-	// though the agent just replaced half the page.
-	s.snapshotRevision(pageID, u.ID, u.Name)
+	// Save the OLD state first, then overwrite — and without the usual
+	// two-minute throttle: two replaces a minute apart used to keep only the
+	// state from before the FIRST one, so the second one's predecessor was
+	// gone for good. The revision id goes back in the answer, so the caller can
+	// undo the write it just made instead of hunting through a list.
+	var oldSize int
+	s.db.QueryRow(`SELECT LENGTH(content) FROM pages WHERE id = ?`, pageID).Scan(&oldSize)
+	revID := s.snapshotRevisionForced(pageID, u.ID, u.Name)
 	res, err := s.db.Exec(`UPDATE pages SET content = ?, updated_at = ?, `+bumpDocGen+` WHERE id = ? AND trashed_at IS NULL`,
 		content, now(), pageID)
 	if err != nil {
@@ -114,6 +118,9 @@ func (s *Server) mcpReplaceContent(u *user, pageID, md string) (string, error) {
 	s.reindexPage(pageID)
 	s.pagesChanged()
 	s.fireWebhook("page.updated", pageID)
+	if revID != "" {
+		return fmt.Sprintf("Replaced content of page %s (the previous state, %d bytes, was saved as revision %s — revisions action=restore brings it back)", pageID, oldSize, revID), nil
+	}
 	return fmt.Sprintf("Replaced content of page %s", pageID), nil
 }
 
@@ -124,7 +131,7 @@ func (s *Server) mcpPrependMarkdown(u *user, pageID, md string) (string, error) 
 	if len(blocks) == 0 {
 		return "", fmt.Errorf("markdown is empty")
 	}
-	s.snapshotRevision(pageID, u.ID, u.Name) // save the old state first, see mcpReplaceContent
+	s.snapshotRevisionForced(pageID, u.ID, u.Name) // save the old state first, see mcpReplaceContent
 	tx, err := s.db.Begin()
 	if err != nil {
 		return "", err
@@ -167,7 +174,7 @@ func (s *Server) mcpPrependMarkdown(u *user, pageID, md string) (string, error) 
 
 // mcpBacklinks: which pages point here. The slip-box side of things that
 // Obsidian users expect — and that Notion's MCP does not have at all.
-func (s *Server) mcpBacklinks(userID, pageID string) (string, error) {
+func (s *Server) mcpBacklinks(u *user, pageID string) (string, error) {
 	rows, err := s.db.Query(`
 		SELECT p.id, p.title, p.icon FROM links l
 		JOIN pages p ON p.id = l.source_id
@@ -193,7 +200,10 @@ func (s *Server) mcpBacklinks(userID, pageID string) (string, error) {
 	rows.Close() // drain first, then check — a single DB connection
 	out := []ref{}
 	for _, r := range cand {
-		if s.canRead(userID, r.ID) { // private subtrees stay invisible
+		// Private subtrees stay invisible, and so do workspaces the credential
+		// may not enter: a link can cross workspaces, and the title of the
+		// page it comes from belongs to the workspace it sits in.
+		if s.canRead(u.ID, r.ID) && s.credentialMayEnter(u, s.pageWorkspace(r.ID)) {
 			out = append(out, r)
 		}
 	}

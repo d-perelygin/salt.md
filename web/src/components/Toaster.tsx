@@ -49,7 +49,7 @@ export default function Toaster() {
       if (!sticky) {
         window.setTimeout(
           () => setToasts((t) => t.filter((x) => x.id !== id)),
-          TIMEOUTS[payload.kind ?? 'error'] ?? 4000,
+          payload.duration ?? TIMEOUTS[payload.kind ?? 'error'] ?? 4000,
         );
       }
     };

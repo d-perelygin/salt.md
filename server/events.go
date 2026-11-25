@@ -17,19 +17,29 @@ import (
 // id, a title, the fact that something is happening at all — would otherwise go
 // to people who cannot see the page. The content-free "pages" event was safe
 // only by having nothing to leak; anything richer has to be filtered here.
+//
+// It carries the CREDENTIAL too, not just the account: a stream opened with a
+// token narrowed to one workspace, or one kept out by a workspace's rule, heard
+// every database of its person change. See inWorkspace.
 type eventHub struct {
 	mu   sync.Mutex
-	subs map[chan string]string // channel -> user id
+	subs map[chan string]*user // channel -> who opened it, and with what
 }
 
 func newEventHub() *eventHub {
-	return &eventHub{subs: map[chan string]string{}}
+	return &eventHub{subs: map[chan string]*user{}}
 }
 
+// subscribe opens a stream for a browser session of the account.
 func (h *eventHub) subscribe(userID string) chan string {
+	return h.subscribeAs(&user{ID: userID})
+}
+
+// subscribeAs opens a stream for the request's user, credential included.
+func (h *eventHub) subscribeAs(u *user) chan string {
 	ch := make(chan string, 16)
 	h.mu.Lock()
-	h.subs[ch] = userID
+	h.subs[ch] = u
 	h.mu.Unlock()
 	return ch
 }
@@ -52,15 +62,15 @@ func (h *eventHub) broadcast(event string) {
 	}
 }
 
-// broadcastTo reaches only the accounts `allowed` says may see it. The
+// broadcastTo reaches only the subscribers `allowed` says may see it. The
 // membership test runs once per subscriber rather than per event, and outside
 // the hub's lock is not possible — so keep `allowed` cheap (isMember is a
 // single indexed lookup).
-func (h *eventHub) broadcastTo(event string, allowed func(userID string) bool) {
+func (h *eventHub) broadcastTo(event string, allowed func(u *user) bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for ch, uid := range h.subs {
-		if !allowed(uid) {
+	for ch, u := range h.subs {
+		if !allowed(u) {
 			continue
 		}
 		select {
@@ -74,6 +84,14 @@ func (h *eventHub) broadcastTo(event string, allowed func(userID string) bool) {
 // content-free: it reaches every browser on the instance.
 func (s *Server) pagesChanged() {
 	s.events.broadcast(`{"type":"pages"}`)
+}
+
+// workspaceChanged tells the members of a workspace that its settings moved,
+// a rules proposal arriving say, so an open browser fetches its workspace list
+// again. Content-free like pagesChanged, and addressed, because only members
+// keep that workspace in their list.
+func (s *Server) workspaceChanged(ws string) {
+	s.events.broadcastTo(`{"type":"workspaces"}`, s.inWorkspace(ws))
 }
 
 // rowsChanged tells the members of a workspace that one database's rows moved.
@@ -96,7 +114,13 @@ func (s *Server) rowsChanged(collectionID string) {
 	if err != nil {
 		return
 	}
-	s.events.broadcastTo(string(b), func(uid string) bool { return s.isMember(uid, ws) })
+	s.events.broadcastTo(string(b), s.inWorkspace(ws))
+}
+
+// inWorkspace is who an event addressed at a workspace may reach: its members,
+// through a credential that may enter it (a session always may).
+func (s *Server) inWorkspace(ws string) func(u *user) bool {
+	return func(u *user) bool { return s.isMember(u.ID, ws) && s.credentialMayEnter(u, ws) }
 }
 
 // rowChanged is rowsChanged for a page that MIGHT be a database row. Callers
@@ -124,7 +148,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	ch := s.events.subscribe(requestUser(r).ID)
+	ch := s.events.subscribeAs(requestUser(r))
 	defer s.events.unsubscribe(ch)
 
 	fmt.Fprintf(w, "data: {\"type\":\"hello\",\"version\":%q}\n\n", Version)

@@ -102,7 +102,7 @@ func (s *Server) mcpWorkingOn(u *user, pageID, agent, label, note string, expect
 		}
 		s.presenceChanged(pageID)
 		if n, _ := res.RowsAffected(); n == 0 {
-			return "Nothing to check out of — you were not marked as working on that page.", nil
+			return "Nothing to check out of: you were not marked as working on that page.", nil
 		}
 		kept := ""
 		if last != "" {
@@ -169,7 +169,7 @@ func (s *Server) presenceChanged(pageID string) {
 	if ws == "" {
 		return
 	}
-	s.events.broadcastTo(`{"type":"presence"}`, func(uid string) bool { return s.isMember(uid, ws) })
+	s.events.broadcastTo(`{"type":"presence"}`, s.inWorkspace(ws))
 }
 
 // handlePresence lists what the caller may see. The permission check is per

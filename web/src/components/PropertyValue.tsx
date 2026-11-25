@@ -1,19 +1,22 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { confirm } from '../dialog';
-import type { ChecklistItem, PageMeta, PropDef, PropOption } from '../types';
+import type { ChecklistItem, LookupCell, LookupSource, PageMeta, PropDef, PropOption } from '../types';
 import Portal from './Portal';
 import { PageHoverCard } from './PageHoverCard';
 import { OPTION_HEXES, optionPalette, optionSlug } from '../selectOptions';
-import { daysUntil, formatDay, formatMoment, formatNumber } from '../format';
+import { daysUntil, formatDay, formatMoment, formatNumber, resolveSmartDate } from '../format';
 import { showActivityFor } from './ActivityLogHost';
 import { useChecklistFrac } from '../pageUiState';
 import { initials, nameColor } from './CommentsPanel';
-import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useBlockedStatuses } from '../statusMarks';
 import { PageIcon } from '../pageIcon';
-import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
+import { openCollectionRow, peekPage, peekPanel, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
 import { isDesktopPointer } from '../pwa';
+import { imeComposing } from '../keys';
+import { toast } from '../toast';
 
 interface Props {
   def: PropDef;
@@ -35,6 +38,22 @@ interface Props {
    *  decides the plain click). Preferred over onOpen wherever both openers
    *  are in scope; onOpen stays as the fallback for public views. */
   openers?: PageOpeners;
+  /** The row's other values. A status select needs them to know which moves
+   *  the process refuses right now (see statusMarks.tsx). */
+  rowProps?: Record<string, unknown>;
+  /** What the server says about this lookup cell for this row: the records
+   *  behind the value, and the one record a write would land in. Absent for
+   *  every property that is not a lookup (see server/lookup_write.go). */
+  lookup?: LookupCell;
+  /** Write a lookup through to the record that owns the value. Absent = the
+   *  cell stays read-only, which is what every surface that cannot refresh the
+   *  row afterwards gets. */
+  onLookupWrite?: (
+    page: string,
+    prop: string,
+    value: unknown,
+    previous: unknown,
+  ) => Promise<void> | void;
 }
 
 // idList reads a list-shaped value (relation, multiselect). A single id stored
@@ -52,6 +71,26 @@ export function idList(value: unknown): string[] {
   // chip whatsoever — not even the empty one.
   if (value && typeof value === 'object') return [value as unknown as string];
   return [];
+}
+
+/** A stored relation value as text. Older rows and hand-written ones may hold
+ *  something other than a page id — the object a read handed back ({"id": …}),
+ *  or a title — and reading one of those must not throw: a value nobody can
+ *  parse is a value to SHOW, not a reason to take the whole view down. */
+export function relationValueText(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'number') return String(raw);
+  if (raw && typeof raw === 'object') {
+    const o = raw as { id?: unknown; title?: unknown };
+    if (typeof o.id === 'string' && o.id) return o.id;
+    if (typeof o.title === 'string' && o.title) return o.title;
+    try {
+      return JSON.stringify(raw) ?? '';
+    } catch {
+      return '';
+    }
+  }
+  return '';
 }
 
 function chip(opt: PropOption | undefined, fallback: string) {
@@ -78,12 +117,17 @@ export function SelectCell({
   multi,
   onChange,
   onOptionsChange,
+  blocked,
 }: {
   def: PropDef;
   value: unknown;
   multi: boolean;
   onChange: (v: unknown) => void;
   onOptionsChange?: (options: PropOption[]) => void;
+  /** Option id → why the process refuses that move for this row. Marked, not
+   *  hidden: the option stays pickable, and the same reason comes back as a
+   *  toast if it is. */
+  blocked?: Record<string, string>;
 }) {
   // Robust against badly written schemas: when an option arrives as a bare
   // string (rather than {id, name}), `o.name.toLowerCase()` used to throw the
@@ -235,7 +279,7 @@ export function SelectCell({
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Enter' && !imeComposing(e)) {
                       e.preventDefault();
                       if (query && !exact) create();
                       else if (filtered[0]) pick(filtered[0].id);
@@ -243,13 +287,21 @@ export function SelectCell({
                   }}
                 />
                 <div className="select-options">
-                  {filtered.map((o) => (
-                    <div key={o.id} className={'select-option' + (selected(o.id) ? ' on' : '')}>
+                  {filtered.map((o) => {
+                    const why = blocked?.[o.id];
+                    return (
+                    <div
+                      key={o.id}
+                      className={'select-option' + (selected(o.id) ? ' on' : '') + (why ? ' is-blocked' : '')}
+                      title={why || undefined}
+                    >
                       <button className="select-option-main" onClick={() => pick(o.id)}>
                         <span className="prop-chip" style={{ background: o.color + '2e', color: o.color }}>
                           {o.name}
                         </span>
-                        <span className="select-option-check">{selected(o.id) && <Check size={15} />}</span>
+                        <span className="select-option-check">
+                          {why ? <Lock size={12} aria-label={why} /> : selected(o.id) && <Check size={15} />}
+                        </span>
                       </button>
                       {onOptionsChange && (
                         <button
@@ -261,14 +313,15 @@ export function SelectCell({
                         </button>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                   {query && !exact && onOptionsChange && (
                     <button className="select-create" onClick={create}>
-                      <Plus size={15} /> Anlegen: „{query}"
+                      <Plus size={15} /> {t('Create “{name}”', { name: query })}
                     </button>
                   )}
                   {filtered.length === 0 && !query && (
-                    <div className="select-empty">{t('No options — type to create one.')}</div>
+                    <div className="select-empty">{t('No options. Type to create one.')}</div>
                   )}
                 </div>
               </>
@@ -696,7 +749,7 @@ export function loadMembers(): Promise<Member[]> {
 /** The chip: a face plus the name. Matches by id first, then by name, so a
     value an agent wrote as plain text still finds its person; an unknown value
     stays readable text rather than disappearing. */
-function PersonChip({ raw, members }: { raw: string; members: Member[] }) {
+export function PersonChip({ raw, members }: { raw: string; members: Member[] }) {
   const lower = raw.toLowerCase();
   const hit = members.find((m) => m.userId === raw) ?? members.find((m) => m.name.toLowerCase() === lower);
   const name = hit?.name ?? raw;
@@ -874,7 +927,7 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
                 className={'relation-option' + (holds(m) ? ' on' : '')}
                 onClick={() => choose(m.userId)}
               >
-                <span className="relation-check">{holds(m) ? '✓' : ''}</span>
+                <span className="relation-check">{holds(m) ? <Check size={12} /> : ''}</span>
                 <PersonChip raw={m.userId} members={members} />
               </button>
             ))}
@@ -933,6 +986,13 @@ export function loadRelationOptions(colId: string, force = false): Promise<RelOp
   return relCache.get(colId)!;
 }
 
+/** What the resolver says about a relation id the picker list does not hold:
+ *  its title, and whether it is in the trash. `null` means the resolver was
+ *  asked and the id no longer names a readable row — an id left behind by a
+ *  delete that happened before the cleanup existed. */
+type ResolvedRow = { id: string; title: string; icon: string; trashed: boolean };
+const resolvedCache = new Map<string, ResolvedRow | null>();
+
 function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOpen, openers }: Props) {
   const targetId = def.relationCollection;
   const ids = idList(value);
@@ -959,6 +1019,53 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
     };
   }, [targetId]);
 
+  // Ids the picker's list does not hold: rows in the trash, rows past the
+  // first 500 the list loads, and rows whose page is gone. Resolving them by id
+  // is what lets the cell print a NAME — the raw 32-character id used to be
+  // shown instead, and for a trashed row it could not even be removed, because
+  // the picker never listed it to toggle off.
+  const valueKey = ids.map(relationValueText).join('|');
+  const [extra, setExtra] = useState<Record<string, ResolvedRow | null>>({});
+  useEffect(() => {
+    if (!targetId) return;
+    let alive = true;
+    const known = new Set(options.map((o) => o.id));
+    const wanted = ids.map(relationValueText).filter((id) => id && !known.has(id));
+    const apply = () => {
+      if (!alive) return;
+      const next: Record<string, ResolvedRow | null> = {};
+      for (const id of wanted) {
+        const hit = resolvedCache.get(id);
+        if (hit !== undefined) next[id] = hit;
+      }
+      setExtra(next);
+    };
+    const fresh = wanted.filter((id) => !resolvedCache.has(id));
+    if (fresh.length === 0) {
+      apply();
+      return;
+    }
+    void api
+      .resolvePages(fresh)
+      .then((r) => {
+        for (const p of r.pages) resolvedCache.set(p.id, p);
+        // Asked and absent: gone for good, or not readable from here. Cached so
+        // a table full of such cells does not ask once per cell per render.
+        for (const id of fresh) if (!resolvedCache.has(id)) resolvedCache.set(id, null);
+        apply();
+      })
+      .catch(() => {
+        // A failed lookup is not an answer: leave the ids uncached so the next
+        // mount asks again rather than freezing every chip as "unavailable".
+      });
+    return () => {
+      alive = false;
+    };
+    // The ids travel through valueKey; `options` arriving is the other half of
+    // "which of them is unknown".
+  }, [targetId, valueKey, options]);
+
+
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -978,26 +1085,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // window: a target collection past the 500 rows fetched here, a row somebody
   // may not read, a relation left pointing at something deleted. None of those
   // is a row called Untitled.
-  // A relation value is a page id. Older rows and hand-written ones may hold
-  // something else — the object a read handed back ({"id": …}), or a title —
-  // and reading one of those must not throw: a value nobody can parse is a
-  // value to SHOW, not a reason to take the whole view down. (It did throw:
-  // `value.trim is not a function` on every view holding one.)
-  const asText = (raw: unknown): string => {
-    if (typeof raw === 'string') return raw;
-    if (typeof raw === 'number') return String(raw);
-    if (raw && typeof raw === 'object') {
-      const o = raw as { id?: unknown; title?: unknown };
-      if (typeof o.id === 'string' && o.id) return o.id;
-      if (typeof o.title === 'string' && o.title) return o.title;
-      try {
-        return JSON.stringify(raw) ?? '';
-      } catch {
-        return '';
-      }
-    }
-    return '';
-  };
+  const asText = relationValueText;
 
   // A value that is not an id but matches exactly ONE row's title is resolved
   // to that row. The stored value is wrong, but the row it names is not
@@ -1022,8 +1110,15 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   // A table cell shows the first few and counts the rest. Everything is still
   // there — the picker below lists all of them, and the row itself holds the
   // full column.
-  const shown = maxChips && ids.length > maxChips ? ids.slice(0, maxChips) : ids;
-  const hidden = ids.length - shown.length;
+  // A link to a record in the trash is not shown: the record is gone from
+  // every other reading of the database, and a chip that cannot be opened
+  // invites a click that goes nowhere. The id stays in the value, so restoring
+  // the record brings the chip back on its own.
+  const visible = ids
+    .map((raw, i) => ({ raw, i }))
+    .filter(({ raw }) => !extra[relationValueText(raw)]?.trashed);
+  const shown = maxChips && visible.length > maxChips ? visible.slice(0, maxChips) : visible;
+  const hidden = visible.length - shown.length;
 
   // A row's icon is any of the four kinds a page icon can be, so it goes
   // through PageIcon like everywhere else. Printed raw, a Lucide or MDI icon
@@ -1045,15 +1140,58 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
   const canEdit = !ro && !compact;
   const chips = (
     <span className="prop-multi">
-      {shown.map((raw, i) => {
+      {shown.map(({ raw, i }) => {
         const value = asText(raw);
         const row = rowFor(raw);
-        // Nothing resolves: the chip says what the cell actually holds rather
-        // than showing an empty box. The tooltip says the rest.
-        const title = row ? row.title || t('Untitled') : loaded ? value : '';
+        const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
+        // A link the picker cannot toggle off — a trashed row, a row whose page
+        // is gone — needs its own way out. Without it the id sat in the cell
+        // forever: the picker lists only live rows, so there was nothing to
+        // click.
+        const removeBtn =
+          canEdit && onChange ? (
+            <button
+              type="button"
+              className="relation-remove-btn"
+              aria-label={t('Remove')}
+              title={t('Remove')}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onChange(ids.filter((_, j) => j !== i));
+              }}
+            >
+              <X size={11} />
+            </button>
+          ) : null;
+        if (!row) {
+          const known = extra[value];
+          // Asked, and no readable row answers: the page is gone for good (the
+          // cleanup on permanent delete makes this rare), or it belongs to a
+          // collection past the first 500 the picker loads. Either way the id
+          // is not something to print at somebody.
+          if (known === null) {
+            return (
+              <span key={i} className="relation-chip-wrap">
+                <span
+                  className="prop-chip relation-chip is-unknown"
+                  style={chipStyle}
+                  title={t('This row is not readable from here.')}
+                >
+                  {t('Unavailable row')}
+                </span>
+                {removeBtn}
+              </span>
+            );
+          }
+          // Still resolving, or the lookup failed: a quiet placeholder rather
+          // than a claim about the row.
+          return <span key={i} className="prop-chip relation-chip is-pending" style={chipStyle} />;
+        }
+        const title = row.title || t('Untitled');
         const inner = (
           <>
-            {row?.icon && (
+            {row.icon && (
               <span className="relation-icon">
                 <PageIcon icon={row.icon} size={14} />
               </span>
@@ -1061,14 +1199,12 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
             {title}
           </>
         );
-        const cls =
-          'prop-chip relation-chip' + (row ? '' : loaded ? ' is-unknown' : ' is-pending');
-        const tip = row ? title : loaded ? t('This row is not readable from here.') : undefined;
-        const chipStyle = { background: '#3b6fb52e', color: '#3b6fb5' } as const;
-        // Unknown rows stay plain text: there is nothing to open.
-        if (!row || !canOpen) {
+        const cls = 'prop-chip relation-chip';
+        // Unknown rows and rows in the trash stay plain text: there is nothing
+        // to open (the trash has its own preview, and it is not a link target).
+        if (!canOpen) {
           return (
-            <span key={i} className={cls} title={tip} style={chipStyle}>
+            <span key={i} className={cls} style={chipStyle}>
               {inner}
             </span>
           );
@@ -1153,7 +1289,15 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
       {hidden > 0 && (
         <span
           className="prop-chip relation-more"
-          title={ids.map((v) => rowFor(v)?.title ?? asText(v)).filter(Boolean).join(', ')}
+          // Titles only: the ids that do not resolve are exactly the ones this
+          // change exists to stop printing.
+          title={ids
+            .map((v) => {
+              const id = asText(v);
+              return rowFor(v)?.title ?? extra[id]?.title ?? '';
+            })
+            .filter(Boolean)
+            .join(', ')}
         >
           {t('+{n} more', { n: hidden })}
         </span>
@@ -1168,7 +1312,7 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
     onChange!(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
   };
   const filtered = options.filter((o) =>
-    (o.title || 'Untitled').toLowerCase().includes(query.toLowerCase()),
+    (o.title || t('Untitled')).toLowerCase().includes(query.toLowerCase()),
   );
 
   return (
@@ -1205,19 +1349,312 @@ function RelationValue({ def, value, onChange, readOnly, compact, maxChips, onOp
                 className={'relation-option' + (ids.includes(o.id) ? ' on' : '')}
                 onClick={() => toggle(o.id)}
               >
-                <span className="relation-check">{ids.includes(o.id) ? '✓' : ''}</span>
+                <span className="relation-check">{ids.includes(o.id) ? <Check size={12} /> : ''}</span>
                 {o.icon && (
                   <span className="relation-icon">
                     <PageIcon icon={o.icon} size={16} />
                   </span>
                 )}
-                {o.title || 'Untitled'}
+                {o.title || t('Untitled')}
               </button>
             ))}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+// Editing and following a URL are separate actions. A filled cell must not
+// become impossible to correct merely because it already contains a link.
+function UrlValue({ def, value, onChange, readOnly, compact }: Props) {
+  const raw = String(value ?? '').trim();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(raw);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const cancelled = useRef(false);
+  let href = '';
+  let label = raw;
+  // The chip shows the host, the full address is what opens; a whole URL on a
+  // board card is noise. A scheme counts only when no port number follows its
+  // colon: "intranet.local:8080/wiki" would otherwise parse as the scheme
+  // "intranet.local:" and lose the link it always had. Only http and https may
+  // be opened, so a stored javascript: address stays text.
+  try {
+    const url = new URL(/^[a-z][a-z\d+.-]*:(?!\d)/i.test(raw) ? raw : 'https://' + raw);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      href = url.href;
+      label = url.hostname.replace(/^www\./, '');
+    }
+  } catch { /* An unfinished address can still be edited. */ }
+  const begin = () => { cancelled.current = false; setDraft(raw); setEditing(true); };
+  const finish = () => {
+    if (!cancelled.current && draft.trim() !== raw) onChange?.(draft.trim());
+    setEditing(false);
+  };
+  const restoreFocus = () => requestAnimationFrame(() => trigger.current?.focus());
+  const chip = <><LinkIcon size={11} /><span>{label}</span></>;
+  if (readOnly || !onChange || compact) {
+    if (!raw) return compact ? null : <span className="prop-empty">—</span>;
+    return href ? <a className="prop-url-chip" href={href} target="_blank" rel="noopener noreferrer" title={raw} onClick={(e) => e.stopPropagation()}>{chip}</a> : <span className="prop-url-chip">{chip}</span>;
+  }
+  if (editing) return <input className="prop-input" aria-label={def.name} autoFocus value={draft} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setDraft(e.target.value)} onBlur={finish} onKeyDown={(e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !imeComposing(e)) { e.preventDefault(); e.currentTarget.blur(); restoreFocus(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancelled.current = true; setEditing(false); restoreFocus(); }
+  }} />;
+  return <div className="prop-url-value">
+    <button ref={trigger} type="button" className="prop-url-edit prop-url-chip" aria-label={t('Edit') + ': ' + def.name} title={raw || def.name} onClick={(e) => { e.stopPropagation(); begin(); }}>{raw ? chip : <span className="prop-empty">—</span>}</button>
+    {href && <a className="prop-url-open" href={href} target="_blank" rel="noopener noreferrer" aria-label={t('Open link')} title={t('Open link')} onClick={(e) => e.stopPropagation()}><ExternalLink size={13} /></a>}
+  </div>;
+}
+
+// ---- A lookup, edited where it is read ----
+//
+// The value of a lookup belongs to another record, so this cell has two jobs
+// beyond drawing it: name that record on hover, and say out loud that a write
+// went there. A field that edits a different table has to be honest about it —
+// otherwise the edit looks like it changed nothing, and the next person cannot
+// tell which of two linked records they just corrected.
+
+const lookupDefCache = new Map<string, Promise<PropDef | null>>();
+
+/** The target property of a lookup — its type and options. Loaded once per
+ *  collection; a failure forgets itself, so one bad load does not freeze every
+ *  lookup cell of that collection as read-only for the rest of the session. */
+function loadLookupDef(collection: string, propId: string): Promise<PropDef | null> {
+  const key = collection + '|' + propId;
+  let p = lookupDefCache.get(key);
+  if (!p) {
+    p = api
+      .getCollection(collection)
+      .then((c) => c.schema.find((d) => d.id === propId) ?? null)
+      .catch(() => null);
+    p.then((d) => {
+      if (!d) lookupDefCache.delete(key);
+    });
+    lookupDefCache.set(key, p);
+  }
+  return p;
+}
+
+/** A write lands in another record, so it says so — quickly. The notice is a
+ *  plain toast that leaves on its own: a message about a field you just
+ *  changed has done its job in two seconds, and anything that sits there
+ *  asking to be dismissed is worse than no message at all. */
+export function notifyLookupWrite(rowTitle: string) {
+  // 2.5s: long enough to read one line, short enough to be gone by the time
+  // the next field is being changed.
+  toast.info(t('Saved to “{row}”', { row: rowTitle || t('Untitled') }), { duration: 2500 });
+}
+
+/** The face of a lookup cell.
+ *
+ *  One record behind the value: the field itself, edited in place, with the way
+ *  to that record beside it. Several records: the cell opens a small list, one
+ *  block per record — its title, a button to open it, and the field to change.
+ *  A join is never edited as a string; every write lands in its own record.
+ *
+ *  Until the target schema arrives the cell is plain text, so a slow load never
+ *  turns a table into a column of spinners. */
+function LookupCell({
+  value,
+  cell,
+  readOnly,
+  onWrite,
+  onOpen,
+  openers,
+}: {
+  value: unknown;
+  cell: LookupCell;
+  readOnly?: boolean;
+  onWrite?: (page: string, prop: string, value: unknown, previous: unknown) => Promise<void> | void;
+  onOpen?: (id: string) => void;
+  openers?: PageOpeners;
+}) {
+  const [target, setTarget] = useState<PropDef | null>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const sources = cell.sources ?? [];
+  const text = typeof value === 'string' ? value : value == null ? '' : String(value);
+  const prop = cell.prop ?? '';
+  const collection = cell.collection ?? '';
+  const canEdit = !readOnly && !!onWrite;
+
+  useEffect(() => {
+    if (!prop || !collection) return;
+    let alive = true;
+    void loadLookupDef(collection, prop).then((d) => {
+      if (alive) setTarget(d);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [prop, collection]);
+
+  // The list hangs off the cell, but is positioned in the viewport: a table
+  // cell clips what overflows it, and a menu cut in half is not a menu.
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const width = Math.min(Math.max(r.width, 300), vw - 16);
+    const left = Math.max(8, Math.min(r.left, vw - width - 8));
+    const spaceBelow = vh - r.bottom - 12;
+    const spaceAbove = r.top - 12;
+    const below = spaceBelow >= 220 || spaceBelow >= spaceAbove;
+    setPos({
+      left,
+      width,
+      top: below ? r.bottom + 4 : undefined,
+      bottom: below ? undefined : vh - r.top + 4,
+      maxHeight: Math.max(180, below ? spaceBelow : spaceAbove),
+    });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  // The side peek, so the table stays where it was: a lookup is corrected
+  // while reading the row that carries it. A narrow screen has no peek to
+  // open, and a public view has no app around it — both navigate.
+  const openRecord = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (peekPanel(id)) return;
+    if (openers?.onNavigate) openers.onNavigate(id);
+    else onOpen?.(id);
+  };
+
+  const save = async (src: LookupSource, v: unknown) => {
+    if (!onWrite) return;
+    await onWrite(src.page, prop, v, src.value);
+    notifyLookupWrite(src.title);
+  };
+
+  const title = !text
+    ? undefined
+    : sources.length === 1 && target
+      ? t('{value} — {prop} of “{row}”', {
+          value: text,
+          prop: target.name,
+          row: sources[0].title || t('Untitled'),
+        })
+      : text;
+
+  if (!target || sources.length === 0) {
+    return (
+      <span className="prop-lookup-plain" title={text || undefined}>
+        {text || <span className="prop-empty">—</span>}
+      </span>
+    );
+  }
+
+  // One record: the ordinary editor for the field, with the way to that record
+  // beside it.
+  if (sources.length === 1) {
+    const src = sources[0];
+    const label = t('Open “{row}”', { row: src.title || t('Untitled') });
+    return (
+      <span className="prop-lookup-inline">
+        <span className="prop-lookup-field" title={title}>
+          <PropertyValue
+            def={target}
+            value={src.value}
+            onChange={canEdit ? (v) => void save(src, v) : undefined}
+          />
+        </span>
+        <button
+          type="button"
+          className="prop-lookup-open"
+          title={label}
+          aria-label={label}
+          onClick={(e) => openRecord(e, src.page)}
+        >
+          <ExternalLink size={12} />
+        </button>
+      </span>
+    );
+  }
+
+  // Several records: the cell names them and edits each one in its own block.
+  return (
+    <span className="prop-lookup-many">
+      {canEdit ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          className="prop-lookup"
+          title={title}
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {text || <span className="prop-empty">—</span>}
+        </button>
+      ) : (
+        <span className="prop-lookup-plain" title={title}>
+          {text || <span className="prop-empty">—</span>}
+        </span>
+      )}
+      {open && pos && (
+        <Portal>
+          <div className="select-backdrop" onClick={() => setOpen(false)} />
+          <div
+            className="select-menu lookup-menu"
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              top: pos.top,
+              bottom: pos.bottom,
+              width: pos.width,
+              maxHeight: pos.maxHeight,
+            }}
+          >
+            {sources.map((src) => (
+              <div key={src.page} className="lookup-menu-row">
+                <div className="lookup-menu-head">
+                  <span className="lookup-menu-title" title={src.title}>
+                    {src.title || t('Untitled')}
+                  </span>
+                  <button
+                    type="button"
+                    className="lookup-menu-open"
+                    title={t('Open “{row}”', { row: src.title || t('Untitled') })}
+                    aria-label={t('Open “{row}”', { row: src.title || t('Untitled') })}
+                    onClick={(e) => {
+                      setOpen(false);
+                      openRecord(e, src.page);
+                    }}
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                </div>
+                <div className="lookup-menu-field">
+                  <PropertyValue
+                    def={target}
+                    value={src.value}
+                    onChange={canEdit ? (v) => void save(src, v) : undefined}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Portal>
+      )}
+    </span>
   );
 }
 
@@ -1231,9 +1668,15 @@ export default function PropertyValue({
   maxChips,
   onOpen,
   openers,
+  rowProps,
+  lookup,
+  onLookupWrite,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const ro = readOnly || !onChange;
+  // Which status moves the process refuses for this row. Undefined for every
+  // property that is not the process's status property.
+  const blockedStatuses = useBlockedStatuses(def, value, rowProps);
 
   switch (def.type) {
     case 'relation':
@@ -1300,12 +1743,36 @@ export default function PropertyValue({
     }
     case 'rollup':
     case 'formula': {
+      // A lookup carries values from records that can be edited where the cell
+      // is read (see server/lookup_write.go): one record edits in place,
+      // several open a list with a block per record. Anything else computed is
+      // read-only, as it always was.
+      if (lookup?.sources?.length) {
+        return (
+          <LookupCell
+            value={value}
+            cell={lookup}
+            readOnly={readOnly}
+            onWrite={onLookupWrite}
+            onOpen={onOpen}
+            openers={openers}
+          />
+        );
+      }
       // Computed server-side; always read-only. Renders the number or an
       // inline "⚠ …" for a bad formula (division by zero, cycle, …).
       const { text, error } = formatComputed(value);
       if (!text) return compact ? null : <span className="prop-empty">—</span>;
-      // A numeric computed value can display as a progress bar/ring too.
-      if (!error && (def.numberDisplay === 'bar' || def.numberDisplay === 'ring') && isFinite(Number(value))) {
+      // A numeric computed value can display as a progress bar/ring too. The
+      // typeof test matters: a lookup carries a status name, and Number("Done")
+      // is NaN while Number("5000") is 5000 — a lookup that happens to read a
+      // number must still render as the text it is, not as a bar.
+      if (
+        !error &&
+        typeof value === 'number' &&
+        isFinite(value) &&
+        (def.numberDisplay === 'bar' || def.numberDisplay === 'ring')
+      ) {
         return <NumberDisplay value={value} def={def} compact={compact} />;
       }
       return <span className={'prop-computed' + (error ? ' error' : '')}>{text}</span>;
@@ -1320,6 +1787,7 @@ export default function PropertyValue({
           multi={false}
           onChange={onChange!}
           onOptionsChange={onOptionsChange}
+          blocked={blockedStatuses}
         />
       );
     }
@@ -1376,10 +1844,17 @@ export default function PropertyValue({
         />
       );
     }
-    case 'date':
+    case 'date': {
+      // A row written by the old relative picker holds the word ("today"),
+      // which no date input can show: the field looked empty while the data
+      // said something. Read it as the day it names; editing writes a real
+      // date back, and new writes never store the word at all (see
+      // relative_dates.go on the server).
+      const raw = typeof value === 'string' ? value : value == null ? '' : String(value);
+      const day = resolveSmartDate(raw) ?? raw;
       if (ro)
-        return value ? (
-          <span className={'prop-date' + dateUrgency(String(value))}>{fmtDate(String(value))}</span>
+        return day ? (
+          <span className={'prop-date' + dateUrgency(day)}>{fmtDate(day)}</span>
         ) : compact ? null : (
           <span className="prop-empty" />
         );
@@ -1387,7 +1862,7 @@ export default function PropertyValue({
         <input
           className="prop-input prop-input-date"
           type="date"
-          value={(value as string) || ''}
+          value={day}
           onChange={(e) => onChange!(e.target.value)}
           onClick={(e) => {
             // The whole field opens the calendar: natively only the icon does
@@ -1401,6 +1876,7 @@ export default function PropertyValue({
           }}
         />
       );
+    }
     case 'url': {
       // Without a case of its own a URL landed in the text branch and sat on
       // the card as a full line of raw text ("https://trello.com/c/yksGXxLh")
@@ -1492,7 +1968,7 @@ export default function PropertyValue({
     case 'person':
       return <PersonValue def={def} value={value} onChange={onChange} readOnly={readOnly} compact={compact} />;
     case 'text':
-    default:
+    default: {
       if (compact) return value ? <span className="prop-text-chip">{String(value)}</span> : null;
       if (ro || !editing) {
         return (
@@ -1504,19 +1980,43 @@ export default function PropertyValue({
           </span>
         );
       }
+      // A textarea, because a value can hold line breaks (an agent writes
+      // them, set_properties keeps them) and an <input> strips them from its
+      // value: clicking in and out used to save three lines as one (#108).
+      // Enter still saves, as it always has; Shift+Enter adds a line.
+      const text = value == null ? '' : String(value);
       return (
-        <input
-          className="prop-input"
+        <textarea
+          className="prop-input prop-textarea"
           autoFocus
-          defaultValue={(value as string) || ''}
+          rows={1}
+          defaultValue={text}
+          ref={(el) => el && fitHeight(el)}
+          onInput={(e) => fitHeight(e.currentTarget)}
           onBlur={(e) => {
             setEditing(false);
-            onChange!(e.target.value);
+            // Leaving without a change writes nothing, so the row does not
+            // count as edited.
+            if (e.target.value !== text) onChange!(e.target.value);
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Enter' && !e.shiftKey && !imeComposing(e)) {
+              e.preventDefault();
+              e.currentTarget.blur();
+            } else if (e.key === 'Escape') {
+              e.currentTarget.value = text;
+              e.currentTarget.blur();
+            }
           }}
         />
       );
+    }
   }
+}
+
+// A textarea as tall as what it holds, so editing a value does not hide its
+// second line behind a scrollbar.
+function fitHeight(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
 }

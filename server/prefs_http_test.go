@@ -163,6 +163,68 @@ func TestPutPrefsAnswersWithTheCleanedSet(t *testing.T) {
 	}
 }
 
+// The row-opening choice round-trips through the API as "on" or "", like
+// every other preference: "" is automatic, which means navigation, and an
+// account that never chose needs no backfill.
+func TestPutPrefsRowOpeningRoundTrip(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "a@example.com")
+
+	if p := s.loadPrefs(uid); p.OpenRowsNewTab != "" {
+		t.Fatalf("fresh account chose nothing, got %q", p.OpenRowsNewTab)
+	}
+	for _, c := range []struct{ body, want string }{
+		{`{"openRowsNewTab":"on"}`, "on"},
+		{`{"openRowsNewTab":""}`, ""},
+		{`{"openRowsNewTab":"on"}`, "on"},
+		{`{"openRowsNewTab":"off"}`, ""},
+	} {
+		rec := putPrefs(t, s, c.body, map[string]string{"Cookie": cookie})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: got %d, want 200", c.body, rec.Code)
+		}
+		var got userPrefs
+		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if stored := s.loadPrefs(uid).OpenRowsNewTab; got.OpenRowsNewTab != c.want || stored != c.want {
+			t.Errorf("%s: answered %q, stored %q, want %q", c.body, got.OpenRowsNewTab, stored, c.want)
+		}
+	}
+}
+
+// A language keyed by script comes back exactly as it went in. Before, the
+// whole tag was lowered and a stored 'zh-hans' matched no catalog, so the next
+// reload quietly switched the reader back to English.
+func TestPutPrefsLanguageWithScriptRoundTrip(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "a@example.com")
+
+	rec := putPrefs(t, s, `{"language":"zh-Hans","region":"zh-TW"}`, map[string]string{"Cookie": cookie})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", rec.Code)
+	}
+	var got userPrefs
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := userPrefs{Language: "zh-Hans", Region: "zh-TW"}
+	if got != want {
+		t.Errorf("answer\n got  %+v\n want %+v", got, want)
+	}
+	if stored := s.loadPrefs(uid); stored != want {
+		t.Errorf("stored\n got  %+v\n want %+v", stored, want)
+	}
+
+	me := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/me", nil)
+	req.Header.Set("Cookie", cookie)
+	s.ServeHTTP(me, req)
+	if !strings.Contains(me.Body.String(), `"language":"zh-Hans"`) {
+		t.Errorf("/api/me does not carry the language as stored:\n%s", me.Body.String())
+	}
+}
+
 // /api/me carries the preferences, and must not carry anybody else's.
 func TestMeCarriesOwnPrefsOnly(t *testing.T) {
 	s := testServer(t)

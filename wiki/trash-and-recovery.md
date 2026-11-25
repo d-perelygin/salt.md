@@ -60,7 +60,7 @@ taking part.
 | It is absent from | Note |
 | --- | --- |
 | The sidebar tree | it moves into the Trash section instead |
-| [Search](search.md) | both the passage search and the page-title fallback skip it |
+| [Search](search.md) | both the passage search and the whole-page search skip it |
 | The [library](library.md), the graph and the tag counts | none |
 | **Linked from** under a page, and the **← Backlinks** column in the library | it disappears from the backlinks of every page it pointed at |
 | Every [view](views.md) of its collection (table, board, list, gallery, calendar and timeline) | a trashed row is not a row any more |
@@ -72,12 +72,12 @@ taking part.
 
 Two further consequences worth knowing:
 
-- **Its public link stops working.** A shared page in the trash answers **Not
-  found** to anyone opening the link. If the share carries a password, the
+- **Its public link stops working.** A shared page in the trash answers **Link
+  unavailable** to anyone opening the link. If the share carries a password, the
   visitor still sees the *Protected page* prompt first: the password is checked
   before the trash is, so a wrong password never reveals that the page was
-  thrown away, and the right one produces Not found. The link is not revoked:
-  restore the page and the same address works again. See
+  thrown away, and the right one produces Link unavailable. The link is not
+  revoked: restore the page and the same address works again. See
   [Sharing](sharing.md).
 - **A collection's public [form](forms.md) stops accepting submissions.** The
   form link answers not found while its collection is in the trash.

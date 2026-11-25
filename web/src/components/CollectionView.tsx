@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../api';
+import { collectionDefaults } from '../collectionDefaults';
+import { filterIsArmed, filterValues, matchesFilter } from '../collectionFilters';
 import {
   answersToPatch,
   commentAnswer,
@@ -11,6 +13,8 @@ import {
   workflowBlockReason,
 } from '../workflow';
 import { onRefresh } from '../pwa';
+import { clearProcessSession, processTab, readProcessPart, writeProcessPart } from '../processSession';
+import { StatusGateProvider } from '../statusMarks';
 import { collectionKey, getCollectionSnapshot, putCollectionSnapshot } from '../offlineCache';
 import { REMAP_EVENT, enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
 import { useShortcut } from '../keys';
@@ -29,14 +33,15 @@ import Portal from './Portal';
 import AnchoredMenu from './AnchoredMenu';
 import { useBoardDrag } from '../boardDrag';
 import { tagColorClass } from '../tags';
-import { compare, firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, today, weekdayNames } from '../format';
-import { isUnfinishedRelativeDay, resolveSmartDate } from '../smartdate';
+import { compare, firstWeekday, formatDay, formatMonth, formatMonthYear, isReadableDay, resolveSmartDate, toDayString, today, weekdayNames } from '../format';
 import { plural, t } from '../i18n';
+import { imeComposing } from '../keys';
 import { confirm, promptText, promptWorkflow } from '../dialog';
 import type {
   CollectionConfig,
   Filter,
   FilterOp,
+  LookupCell,
   Page,
   PageMeta,
   PropDef,
@@ -45,14 +50,18 @@ import type {
   Sort,
   SpanMode,
   ViewDef,
+  WorkflowConfig,
 } from '../types';
-import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, isSystemRef } from '../types';
-import PropertyValue, { PersonStack, idList, loadRelationOptions, type RelOption } from './PropertyValue';
+import type { User as AuthUser } from '../types';
+import { SORT_CREATED, SORT_UPDATED, TEMPLATE_FILTER, TITLE_FILTER, isSystemRef } from '../types';
+import PropertyValue, { PersonChip, PersonStack, idList, loadMembers, loadRelationOptions, type Member, type RelOption } from './PropertyValue';
 import { PageHoverCard } from './PageHoverCard';
 import { arrowHeadPoints, arrowPathD, blockedByMap, depListOf, nextWorkday, prevWorkday, shiftTarget, wouldCreateCycle, type ArrowGeom, type DepNode } from '../depUtils';
 import { openCollectionRow, openPageAux, peekPanel, type PageOpeners } from '../pageOpen';
 import { hintSeen, markHintSeen, readViewId, readViewScroll, writeViewId, writeViewScroll } from '../pageUiState';
 import { useMenuDismiss } from '../modal';
+import { useCurrentUser } from '../userContext';
+import { initials, nameColor } from './CommentsPanel';
 import { AgentDot } from './AgentBadge';
 import { planCard, isBlank, zoneOf, contactKind, needsLabel } from '../cardLayout';
 import SchemaEditor from './SchemaEditor';
@@ -98,7 +107,12 @@ import {
   SquareArrowOutUpRight,
   ExternalLink,
   ArrowLeft,
-  ArrowRight, ChevronDown, History, Inbox, PanelLeftClose, PanelLeftOpen, Pin} from 'lucide-react';
+  ArrowRight,
+  ArrowUpToLine,
+  ArrowDownToLine,
+  GripVertical,
+  Copy,
+  ChevronDown, History, Inbox, Lock, PanelLeftClose, PanelLeftOpen, Pin, TriangleAlert, X} from 'lucide-react';
 
 // Small type glyph shown next to each property (Notion-style visibility panel).
 function propTypeIcon(t: PropDef['type']) {
@@ -138,9 +152,9 @@ function propTypeIcon(t: PropDef['type']) {
  *  is every embed written before this existed. */
 export interface EmbedState {
   viewId: string;
-  views: Record<string, { filters?: Filter[]; filterGroups?: Filter[][]; sort?: ViewDef['sort'] }>;
+  views: Record<string, { filters?: Filter[]; filterGroups?: Filter[][]; sorts?: Sort[]; sort?: ViewDef['sort'] }>;
   onViewId: (viewId: string) => void;
-  onView: (viewId: string, patch: { filters?: Filter[]; filterGroups?: Filter[][]; sort?: ViewDef['sort'] }) => void;
+  onView: (viewId: string, patch: { filters?: Filter[]; filterGroups?: Filter[][]; sorts?: Sort[]; sort?: ViewDef['sort'] }) => void;
 }
 
 interface Props {
@@ -154,6 +168,8 @@ interface Props {
   onPagesChanged: () => void;
   embed?: EmbedState;
 }
+
+export { filterIsArmed, filterValues } from '../collectionFilters';
 
 interface Row {
   id: string;
@@ -170,6 +186,9 @@ interface Row {
    *  not columns (see SORT_CREATED). */
   createdAt?: string;
   updatedAt?: string;
+  /** Lookup cells, keyed by property: which record each shown value belongs
+   *  to, so a lookup can be edited where it is read (server/lookup_write.go). */
+  lookup?: Record<string, LookupCell>;
 }
 
 export function rowToPageMeta(row: Row, pages?: Map<string, PageMeta>): PageMeta {
@@ -213,7 +232,10 @@ const UNSET = '__unset__';
 // card into the "salt.md" column therefore means "this task belongs to salt.md".
 function groupValueFor(schema: PropDef[], propId: string, optId: string): unknown {
   const prop = schema.find((p) => p.id === propId);
-  return prop?.type === 'multiselect' || prop?.type === 'relation' ? [optId] : optId;
+  const multiple = prop?.type === 'multiselect' || prop?.type === 'relation' ||
+    (prop?.type === 'person' && prop.personMultiple);
+  if (optId === UNSET) return multiple ? [] : '';
+  return multiple ? [optId] : optId;
 }
 
 // The rows standing in a board column: a scalar equal to the option, an
@@ -229,121 +251,6 @@ function boardColumnRows(rows: Row[], groupBy: string, optId: string): Row[] {
   });
 }
 
-function isEmptyVal(v: unknown): boolean {
-  if (Array.isArray(v)) return v.length === 0;
-  return v === undefined || v === '' || v === null || v === false;
-}
-
-
-
-/** What a condition compares against: the set if there is one, else the single
- *  value. Never both — the same rule the server applies (rowFilter.vals). */
-export function filterValues(f: Filter): string[] {
-  if (f.values?.length) return f.values;
-  return f.value ? [f.value] : [];
-}
-
-/** Is this condition finished enough to mean anything? An unfinished one must
- *  not filter: comparing against the empty string emptied the table the moment
- *  somebody added "Date is …", before they had typed a thing, which is what
- *  made the date filter look broken. `is_empty` is the deliberate version.
- *  A half-typed relative day ("today-") waits the same way. */
-export function filterIsArmed(f: Filter): boolean {
-  const op = f.op ?? (f.value ? 'is' : 'is_not_empty');
-  if (op === 'is_empty' || op === 'is_not_empty') return true;
-  if (op === 'between')
-    return (
-      !!f.value &&
-      (f.value2 ?? '') !== '' &&
-      !isUnfinishedRelativeDay(f.value ?? '') &&
-      !isUnfinishedRelativeDay(f.value2 ?? '')
-    );
-  const vals = filterValues(f);
-  return vals.length > 0 && vals.some((v) => !isUnfinishedRelativeDay(v));
-}
-
-/** A list cell as the texts a filter compares: plain-string arrays (a select
- *  with several values, a relation) come back unchanged, while a checklist
- *  holds objects and compares by each item's text — legacy plain-string
- *  items count as their own text. The same rule the server applies
- *  (see rowFilter), so the two never disagree about a row. */
-function cellTexts(v: unknown): string[] {
-  if (!Array.isArray(v)) return [];
-  return v.map((x) => (typeof x === 'string' ? x : typeof x?.text === 'string' ? x.text : ''));
-}
-
-function matchesFilter(row: Row, f: Filter, isDate: boolean): boolean {  // The one condition that is not about a column (see TEMPLATE_FILTER). The
-  // server filters on it too; this is the same answer for the rows it sent.
-  if (f.property === TEMPLATE_FILTER) {
-    if (!filterIsArmed(f)) return true;
-    return String(!!row.isTemplate) === f.value;
-  }
-  // Created and Updated read the row's own timestamps as days — the same days
-  // the server compares — and then answer through the shared operators below.
-  const v =
-    f.property === SORT_CREATED
-      ? (row.createdAt ?? '').slice(0, 10)
-      : f.property === SORT_UPDATED
-        ? (row.updatedAt ?? '').slice(0, 10)
-        : row.props[f.property];
-  const op = f.op ?? (f.value ? 'is' : 'is_not_empty');
-  if (!filterIsArmed(f)) return true;
-  // A relative day names a different date every day. Resolve it now — the
-  // same way the server resolves it per query — or the rows the server sent
-  // and the rows shown here would disagree. Date properties only: a status
-  // option named "Today" must keep matching the option, not the date.
-  const day = (s: string) => (isDate ? (resolveSmartDate(s) ?? s) : s);
-  const live = (s: string) => !isUnfinishedRelativeDay(s);
-  const value = day(f.value ?? '');
-  const vals = filterValues(f)
-    .filter(live)
-    .map(day);
-  // One value or several, the question is the same: does the cell hold any of
-  // them. A cell may itself be a list (multiselect, relation).
-  const holdsAny = () =>
-    Array.isArray(v)
-      ? vals.some((x) => cellTexts(v).includes(x))
-      : vals.some((x) =>
-          x === 'true' || x === 'false' ? String(v === true) === x : String(v ?? '') === x,
-        );
-  switch (op) {
-    case 'is_empty':
-      return isEmptyVal(v);
-    case 'is_not_empty':
-      return !isEmptyVal(v);
-    case 'contains': {
-      const needle = value.toLowerCase();
-      if (Array.isArray(v)) return cellTexts(v).some((t) => t.toLowerCase().includes(needle));
-      return String(v ?? '').toLowerCase().includes(needle);
-    }
-    case 'gt':
-    case 'lt': {
-      const nv = Number(v);
-      const nf = Number(value);
-      const cmp = !Number.isNaN(nv) && !Number.isNaN(nf) ? nv - nf : compare(String(v ?? ''), value);
-      return op === 'gt' ? cmp > 0 : cmp < 0;
-    }
-    case 'between': {
-      // Inclusive at both ends — a range named by two dates contains them.
-      // ISO dates compare correctly as text, so only numbers need Number().
-      const hi = f.value2 === undefined ? '' : isDate ? (resolveSmartDate(f.value2) ?? f.value2) : f.value2;
-      const nv = Number(v);
-      if (!Number.isNaN(nv) && !Number.isNaN(Number(value)) && !Number.isNaN(Number(hi))) {
-        return nv >= Number(value) && nv <= Number(hi);
-      }
-      const sv = String(v ?? '');
-      return sv !== '' && sv >= value && sv <= hi;
-    }
-    case 'is_not':
-      return !holdsAny();
-    case 'is':
-    default:
-      // Checkbox filters compare against a boolean; a never-toggled box has no
-      // stored value, which must count as "false" (unchecked), not "no match".
-      return holdsAny();
-  }
-}
-
 // A server row in app shape. Shared by the grid's loader and the tray's own
 // query, so the two never disagree about what a row is.
 type ServerRow = {
@@ -357,6 +264,7 @@ type ServerRow = {
   isTemplate?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  lookup?: Record<string, LookupCell>;
 };;
 
 function mapCollectionRow(r: ServerRow): Row {
@@ -371,6 +279,7 @@ function mapCollectionRow(r: ServerRow): Row {
     isTemplate: r.isTemplate === true,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    lookup: r.lookup,
   };
 }
 
@@ -383,44 +292,68 @@ export function viewFilterGroups(view: Pick<ViewDef, 'filters' | 'filterGroups'>
   return [];
 }
 
+// The effective sort keys of a view, in priority order. sorts wins when
+// present and non-empty; the legacy flat sort reads as the single key, so
+// older views keep their meaning exactly.
+function viewSorts(view: Pick<ViewDef, 'sort' | 'sorts'>): Sort[] {
+  if (view.sorts !== undefined && view.sorts.length > 0) return view.sorts;
+  if (view.sort) return [view.sort];
+  return [];
+}
+
 // Apply a view's filters and sort to the row set. A row passes when some group
 // passes wholly; groups with nothing armed in them do not filter.
-function applyView(rows: Row[], view: ViewDef, schema: PropDef[]): Row[] {
-  const out = filterRowsByGroups(rows, viewFilterGroups(view), schema);
-  return sortRows(out, view.sort);
+function applyView(rows: Row[], view: ViewDef, schema: PropDef[], currentUser: AuthUser | null = null): Row[] {
+  const out = filterRowsByGroups(rows, viewFilterGroups(view), schema, currentUser);
+  return sortRows(out, viewSorts(view));
 }
 
 // The filter half of applyView, reusable wherever a custom group set replaces
 // the view's (the tray runs its own filters over the same rows).
-function filterRowsByGroups(rows: Row[], groups: Filter[][], schema: PropDef[]): Row[] {
+function filterRowsByGroups(rows: Row[], groups: Filter[][], schema: PropDef[], currentUser: AuthUser | null = null): Row[] {
   const dateProps = new Set(schema.filter((p) => p.type === 'date').map((p) => p.id));
   // Created and Updated read the row's own timestamps as days: date-like for
   // resolution, like on the server.
   dateProps.add(SORT_CREATED);
   dateProps.add(SORT_UPDATED);
   const armed = groups
-    .map((g) => g.filter(filterIsArmed))
+    .map((g) => g.filter((f) => filterIsArmed(f, dateProps.has(f.property))))
     .filter((g) => g.length > 0);
-  return armed.length === 0 ? rows : rows.filter((r) => armed.some((g) => g.every((f) => matchesFilter(r, f, dateProps.has(f.property)))));
+  const numberProps = new Set(schema.filter((p) => p.type === 'number').map((p) => p.id));
+  const personProps = new Set(schema.filter((p) => p.type === 'person').map((p) => p.id));
+  return armed.length === 0
+    ? rows
+    : rows.filter((r) =>
+        armed.some((g) =>
+          g.every((f) =>
+            matchesFilter(r, f, dateProps.has(f.property), numberProps.has(f.property), personProps.has(f.property), currentUser),
+          ),
+        ),
+      );
 }
 
 // The sort half of applyView: the tray inherits the view's order even under
-// its own filters.
-function sortRows(rows: Row[], sort: ViewDef['sort']): Row[] {
-  if (!sort) return rows;
-  return [...rows].sort((a, b) => {
+// its own filters. Keys apply in order, like SQL ORDER BY: the first key
+// decides, the next breaks its ties.
+function sortRows(rows: Row[], sorts: Sort[]): Row[] {
+  if (!sorts.length) return rows;
+  const keyOf = (sort: Sort, r: Row): string | number => {
     if (sort.property === SORT_CREATED || sort.property === SORT_UPDATED) {
-      const ak = sort.property === SORT_CREATED ? (a.createdAt ?? '') : (a.updatedAt ?? '');
-      const bk = sort.property === SORT_CREATED ? (b.createdAt ?? '') : (b.updatedAt ?? '');
-      const cmp = ak < bk ? -1 : ak > bk ? 1 : 0;
-      return sort.dir === 'desc' ? -cmp : cmp;
+      return sort.property === SORT_CREATED ? (r.createdAt ?? '') : (r.updatedAt ?? '');
     }
-    const av = a.props[sort.property];
-    const bv = b.props[sort.property];
-    const as = Array.isArray(av) ? av.join(',') : String(av ?? '');
-    const bs = Array.isArray(bv) ? bv.join(',') : String(bv ?? '');
-    const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : compare(as, bs);
-    return sort.dir === 'desc' ? -cmp : cmp;
+    const v = r.props[sort.property];
+    if (typeof v === 'number') return v;
+    const s = Array.isArray(v) ? v.join(',') : String(v ?? '');
+    return s;
+  };
+  return [...rows].sort((a, b) => {
+    for (const sort of sorts) {
+      const ak = keyOf(sort, a);
+      const bk = keyOf(sort, b);
+      const cmp = typeof ak === 'number' && typeof bk === 'number' ? ak - bk : compare(String(ak), String(bk));
+      if (cmp !== 0) return sort.dir === 'desc' ? -cmp : cmp;
+    }
+    return 0;
   });
 }
 
@@ -462,6 +395,8 @@ function sameFilterGroups(a: Filter[][], b: Filter[][]): boolean {
 }
 
 export default function CollectionView({ collectionId, pages, tagColors, onNavigate, onOpenInNewTab, onPagesChanged, embed }: Props) {
+  // Who "@me" is in a person filter, and who a new row made under one goes to.
+  const currentUser = useCurrentUser();
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   // Live config for undo: restoring a whole view object must read the config
   // as it is when undo runs, not as it was when the step was pushed. Beside
@@ -500,6 +435,32 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   };
   const [schemaOpen, setSchemaOpen] = useState(false);
   const [schemaTab, setSchemaTab] = useState<'props' | 'process'>('props');
+
+  // The process dialog was open when the page reloaded: put it back on the tab
+  // it was on. The view, the fullscreen mode and the code draft restore
+  // themselves from the same session (see processSession.ts).
+  useEffect(() => {
+    if (readProcessPart(collectionId, 'open') !== '1') return;
+    setSchemaTab(processTab(collectionId) ?? 'process');
+    setSchemaOpen(true);
+  }, [collectionId]);
+
+  // A reload is the one moment the dialog state has to be written down: a
+  // route change inside the app does not fire this, and closing the dialog
+  // clears the keys, so nothing reopens a window somebody closed.
+  const schemaOpenRef = useRef(schemaOpen);
+  schemaOpenRef.current = schemaOpen;
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      if (!schemaOpenRef.current) return;
+      // Only "it was open". The tab belongs to the dialog itself, which keeps
+      // its own key current — this component still holds the tab it was
+      // opened with, and writing that would send a reload back to Properties.
+      writeProcessPart(collectionId, 'open', '1');
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [collectionId]);
 
   // A blocked drag explains itself: what stops the card and where the rule
   // lives — one tap opens the process at the right place.
@@ -566,7 +527,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const [total, setTotal] = useState(0);
   const [addViewOpen, setAddViewOpen] = useState(false);
   const addViewBtnRef = useRef<HTMLButtonElement>(null);
-  const [viewMenuFor, setViewMenuFor] = useState<string | null>(null);
   const [addViewPos, setAddViewPos] = useState<React.CSSProperties | null>(null);
   // A right-click on a view's tab opens the same actions the ⋯ holds, for THAT
   // view, at the pointer (#24). The ⋯ only ever acted on the view you are on.
@@ -671,16 +631,33 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Server-side filter/sort (real Q25): the view's filter groups and sort become
   // query params so a 50k-row database is filtered in SQLite, not in the
   // browser. Only finished conditions travel. An unfinished one is not "match
-  // nothing", it is "not asked yet".
+  // nothing", it is "not asked yet". A date property arms only on a value that
+  // is a day or resolves to one; created/updated are days too.
+  const schemaDateProp = (id: string) =>
+    id === SORT_CREATED || id === SORT_UPDATED || (config?.schema ?? []).some((p) => p.id === id && p.type === 'date');
   const serverGroups = viewFilterGroups(view0 ?? { filters: [] })
-    .map((g) => g.filter(filterIsArmed).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })))
+    .map((g) =>
+      g
+        .filter((f) => filterIsArmed(f, schemaDateProp(f.property)))
+        .map((f) => ({
+          property: f.property,
+          op: f.op,
+          value: f.value,
+          values: f.values,
+          value2: f.value2,
+          // The title condition's switch is the reader's, and the database
+          // has to answer the same question the browser does; dropping it
+          // here made the server over-fetch and the browser decide alone.
+          caseSensitive: f.caseSensitive,
+        })),
+    )
     .filter((g) => g.length > 0);
-  const serverSort = view0?.sort ?? null;
+  const serverSorts = view0 ? viewSorts(view0) : [];
   // The viewer's day travels with every row query, so "today" resolves
   // against it and not the server's. Part of the key so a tab left open
   // overnight reloads with the new day.
   const todayStr = today();
-  const fsKey = JSON.stringify([serverGroups, serverSort, todayStr]);
+  const fsKey = JSON.stringify([serverGroups, serverSorts, todayStr]);
 
   // Loads ALL rows, in steps of 200 one after another. It used to stop at the
   // first page plus a "Load more" button — with the result that a board of 656
@@ -700,7 +677,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           limit: PAGE,
           offset: acc.length,
           filterGroups: serverGroups,
-          sort: serverSort,
+          sorts: serverSorts,
           today: todayStr,
         });
         if (!fresh()) return; // inzwischen neu geladen — or written to meanwhile
@@ -806,10 +783,17 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   const trayNeedsFetch = trayIsCustom || !sameFilterGroups(trayFetchGroups, trayEffGroups);
   const trayServerGroups = trayFetchGroups
     .map((g) =>
-      g.filter(filterIsArmed).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })),
+      g.filter((f) =>
+        filterIsArmed(
+          f,
+          f.property === SORT_CREATED ||
+            f.property === SORT_UPDATED ||
+            (config?.schema ?? []).some((p) => p.id === f.property && p.type === 'date'),
+        ),
+      ).map((f) => ({ property: f.property, op: f.op, value: f.value, values: f.values, value2: f.value2 })),
     )
     .filter((g) => g.length > 0);
-  const trayKey = view0 && trayNeedsFetch ? JSON.stringify([trayServerGroups, view0.sort, todayStr]) : '';
+  const trayKey = view0 && trayNeedsFetch ? JSON.stringify([trayServerGroups, viewSorts(view0), todayStr]) : '';
   const [trayExtra, setTrayExtra] = useState<{ key: string; rows: Row[] } | null>(null);
   useEffect(() => {
     if (!trayNeedsFetch) return;
@@ -822,7 +806,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           limit: PAGE,
           offset: acc.length,
           filterGroups: trayServerGroups,
-          sort: view0?.sort,
+          sorts: view0 ? viewSorts(view0) : [],
           today: todayStr,
         });
         if (dead) return;
@@ -839,6 +823,30 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
 
   const view = view0;
   const schema = config?.schema ?? [];
+
+  // The open view's tab in sight (#113). A tab remembers its view, so a
+  // collection can open on one far along a strip that scrolls sideways on a
+  // phone, and the strip stayed at its start with nothing on screen saying
+  // which view was open. Only the strip moves: scrollIntoView would scroll the
+  // document as well, and pull a reader down to an embedded collection.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const tab = toolbarRef.current?.querySelector<HTMLElement>('.view-tab.active');
+    // The nearest box that scrolls sideways: the toolbar on a phone, the strip
+    // of tabs where that is what scrolls.
+    let el = tab?.parentElement ?? null;
+    while (tab && el) {
+      if (el.scrollWidth > el.clientWidth) {
+        const box = el.getBoundingClientRect();
+        const r = tab.getBoundingClientRect();
+        if (r.left < box.left) el.scrollLeft -= box.left - r.left + 8;
+        else if (r.right > box.right) el.scrollLeft += r.right - box.right + 8;
+        break;
+      }
+      if (el === toolbarRef.current) break;
+      el = el.parentElement;
+    }
+  }, [view?.id, config?.views.length]);
 
   // The inner horizontal scroller (the board's columns, the wide table) keeps
   // its position per view, across tab switches and reloads. The vertical
@@ -931,7 +939,16 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     if (!config || next.workflow !== config.workflow) patch.workflow = next.workflow;
     setConfig(next);
     if (!patch.schema && !patch.views && !patch.workflow) return;
-    await api.putCollection(collectionId, patch);
+    const saved = await api.putCollection(collectionId, patch);
+    // A rename that landed in code sources is announced, not silent.
+    if (saved.codeRenames && saved.codeRenames.blocks > 0) {
+      toast(
+        t('Renamed in code: {refs} references in {blocks} blocks', {
+          refs: saved.codeRenames.refs,
+          blocks: saved.codeRenames.blocks,
+        }),
+      );
+    }
   };
 
   const addRow = async (
@@ -957,7 +974,21 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // Creation handshake: rules firing on arrival may need answers, and a
     // prescribed status may be guarded. Ask before anything exists, so
     // backing out makes no row at all — the server re-checks on write.
-    let preset: Record<string, unknown> = { ...(presetProps ?? {}) };
+    // A new row starts with what the view's equality conditions fix: a board
+    // column, a calendar day, "status is Done". The workflow answers below
+    // overwrite it where they have something to say.
+    let preset: Record<string, unknown> = {
+      ...collectionDefaults(schema, view?.filters ?? [], presetProps, currentUser),
+    };
+    // A row that the view's own filters hide is not a failure, but silence
+    // would read as one: say where it went.
+    const warnIfHidden = (props: Record<string, unknown>) => {
+      const probe: Row = { id: '', title: '', icon: '', cover: '', position: 0, props, tags: [] };
+      const groups = viewFilterGroups({ filters: view?.filters, filterGroups: view?.filterGroups });
+      if (groups.length && filterRowsByGroups([probe], groups, schema, currentUser).length === 0) {
+        toast(t("The new row does not match this view's filters, so it is not shown here."));
+      }
+    };
     let createComment: string | null = null;
     const wf = config?.workflow;
     const statusToRaw = wf?.statusPropId ? preset[wf.statusPropId] : undefined;
@@ -1033,6 +1064,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             toast(t('The template could not be used'));
           }
           if (createComment) void postMoveComment(dup.id, createComment);
+          warnIfHidden(preset);
           if (!peekPanel(dup.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(dup.id);
           return dup.id;
         }
@@ -1050,6 +1082,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           await savePageUpdate(created.id, { position: topPos }, { label: t('Change') });
         }
         if (createComment) void postMoveComment(created.id, createComment);
+        warnIfHidden(preset);
         // A row with no name yet: the caret belongs in its title.
         if (!peekPanel(created.id, { focusTitle: true })) (onOpenInNewTab ?? onNavigate)(created.id);
         return created.id;
@@ -1078,7 +1111,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         kind: 'create-page',
         pageId: tempId,
         parentId: collectionId,
-        payload: { title: 'Untitled', type: 'doc', props: preset },
+        payload: { title: 'Untitled', type: 'doc', props: preset }, // i18n-ok: a stored row title, not interface text
         label: t('Untitled'),
       });
       if (topPos !== undefined) {
@@ -1307,7 +1340,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       // anywhere: top of the new one.
       let newPos: number | undefined;
       const v = view;
-      if (v?.type === 'board' && !v.sort && boardGroupBy && propId === boardGroupBy) {
+      if (v?.type === 'board' && viewSorts(v).length === 0 && boardGroupBy && propId === boardGroupBy) {
         const optId = Array.isArray(value) ? (value[0] as string) : (value as string);
         const siblings =
           optId === undefined || optId === ''
@@ -1329,6 +1362,38 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         });
       }
     });
+
+  // A lookup edits the record its value belongs to, not this row: the write
+  // goes to that page, and the view is reloaded because the cell is computed
+  // on the server from that record (see server/lookup_write.go).
+  const writeLookup = async (page: string, prop: string, value: unknown, previous: unknown) => {
+    touchRows();
+    try {
+      await api.updatePage(page, { propsPatch: { [prop]: value } });
+    } catch (e) {
+      if (isOfflineError(e)) {
+        await savePageUpdate(page, { propsPatch: { [prop]: value } }, { label: t('Change') });
+      } else {
+        toast(t('Change not saved'));
+        throw e;
+      }
+    }
+    const v = view;
+    if (v) {
+      pushUndo(v.id, {
+        label: t('Change'),
+        undo: async () => {
+          await api.updatePage(page, { propsPatch: { [prop]: previous } }).catch(() => {});
+          await loadRows();
+        },
+        redo: async () => {
+          await api.updatePage(page, { propsPatch: { [prop]: value } }).catch(() => {});
+          await loadRows();
+        },
+      });
+    }
+    await loadRows();
+  };
 
   // Setting the group property from a drag/preset respects the property type:
   // a multi-select stores an array, a select stores a scalar.
@@ -1512,6 +1577,65 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     return position;
   };
 
+  const placeRowAtBottom = async (rowId: string, siblings: Row[]): Promise<number | undefined> => {
+    const known = siblings.filter((r) => r.id !== rowId).map((r) => r.position);
+    if (known.length === 0) return undefined;
+    const position = Math.max(...known) + 1;
+    touchRows();
+    setRows((prevRows) => {
+      const without = prevRows.filter((r) => r.id !== rowId);
+      const moved = prevRows.find((r) => r.id === rowId);
+      if (!moved) return prevRows;
+      const tagged = { ...moved, position };
+      // Bottom of the column: behind its last row standing in the list.
+      const others = siblings.filter((r) => r.id !== rowId);
+      const lastId = others.length ? others[others.length - 1].id : undefined;
+      const i = lastId !== undefined ? without.findIndex((r) => r.id === lastId) : -1;
+      if (i >= 0) return [...without.slice(0, i + 1), tagged, ...without.slice(i + 1)];
+      return [...without, tagged];
+    });
+    // Journals into the outbox offline, like every other row write.
+    await savePageUpdate(rowId, { position }, { label: t('Change') });
+    return position;
+  };
+
+  // "Move to the top/bottom of this column" from a card's menu: the card
+  // stays in its column and changes only its place in it. A sorted view
+  // orders by the sort, so there is no place to change and the entries are
+  // not offered; here the guard is only a second line of defence.
+  const moveWithinColumn = (
+    rowId: string,
+    groupBy: string,
+    optId: string,
+    where: 'top' | 'bottom',
+  ): Promise<void> =>
+    series(view?.id, async () => {
+      if (!view || viewSorts(view).length > 0) return;
+      const live = rowsRef.current;
+      const column = boardColumnRows(live, groupBy, optId);
+      const oldPos = live.find((r) => r.id === rowId)?.position;
+      const position =
+        where === 'top' ? await placeRowOnTop(rowId, column) : await placeRowAtBottom(rowId, column);
+      if (position === undefined || oldPos === undefined || position === oldPos) return;
+      const v = view;
+      if (v && !isTempId(rowId)) {
+        pushUndo(v.id, {
+          label: t('Change'),
+          undo: () => writePos(rowId, oldPos),
+          redo: () => writePos(rowId, position),
+        });
+      }
+    });
+
+  // The process travels down to the property cells through this context: the
+  // status select marks the moves it refuses (statusMarks.tsx). Above the
+  // early return below, or the hook count differs between the loading render
+  // and the real one (React #310).
+  const statusGate = useMemo(
+    () => ({ workflow: config?.workflow, schema }),
+    [config?.workflow, schema],
+  );
+
   if (!config || !view) return <div className="editor-loading" />;
 
   // Undo restores a whole view object, not a patch: by the time it runs the
@@ -1531,12 +1655,15 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
     // An embed keeps its filters and sort to itself (#26): set inside a
     // document, they must not change the collection's view everywhere else.
     // Embed-local changes stay out of the undo stack with them.
-    if (embed && ('filters' in patch || 'filterGroups' in patch || 'sort' in patch)) {
-      const { filters, filterGroups, sort, ...rest } = patch;
+    if (embed && ('filters' in patch || 'filterGroups' in patch || 'sorts' in patch || 'sort' in patch)) {
+      const { filters, filterGroups, sorts, sort, ...rest } = patch;
       embed.onView(view.id, {
         ...('filters' in patch ? { filters } : {}),
         ...('filterGroups' in patch ? { filterGroups } : {}),
-        ...('sort' in patch ? { sort } : {}),
+        // Both shapes travel, like filters above: readers that only know the
+        // old shape still sort by the first key.
+        ...('sorts' in patch ? { sorts, sort: (sorts ?? [])[0] ?? null } : {}),
+        ...('sort' in patch && !('sorts' in patch) ? { sort } : {}),
       });
       if (Object.keys(rest).length === 0) return;
       patch = rest;
@@ -1560,7 +1687,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
       });
       if (JSON.stringify(prev) === JSON.stringify(nextView)) return;
       const sortBack =
-        JSON.stringify(prev.sort ?? null) !== JSON.stringify(nextView.sort ?? null);
+        JSON.stringify(viewSorts(prev)) !== JSON.stringify(viewSorts(nextView));
       const filterBack =
         JSON.stringify(prev.filters ?? []) !== JSON.stringify(nextView.filters ?? []) ||
         JSON.stringify(prev.filterGroups ?? []) !== JSON.stringify(nextView.filterGroups ?? []);
@@ -1586,7 +1713,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // List, Timeline or Form at all.
   const renameView = async (v: ViewDef) => {
     const name = await promptText(t('Rename view'), { defaultValue: v.name, confirmText: t('Rename') });
-    setViewMenuFor(null);
     const n = name?.trim();
     if (!n || n === v.name) return;
     void saveConfig({ ...config, views: config.views.map((x) => (x.id === v.id ? { ...x, name: n } : x)) });
@@ -1594,7 +1720,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
 
   // A collection with no view has nothing to render, so the last one stays.
   const removeView = (v: ViewDef) => {
-    setViewMenuFor(null);
     if (config.views.length <= 1) return;
     const rest = config.views.filter((x) => x.id !== v.id);
     void saveConfig({ ...config, views: rest });
@@ -1689,11 +1814,11 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // the extra query above (keyed by trayKey). While a fresh custom set loads,
   // keep showing the previous one rather than flashing the inherited set.
   const trayBase =
-    !trayNeedsFetch ? rows : trayExtra && trayExtra.key === trayKey ? sortRows(trayExtra.rows, view.sort) : (trayExtra?.rows ?? rows);
+    !trayNeedsFetch ? rows : trayExtra && trayExtra.key === trayKey ? sortRows(trayExtra.rows, viewSorts(view)) : (trayExtra?.rows ?? rows);
   const emptyLabel =
     rows.length > 0 && viewRows.length === 0
       ? t('No rows match the current filter.')
-      : t('No rows yet — click ＋ New above.');
+      : t('No rows yet. Click ＋ New above.');
   const tabIcon = (t: ViewDef['type']) => {
     const sz = 14;
     if (t === 'board') return <Columns3 size={sz} />;
@@ -1708,12 +1833,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   // Columns hidden in this view are dropped from every renderer.
   const hidden = new Set(view.hidden ?? []);
   const visibleSchema = schema.filter((p) => !hidden.has(p.id));
+  // Date props a timeline view can bar rows by.
+  const dateProps = schema.filter((p) => p.type === 'date');
   // Relation props that point back at this same collection — candidates for the
   // sub-item (task hierarchy) relation that the table can render as a tree.
   const selfRelProps = schema.filter((p) => p.type === 'relation' && p.relationCollection === collectionId);
 
   const viewSwitcher = (
-    <div className="collection-toolbar">
+    <div className="collection-toolbar" ref={toolbarRef}>
       <div className="view-tabs">
         {config.views.map((v) => (
           <span key={v.id} className="view-tab-wrap">
@@ -1858,53 +1985,10 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             <Settings2 size={14} /> {t('Properties')}
           </button>
         )}
-        {/* Renaming and removing the view you are on. It sat inside the tab as a
-            ⋯ first, which looked like a smudge in the pill and had to reserve
-            room in a row where nothing else does. This bar is already "settings
-            for the current view" — filter, sort, group, columns — so it is
-            where the last two belong. */}
-        {!embed && (
-        <div className="view-menu-wrap">
-          <button
-            className="btn-sm"
-            title={t('View options')}
-            onClick={() => setViewMenuFor((cur) => (cur ? null : view.id))}
-          >
-            <MoreHorizontal size={14} />
-          </button>
-          {viewMenuFor === view.id && (
-            <>
-              <div className="fs-backdrop" onClick={() => setViewMenuFor(null)} />
-              <div className="menu view-tab-menu">
-                <button onClick={() => void renameView(view)}>
-                  <Pencil size={15} /> {t('Rename view')}
-                </button>
-                {config.views.length > 1 && (
-                  <>
-                    <button
-                      disabled={config.views[0]?.id === view.id}
-                      onClick={() => moveView(view, -1)}
-                    >
-                      <ArrowLeft size={15} /> {t('Move left')}
-                    </button>
-                    <button
-                      disabled={config.views[config.views.length - 1]?.id === view.id}
-                      onClick={() => moveView(view, 1)}
-                    >
-                      <ArrowRight size={15} /> {t('Move right')}
-                    </button>
-                  </>
-                )}
-                {config.views.length > 1 && (
-                  <button className="danger" onClick={() => removeView(view)}>
-                    <Trash2 size={15} /> {t('Remove view')}
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-        )}
+        {/* Renaming, moving and removing a view live on its tab: right-click
+            (or long-press) opens them for THAT view. The toolbar used to carry
+            its own ⋯ for the same actions, which added a button and said
+            nothing new. */}
         {view.type !== 'form' && (
           <button className="btn-sm primary" onClick={() => void addRow()}>
             <Plus size={14} /> {t('New')}
@@ -1915,13 +1999,19 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
   );
 
   return (
+    <StatusGateProvider value={statusGate}>
     <div
       ref={rootRef}
       className={
         'collection-scroll' +
         (view.type === 'board' ? ' is-board' : '') +
         (embed ? ' is-embed' : '') +
-        (embed && viewFilterGroups(view).some((g) => g.some(filterIsArmed)) ? ' is-filtered' : '')
+        (embed &&
+        viewFilterGroups(view).some((g) =>
+          g.some((f) => filterIsArmed(f, f.property === SORT_CREATED || f.property === SORT_UPDATED || schema.find((p) => p.id === f.property)?.type === 'date')),
+        )
+          ? ' is-filtered'
+          : '')
       }
     >
       {(offlineSnapshot || !online) && rows.length > 0 ? (
@@ -1942,6 +2032,7 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
         <BoardView
           rows={viewRows}
           schema={visibleSchema}
+          allProps={schema}
           groupBy={view.groupBy || schema.find((p) => p.type === 'select')?.id || ''}
           tagColors={tagColors}
           commentCounts={commentCounts}
@@ -1955,16 +2046,20 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onDropCard={(rowId, groupBy, optId, _curOrder, newOrder) => {
             void dropCardCrossColumn(rowId, groupBy, optId, newOrder);
           }}
-          manualOrder={!view.sort}
+          workflow={config?.workflow}
+          manualOrder={viewSorts(view).length === 0}
           onMoveCard={(rowId, curOrder, newOrder) => {
             void moveCard(rowId, curOrder, newOrder);
+          }}
+          onMoveInColumn={(rowId, groupBy, optId, where) => {
+            void moveWithinColumn(rowId, groupBy, optId, where);
           }}
           onTrashRow={trashRow}
           onAddInColumn={(groupBy, optId) => {
             // A board + makes the card for this column, on its top: one less
             // than the column's lowest position. A sorted view orders by its
             // sort, so positions stay out of it.
-            const col = !view.sort ? boardColumnRows(viewRows, groupBy, optId) : [];
+            const col = viewSorts(view).length === 0 ? boardColumnRows(viewRows, groupBy, optId) : [];
             return void addRow(
               optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) },
               col.length > 0 ? { prependBefore: Math.min(...col.map((r) => r.position)) } : undefined,
@@ -2027,7 +2122,6 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onNavigate={onNavigate}
           onOpenInNewTab={onOpenInNewTab}
           mode={view.tlMode ?? 'month'}
-          onModeChange={(m) => updateView({ tlMode: m })}
           onViewChange={updateView}
           onEnsureDepProps={ensureDepProps}
           onAddRow={(preset) => addRow(preset)}
@@ -2066,10 +2160,12 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
           onOpenInNewTab={onOpenInNewTab}
           onSetProp={setRowProp}
           onSetOptions={setPropOptions}
+          onLookupWrite={writeLookup}
         />
       )}
       {schemaOpen && (
         <SchemaEditor
+          collectionId={collectionId}
           initialTab={schemaTab}
           config={config}
           collections={[...pages.values()]
@@ -2077,10 +2173,14 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             .filter((p) => p.type === 'collection' && !p.trashed && !p.isTemplate)
             .map((p) => ({ id: p.id, title: p.title }))}
           onSave={saveConfig}
-          onClose={() => setSchemaOpen(false)}
+          onClose={() => {
+            clearProcessSession(collectionId);
+            setSchemaOpen(false);
+          }}
         />
       )}
     </div>
+    </StatusGateProvider>
   );
 }
 
@@ -2289,7 +2389,7 @@ function FormView({
         <textarea
           className="form-desc"
           value={view.formDesc ?? ''}
-          placeholder={t('Description (optional) — explains what the form is for.')}
+          placeholder={t('Description (optional): explains what the form is for.')}
           rows={2}
           onChange={(e) => onUpdateView({ formDesc: e.target.value })}
         />
@@ -2304,7 +2404,7 @@ function FormView({
               placeholder={t('Name of the entry')}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') void submit();
+                if (e.key === 'Enter' && !imeComposing(e)) void submit();
               }}
             />
           </label>
@@ -2400,7 +2500,8 @@ export function formField(def: PropDef, value: unknown, onChange: (v: unknown) =
 // One date bound of a filter: either a calendar picker or a relative day such
 // as today-1M. The toggle only changes how the value is ENTERED — both write
 // the same Filter.value string, a YYYY-MM-DD day or a word the server
-// resolves anew on every query (see smartdate.ts), so the view stays live.
+// resolves anew on every query (see resolveSmartDate in format.ts), so the
+// view stays live.
 function DateFilterValue({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   // Exact or relative is a STICKY choice, not derived from the value: clearing
   // the field to type a new word must not fling the picker back to Exact.
@@ -2489,10 +2590,151 @@ function DateFilterValue({ value, onChange }: { value: string; onChange: (v: str
           {value !== '' &&
             (resolved ? (
               <div className="fs-hint">{t('Resolves to {date}', { date: formatDay(resolved) })}</div>
-            ) : (
-              <div className="fs-hint">{t('Unknown relative day — try today-1M.')}</div>
+            ) : isReadableDay(value) ? null : (
+              <div className="fs-hint">{t('Unknown relative day. Try today-1M.')}</div>
             ))}
         </>
+      )}
+    </div>
+  );
+}
+
+/** "@me" in a person filter: whoever opens the view. Only the filter knows the
+ *  marker. A cell that holds it shows the text, never the reader's own face,
+ *  which would make a row look like everybody's own. */
+function MeChip() {
+  const me = useCurrentUser();
+  const label = t('Current user');
+  return (
+    <span className="prop-person" title={me?.name ? `${label} (${me.name})` : label}>
+      <span
+        className="cp-avatar prop-person-av"
+        style={{ background: me?.avatar ? 'transparent' : me?.color || nameColor(me?.name ?? '') }}
+      >
+        {me?.avatar ? <img src={me.avatar} alt="" /> : initials(me?.name ?? '')}
+      </span>
+      <span className="prop-person-name">
+        {label}
+        {me?.name ? <span className="fs-person-mename"> ({me.name})</span> : null}
+      </span>
+    </span>
+  );
+}
+
+/** The people a person filter can name: Current user first, which is whoever
+ *  opens the view, then the members of the workspaces this account sees. */
+function PersonFilterValue({ filter, onChange }: { filter: Filter; onChange: (patch: Partial<Filter>) => void }) {
+  const [members, setMembers] = useState<Member[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void loadMembers().then((m) => alive && setMembers(m));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const picked = filterValues(filter);
+  const q = query.trim().toLowerCase();
+  const filtered = members.filter((m) => m.name.toLowerCase().includes(q) || m.userId.toLowerCase().includes(q));
+  const holds = (m: Member) => picked.includes(m.userId) || picked.includes(m.name);
+
+  const toggle = (v: string) => {
+    let next: string[];
+    if (v === '@me') {
+      next = picked.includes('@me') ? picked.filter((x) => x !== '@me') : [...picked, '@me'];
+    } else {
+      const m = members.find((x) => x.userId === v || x.name === v);
+      if (m) {
+        const on = holds(m);
+        next = on ? picked.filter((x) => x !== m.userId && x !== m.name) : [...picked, m.userId];
+      } else {
+        next = picked.includes(v) ? picked.filter((x) => x !== v) : [...picked, v];
+      }
+    }
+    onChange({ values: next, value: '' });
+  };
+
+  return (
+    <div className="relation-value fs-person-value" ref={boxRef}>
+      <button
+        type="button"
+        className="relation-open fs-person-btn"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {picked.length ? (
+          <span className="fs-person-chips">
+            {picked.map((id) => (
+              id === '@me' ? <MeChip key={id} /> : <PersonChip key={id} raw={id} members={members} />
+            ))}
+          </span>
+        ) : (
+          <span className="prop-empty">{t('＋ Person')}</span>
+        )}
+      </button>
+      {open && (
+        <div className="menu relation-menu fs-person-menu">
+          <input
+            className="prop-input"
+            autoFocus
+            placeholder={t('Search or type a name…')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                setOpen(false);
+                return;
+              }
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              if (filtered.length === 1) toggle(filtered[0].userId);
+              else if (query.trim()) toggle(query.trim());
+            }}
+          />
+          <div className="relation-options">
+            <button
+              type="button"
+              className={'relation-option' + (picked.includes('@me') ? ' on' : '')}
+              onClick={() => toggle('@me')}
+            >
+              <span className="relation-check">{picked.includes('@me') ? <Check size={12} /> : ''}</span>
+              <MeChip />
+            </button>
+            {filtered.map((m) => (
+              <button
+                key={m.userId}
+                type="button"
+                className={'relation-option' + (holds(m) ? ' on' : '')}
+                onClick={() => toggle(m.userId)}
+              >
+                <span className="relation-check">{holds(m) ? <Check size={12} /> : ''}</span>
+                <PersonChip raw={m.userId} members={members} />
+              </button>
+            ))}
+            {q && !filtered.some((m) => m.name.toLowerCase() === q || m.userId.toLowerCase() === q) && q !== '@me' && (
+              <button type="button" className="relation-option" onClick={() => toggle(query.trim())}>
+                <span className="relation-check">{picked.includes(query.trim()) ? <Check size={12} /> : ''}</span>
+                <span className="prop-person">
+                  <span className="prop-person-name">{t('Use “{name}”', { name: query.trim() })}</span>
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -2589,15 +2831,176 @@ function FilterSortControls({
   // Write both shapes at once: the flat list mirrors the first group, so
   // readers that only know the old shape still see something honest.
   const setGroups = (next: Filter[][]) => onChange({ filters: next[0] ?? [], filterGroups: next });
-  const sort = view.sort ?? null;
+  // Reordering conditions is a gesture on the block itself, not a value in a
+  // menu: a handle at its head, the same one the property editor uses. The
+  // pointer listeners live for one drag and read the groups as they were when
+  // it started — the panel does not change under it.
+  const [fdrag, setFdrag] = useState<{
+    gi: number;
+    ci: number;
+    target: { gi: number; ci: number; before: boolean } | null;
+  } | null>(null);
+  const fdragRef = useRef<typeof fdrag>(null);
+  // Right-click on a condition: duplicate it or take it away. The × still
+  // removes in one click; this is where "again, with one thing changed"
+  // starts.
+  const [filterMenu, setFilterMenu] = useState<{ gi: number; ci: number; x: number; y: number } | null>(null);
+  // Sort keys are a priority list: the first one decides, the next breaks its
+  // ties. Their order is therefore part of the view, and the same grip moves
+  // a key up or down the list.
+  const [sdrag, setSdrag] = useState<{
+    from: number;
+    target: { ci: number; before: boolean } | null;
+  } | null>(null);
+  const sdragRef = useRef<typeof sdrag>(null);
+  useEffect(() => {
+    if (!filterMenu) return;
+    const close = (e: PointerEvent) => {
+      if (!(e.target as Element).closest?.('.filter-menu')) setFilterMenu(null);
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setFilterMenu(null);
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [filterMenu]);
+
+  const applyFilterMove = (gi: number, ci: number, to: { gi: number; ci: number; before: boolean }) => {
+    const next = groups.map((g) => g.slice());
+    const [moved] = next[gi].splice(ci, 1);
+    if (!moved) return;
+    let targetGi = to.gi;
+    // `ci` is the row the pointer is over; the half of it decides the side.
+    let targetCi = to.ci + (to.before ? 0 : 1);
+    if (targetGi === gi && targetCi > ci) targetCi -= 1;
+    if (!next[targetGi]) return;
+    next[targetGi].splice(targetCi, 0, moved);
+    // A group emptied by the move goes away; an empty OR group would render as
+    // an "add filter" box with nothing on the other side of its OR.
+    setGroups(next.filter((g) => g.length > 0));
+  };
+
+  const startFilterDrag = (e: React.PointerEvent, gi: number, ci: number) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const first = { gi, ci, target: null };
+    fdragRef.current = first;
+    setFdrag(first);
+    document.body.classList.add('filter-dragging');
+    const onMove = (ev: PointerEvent) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as Element | null;
+      const row = el?.closest?.('.fs-filter') as HTMLElement | null;
+      const group = el?.closest?.('.fs-group') as HTMLElement | null;
+      let target: { gi: number; ci: number; before: boolean } | null = null;
+      if (row) {
+        const r = row.getBoundingClientRect();
+        target = {
+          gi: Number(row.dataset.gi),
+          ci: Number(row.dataset.ci),
+          before: ev.clientY < r.top + r.height / 2,
+        };
+      } else if (group) {
+        // Anywhere else in a group: the end of it.
+        target = {
+          gi: Number(group.dataset.gi),
+          ci: group.querySelectorAll('.fs-filter').length,
+          before: true,
+        };
+      }
+      const next = { ...(fdragRef.current ?? first), target };
+      fdragRef.current = next;
+      setFdrag(next);
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.classList.remove('filter-dragging');
+      const d = fdragRef.current;
+      fdragRef.current = null;
+      setFdrag(null);
+      if (d?.target) applyFilterMove(d.gi, d.ci, d.target);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
+
+  const removeFilter = (gi: number, ci: number) =>
+    setGroups(
+      groups.map((g, j) => (j === gi ? g.filter((_, k) => k !== ci) : g)).filter((g) => g.length > 0),
+    );
+
+  const duplicateFilter = (gi: number, ci: number) => {
+    const source = groups[gi]?.[ci];
+    if (!source) return;
+    const next = groups.map((g) => g.slice());
+    next[gi].splice(ci + 1, 0, { ...source, values: source.values ? [...source.values] : undefined });
+    setGroups(next);
+  };
+
+  const sorts = viewSorts(view);
+  // Write both shapes at once: the flat sort mirrors the first key, so
+  // readers that only know the old shape still sort by something honest.
+  const setSorts = (next: Sort[]) => onChange({ sorts: next, sort: next[0] ?? null });
+
+  const applySortMove = (from: number, to: { ci: number; before: boolean }) => {
+    const next = sorts.slice();
+    const [moved] = next.splice(from, 1);
+    if (!moved) return;
+    let at = to.ci + (to.before ? 0 : 1);
+    if (at > from) at -= 1;
+    next.splice(at, 0, moved);
+    setSorts(next);
+  };
+
+  const startSortDrag = (e: React.PointerEvent, si: number) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const first = { from: si, target: null };
+    sdragRef.current = first;
+    setSdrag(first);
+    document.body.classList.add('filter-dragging');
+    const onMove = (ev: PointerEvent) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as Element | null;
+      const row = el?.closest?.('.fs-sort-row') as HTMLElement | null;
+      let target: { ci: number; before: boolean } | null = null;
+      if (row) {
+        const r = row.getBoundingClientRect();
+        target = { ci: Number(row.dataset.si), before: ev.clientY < r.top + r.height / 2 };
+      }
+      const next = { ...(sdragRef.current ?? first), target };
+      sdragRef.current = next;
+      setSdrag(next);
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.classList.remove('filter-dragging');
+      const d = sdragRef.current;
+      sdragRef.current = null;
+      setSdrag(null);
+      if (d?.target) applySortMove(d.from, d.target);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
   const propName = (id: string) =>
-    id === TEMPLATE_FILTER
-      ? t('Template')
-      : id === SORT_CREATED
-        ? t('Created')
-        : id === SORT_UPDATED
-          ? t('Updated')
-          : schema.find((p) => p.id === id)?.name ?? id;
+    id === TITLE_FILTER
+      ? t('Title')
+      : id === TEMPLATE_FILTER
+        ? t('Template')
+        : id === SORT_CREATED
+          ? t('Created')
+          : id === SORT_UPDATED
+            ? t('Updated')
+            : schema.find((p) => p.id === id)?.name ?? id;
 
   const valuesFor = (propId: string): { value: string; label: string }[] => {
     if (propId === TEMPLATE_FILTER) {
@@ -2613,8 +3016,8 @@ function FilterSortControls({
     }
     if (prop.type === 'checkbox') {
       return [
-        { value: 'true', label: 'Checked' },
-        { value: 'false', label: 'Unchecked' },
+        { value: 'true', label: t('Checked') },
+        { value: 'false', label: t('Unchecked') },
       ];
     }
     // A checklist filters as the multiselect of its item texts — but those
@@ -2654,6 +3057,17 @@ function FilterSortControls({
   // exactly that reason — they were plain strings, which the checks cannot see
   // inside an object literal.
   const opsFor = (propId: string): { value: FilterOp; label: string }[] => {
+    if (propId === TITLE_FILTER) {
+      return [
+        { value: 'contains', label: t('contains') },
+        { value: 'not_contains', label: t('does not contain') },
+        { value: 'matches', label: t('matches regex') },
+        { value: 'is', label: t('is') },
+        { value: 'is_not', label: t('is not') },
+        { value: 'is_empty', label: t('is empty') },
+        { value: 'is_not_empty', label: t('is not empty') },
+      ];
+    }
     if (propId === SORT_CREATED || propId === SORT_UPDATED) {
       return [
         { value: 'is', label: t('is') },
@@ -2703,6 +3117,7 @@ function FilterSortControls({
       ty === 'multiselect' ||
       ty === 'relation' ||
       ty === 'backrelation' ||
+      ty === 'person' ||
       // A checklist filters as the multiselect of its item texts (see
       // valuesFor below): one condition can name several of them.
       ty === 'checklist'
@@ -2727,13 +3142,13 @@ function FilterSortControls({
             className={'btn-sm' + (filterCount ? ' active' : '')}
             onClick={() => setOpen(open === 'filter' ? null : 'filter')}
           >
-            <FilterIcon size={14} /> Filter{filterCount ? ` (${filterCount})` : ''}
+            <FilterIcon size={14} /> {t('Filter')}{filterCount ? ` (${filterCount})` : ''}
           </button>
           <button
-            className={'btn-sm' + (sort ? ' active' : '')}
+            className={'btn-sm' + (sorts.length ? ' active' : '')}
             onClick={() => setOpen(open === 'sort' ? null : 'sort')}
           >
-            <ArrowUpDown size={14} /> {t('Sort')}
+            <ArrowUpDown size={14} /> {t('Sort')}{sorts.length > 1 ? ` (${sorts.length})` : ''}
           </button>
         </>
       )}
@@ -2757,7 +3172,16 @@ function FilterSortControls({
             {open === 'filter' && (
               <>
           {groups.map((group, gi) => (
-          <div key={gi} className="fs-group">
+          <div
+            key={gi}
+            className={
+              'fs-group' +
+              (fdrag?.target && fdrag.target.gi === gi && fdrag.target.ci === group.length
+                ? ' is-drop-end'
+                : '')
+            }
+            data-gi={gi}
+          >
           {gi > 0 && <div className="fs-or">OR</div>}
           {group.map((f, ci) => {
             const op = f.op ?? (f.value ? 'is' : 'is_not_empty');
@@ -2767,9 +3191,26 @@ function FilterSortControls({
               next[gi][ci] = { ...f, ...u };
               setGroups(next);
             };
+            // Keyed by what the condition IS, not where it sits: keying by
+            // index moved the Exact/Relative toggle's sticky state onto the
+            // wrong row when a filter above was removed. The occurrence count
+            // keeps two conditions on the same property apart — counted across
+            // every earlier group, so removing one does not shift the rest.
+            const occurrence = [
+              ...groups.slice(0, gi).flat(),
+              ...group.slice(0, ci),
+            ].filter((g) => g.property === f.property && (g.op ?? '') === (f.op ?? '')).length;
+            const rowKey = `${f.property}::${f.op ?? ''}::${occurrence}`;
             const propType = schema.find((p) => p.id === f.property)?.type;
             const isDate =
               propType === 'date' || f.property === SORT_CREATED || f.property === SORT_UPDATED;
+            const isPerson = propType === 'person';
+            // "Match case" belongs to the title condition alone: its value is
+            // free text on both sides, and its case is something the reader
+            // asks about by name. The others compare option ids, numbers, days.
+            const titleCase =
+              f.property === TITLE_FILTER &&
+              (op === 'contains' || op === 'not_contains' || op === 'is' || op === 'is_not' || op === 'matches');
             const picked = filterValues(f);
             const several = takesSeveral(f.property) && (op === 'is' || op === 'is_not');
             // A tick list writes `values`, everything else writes `value` — the
@@ -2780,8 +3221,36 @@ function FilterSortControls({
               patch({ values: next, value: '' });
             };
             return (
-              <div key={rowKeyByPath.get(`${gi}:${ci}`) ?? ci} className="fs-filter">
+              <div
+                key={rowKeyByPath.get(`${gi}:${ci}`) ?? ci}
+                data-gi={gi}
+                data-ci={ci}
+                className={
+                  'fs-filter' +
+                  (fdrag && fdrag.gi === gi && fdrag.ci === ci ? ' is-drag-source' : '') +
+                  (fdrag?.target && fdrag.target.gi === gi && fdrag.target.ci === ci
+                    ? fdrag.target.before
+                      ? ' is-drop-before'
+                      : ' is-drop-after'
+                    : '')
+                }
+                onContextMenu={(e) => {
+                  // The condition itself is the object; a right-click on it
+                  // asks what to do with it, without aiming at the small ×.
+                  e.preventDefault();
+                  setFilterMenu({ gi, ci, x: e.clientX, y: e.clientY });
+                }}
+              >
                 <div className="fs-filter-head">
+                  <button
+                    type="button"
+                    className="fs-drag"
+                    title={t('Drag to reorder')}
+                    aria-label={t('Drag to reorder')}
+                    onPointerDown={(e) => startFilterDrag(e, gi, ci)}
+                  >
+                    <GripVertical size={14} />
+                  </button>
                   <span className="fs-label">{propName(f.property)}</span>
                   {/* The template condition is a choice, not an operator plus a
                       choice: one select says which half, so there is no second
@@ -2813,20 +3282,16 @@ function FilterSortControls({
                   <button
                     className="icon-btn danger fs-remove"
                     title={t('Remove filter')}
-                    onClick={() =>
-                      setGroups(
-                        groups
-                          .map((g, j) => (j === gi ? g.filter((_, k) => k !== ci) : g))
-                          .filter((g) => g.length > 0),
-                      )
-                    }
+                    onClick={() => removeFilter(gi, ci)}
                   >
-                    ✕
+                    <X size={14} />
                   </button>
                 </div>
                 {hasValueInput(op) && (
                   <div className="fs-filter-value">
-                    {several && options.length > 0 && (op === 'is' || op === 'is_not') ? (
+                    {isPerson && (op === 'is' || op === 'is_not') ? (
+                      <PersonFilterValue filter={f} onChange={patch} />
+                    ) : several && options.length > 0 ? (
                       <div className="fs-checks">
                         {options.map((o) => (
                           <label key={o.value} className={'fs-check' + (picked.includes(o.value) ? ' on' : '')}>
@@ -2887,9 +3352,33 @@ function FilterSortControls({
                         onChange={(e) => patch({ value: e.target.value, values: undefined })}
                       />
                     )}
+                    {titleCase && (
+                      <button
+                        type="button"
+                        className={'fs-case' + (f.caseSensitive ? ' on' : '')}
+                        aria-pressed={!!f.caseSensitive}
+                        aria-label={f.caseSensitive ? t('Case matters') : t('Case is ignored')}
+                        title={f.caseSensitive ? t('Ignore case') : t('Match case')}
+                        onClick={() => patch({ caseSensitive: f.caseSensitive ? undefined : true })}
+                      >
+                        Aa
+                      </button>
+                    )}
                   </div>
                 )}
-                {!filterIsArmed(f) && <div className="fs-hint">{t('Not filtering yet — pick a value.')}</div>}
+                {/* The switch is a glyph, and a glyph does not say which way
+                    it is set. One line under it does. */}
+                {titleCase && (
+                  <div className="fs-hint fs-case-state">
+                    {f.caseSensitive ? t('Case matters') : t('Case is ignored')}
+                  </div>
+                )}
+                {/* One hint at a time: a date field that is not a day yet
+                    already says so itself (see DateFilterValue). */}
+                {!filterIsArmed(f, isDate) &&
+                  !(isDate && [f.value ?? '', ...(op === 'between' ? [f.value2 ?? ''] : [])].some((v) => v !== '' && !isReadableDay(v))) && (
+                    <div className="fs-hint">{t('Not filtering yet. Pick a value.')}</div>
+                  )}
               </div>
             );
           })}
@@ -2900,7 +3389,13 @@ function FilterSortControls({
                 onChange={(e) => {
                   if (!e.target.value) return;
                   const next = groups.map((g) => g.slice());
-                  next[gi] = [...next[gi], { property: e.target.value, op: 'is', value: '' }];
+                  next[gi] = [
+                    ...next[gi],
+                    // A title is text somebody half-remembers: typing "авшк"
+                    // into a field that means exact equality finds nothing and
+                    // reads as broken. "contains" is what the condition is for.
+                    { property: e.target.value, op: e.target.value === TITLE_FILTER ? 'contains' : 'is', value: '' },
+                  ];
                   setGroups(next);
                 }}
               >
@@ -2916,6 +3411,7 @@ function FilterSortControls({
                     sits under its own heading so nobody goes looking for it
                     among the properties. */}
                 <optgroup label={t('System')}>
+                  <option value={TITLE_FILTER}>{t('Title')}</option>
                   <option value={TEMPLATE_FILTER}>{t('Template')}</option>
                   <option value={SORT_CREATED}>{t('Created')}</option>
                   <option value={SORT_UPDATED}>{t('Updated')}</option>
@@ -2927,7 +3423,7 @@ function FilterSortControls({
                   title={t('Remove group')}
                   onClick={() => setGroups(groups.filter((_, j) => j !== gi))}
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               )}
               </div>
@@ -2939,7 +3435,7 @@ function FilterSortControls({
               value=""
               onChange={(e) => {
                 if (!e.target.value) return;
-                setGroups([[{ property: e.target.value, op: 'is', value: '' }]]);
+                setGroups([[{ property: e.target.value, op: e.target.value === TITLE_FILTER ? 'contains' : 'is', value: '' }]]);
               }}
             >
               <option value="">{t('+ Add filter…')}</option>
@@ -2951,6 +3447,7 @@ function FilterSortControls({
                 ))}
               </optgroup>
               <optgroup label={t('System')}>
+                <option value={TITLE_FILTER}>{t('Title')}</option>
                 <option value={TEMPLATE_FILTER}>{t('Template')}</option>
                 <option value={SORT_CREATED}>{t('Created')}</option>
                 <option value={SORT_UPDATED}>{t('Updated')}</option>
@@ -2965,42 +3462,106 @@ function FilterSortControls({
             )}
             {open === 'sort' && (
               <>
-          <div className="fs-row">
-            <select
-              className="prop-select"
-              value={sort?.property ?? ''}
-              onChange={(e) =>
-                onChange({
-                  sort: e.target.value ? { property: e.target.value, dir: sort?.dir ?? 'asc' } : null,
-                })
-              }
-            >
-              <option value="">{t('No sort')}</option>
-              <optgroup label={t('Columns')}>
-                {schema.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label={t('System')}>
-                <option value={SORT_CREATED}>{t('Created')}</option>
-                <option value={SORT_UPDATED}>{t('Updated')}</option>
-              </optgroup>
-            </select>
-            {sort && (
-              <select
-                className="prop-select"
-                value={sort.dir}
-                onChange={(e) =>
-                  onChange({ sort: { ...sort, dir: e.target.value as Sort['dir'] } })
-                }
-              >
-                <option value="asc">{t('Ascending')}</option>
-                <option value="desc">{t('Descending')}</option>
-              </select>
-            )}
-          </div>
+                {sorts.map((s, si) => {
+                  // Keyed by what the sort IS, like filter rows: removing one
+                  // must not move another row's state onto the wrong key.
+                  const occurrence = sorts
+                    .slice(0, si)
+                    .filter((o) => o.property === s.property).length;
+                  const rowKey = `${s.property}::${occurrence}`;
+                  const patchSort = (u: Partial<Sort>) => {
+                    const next = sorts.slice();
+                    next[si] = { ...s, ...u };
+                    setSorts(next);
+                  };
+                  return (
+                    <div
+                      className={
+                        'fs-row fs-sort-row' +
+                        (sdrag && sdrag.from === si ? ' is-drag-source' : '') +
+                        (sdrag?.target && sdrag.target.ci === si
+                          ? sdrag.target.before
+                            ? ' is-drop-before'
+                            : ' is-drop-after'
+                          : '')
+                      }
+                      key={rowKey}
+                      data-si={si}
+                    >
+                      <button
+                        type="button"
+                        className="fs-drag"
+                        title={t('Drag to reorder')}
+                        aria-label={t('Drag to reorder')}
+                        onPointerDown={(e) => startSortDrag(e, si)}
+                      >
+                        <GripVertical size={14} />
+                      </button>
+                      <select
+                        className="prop-select"
+                        value={s.property}
+                        onChange={(e) => patchSort({ property: e.target.value })}
+                      >
+                        <optgroup label={t('Columns')}>
+                          {schema.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label={t('System')}>
+                          <option value={SORT_CREATED}>{t('Created')}</option>
+                          <option value={SORT_UPDATED}>{t('Updated')}</option>
+                        </optgroup>
+                      </select>
+                      <select
+                        className="prop-select"
+                        value={s.dir}
+                        onChange={(e) => patchSort({ dir: e.target.value as Sort['dir'] })}
+                      >
+                        <option value="asc">{t('Ascending')}</option>
+                        <option value="desc">{t('Descending')}</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="icon-btn danger fs-remove"
+                        title={t('Remove sort')}
+                        onClick={() => setSorts(sorts.filter((_, j) => j !== si))}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="fs-row">
+                  <select
+                    className="prop-select"
+                    value=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      setSorts([...sorts, { property: e.target.value, dir: 'asc' }]);
+                    }}
+                  >
+                    <option value="">{sorts.length ? t('+ Add sort…') : t('No sort')}</option>
+                    <optgroup label={t('Columns')}>
+                      {schema
+                        .filter((p) => !sorts.some((o) => o.property === p.id))
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                    <optgroup label={t('System')}>
+                      {!sorts.some((o) => o.property === SORT_CREATED) && (
+                        <option value={SORT_CREATED}>{t('Created')}</option>
+                      )}
+                      {!sorts.some((o) => o.property === SORT_UPDATED) && (
+                        <option value={SORT_UPDATED}>{t('Updated')}</option>
+                      )}
+                    </optgroup>
+                  </select>
+                </div>
               </>
             )}
             {open === 'group' && (
@@ -3027,6 +3588,34 @@ function FilterSortControls({
               </div>
             )}
           </div>
+          {filterMenu && (
+            <div
+              className="menu filter-menu"
+              style={{
+                position: 'fixed',
+                left: Math.min(filterMenu.x, window.innerWidth - 180),
+                top: Math.min(filterMenu.y, window.innerHeight - 92),
+              }}
+            >
+              <button
+                onClick={() => {
+                  duplicateFilter(filterMenu.gi, filterMenu.ci);
+                  setFilterMenu(null);
+                }}
+              >
+                <Copy size={15} /> {t('Duplicate')}
+              </button>
+              <button
+                className="danger"
+                onClick={() => {
+                  removeFilter(filterMenu.gi, filterMenu.ci);
+                  setFilterMenu(null);
+                }}
+              >
+                <X size={15} /> {t('Remove filter')}
+              </button>
+            </div>
+          )}
         </Portal>
       )}
     </div>
@@ -3099,6 +3688,8 @@ function BoardCardProps({
           value={row.props[p.id]}
           readOnly={!tickable}
           compact
+          rowProps={row.props}
+          lookup={row.lookup?.[p.id]}
           onOpen={onOpen}
           openers={openers}
           onChange={(nv) => onSetProp(row.id, p.id, nv)}
@@ -3132,6 +3723,8 @@ function BoardCardProps({
               <PropertyValue
                 def={p}
                 value={row.props[p.id]}
+                rowProps={row.props}
+                lookup={row.lookup?.[p.id]}
                 onChange={(nv) => onSetProp(row.id, p.id, nv)}
                 onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                 onOpen={onOpen}
@@ -3185,6 +3778,7 @@ function BoardCardProps({
 function BoardView({
   rows,
   schema,
+  allProps,
   groupBy,
   tagColors,
   commentCounts,
@@ -3197,10 +3791,18 @@ function BoardView({
   onAddInColumn,
   onDropCard,
   onMoveCard,
+  onMoveInColumn,
   manualOrder,
+  workflow,
 }: {
   rows: Row[];
+  /** What the cards show: the view's visible properties. */
   schema: PropDef[];
+  /** Every property, hidden ones included. The board looks its grouping
+      property up here: hiding it in a view takes it off the cards, where it
+      repeats the column heading anyway, and used to take the whole board with
+      it, which then asked for a select property to be created (#112). */
+  allProps: PropDef[];
   groupBy: string;
   tagColors: Record<string, string>;
   commentCounts: Record<string, number>;
@@ -3219,19 +3821,26 @@ function BoardView({
   // meaningfully when manualOrder is on; otherwise drops only ever change the
   // column, through onDrop.
   onMoveCard: (rowId: string, curOrder: string[], newOrder: string[]) => void;
+  // "Move to the top/bottom of this column" from the card's menu: the column
+  // stays, the place in it changes. Offered only where a manual order exists.
+  onMoveInColumn: (rowId: string, groupBy: string, optId: string, where: 'top' | 'bottom') => void;
   // True when the view has no sort: the rows stand in the order they were put
   // in, so there is an order to change. A sorted view keeps its order however
   // the cards are dragged.
   manualOrder: boolean;
+  /** The process, when the board groups by its status: a column the dragged
+   *  card cannot move to is marked while the drag is in the air. */
+  workflow?: WorkflowConfig;
 }) {
   // Keyed by "columnId:rowId" so a card that appears in multiple columns
   // (multiselect grouping) opens only the tapped copy's menu.
   const [moveMenu, setMoveMenu] = useState<string | null>(null);
+  // Which column's ⋯ menu is open (its "add at the top / bottom" choices).
   // Cards whose overflow ("+3") the reader opened. Kept here rather than per
   // card so it survives a re-render, and forgotten on leaving the view — an
   // opened card is a glance, not a setting.
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
-  // Zeiger-basiertes Ziehen statt des ruckeligen nativen Drags (siehe boardDrag).
+  // Dragging by pointer rather than the jerky native drag (see boardDrag).
   const { drag, armedRow, startDrag, consumeClick } = useBoardDrag((rowId, fromCol, toCol, beforeId, before, overSelf) => {
     // The column always changes through onDrop/onDropCard; the position only
     // moves when the view stands in manual order. curOrder/newOrder are the
@@ -3265,8 +3874,8 @@ function BoardView({
   // column heading and the cell always say the same thing.
   const [relColumns, setRelColumns] = useState<RelOption[]>([]);
   const groupTarget =
-    schema.find((p) => p.id === groupBy)?.type === 'relation'
-      ? (schema.find((p) => p.id === groupBy)?.relationCollection ?? '')
+    allProps.find((p) => p.id === groupBy)?.type === 'relation'
+      ? (allProps.find((p) => p.id === groupBy)?.relationCollection ?? '')
       : '';
   useEffect(() => {
     if (!groupTarget) {
@@ -3287,7 +3896,7 @@ function BoardView({
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
   }, [moveMenu]);
-  const prop = schema.find((p) => p.id === groupBy);
+  const prop = allProps.find((p) => p.id === groupBy);
   if (!prop || (prop.type !== 'select' && prop.type !== 'multiselect' && prop.type !== 'relation')) {
     return (
       <div className="board-empty">
@@ -3314,6 +3923,38 @@ function BoardView({
     if (v === undefined || v === '' || v === null) return true;
     if (Array.isArray(v)) return v.length === 0 || !v.some((x) => optionIds.has(x as string));
     return !optionIds.has(v as string);
+  };
+
+  // Drag-time marks: the same guard a drop goes through (see
+  // dropCardCrossColumn), shown where the card is heading. Only while a drag is
+  // in the air and only on a board grouped by the process's status.
+  const draggedRow = drag ? rows.find((r) => r.id === drag.rowId) : undefined;
+  const blockedCols: Record<string, string> = {};
+  if (workflow?.statusPropId && workflow.statusPropId === groupBy && draggedRow) {
+    const raw = draggedRow.props[groupBy];
+    const from = Array.isArray(raw) ? String(raw[0] ?? '') : String(raw ?? '');
+    for (const col of columns) {
+      if (col.id === UNSET) continue;
+      const why = workflowBlockReason(workflow, allProps, draggedRow.props, from, col.id);
+      if (why) blockedCols[col.id] = why.message;
+    }
+  }
+
+  // Where this card can go from the card's own menu. On a status board the
+  // menu keeps the moves that will actually happen: a drop the process refuses
+  // is not a choice, it is a toast waiting to say no. The catch-all ""no
+  // status"" column goes too — the process describes statuses, and its first
+  // one is the "not set yet" state.
+  const moveTargets = (r: Row) => {
+    const wfStatus = !!workflow?.statusPropId && workflow.statusPropId === groupBy;
+    const raw = r.props[groupBy];
+    const from = Array.isArray(raw) ? String(raw[0] ?? '') : String(raw ?? '');
+    return columns.filter((c) => {
+      if (rowsFor(c.id).some((x) => x.id === r.id)) return false;
+      if (!wfStatus) return true;
+      if (c.id === UNSET) return false;
+      return !workflowBlockReason(workflow, allProps, r.props, from, c.id);
+    });
   };
 
   const rowsFor = (optId: string) =>
@@ -3343,14 +3984,31 @@ function BoardView({
         >
           <div className="board-col-head">
             <span className="board-col-head-left">
-              <span className="board-chip" style={{ background: col.color + '33', color: col.color }}>
-                {col.name}
-              </span>
+              {(() => {
+                const why = blockedCols[col.id];
+                return (
+                  <>
+                    <span
+                      className={'board-chip' + (why ? ' is-blocked' : '')}
+                      style={{ background: col.color + '33', color: col.color }}
+                    >
+                      {col.name}
+                    </span>
+                    {why && (
+                      <span className="board-col-lock" title={why}>
+                        <Lock size={12} />
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
               <span className="board-count">{rowsFor(col.id).length}</span>
             </span>
-            <button className="board-add" title={t('New')} onClick={() => onAddInColumn(groupBy, col.id)}>
-              <Plus size={14} />
-            </button>
+            <span className="board-col-head-right">
+              <button className="board-add" title={t('New')} onClick={() => onAddInColumn(groupBy, col.id)}>
+                <Plus size={14} />
+              </button>
+            </span>
           </div>
           <div className="board-cards">
             {rowsFor(col.id).map((r) => (
@@ -3385,7 +4043,7 @@ function BoardView({
                 <div className="board-card-top">
                   <div className="board-card-title">
                     {r.icon && <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span>}
-                    {r.title || 'Untitled'}
+                    {r.title || t('Untitled')}
                   </div>
                   {/* OUTSIDE the title: it clamps to four lines, and anything
                       inside a clamped box is part of the text flow — the mark
@@ -3444,11 +4102,10 @@ function BoardView({
                         >
                           <ExternalLink size={15} /> {t('Open in new tab')}
                         </button>
-                        {columns.filter((c) => !rowsFor(c.id).some((x) => x.id === r.id)).length > 0 && (
+                        {(moveTargets(r).length > 0 || manualOrder) && (
                           <div className="menu-label">{t('Move to')}</div>
                         )}
-                        {columns
-                          .filter((c) => !rowsFor(c.id).some((x) => x.id === r.id))
+                        {moveTargets(r)
                           .map((c) => (
                             <button
                               key={c.id}
@@ -3460,6 +4117,33 @@ function BoardView({
                               <CornerUpRight size={15} /> {c.name}
                             </button>
                           ))}
+                        {/* The same column, a different place in it: above or
+                            below every other card. Dragging does this too, but
+                            a long column makes "all the way to the top" a
+                            scroll and a guess, and touch has no drag at all.
+                            Missing in a sorted view, which has no manual
+                            order to change. */}
+                        {manualOrder && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setMoveMenu(null);
+                                onMoveInColumn(r.id, groupBy, col.id, 'top');
+                              }}
+                            >
+                              <ArrowUpToLine size={15} /> {t('Move to the top of the column')}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setMoveMenu(null);
+                                onMoveInColumn(r.id, groupBy, col.id, 'bottom');
+                              }}
+                            >
+                              <ArrowDownToLine size={15} /> {t('Move to the bottom of the column')}
+                            </button>
+                          </>
+                        )}
+                        <div className="menu-sep" />
                         <button
                           className="danger"
                           onClick={() => {
@@ -3513,7 +4197,7 @@ function BoardView({
         </div>
       ))}
 
-      {/* Die schwebende Karte folgt dem Zeiger. Als letztes Kind mit
+      {/* The floating card follows the pointer. The last child, with
           position:fixed so it sits above everything; pointer-events:none so it
           does not disturb hit testing underneath. */}
       {drag && drag.title && (
@@ -3539,12 +4223,16 @@ function BoardView({
  *  while looking entirely correct. */
 function ColHead({
   label,
+  mark,
   onResize,
   onReset,
   stuck,
   onToggleStuck,
 }: {
   label: string;
+  /** A quiet mark after the name. A column of values that lives in another
+   *  table says so here, once, instead of decorating every cell. */
+  mark?: React.ReactNode;
   onResize: (e: React.PointerEvent<HTMLSpanElement>) => void;
   onReset: () => void;
   stuck?: boolean;
@@ -3553,6 +4241,7 @@ function ColHead({
   return (
     <span className="th-inner">
       {label}
+      {mark}
       {onToggleStuck && (
         <button
           className={'col-stick' + (stuck ? ' is-on' : '')}
@@ -3585,6 +4274,18 @@ function ColHead({
  *  guard that would have to be kept in step on both sides. */
 const TITLE_COL = '__title';
 
+/** The mark a lookup column carries in its header: its values live in another
+ *  table and are edited there, which is worth saying once and not per row. */
+function lookupColumnMark(p: PropDef) {
+  if (p.type !== 'rollup') return undefined;
+  if (p.rollupAgg !== 'first' && p.rollupAgg !== 'all' && p.rollupAgg !== 'unique') return undefined;
+  return (
+    <span className="th-link" title={t('The value comes from a linked note — edit it there')}>
+      <Link2 size={11} />
+    </span>
+  );
+}
+
 function TableView({
   rows,
   schema,
@@ -3600,6 +4301,7 @@ function TableView({
   onOpenInNewTab,
   onSetProp,
   onSetOptions,
+  onLookupWrite,
 }: {
   rows: Row[];
   schema: PropDef[];
@@ -3615,6 +4317,7 @@ function TableView({
   onOpenInNewTab?: (id: string) => void;
   onSetProp: (rowId: string, propId: string, value: unknown) => void;
   onSetOptions: (propId: string, options: PropOption[]) => void;
+  onLookupWrite: (page: string, prop: string, value: unknown, previous: unknown) => Promise<void>;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The row open in the side peek, if it is one of ours: its title stays
@@ -3735,8 +4438,11 @@ function TableView({
       document.removeEventListener('pointerup', end);
       document.removeEventListener('pointercancel', end);
       document.body.classList.remove('is-col-resizing');
-      const px = widthAt(ev.clientX);
       setDrag(null);
+    };
+    const up = (ev: PointerEvent) => {
+      stop();
+      const px = widthAt(ev.clientX);
       // A click that moved nothing is not a resize. Without this the two clicks
       // of a double-click each stored the unchanged width first, and the reset
       // behind them had to undo two writes nobody asked for.
@@ -3797,7 +4503,12 @@ function TableView({
   // sum, everything else a count of filled cells — a lightweight Notion-style
   // calc row so a table gives totals at a glance.
   const footer = (p: PropDef): string => {
-    const isNumeric = p.type === 'number' || p.type === 'rollup' || p.type === 'formula';
+    // A lookup rollup carries a status name or a category, not a number: a
+    // sum of it is not a total anybody asked for. Count the filled cells, the
+    // way text columns do.
+    const lookup =
+      p.type === 'rollup' && (p.rollupAgg === 'first' || p.rollupAgg === 'all' || p.rollupAgg === 'unique');
+    const isNumeric = !lookup && (p.type === 'number' || p.type === 'rollup' || p.type === 'formula');
     if (isNumeric) {
       let sum = 0;
       let any = false;
@@ -3846,6 +4557,7 @@ function TableView({
               >
                 <ColHead
                   label={p.name}
+                  mark={lookupColumnMark(p)}
                   onResize={startResize(p.id)}
                   onReset={resetCol(p.id)}
                   stuck={stuckSet.has(p.id)}
@@ -3915,6 +4627,9 @@ function TableView({
                   <PropertyValue
                     def={p}
                     value={r.props[p.id]}
+                    rowProps={r.props}
+                    lookup={r.lookup?.[p.id]}
+                    onLookupWrite={onLookupWrite}
                     onChange={(v) => onSetProp(r.id, p.id, v)}
                     onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                     maxChips={2}
@@ -4336,7 +5051,6 @@ function TimelineView({
   onNavigate,
   onOpenInNewTab,
   mode,
-  onModeChange,
   onViewChange,
   onEnsureDepProps,
   onAddRow,
@@ -4364,7 +5078,6 @@ function TimelineView({
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   mode: SpanMode;
-  onModeChange: (m: SpanMode) => void;
   onViewChange: (patch: Partial<ViewDef>) => void;
   onEnsureDepProps: () => void;
   onAddRow: (presetProps?: Record<string, unknown>) => void;
@@ -4781,18 +5494,21 @@ function TimelineView({
     const wd = new Date(n * 86400000).getUTCDay();
     return wd === 0 || wd === 6;
   };
+  const tlCount = spanCount(view.tlCount);
   let dayCols: number[] = [];
   let monthCols: { y: number; mo: number }[] = [];
   if (mode === 'day') {
-    dayCols = [cursor];
+    dayCols = Array.from({ length: tlCount }, (_, k) => cursor + k);
   } else if (mode === 'week') {
     const ws = cursor - ((new Date(cursor * 86400000).getUTCDay() - firstWeekday() + 7) % 7);
-    dayCols = Array.from({ length: 7 }, (_, k) => ws + k);
+    dayCols = Array.from({ length: 7 * tlCount }, (_, k) => ws + k);
   } else if (mode === 'year') {
-    const y = yearOf(cursor);
-    monthCols = Array.from({ length: 12 }, (_, mo) => ({ y, mo }));
+    monthCols = Array.from({ length: 12 * tlCount }, (_, i) => {
+      const base = yearOf(cursor) * 12 + i;
+      return { y: Math.floor(base / 12), mo: base % 12 };
+    });
   } else {
-    const nMonths = mode === '2months' ? 2 : 1;
+    const nMonths = (mode === '2months' ? 2 : 1) * tlCount;
     const m0 = { y: yearOf(cursor), mo: monthOf(cursor) };
     const firstDay = Math.floor(Date.UTC(m0.y, m0.mo, 1) / 86400000);
     const lastDay = Math.floor(Date.UTC(m0.y, m0.mo + nMonths, 1) / 86400000) - 1;
@@ -5281,7 +5997,9 @@ function TimelineView({
       : mode === 'week'
         ? formatDay(isoDay(dayCols[0])) + ' — ' + formatDay(isoDay(dayCols[dayCols.length - 1]))
         : mode === 'year'
-          ? String(yearOf(cursor))
+          ? monthCols.length > 12
+            ? String(monthCols[0].y) + ' — ' + String(monthCols[monthCols.length - 1].y)
+            : String(yearOf(cursor))
           : dayCols.length > 0 && monthOf(dayCols[0]) === monthOf(dayCols[dayCols.length - 1])
             ? formatMonth(yearOf(dayCols[0]), monthOf(dayCols[0]), 'long')
             : formatMonth(yearOf(dayCols[0]), monthOf(dayCols[0]), 'long') +
@@ -5317,11 +6035,12 @@ function TimelineView({
       return { l: (s - dayCols[0]) / n, r: (e - dayCols[0] + 1) / n };
     }
     const ser = (n: number) => yearOf(n) * 12 + monthOf(n);
-    const base = yearOf(cursor) * 12;
+    const base = monthCols[0].y * 12 + monthCols[0].mo;
+    const n = monthCols.length;
     const a = Math.max(0, ser(it.start) - base);
-    const b = Math.min(11, ser(it.end) - base);
+    const b = Math.min(n - 1, ser(it.end) - base);
     if (b < a) return null;
-    return { l: a / 12, r: (b + 1) / 12 };
+    return { l: a / n, r: (b + 1) / n };
   };
   const barGeom = (it: Item) => {
     const f = fracGeom(it);
@@ -5485,7 +6204,7 @@ function TimelineView({
                 '{n} tasks start before their blockers end',
               )}
             >
-              ⚠ {plural(allViolations.length, '{n} conflict', '{n} conflicts')}
+              <TriangleAlert size={13} /> {plural(allViolations.length, '{n} conflict', '{n} conflicts')}
             </button>
             {conflictsOpen && (
               <>
@@ -5629,7 +6348,7 @@ function TimelineView({
           <div className="tl-settings-wrap" ref={tlSettingsRef}>
             <button
               className={'btn-sm' + (settingsHint ? ' has-dot' : '')}
-              title={t('Timeline settings: start, end and blockers')}
+              title={t('Timeline settings')}
               onClick={() => {
                 setSettingsOpen((o) => !o);
                 setConflictsOpen(false);
@@ -5704,7 +6423,11 @@ function TimelineView({
               </AnchoredMenu>
             )}
           </div>
-          <ModePicker mode={mode} onChange={onModeChange} />
+          <ModePicker
+            mode={mode}
+            onPick={(m, n) => onViewChange({ tlMode: m, tlCount: n === 1 ? undefined : n })}
+            count={spanCount(view.tlCount)}
+          />
         </div>
       </div>
       <div className="tl-scroll">
@@ -5854,7 +6577,7 @@ function TimelineView({
                             setAddBlockerFor(null);
                           }}
                         >
-                          ⚠{blocked.length > 1 ? blocked.length : ''}
+                          <TriangleAlert size={13} />{blocked.length > 1 ? blocked.length : ''}
                         </button>
                       )}
                     </div>
@@ -5864,6 +6587,8 @@ function TimelineView({
                       <PropertyValue
                         def={p}
                         value={row.props[p.id]}
+                        rowProps={row.props}
+                        lookup={row.lookup?.[p.id]}
                         onChange={onSetProp ? (v) => onSetProp(row.id, p.id, v) : undefined}
                         onOptionsChange={onSetOptions ? (opts) => onSetOptions(p.id, opts) : undefined}
                         maxChips={1}
@@ -5941,7 +6666,7 @@ function TimelineView({
                                 setAddBlockerFor(null);
                               }}
                             >
-                              ⚠
+                              <TriangleAlert size={13} />
                             </button>
                           )}
                         </div>
@@ -6017,7 +6742,7 @@ function TimelineView({
                             setAddBlockerFor(null);
                           }}
                         >
-                          ⚠
+                          <TriangleAlert size={13} />
                         </button>
                       )}
                       {resizable && (
@@ -6189,7 +6914,7 @@ function TimelineView({
                           unlink(a.pred, a.succ);
                         }}
                       >
-                        ✕
+                        <X size={14} />
                       </button>
                     );
                   })}
@@ -6291,7 +7016,7 @@ function TimelineView({
                       setDepPop(null);
                     }}
                   >
-                    ✕
+                    <X size={14} />
                   </button>
                 </div>
               );
@@ -6438,7 +7163,7 @@ function TimelineView({
                       unlink(depPop.id, sid);
                     }}
                   >
-                    ✕
+                    <X size={14} />
                   </button>
                 </div>
               );
@@ -6520,39 +7245,68 @@ function useSettingsHint(name: string): [boolean, () => void] {
   return [show, seen];
 }
 
-// Day/Week/Month/2-months/Year switch shared by the calendar and the
-// timeline headers: same control, same place, same labels.
-function ModePicker({ mode, onChange }: { mode: SpanMode; onChange: (m: SpanMode) => void }) {
+// Day/Week/Month/Year switch shared by the calendar and the timeline
+// headers, with a − N + stepper at the foot of its menu: same control, same
+// place, same labels. The button reads the pair — "2 months", not just the
+// period. '2months' as a separate mode is gone (it was always just month × 2),
+// but a stored one still reads as that pair.
+// How many span units to show at once: 1 to 12, 1 when absent.
+function spanCount(n: unknown): number {
+  const v = typeof n === 'number' && Number.isFinite(n) ? Math.floor(n) : 1;
+  return Math.min(12, Math.max(1, v));
+}
+// The button label for a (period, count) pair. Singulars reuse the unit
+// names; anything above one pluralizes.
+function spanLabel(mode: SpanMode, count: number): string {
+  if (count <= 1) {
+    if (mode === 'day') return t('Day');
+    if (mode === 'week') return t('Week');
+    if (mode === 'year') return t('Year');
+    return t('Month');
+  }
+  if (mode === 'day') return plural(count, '{n} day', '{n} days');
+  if (mode === 'week') return plural(count, '{n} week', '{n} weeks');
+  if (mode === 'year') return plural(count, '{n} year', '{n} years');
+  return plural(count, '{n} month', '{n} months');
+}
+function ModePicker({ mode, onPick, count }: {
+  mode: SpanMode;
+  // One patch for both halves, so the mode and the count land in a single
+  // view update instead of racing each other to the server.
+  onPick: (m: SpanMode, n: number) => void;
+  count?: number;
+}) {
   const [open, setOpen] = useState(false);
-  const label =
-    mode === 'day'
-      ? t('Day')
-      : mode === 'week'
-        ? t('Week')
-        : mode === 'year'
-          ? t('Year')
-          : mode === '2months'
-            ? t('2 months')
-            : t('Month');
-  const pick = (m: SpanMode) => {
+  // Like every other menu: Escape dismisses, not just a backdrop click.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open ]);
+  const effMode: SpanMode = mode === '2months' ? 'month' : mode;
+  const effCount = mode === '2months' && (count ?? 1) <= 1 ? 2 : (count ?? 1);
+  const pick = (m: SpanMode, n: number) => {
     setOpen(false);
-    if (m !== mode) onChange(m);
+    if (m !== effMode || n !== effCount) onPick(m, n);
   };
   return (
     <div className="cal-range-wrap">
       <button className="btn-sm" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
-        {label} <ChevronDown size={14} />
+        {spanLabel(effMode, effCount)} <ChevronDown size={14} />
       </button>
       {open && (
         <>
           <div className="fs-backdrop" onClick={() => setOpen(false)} />
           <div className="menu view-tab-menu" role="listbox">
-            {(['day', 'week', 'month', '2months', 'year'] as const).map((m) => (
+            {(['day', 'week', 'month', 'year'] as const).map((m) => (
               <button
                 key={m}
                 role="option"
-                aria-selected={mode === m}
-                onClick={() => pick(m)}
+                aria-selected={effMode === m}
+                onClick={() => pick(m, effCount)}
               >
                 {m === 'day'
                   ? t('Day')
@@ -6560,11 +7314,36 @@ function ModePicker({ mode, onChange }: { mode: SpanMode; onChange: (m: SpanMode
                     ? t('Week')
                     : m === 'year'
                       ? t('Year')
-                      : m === '2months'
-                        ? t('2 months')
-                        : t('Month')}
+                      : t('Month')}
               </button>
             ))}
+            <div className="menu-sep" />
+            {/* The count stepper lives here, in the menu, not beside the
+                button: period and count are picked in one place, and the
+                menu stays open while stepping. */}
+            <div className="cal-count cal-count-menu">
+              <button
+                type="button"
+                className="btn-sm"
+                disabled={effCount <= 1}
+                onClick={() => onPick(effMode, Math.max(1, effCount - 1))}
+                title={t('Show fewer')}
+                aria-label={t('Show fewer')}
+              >
+                −
+              </button>
+              <span className="cal-count-num" aria-hidden="true">{effCount}</span>
+              <button
+                type="button"
+                className="btn-sm"
+                disabled={effCount >= 12}
+                onClick={() => onPick(effMode, Math.min(12, effCount + 1))}
+                title={t('Show more')}
+                aria-label={t('Show more')}
+              >
+                +
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -6677,11 +7456,13 @@ function CalendarView({
   // end as a single day. See isUnscheduledRow: the tray keeps only rows with
   // neither.
   const landingDay = (r: Row): string | undefined => {
+    // A relative word names a day too; rows written before the write paths
+    // resolved it still exist (see relative_dates.go).
     const v = r.props[dateProp];
-    if (typeof v === 'string' && v) return v.slice(0, 10);
+    if (typeof v === 'string' && v) return (resolveSmartDate(v) ?? v).slice(0, 10);
     if (endDateProp) {
       const e = r.props[endDateProp];
-      if (typeof e === 'string' && e) return e.slice(0, 10);
+      if (typeof e === 'string' && e) return (resolveSmartDate(e) ?? e).slice(0, 10);
     }
     return undefined;
   };
@@ -6876,14 +7657,22 @@ function CalendarView({
   const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
   const addMonths = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth() + n, 1);
   const startOfWeek = (d: Date) => addDays(d, -((d.getDay() - firstWeekday() + 7) % 7));
-  const weekStart = startOfWeek(cursor);
-  const weekDays: Date[] = [];
-  for (let k = 0; k < 7; k++) weekDays.push(addDays(weekStart, k));
+  const calCount = spanCount(view.calCount);
+  // Weeks shown back to back, each starting on the week's first day.
+  const weeks: Date[][] = [];
+  if (mode === 'week') {
+    for (let w = 0; w < calCount; w++) {
+      const start = addDays(startOfWeek(cursor), w * 7);
+      weeks.push(Array.from({ length: 7 }, (_, k) => addDays(start, k)));
+    }
+  }
+  const weekDays: Date[] = weeks[0] ?? [];
   // One cell grid per shown month.
-  const monthStarts: Date[] =
-    mode === '2months'
-      ? [new Date(cursor.getFullYear(), cursor.getMonth(), 1), addMonths(cursor, 1)]
-      : [new Date(cursor.getFullYear(), cursor.getMonth(), 1)];
+  const monthStarts: Date[] = (() => {
+    if (mode === '2months') return Array.from({ length: 2 * calCount }, (_, k) => addMonths(cursor, k));
+    if (mode === 'month') return Array.from({ length: calCount }, (_, k) => addMonths(cursor, k));
+    return [new Date(cursor.getFullYear(), cursor.getMonth(), 1)];
+  })();
   const monthCells = (first: Date) => {
     // Where the week starts is a property of the language, not of the code:
     // Monday across most of Europe, Sunday in the US and Japan, Saturday in much
@@ -6904,8 +7693,37 @@ function CalendarView({
     for (let r = 0; r * 7 < cells.length; r++) rows.push(lanesFor(cells.slice(r * 7, r * 7 + 7)));
     return rows;
   };
+  // Week view renders month grids with the unneeded weeks cut out: every
+  // selected day lands in its own month's grid row, so no day of the span is
+  // ever lost (a week straddling two months contributes a row to each).
+  // Days outside the block's month stay empty, exactly like the month view.
+  const weekBlocks: { first: Date; rows: (Date | null)[][] }[] = [];
+  if (mode === 'week') {
+    const seen = new Set<string>();
+    const byMonth = new Map<number, { first: Date; rows: (Date | null)[][] }>();
+    for (const wd of weeks) {
+      for (const d of wd) {
+        const key = d.getFullYear() * 12 + d.getMonth();
+        let block = byMonth.get(key);
+        if (!block) {
+          block = { first: new Date(d.getFullYear(), d.getMonth(), 1), rows: [] };
+          byMonth.set(key, block);
+        }
+        const cells = monthCells(block.first);
+        const ti = cells.findIndex((c) => c !== null && ymd(c) === ymd(d));
+        if (ti >= 0) {
+          const ri = Math.floor(ti / 7);
+          const rowKey = `${key}:${ri}`;
+          if (!seen.has(rowKey)) {
+            seen.add(rowKey);
+            block.rows.push(cells.slice(ri * 7, ri * 7 + 7));
+          }
+        }
+      }
+    }
+    weekBlocks.push(...byMonth.values());
+  }
 
-  const second = monthStarts[1];
   const step = (delta: number) => {
     if (mode === 'day') setCursor((c) => addDays(c, delta));
     else if (mode === 'week') setCursor((c) => addDays(c, delta * 7));
@@ -6918,17 +7736,23 @@ function CalendarView({
     const n = new Date();
     setCursor(new Date(n.getFullYear(), n.getMonth(), n.getDate()));
   };
+  const lastWeek = weeks.length > 0 ? weeks[weeks.length - 1] : weekDays;
+  const lastMonth = monthStarts[monthStarts.length - 1];
   const title =
     mode === 'day'
-      ? formatDay(toDayString(cursor))
+      ? calCount > 1
+        ? formatDay(toDayString(cursor)) + ' — ' + formatDay(toDayString(addDays(cursor, calCount - 1)))
+        : formatDay(toDayString(cursor))
       : mode === 'week'
-        ? formatDay(toDayString(weekStart)) + ' — ' + formatDay(toDayString(addDays(weekStart, 6)))
+        ? formatDay(toDayString(weeks[0][0])) + ' — ' + formatDay(toDayString(lastWeek[lastWeek.length - 1]))
         : mode === 'year'
-          ? String(cursor.getFullYear())
-          : mode === '2months' && second
+          ? calCount > 1
+            ? String(cursor.getFullYear()) + ' — ' + String(cursor.getFullYear() + calCount - 1)
+            : String(cursor.getFullYear())
+          : monthStarts.length > 1
             ? formatMonth(monthStarts[0].getFullYear(), monthStarts[0].getMonth(), 'long') +
               ' — ' +
-              formatMonth(second.getFullYear(), second.getMonth(), 'long')
+              formatMonth(lastMonth.getFullYear(), lastMonth.getMonth(), 'long')
             : formatMonth(cursor.getFullYear(), cursor.getMonth(), 'long');
   const eventButton = (r: Row, d: Date | null) => (
     <PageHoverCard key={r.id} page={rowToPageMeta(r, pages)} side="bottom" tagColors={tagColors}>
@@ -7052,7 +7876,9 @@ function CalendarView({
     );
   };
   const yearMonths: Date[] = [];
-  for (let m = 0; m < 12; m++) yearMonths.push(new Date(cursor.getFullYear(), m, 1));
+  for (let y = 0; y < calCount; y++) {
+    for (let m = 0; m < 12; m++) yearMonths.push(new Date(cursor.getFullYear() + y, m, 1));
+  }
 
   return (
     <div
@@ -7157,7 +7983,11 @@ function CalendarView({
             </AnchoredMenu>
           )}
         </div>
-          <ModePicker mode={mode} onChange={onModeChange} />
+          <ModePicker
+            mode={mode}
+            onPick={(m, n) => onViewChange({ calMode: m, calCount: n === 1 ? undefined : n })}
+            count={spanCount(view.calCount)}
+          />
         </div>
       </div>
       {ghost && (
@@ -7166,23 +7996,43 @@ function CalendarView({
         </div>
       )}
       {mode === 'day' ? (
-        <div className="cal-day-list">
-          {(byDate.get(toDayString(cursor)) ?? []).map((r) => eventButton(r, cursor))}
-          {(byDate.get(toDayString(cursor)) ?? []).length === 0 && (
-            <div className="db-empty">{t('Nothing on this day.')}</div>
-          )}
-        </div>
-      ) : mode === 'week' ? (
-        <div className="calendar-grid">
-          {weekdayNames().map((d) => (
-            <div key={d} className="calendar-dow">{d}</div>
+        <>
+          {Array.from({ length: calCount }, (_, k) => addDays(cursor, k)).map((day) => (
+            <div className="cal-day-list" key={toDayString(day)}>
+              <div className="cal-day-title">{formatDay(toDayString(day), 'full')}</div>
+              {(byDate.get(toDayString(day)) ?? []).map((r) => eventButton(r, day))}
+              {(byDate.get(toDayString(day)) ?? []).length === 0 && (
+                <div className="db-empty">{t('Nothing on this day.')}</div>
+              )}
+            </div>
           ))}
-          {weekDays.map((d, i) => dayCell(d, i, lanesFor(weekDays), weekDays.map((x) => ymd(x))))}
+        </>
+      ) : mode === 'week' ? (
+        <div className="cal-grids">
+          {weekBlocks.map(({ first, rows }, bi) => (
+            <div key={bi} className="calendar-grid-wrap">
+              <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
+              <div className="calendar-grid">
+                {weekdayNames().map((d) => (
+                  <div key={d} className="calendar-dow">{d}</div>
+                ))}
+                {rows.flatMap((rowCells, ri) => {
+                  const lanes = lanesFor(rowCells);
+                  const keys = rowCells.map((c) => (c ? ymd(c) : '')).filter((k) => k !== '');
+                  return rowCells.map((d, i) => dayCell(d, `${bi}-${ri}-${i}`, lanes, keys));
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       ) : mode === 'year' ? (
         <div className="cal-year">
           {yearMonths.map((first, mi) => (
-            <div key={mi} className="cal-mini">
+            <Fragment key={mi}>
+            {mi % 12 === 0 && calCount > 1 && (
+              <div className="cal-year-title">{first.getFullYear()}</div>
+            )}
+            <div className="cal-mini">
               <button
                 className="cal-mini-title"
                 onClick={() => {
@@ -7221,6 +8071,7 @@ function CalendarView({
                 })}
               </div>
             </div>
+            </Fragment>
           ))}
         </div>
       ) : (
@@ -7235,7 +8086,7 @@ function CalendarView({
                 .filter((k) => k !== '');
             return (
               <div key={mi} className="calendar-grid-wrap">
-                {mode === '2months' && (
+                {(mode === '2months' || monthStarts.length > 1) && (
                   <div className="cal-grid-title">{formatMonth(first.getFullYear(), first.getMonth(), 'long')}</div>
                 )}
                 <div className="calendar-grid">

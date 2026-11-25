@@ -20,29 +20,41 @@ import (
 )
 
 type Server struct {
-	db      *sql.DB
-	mux     *http.ServeMux
-	dataDir string
+	publicCSS string
+	db        *sql.DB
+	mux       *http.ServeMux
+	dataDir   string
 	// name → the markup INSIDE a Lucide <svg>, for the print view.
 	lucide map[string]string
 	// The third-party licence notices, embedded from the repository root.
-	notices     string
-	addr        string
-	tunnel      tunnelState
+	notices string
+	addr    string
+	tunnel  tunnelState
+	// What the settings show about the cloudflared in use (tunnel_update.go).
+	cloudflared cloudflaredUpdates
 	// Agent keys from listed addresses only; see agent_addresses.go.
 	agentAddressList addressList
-	loginMu     sync.Mutex
-	loginSem    chan struct{}
-	events      *eventHub
-	collab      *collabHub
-	mcpRate     *rateLimiter
-	mcpIcon     string          // data URI of the logo for serverInfo.icons (see mcp.go)
-	ingest      *ingestRegistry // bulk imports in flight (see ingest.go)
-	loginRate   *rateLimiter
-	tokenRate   *rateLimiter
-	formRate    *rateLimiter
-	sharePwRate *rateLimiter
+	loginMu          sync.Mutex
+	loginSem         chan struct{}
+	events           *eventHub
+	collab           *collabHub
+	mcpRate          *rateLimiter
+	mcpIcon          string          // data URI of the logo for serverInfo.icons (see mcp.go)
+	ingest           *ingestRegistry // bulk imports in flight (see ingest.go)
+	loginRate        *rateLimiter
+	tokenRate        *rateLimiter
+	formRate         *rateLimiter
+	sharePwRate      *rateLimiter
+	// Refresh tokens replaced a moment ago, by the hash of the old one; see
+	// oauthRefresh.
+	renewMu     sync.Mutex
+	renewals    map[string]oauthRenewal
 	stopCleanup chan struct{}
+	// AI runs whose goroutine lives in THIS process. A question or an approval
+	// left over from a previous process can never be resumed, and answering it
+	// would silently do nothing; see aiInterruptStaleRuns.
+	aiLiveMu sync.Mutex
+	aiLive   map[string]bool
 	// Generic OIDC state (see oidc.go): the discovery and JWKS caches plus a
 	// test override for the HTTP client. Nil in every real build.
 	oidcDiscMu sync.Mutex
@@ -91,6 +103,10 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	// data URI. A data URI rather than a link, because some MCP clients will
 	// not fetch foreign images (strict CSP) — a link would be silently empty
 	// there.
+	cssHref := ""
+	if index, err := fs.ReadFile(dist, "index.html"); err == nil {
+		cssHref = publicCSSHref(index)
+	}
 	iconURI := ""
 	// The Lucide set, generated at build time (web/scripts/build-lucide.mjs).
 	// Read once, like the favicon below: the print view is built on the server
@@ -108,6 +124,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	}
 
 	s := &Server{
+		publicCSS: cssHref,
 		mcpIcon:   iconURI,
 		lucide:    lucideSet,
 		ingest:    newIngestRegistry(),
@@ -120,13 +137,15 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 		mcpRate:   newRateLimiter(240, 60), // 240 writes/min per token, burst 60
 		loginRate: newRateLimiter(30, 10),  // 30 login attempts/min per IP, burst 10
 		// Fed by REJECTED tokens only, so a working agent never touches it.
-		tokenRate:   newRateLimiter(60, 20),
-		formRate:    newRateLimiter(20, 8), // 20 public form submits/min per IP, burst 8
+		tokenRate: newRateLimiter(60, 20),
+		formRate:  newRateLimiter(20, 8), // 20 public form submits/min per IP, burst 8
 		// Passwords on shared pages, per link and address. A share password was
 		// checked as fast as anybody could send guesses.
 		sharePwRate: newRateLimiter(10, 5),
+		renewals:    map[string]oauthRenewal{},
 		stopCleanup: make(chan struct{}),
 		dist:        dist,
+		aiLive:      map[string]bool{},
 	}
 	if err := s.seed(); err != nil {
 		return nil, err
@@ -149,6 +168,10 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	if err := s.migrateFileIndex(); err != nil {
 		return nil, err
 	}
+	// Runs a previous process left open: their goroutines died with it, so no
+	// answer can ever reach them. Close them here and say why, or the browser
+	// keeps offering a question nothing will ever pick up.
+	s.aiInterruptStaleRuns()
 	// Size the expensive work to the machine we are actually on, and log what
 	// we concluded — an admin wondering why a PDF is not searchable should
 	// find the answer in the startup lines, not by reading the source.
@@ -207,11 +230,15 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("POST /api/invites", s.auth(s.sessionOnly(s.handleCreateInvite)))
 	m.HandleFunc("GET /api/invites/{token}", s.handleInviteInfo)
 	m.HandleFunc("POST /api/invites/{token}/accept", s.handleAcceptInvite)
-	m.HandleFunc("GET /api/ics", s.auth(s.handleICSInfo))
-	m.HandleFunc("POST /api/ics/prefs", s.auth(s.handleICSPrefs))
-	m.HandleFunc("POST /api/ics/feeds", s.auth(s.handleICSFeedsCreate))
-	m.HandleFunc("PATCH /api/ics/feeds/{id}", s.auth(s.handleICSFeedUpdate))
-	m.HandleFunc("DELETE /api/ics/feeds/{id}", s.auth(s.handleICSFeedDelete))
+	// The calendar key is a credential of its own: /ics/<key> answers without a
+	// sign-in, for every workspace of the account. Handing it to a token let a
+	// token narrowed to one workspace (or kept out by a workspace's rule) read
+	// the dated rows of all of them, and rotating it is a GET.
+	m.HandleFunc("GET /api/ics", s.auth(s.sessionOnly(s.handleICSInfo)))
+	m.HandleFunc("POST /api/ics/prefs", s.auth(s.sessionOnly(s.handleICSPrefs)))
+	m.HandleFunc("POST /api/ics/feeds", s.auth(s.sessionOnly(s.handleICSFeedsCreate)))
+	m.HandleFunc("PATCH /api/ics/feeds/{id}", s.auth(s.sessionOnly(s.handleICSFeedUpdate)))
+	m.HandleFunc("DELETE /api/ics/feeds/{id}", s.auth(s.sessionOnly(s.handleICSFeedDelete)))
 	m.HandleFunc("GET /ics/{token}", s.handleICSFeed)
 	m.HandleFunc("GET /api/2fa", s.auth(s.sessionOnly(s.handle2FAStatus)))
 	m.HandleFunc("POST /api/2fa/setup", s.auth(s.sessionOnly(s.handle2FASetup)))
@@ -260,6 +287,12 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("POST /api/pages/{id}/restore", s.auth(s.handleRestorePage))
 	m.HandleFunc("POST /api/reindex-siblings", s.auth(s.handleReindexSiblings))
 	m.HandleFunc("GET /api/pages/{id}/backlinks", s.auth(s.handleBacklinks))
+	// What still points at a page through a relation, in numbers the "delete
+	// forever" dialog can say before it deletes anything.
+	m.HandleFunc("GET /api/pages/{id}/references", s.auth(s.handlePageReferences))
+	// Titles and trash state for relation ids the picker's list does not hold:
+	// a chip must name the row it points at, never print its id.
+	m.HandleFunc("POST /api/pages/resolve", s.auth(s.handleResolvePages))
 	m.HandleFunc("GET /api/pages/{id}/preview", s.auth(s.handlePreviewPage))
 	m.HandleFunc("GET /api/graph", s.auth(s.handleGraph))
 	m.HandleFunc("GET /api/tags", s.auth(s.handleListTags))
@@ -275,6 +308,10 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 
 	m.HandleFunc("GET /api/collections/{id}", s.auth(s.handleGetCollection))
 	m.HandleFunc("PUT /api/collections/{id}", s.auth(s.handlePutCollection))
+	m.HandleFunc("POST /api/collections/{id}/workflow/validate", s.auth(s.handleValidateWorkflow))
+	m.HandleFunc("POST /api/collections/{id}/workflow/compile-text", s.auth(s.handleCompileWorkflowText))
+	m.HandleFunc("GET /api/collections/{id}/workflow/proposal", s.auth(s.handleWorkflowProposal))
+	m.HandleFunc("DELETE /api/collections/{id}/workflow/proposal", s.auth(s.handleDismissWorkflowProposal))
 	m.HandleFunc("GET /api/collections/{id}/rows", s.auth(s.handleCollectionRows))
 
 	m.HandleFunc("GET /api/favorites", s.auth(s.handleListFavorites))
@@ -294,10 +331,13 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("GET /api/library", s.auth(s.handleLibrary))
 	m.HandleFunc("POST /api/library/{id}", s.auth(s.handleUseBlueprint))
 	// Break-glass: only the owner may request it; the people responsible for
-	// the workspace concerned may view and end it too.
+	// the workspace concerned may view and end it too. All three in a browser
+	// session: emergency access stays with a person at a keyboard (see
+	// sessionOnly), and the two routes below took any token and asked nothing
+	// about it, so an agent read the reasons and ended grants anywhere.
 	m.HandleFunc("POST /api/workspaces/{id}/break-glass", s.ownerOnly(s.handleBreakGlass))
-	m.HandleFunc("GET /api/workspaces/{id}/break-glass", s.auth(s.handleListBreakGlass))
-	m.HandleFunc("DELETE /api/workspaces/{id}/break-glass/{grantId}", s.auth(s.handleRevokeBreakGlass))
+	m.HandleFunc("GET /api/workspaces/{id}/break-glass", s.auth(s.sessionOnly(s.handleListBreakGlass)))
+	m.HandleFunc("DELETE /api/workspaces/{id}/break-glass/{grantId}", s.auth(s.sessionOnly(s.handleRevokeBreakGlass)))
 	m.HandleFunc("PATCH /api/workspaces/{id}", s.auth(s.handleUpdateWorkspace))
 	// Rules are what agents are told to follow, so no API token may write them
 	// (sessionOnly) — see handleWorkspaceRules. Agents may PROPOSE rules over
@@ -326,6 +366,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("POST /api/public/form/{token}/submit", s.handlePublicFormSubmit)
 	m.HandleFunc("GET /api/public/{token}", s.handlePublicPage)
 	m.HandleFunc("GET /api/public/c/{token}", s.handlePublicCollection)
+	m.HandleFunc("GET /api/public/access/{token}", s.handlePublicEditAccess)
 	m.HandleFunc("GET /api/public/c/{token}/rows", s.handlePublicCollectionRows)
 	m.HandleFunc("GET /api/public/c/{token}/row/{rowId}", s.handlePublicCollectionRow)
 	m.HandleFunc("GET /public/{token}", s.handlePublicView)
@@ -338,6 +379,7 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("GET /api/pages/{id}/revisions", s.auth(s.handleListRevisions))
 	m.HandleFunc("GET /api/pages/{id}/revisions/{revId}", s.auth(s.handleGetRevision))
 	m.HandleFunc("POST /api/pages/{id}/revisions/{revId}/restore", s.auth(s.handleRestoreRevision))
+	m.HandleFunc("POST /api/pages/{id}/revisions/{revId}/copy", s.auth(s.handleCopyRevision))
 
 	m.HandleFunc("POST /api/pages/{id}/duplicate", s.auth(s.handleDuplicatePage))
 	m.HandleFunc("POST /api/import", s.auth(s.handleImport))
@@ -373,6 +415,12 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("DELETE /api/ai/threads/{id}", s.auth(s.handleDeleteAIThread))
 	m.HandleFunc("PATCH /api/ai/threads/{id}", s.auth(s.handleRenameAIThread))
 	m.HandleFunc("POST /api/ai/threads/{id}/read", s.auth(s.handleReadAIThread))
+	m.HandleFunc("POST /api/ai/threads/{id}/title", s.auth(s.handleGenerateAIThreadTitle))
+	m.HandleFunc("POST /api/ai/threads/{id}/archive", s.auth(s.handleArchiveAIThread))
+	m.HandleFunc("GET /api/ai/memory", s.auth(s.handleListAIMemory))
+	m.HandleFunc("POST /api/ai/memory", s.auth(s.handleAddAIMemory))
+	m.HandleFunc("DELETE /api/ai/memory/{id}", s.auth(s.handleDeleteAIMemory))
+	m.HandleFunc("GET /api/ai/stats", s.auth(s.handleAIStats))
 	m.HandleFunc("POST /api/ai/chat", s.auth(s.handleAIChat))
 	m.HandleFunc("POST /api/ai/generate", s.auth(s.handleAIGenerate))
 	m.HandleFunc("POST /api/ai/runs", s.auth(s.handleCreateAIRun))

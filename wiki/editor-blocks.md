@@ -66,6 +66,7 @@ other text, the new block is inserted **after** it.
 | **Callout** | Basic blocks | none |
 | **Embed a collection** | Basic blocks | none |
 | **Table of contents** | Basic blocks | none |
+| **Sub-pages** | Basic blocks | none |
 | **Table** | Advanced | none |
 | **Diagram** | Advanced | none |
 | **Image**, **Video**, **Audio**, **File** | Media | none |
@@ -79,7 +80,7 @@ whether or not the menu is open, **except `Mod-Alt-c`**, which is printed
 beside **Code Block** but is bound to no key at all. One shortcut goes the other
 way and is advertised nowhere: `Mod-Alt-q` turns the current block into a quote.
 
-The six salt.md blocks carry a one-line description in the menu:
+The seven salt.md blocks carry a one-line description in the menu:
 
 - **Columns**: *Two blocks side by side*
 - **Diagram**: *A flow chart written as text*
@@ -87,6 +88,7 @@ The six salt.md blocks carry a one-line description in the menu:
 - **Bookmark / Embed**: *A link card, or a YouTube/Vimeo player*
 - **Embed a collection**: *Show an existing collection inside the document*
 - **Table of contents**: *Auto-generated list of every heading*
+- **Sub-pages**: *List of pages below this one*
 
 **Columns** is a block that holds nothing itself. Inserting it gives you two
 empty blocks side by side; the small **2 / 3** control at its right edge, which
@@ -149,6 +151,13 @@ follows a space, so `my_var_name` stays literal.
 
 Typing `:` followed by at least two letters opens the **emoji picker**; typing
 `@` or `[[` opens the page-link menu (below).
+
+The picker (also reached from a page's icon) takes a word — *rocket*, *green
+heart* — and it takes the emoji itself: paste 🙂, or type it where an input
+method makes one, and it appears under **Typed emoji** at the top. Nothing about
+an emoji is spelled like its name, so a picker that only understood words made
+you go and find the symbol in some other window to copy from. Pasting a run of
+them puts each one it recognises in that group.
 
 ### The block handles
 
@@ -331,8 +340,19 @@ With no headings yet it says *No headings.*
 It reaches nested headings too: a heading inside a toggle, or inside a column,
 is listed like any other.
 
-Because it is generated on the spot, it is the one block that exports as
-nothing at all.
+Because it is generated on the spot, it exports as nothing at all.
+
+### Sub-pages
+
+A list of the page's direct sub-pages, in their order in the sidebar, headed
+**Sub-pages**. A click opens one; ⌘-click (Ctrl-click on Windows and Linux) or
+the middle button opens it in a second tab, the same as in the sidebar. It
+lists only sub-pages you may read, so a colleague's private sub-page does not
+appear for you. With none it says *No sub-pages.*
+
+Like the table of contents it is built on the spot, so it exports as nothing:
+not in Markdown, not in the HTML download, not on paper and not on a shared
+page.
 
 ### Bookmark / Embed
 
@@ -490,6 +510,7 @@ included; for a whole tree see [Import and export](import-export.md).
 | Bookmark | a link to the address |
 | Embedded collection | a link to the collection page, labelled `Collection` |
 | Table of contents | nothing |
+| Sub-pages | nothing |
 | Columns | the contents, flattened into one sequence |
 | Page link | `[label](/p/<id>)` |
 | **bold**, *italic*, ~~strike~~, `code` | the Markdown for each |

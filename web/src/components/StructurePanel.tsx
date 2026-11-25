@@ -238,7 +238,7 @@ export default function StructurePanel({
                 key={f.name}
                 className="structure-item structure-file"
                 onClick={() => openFile(f)}
-                title={f.pageId === pageId ? f.displayName : `${f.displayName} — ${f.pageTitle}`}
+                title={f.pageId === pageId ? f.displayName : `${f.displayName} (${f.pageTitle})`}
               >
                 <span className={'structure-icon structure-ext ' + (EXT_CLASS[ext] ?? '')}>
                   {ext.slice(0, 4) || '?'}

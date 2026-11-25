@@ -16,7 +16,7 @@ import {
 } from '@blocknote/react';
 import { CustomSideMenu } from './CustomDragHandleMenu';
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmentToHTML } from '@blocknote/core';
-import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
+import { de as coreDe, en as coreEn, es as coreEs, ru as coreRu, zh as coreZh, zhTW as coreZhTW } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { TextSelection } from 'prosemirror-state';
 import { api, ApiError, materializeQuery } from '../api';
@@ -33,27 +33,29 @@ import {
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
-import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User, Workspace } from '../types';
+import { StatusGateProvider } from '../statusMarks';
+import type { Backlink, CollectionConfig, Comment, CommentAnchor, LookupCell, Page, PageMeta, PropOption, User, Workspace } from '../types';
 import { SaltProvider } from '../collab';
-import { plural, t } from '../i18n';
+import { getLocale, plural, t } from '../i18n';
 import { formatDay } from '../format';
 import { blockedByMap, dayNum, depListOf, isoDay, nextWorkday, prevWorkday, shiftTarget, type DepNode } from '../depUtils';
 import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import AnchoredMenu from './AnchoredMenu';
-import SheetBackdrop from './SheetBackdrop';
-import SheetGrab from './SheetGrab';
-import MobileEditorBar from './MobileEditorBar';
 import AiEmptyLine from './AiEmptyLine';
+import OutlineMinimap from './OutlineMinimap';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
 import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, focusRegion, navItem, nothingBefore, useNavRegion } from '../nav';
 import { openPage, openPageAux, type PageOpeners } from '../pageOpen';
 import { readPageScroll, writePageScroll } from '../pageUiState';
-import { useShortcut } from '../keys';
+import { imeComposing, useShortcut } from '../keys';
 import CollectionView from './CollectionView';
 import PageShares from './PageShares';
+import SheetBackdrop from './SheetBackdrop';
+import SheetGrab from './SheetGrab';
+import ShareDialog, { type ShareTab } from './ShareDialog';
 import { HistoryModal } from './PageHistory';
 import CommentsPanel, {
   COMMENTS_CHANGED,
@@ -72,8 +74,36 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles } from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles, Lightbulb, Bookmark, Table2, List, Files, TriangleAlert } from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
+import { InlineCommentButton, useInlineComments } from './InlineComments';
+
+// The dictionaries BlockNote ships for the languages the interface has.
+const blockNoteDictionaries: Record<string, typeof coreEn> = {
+  en: coreEn,
+  de: consistentGroups(coreDe),
+  es: consistentGroups(coreEs),
+  // BlockNote's 'zh' is written in Simplified characters.
+  'zh-Hans': consistentGroups(coreZh),
+  'zh-Hant': consistentGroups(coreZhTW),
+};
+
+// One section per kind of block in the slash menu. BlockNote's German
+// dictionary files one subheading under the singular of the group's name and
+// the others under the plural, which split the menu into two sections side by
+// side; every item now takes the name the first item of its English group has.
+function consistentGroups(dict: typeof coreEn): typeof coreEn {
+  type Item = { group: string };
+  const english = coreEn.slash_menu as unknown as Record<string, Item>;
+  const local: Record<string, Item> = { ...(dict.slash_menu as unknown as Record<string, Item>) };
+  const names = new Map<string, string>();
+  for (const [key, item] of Object.entries(english)) {
+    if (!local[key]) continue;
+    if (!names.has(item.group)) names.set(item.group, local[key].group);
+    local[key] = { ...local[key], group: names.get(item.group)! };
+  }
+  return { ...dict, slash_menu: local as unknown as typeof dict.slash_menu };
+}
 
 export interface EditorProps {
   pageId: string;
@@ -140,6 +170,25 @@ export default function Editor(props: EditorProps) {
   // his colleagues work in them all day and reported the old shape as awkward:
   // at the very bottom, and two lines to write in.
   const [commentsOpen, setCommentsOpen] = useState(commentsPanelOpen);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [pendingComment, setPendingComment] = useState<{ anchor: CommentAnchor; blockId: string } | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [activeComment, setActiveComment] = useState<string | null>(null);
+  const [anchorStatuses, setAnchorStatuses] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let alive = true;
+    setComments([]);
+    setPendingComment(null);
+    setCommentDraft('');
+    setActiveComment(null);
+    setAnchorStatuses({});
+    const load = () => void api.listComments(props.pageId).then((items) => { if (alive) setComments(items); }).catch(() => {});
+    load();
+    window.addEventListener(COMMENTS_CHANGED, load);
+    window.addEventListener('focus', load);
+    return () => { alive = false; window.removeEventListener(COMMENTS_CHANGED, load); window.removeEventListener('focus', load); };
+  }, [props.pageId]);
 
   // Both panels occupy the same strip on the right, so opening one closes the
   // other. Sharing the width would leave two columns too narrow to be either.
@@ -331,6 +380,10 @@ export default function Editor(props: EditorProps) {
               toast.warning(t('This page was replaced on the server. Open Version history to recover your text.'));
               setNonce((n) => n + 1);
             }}
+            comments={comments}
+            onCommentSelection={(anchor, blockId) => { setPendingComment({ anchor, blockId }); setActiveComment(null); showComments(true); }}
+            onCommentOpen={(id) => { setActiveComment(id); showComments(true); }}
+            onAnchorStatuses={(statuses) => setAnchorStatuses((previous) => JSON.stringify(previous) === JSON.stringify(statuses) ? previous : statuses)}
           />
         )}
       </PageHeader>
@@ -340,6 +393,13 @@ export default function Editor(props: EditorProps) {
           myUserId={props.user.id}
           open
           onClose={() => showComments(false)}
+          pending={pendingComment}
+          draft={commentDraft}
+          onDraftChange={setCommentDraft}
+          onClearPending={() => setPendingComment(null)}
+          activeComment={activeComment}
+          anchorStatuses={anchorStatuses}
+          narrow={narrow}
         />
       )}
       {structureOpen && (
@@ -611,7 +671,7 @@ function BlockedBanner({
 
   return (
     <div className="dep-banner" role="status">
-      <span className="dep-banner-ic">⚠</span>
+      <span className="dep-banner-ic"><TriangleAlert size={15} /></span>
       <div className="dep-banner-text">
         {t('Blocked by {names} until {d}', {
           names: blockers.map((p) => titles.get(p.id) ?? t('Untitled')).join(', '),
@@ -764,6 +824,7 @@ function RowProperties({
   pageId,
   parentId,
   initialProps,
+  initialLookup,
   canEdit,
   onOpen,
   openers,
@@ -772,6 +833,7 @@ function RowProperties({
   pageId: string;
   parentId: string;
   initialProps: Record<string, unknown>;
+  initialLookup?: Record<string, LookupCell>;
   canEdit: boolean;
   onOpen?: (id: string) => void;
   openers?: PageOpeners;
@@ -779,10 +841,12 @@ function RowProperties({
 }) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [props, setProps] = useState<Record<string, unknown>>(initialProps ?? {});
+  const [lookup, setLookup] = useState<Record<string, LookupCell>>(initialLookup ?? {});
 
   useEffect(() => {
     setProps(initialProps ?? {});
-  }, [pageId, initialProps]);
+    setLookup(initialLookup ?? {});
+  }, [pageId, initialProps, initialLookup]);
 
   useEffect(() => {
     let alive = true;
@@ -826,6 +890,16 @@ function RowProperties({
       }
     }
   };
+  // A lookup writes through to the record that owns the value. The page has to
+  // be re-read afterwards, because its lookup cells are computed from that
+  // record and this component has no other way to see the new answer.
+  const writeLookup = async (targetPage: string, targetProp: string, value: unknown) => {
+    await api.updatePage(targetPage, { propsPatch: { [targetProp]: value } });
+    const fresh = await api.getPage(pageId);
+    setProps((fresh.props as Record<string, unknown>) ?? {});
+    setLookup(fresh.lookup ?? {});
+  };
+
   const setOptions = async (propId: string, options: PropOption[]) => {
     const next: CollectionConfig = {
       ...config,
@@ -841,6 +915,7 @@ function RowProperties({
   };
 
   return (
+    <StatusGateProvider value={{ workflow: config.workflow, schema: config.schema }}>
     <>
       <BlockedBanner
         pageId={pageId}
@@ -859,11 +934,19 @@ function RowProperties({
           <div key={p.id} className="row-prop">
             <div className="row-prop-label" title={p.name}>
               {p.name}
+              {(p.rollupAgg === 'first' || p.rollupAgg === 'all' || p.rollupAgg === 'unique') && (
+                <span className="th-link" title={t('The value comes from a linked note — edit it there')}>
+                  <Link2 size={11} />
+                </span>
+              )}
             </div>
             <div className="row-prop-value">
               <PropertyValue
                 def={p}
                 value={props[p.id]}
+                rowProps={props}
+                lookup={lookup[p.id]}
+                onLookupWrite={canEdit ? writeLookup : undefined}
                 onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
                 onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
                 readOnly={!canEdit}
@@ -875,6 +958,7 @@ function RowProperties({
         ))}
       </div>
     </>
+    </StatusGateProvider>
   );
 }
 
@@ -955,6 +1039,14 @@ function PageHeader({
   children?: React.ReactNode;
 }) {
   const [title, setTitle] = useState(page.title);
+  // The browser tab follows the name being edited, not the name as saved:
+  // without this the tab kept showing whatever it had before. A peek keeps
+  // out of it — it is a preview, not the page you are on.
+  useEffect(() => {
+    if (onPeekClose) return;
+    const name = title.trim();
+    document.title = name ? `${name} · salt.md` : 'salt.md';
+  }, [title, onPeekClose]);
   const focusBodyStartRef = useRef<(() => void) | null>(null);
   const registerFocusBodyStart = useCallback((fn: () => void) => {
     focusBodyStartRef.current = fn;
@@ -979,6 +1071,9 @@ function PageHeader({
   const [visibility, setVisibility] = useState(page.visibility);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  // The two entries — the lock and the globe — open one dialog on different
+  // tabs, so the access list and the public link stop being two menus.
+  const [shareTab, setShareTab] = useState<ShareTab>('share');
   // The server's shared flag survives navigation; the local states do not, so
   // both are reset here. shareOff masks a just-revoked link the list still
   // reports until it reloads.
@@ -987,6 +1082,7 @@ function PageHeader({
     setShareUrl(null);
     setShareOff(false);
     setShareOpen(false);
+    setShareTab('share');
     setShareExpiry(0);
     setSharePassword('');
     setShareHasPassword(false);
@@ -996,6 +1092,9 @@ function PageHeader({
   }, [pageId]);
   const isShared = shareUrl != null || (!!page.shared && !shareOff);
   const [shareExpiry, setShareExpiry] = useState(0); // days; 0 = never
+  // One mint at a time: a second click while the first request is in flight
+  // would replace the link the first one just made.
+  const [shareBusy, setShareBusy] = useState(false);
   const [sharePassword, setSharePassword] = useState('');
   const [shareHasPassword, setShareHasPassword] = useState(false);
   // Read-share and form-share are independent links; the dialog tracks them
@@ -1072,14 +1171,9 @@ function PageHeader({
   // Dropdowns must close on an outside click / Escape, not just mouse-leave.
   const shareWrapRef = useRef<HTMLDivElement>(null);
   const overflowWrapRef = useRef<HTMLDivElement>(null);
-  const accessWrapRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(shareOpen, shareWrapRef, () => setShareOpen(false));
   useMenuDismiss(overflowOpen, overflowWrapRef, () => setOverflowOpen(false));
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [sharesOpen, setSharesOpen] = useState(false);
-  // The access panel hangs off its topbar button like the share menu — same
-  // outside-click/Escape dismissal, no modal overlay.
-  useMenuDismiss(sharesOpen, accessWrapRef, () => setSharesOpen(false));
   const [openComments, setOpenComments] = useState(0);
   // Same rule as in Editor, and it has to be asked here too: this is where the
   // button, the menu entries and the count live.
@@ -1315,8 +1409,10 @@ function PageHeader({
       lastGesture = Date.now();
     };
     const maySave = () => Date.now() - lastGesture < 2000;
+    let lastTop = el.scrollTop;
     const onScroll = () => {
       const s = el.scrollTop;
+      lastTop = s;
       if (!scrolled && s > 110) {
         scrolled = true;
         el.classList.add('scrolled');
@@ -1339,8 +1435,12 @@ function PageHeader({
     return () => {
       cancelAnimationFrame(saveRaf);
       // A switch made mid-glide keeps the last user position rather than the
-      // one before it — but never an anchoring shift (no gesture, no save).
-      if (maySave()) writePageScroll(pageId, el.scrollTop);
+      // one before it, but never an anchoring shift (no gesture, no save).
+      // The position is the last one a scroll event saw: by now React has
+      // taken the old page body out of the document, and its scrollTop reads
+      // 0, which wiped the good value whenever a tab was switched within two
+      // seconds of scrolling.
+      if (maySave()) writePageScroll(pageId, lastTop);
       el.removeEventListener('scroll', onScroll);
       el.removeEventListener('wheel', markGesture);
       el.removeEventListener('touchmove', markGesture);
@@ -1408,6 +1508,8 @@ function PageHeader({
   const displayUrl = shareUrl ?? readStoredUrl();
 
   const mintShare = async (days: number, password: string, allowed?: string[] | null, allowDetail?: boolean, rotated = false) => {
+    if (shareBusy) return;
+    setShareBusy(true);
     try {
       const res = await api.sharePage(
         pageId,
@@ -1428,6 +1530,8 @@ function PageHeader({
       if (rotated) toast.warning(t('A new link was created — the old one no longer works'));
     } catch {
       toast(t('Sharing failed'));
+    } finally {
+      setShareBusy(false);
     }
   };
 
@@ -1470,11 +1574,24 @@ function PageHeader({
     return out;
   };
 
-  const openShare = async () => {
-    setShareOpen((o) => !o);
+  const openShareDialog = async (tab: ShareTab) => {
+    // A second press on the open tab closes the dialog; pressing the other
+    // entry switches straight to its tab instead of closing first.
+    if (shareOpen && shareTab === tab) {
+      setShareOpen(false);
+      return;
+    }
+    setShareTab(tab);
+    setShareOpen(true);
     // Never mint here: minting replaces the token, so opening the menu must
     // only read. A fresh link is created by the explicit button below.
-    await loadShareSettings();
+    if (tab === 'publish') await loadShareSettings();
+  };
+
+  // Same read-only load when the tab is switched from inside the dialog.
+  const switchShareTab = (tab: ShareTab) => {
+    setShareTab(tab);
+    if (tab === 'publish') void loadShareSettings();
   };
 
   const toggleShareView = async (viewId: string) => {
@@ -1706,8 +1823,6 @@ function PageHeader({
     return chain;
   }, [pagesById, pageId, page]);
 
-  // The page's ⋯ and share sheets on a phone: their handles drag them away.
-  const shareSheetRef = useRef<HTMLDivElement>(null);
   const overflowSheetRef = useRef<HTMLDivElement>(null);
 
   const inheritedAccess = useMemo(() => {
@@ -1848,9 +1963,7 @@ function PageHeader({
             </button>
           )}
           {/* In the side peek these two move into the ⋯ menu below — a narrow
-              panel has no room for a full desktop topbar. On a phone they move
-              there for the other reason: the topbar's right corner is the spot
-              a thumb reaches last, so it keeps one button and nothing else. */}
+              panel has no room for a full desktop topbar. */}
           {!onPeekClose && (
             <>
               <button
@@ -1869,43 +1982,43 @@ function PageHeader({
               </button>
             </>
           )}
-          <div className="access-wrap" ref={accessWrapRef}>
+          {/* One dialog for both halves of sharing: the lock opens the Share
+              tab, the globe the Publish tab. The buttons stay separate so the
+              restricted and published markers keep their place in the topbar. */}
+          <div className="share-wrap" ref={shareWrapRef}>
             <button
               className={'icon-btn topbar-wide-only' + (isAccessRestricted ? ' active-star' : '')}
               title={inheritedAccess ? t('Page access… (inherited)') : t('Page access…')}
-              onClick={() => setSharesOpen((o) => !o)}
+              onClick={() => void openShareDialog('share')}
             >
               {isAccessRestricted ? <Lock size={17} /> : <LockOpen size={17} />}
             </button>
-            {sharesOpen && (
-              <>
-                <SheetBackdrop onDismiss={() => setSharesOpen(false)} />
-                <PageShares
-                  pageId={pageId}
-                  workspaceId={page.workspaceId}
-                  myUserId={user.id}
-                  visibility={visibility}
-                  inheritedFrom={inheritedAccess}
-                  onClose={() => setSharesOpen(false)}
-                  onVisibilityChange={setVisibility}
-                />
-              </>
-            )}
-          </div>
-          <div className="share-wrap" ref={shareWrapRef}>
-            <button className={'icon-btn topbar-wide-only' + (isShared ? ' shared-active' : '')} title={isShared ? t('Shared') : t('Share to web (read-only link)')} onClick={openShare}>
+            <button className={'icon-btn topbar-wide-only' + (isShared ? ' shared-active' : '')} title={isShared ? t('Shared') : t('Share to web (read-only link)')} onClick={() => void openShareDialog('publish')}>
               <Globe size={17} />
             </button>
             {shareOpen && (
-              <>
-                <SheetBackdrop onDismiss={() => setShareOpen(false)} />
-                <div className="menu share-menu" ref={shareSheetRef}>
-                  <SheetGrab sheet={shareSheetRef} onDismiss={() => setShareOpen(false)} />
+              <ShareDialog
+                tab={shareTab}
+                onTabChange={switchShareTab}
+                share={
+                  <PageShares
+                    pageId={pageId}
+                    workspaceId={page.workspaceId}
+                    myUserId={user.id}
+                    visibility={visibility}
+                    inheritedFrom={inheritedAccess}
+                    onClose={() => setShareOpen(false)}
+                    onVisibilityChange={setVisibility}
+                  />
+                }
+                publish={
+              <div className="menu share-menu">
                 <div className="share-hint">{isCollection ? t('Anyone with this link sees this collection (read-only).') : t('Anyone with this link can view this page (read-only).')}</div>
                 {!readShared && !displayUrl ? (
                   <>
                     <button
                       className="btn-sm primary"
+                      disabled={shareBusy}
                       onClick={() => void mintShare(shareExpiry, sharePassword, shareAllowed, shareAllowDetail)}
                     >
                       {t('Share publicly')}
@@ -1937,6 +2050,7 @@ function PageHeader({
                     <div className="share-hint">{t('The link is active, but this browser does not have its URL.')}</div>
                     <button
                       className="btn-sm"
+                      disabled={shareBusy}
                       onClick={() => void mintShare(shareExpiry, sharePassword, shareAllowed, shareAllowDetail, true)}
                     >
                       {t('Create a new link')}
@@ -1973,7 +2087,7 @@ function PageHeader({
                 {(readShared || displayUrl) && (
                   <>
                     <label className="share-expiry">
-                      Expires:
+                      {t('Expires:')}
                       <select
                         className="prop-select"
                         value={shareExpiry}
@@ -1989,6 +2103,7 @@ function PageHeader({
                       <input
                         className="share-input"
                         type="password"
+                        autoComplete="new-password"
                         placeholder={shareHasPassword ? '••••••' : t('Password (optional)')}
                         value={sharePassword}
                         onChange={(e) => setSharePassword(e.target.value)}
@@ -2008,8 +2123,9 @@ function PageHeader({
                     <div className="share-hint">{t('The password applies to the current link.')}</div>
                   </>
                 )}
-                </div>
-              </>
+              </div>
+                }
+              />
             )}
           </div>
           <div className="share-wrap" ref={overflowWrapRef}>
@@ -2133,19 +2249,6 @@ function PageHeader({
                   className="menu-item narrow-only"
                   onClick={() => {
                     setOverflowOpen(false);
-                    togglePrivate();
-                  }}
-                >
-                  {visibility === 'private' ? <Lock size={15} /> : <LockOpen size={15} />}{' '}
-                  {visibility === 'private' ? t('Make it visible to the workspace') : t('Make it private')}
-                </button>
-                {/* The two icons the phone's topbar gave up: a favourite and the
-                    structure panel are both page-level, both occasional, and
-                    both belong in the sheet rather than in a corner. */}
-                <button
-                  className="menu-item narrow-only"
-                  onClick={() => {
-                    setOverflowOpen(false);
                     onToggleFavorite(pageId);
                   }}
                 >
@@ -2159,14 +2262,23 @@ function PageHeader({
                     onToggleStructure();
                   }}
                 >
-                  <PanelRight size={15} />{' '}
-                  {structureOpen ? t('Hide structure') : t('Show structure')}
+                  <PanelRight size={15} /> {structureOpen ? t('Hide structure') : t('Show structure')}
+                </button>
+                <button
+                  className="menu-item narrow-only"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    togglePrivate();
+                  }}
+                >
+                  {visibility === 'private' ? <Lock size={15} /> : <LockOpen size={15} />}{' '}
+                  {visibility === 'private' ? t('Make it visible to the workspace') : t('Make it private')}
                 </button>
                 <button
                   className="menu-item"
                   onClick={() => {
                     setOverflowOpen(false);
-                    setSharesOpen(true);
+                    void openShareDialog('share');
                   }}
                 >
                   <Lock size={15} /> {t('Page access…')}
@@ -2175,7 +2287,7 @@ function PageHeader({
                   className="menu-item narrow-only"
                   onClick={() => {
                     setOverflowOpen(false);
-                    openShare();
+                    void openShareDialog('publish');
                   }}
                 >
                   <Globe size={15} /> {t('Share to web (read-only link)')}
@@ -2199,7 +2311,7 @@ function PageHeader({
                       setOverflowOpen(false);
                     }}
                   >
-                    <Upload size={15} /> Import (.md / .zip)
+                    <Upload size={15} /> {t('Import (.md / .zip)')}
                   </button>
                 )}
                 <div className="menu-sep" />
@@ -2211,7 +2323,7 @@ function PageHeader({
                     setOverflowOpen(false);
                   }}
                 >
-                  <FileText size={15} /> Markdown (.md)
+                  <FileText size={15} /> {t('Markdown (.md)')}
                 </button>
                 <button
                   className="menu-item"
@@ -2330,6 +2442,7 @@ function PageHeader({
                 pageId={pageId}
                 onClose={() => setHistoryOpen(false)}
                 onRestored={onPagesChanged}
+                onOpen={onOpenInNewTab}
               />
             )}
           </div>
@@ -2529,6 +2642,7 @@ function PageHeader({
                 pageId={pageId}
                 parentId={page.parentId}
                 initialProps={page.props}
+                initialLookup={page.lookup}
                 canEdit={canEdit}
                 onOpen={onOpenInNewTab ?? onNavigate}
                 openers={{ onNavigate, onOpenInNewTab }}
@@ -2618,6 +2732,10 @@ interface CollabProps {
   /** Keyboard-navigation region of the owning editor ('content', or 'peek' in
    *  the side panel). Flows through ...rest to BlockContent. */
   regionId: string;
+  comments: Comment[];
+  onCommentSelection: (anchor: CommentAnchor, blockId: string) => void;
+  onCommentOpen: (id: string) => void;
+  onAnchorStatuses: (statuses: Record<string, boolean>) => void;
 }
 
 function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabProps) {
@@ -2789,6 +2907,10 @@ function BlockContent({
   onPagesChanged,
   structureOpen,
   regionId,
+  comments,
+  onCommentSelection,
+  onCommentOpen,
+  onAnchorStatuses,
 }: {
   provider: SaltProvider;
   pageId: string;
@@ -2805,8 +2927,13 @@ function BlockContent({
   onOpenInNewTab: (id: string) => void;
   onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
   onPagesChanged: () => void;
+  comments: Comment[];
+  onCommentSelection: (anchor: CommentAnchor, blockId: string) => void;
+  onCommentOpen: (id: string) => void;
+  onAnchorStatuses: (statuses: Record<string, boolean>) => void;
 }) {
   const aiEnabled = useAiEnabled();
+  const blockNote = blockNoteDictionaries[getLocale()] ?? coreEn;
   const editor = useCreateBlockNote({
     schema: saltSchema,
     collaboration: {
@@ -2820,12 +2947,16 @@ function BlockContent({
     // both, while the same PDF added by an agent did not — the MCP path has
     // always passed a page id.
     uploadFile: (file: File) => api.upload(file, pageId),
-    // Column layout: edge-drop cursor + its dictionary entries.
+    // BlockNote's own words in the interface's language: the hint on an empty
+    // line, its menus, the toolbar. It was always handed English, so a German
+    // interface said "Enter text or type '/' for commands" (#114). Changing the
+    // language remounts the editor, so reading it here is enough; a language
+    // BlockNote does not ship falls back to English, as t() does.
     dictionary: {
-      ...coreEn,
+      ...blockNote,
       // The empty line advertises the one-shot AI panel (AiEmptyLine).
       placeholders: {
-        ...coreEn.placeholders,
+        ...blockNote.placeholders,
         ...(aiEnabled
           ? {
               default: t("Press 'space' for AI or '/' for commands"),
@@ -2932,6 +3063,7 @@ function BlockContent({
       return defaultPasteHandler();
     },
   });
+  useInlineComments(editor, provider, comments, onCommentOpen, onAnchorStatuses);
 
   // Doc undo for the ⋯ menu: BlockNote's own history, announced so the
   // topbar (outside this tree) can offer the buttons beside the collection
@@ -3258,13 +3390,16 @@ function BlockContent({
           },
         ]
       : [];
+    // Groups by the dictionary's own names, so an item of ours joins
+    // BlockNote's section of the same kind in any language instead of opening
+    // a second, English one.
     const custom = [
       ...aiItems,
       {
         title: t('Diagram'),
         subtext: t('A flow chart written as text'),
         aliases: ['diagram', 'diagramm', 'mermaid', 'flow', 'flussdiagramm', 'graph', 'диаграмма', 'схема', 'граф', 'блок-схема'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
-        group: 'Advanced',
+        group: editor.dictionary.slash_menu.table.group,
         icon: <Workflow size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, {
@@ -3276,7 +3411,7 @@ function BlockContent({
         title: t('Columns'),
         subtext: t('Two blocks side by side'),
         aliases: ['columns', 'column', 'spalten', 'nebeneinander', 'колонки', 'столбцы', 'рядом', 'колонка'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
-        group: 'Basic blocks',
+        group: editor.dictionary.slash_menu.paragraph.group,
         icon: <Columns2 size={18} />,
         // Inserted WITH its two children, because an empty columns block is a
         // control strip and nothing else — there would be no column to type in
@@ -3291,44 +3426,44 @@ function BlockContent({
       {
         title: t('Callout'),
         subtext: t('A highlighted note with an emoji'),
-        aliases: ['callout', 'hinweis', 'info', 'warnung', 'выноска', 'заметка', 'подсказка', 'важно'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
-        icon: <span>💡</span>,
+        aliases: ['callout', 'hinweis', 'info', 'warnung', 'выноска', 'заметка', 'подсказка', 'важно'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
+        icon: <Lightbulb size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'callout' } as never),
       },
       {
         title: t('Bookmark / Embed'),
         subtext: t('A link card, or a YouTube/Vimeo player'),
-        aliases: ['bookmark', 'embed', 'link', 'video', 'youtube', 'закладка', 'встроить', 'ссылка', 'видео'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Media',
-        icon: <span>🔖</span>,
+        aliases: ['bookmark', 'embed', 'link', 'video', 'youtube', 'закладка', 'встроить', 'ссылка', 'видео'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.image.group,
+        icon: <Bookmark size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'bookmark' } as never),
       },
       {
         title: t('Embed a collection'),
         subtext: t('Show an existing collection inside the document'),
-        aliases: ['datenbank', 'database', 'db', 'tabelle', 'board', 'kanban', 'база', 'коллекция', 'таблица', 'доска', 'встроить коллекцию'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
-        icon: <span>▦</span>,
+        aliases: ['datenbank', 'database', 'db', 'tabelle', 'board', 'kanban', 'база', 'коллекция', 'таблица', 'доска', 'встроить коллекцию'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
+        icon: <Table2 size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'database' } as never),
       },
       {
         title: t('Table of contents'),
         subtext: t('Auto-generated list of every heading'),
-        aliases: ['toc', 'inhalt', 'inhaltsverzeichnis', 'outline', 'оглавление', 'содержание'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
-        icon: <span>📑</span>,
+        aliases: ['toc', 'inhalt', 'inhaltsverzeichnis', 'outline', 'оглавление', 'содержание'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
+        icon: <List size={18} />,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'toc' } as never),
       },
       {
         title: t('Sub-pages'),
         subtext: t('List of pages below this one'),
-        aliases: ['subpages', 'unterseiten', 'children', 'sub-pages', 'подстраницы', 'дочерние', 'страницы', 'вложенные'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
-        icon: <span>📄</span>,
+        aliases: ['subpages', 'unterseiten', 'children', 'sub-pages', 'подстраницы', 'дочерние', 'страницы', 'вложенные'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
+        icon: <Files size={18} />,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'subpages' } as never),
       },
     ];
@@ -3341,7 +3476,23 @@ function BlockContent({
       ...it,
       aliases: [...(it.aliases ?? []), ...slashAliases(it.title)],
     }));
-    return filterSuggestionItems([...defaults, ...custom], query);
+    const matches = filterSuggestionItems(
+      [
+        ...getDefaultReactSlashMenuItems(editor),
+        ...custom,
+      ],
+      query,
+    );
+    // The menu keys headings by group. Repeated, non-adjacent groups create
+    // duplicate React keys and leave stale headings behind when filtering.
+    // Keep each group contiguous, with the first occurrence defining its order.
+    const groups = new Map<string | undefined, typeof matches>();
+    for (const item of matches) {
+      const group = groups.get(item.group);
+      if (group) group.push(item);
+      else groups.set(item.group, [item]);
+    }
+    return [...groups.values()].flat();
   };
 
   // Page-link menu (shared by the "@" mention trigger and the "[[" wiki-link
@@ -3354,13 +3505,13 @@ function BlockContent({
     const q = query.toLowerCase();
     const matches = [...pagesById.values()]
       .filter((p) => !p.trashed && p.id !== provider.pageId)
-      .filter((p) => (p.title || 'Untitled').toLowerCase().includes(q))
+      .filter((p) => (p.title || t('Untitled')).toLowerCase().includes(q))
       .slice(0, 12);
     const seen = new Set(matches.map((p) => p.id));
     seen.add(provider.pageId);
     const items = matches.map((p) => ({
-      title: p.title || 'Untitled',
-      subtext: p.type === 'collection' ? 'Database' : 'Page',
+      title: p.title || t('Untitled'),
+      subtext: p.type === 'collection' ? t('Collection') : t('Page'),
       onItemClick: () =>
         editor.insertInlineContent([
           { type: 'pageLink', props: { pageId: p.id, label: p.title || 'Untitled' } },
@@ -3402,8 +3553,8 @@ function BlockContent({
     }
     if (query.trim()) {
       items.push({
-        title: `Create "${query.trim()}"`,
-        subtext: 'New page',
+        title: t('Create “{name}”', { name: query.trim() }),
+        subtext: t('New page'),
         onItemClick: async () => {
           try {
             const created = await api.createPage(null, query.trim());
@@ -3757,6 +3908,156 @@ function BlockContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A text drag that leaves the text column must not keep growing: the
+  // browser maps points outside the text to distant block boundaries, so one
+  // overshoot left swallows whole paragraphs up to the document start. And a
+  // mostly-sideways drag with a slight upward drift grabs the blocks above
+  // without ever leaving the column. While a drag that started inside the
+  // text is in flight, a selection change is reverted when either happens:
+  // the pointer is outside the column, or the drag reads as horizontal and
+  // its focus left the block it started in. Deliberate vertical drags (down
+  // to the end, up to the start) are untouched — only the sideways overshoot
+  // is frozen, and the title field never arms this at all.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    let armed = false; // the drag started inside the editable text
+    let pressing = false; // the button/finger is still down
+    let px = 0;
+    let py = 0;
+    let sx = 0;
+    let sy = 0;
+    let havePoint = false;
+    let outOfDoc = false;
+    let startBlock: Element | null = null;
+    let saved: {
+      anchorNode: Node;
+      anchorOffset: number;
+      focusNode: Node;
+      focusOffset: number;
+    } | null = null;
+    let restoring = false;
+
+    const snapshot = (s: Selection) =>
+      s.anchorNode && s.focusNode
+        ? {
+            anchorNode: s.anchorNode,
+            anchorOffset: s.anchorOffset,
+            focusNode: s.focusNode,
+            focusOffset: s.focusOffset,
+          }
+        : null;
+
+    const blockOf = (n: Node | null): Element | null => {
+      if (!n) return null;
+      const el = n instanceof Element ? n : n.parentElement;
+      return el?.closest?.('[data-id]') ?? null;
+    };
+
+    // The pointer is over text when the element under it lives inside
+    // .editor-inner. elementFromPoint (rather than a cached rect) is used so
+    // autoscroll drags, which move the column under a pinned pointer, still
+    // read correctly. No point yet means the click itself, which is inside
+    // by construction — only a move can take the pointer out.
+    const overText = () => {
+      if (outOfDoc || !havePoint) return !outOfDoc;
+      const el = document.elementFromPoint(px, py);
+      return el instanceof Element && !!el.closest('.editor-inner');
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      armed = !!t?.closest?.('[contenteditable="true"]');
+      pressing = armed;
+      havePoint = false;
+      outOfDoc = false;
+      sx = e.clientX;
+      sy = e.clientY;
+      startBlock = null;
+      const s = document.getSelection();
+      saved = s ? snapshot(s) : null;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      px = e.clientX;
+      py = e.clientY;
+      havePoint = true;
+      // Touch/pen moves only fire mid-touch; a mouse move without buttons is
+      // a hover, not a drag.
+      pressing = armed && (e.pointerType !== 'mouse' || e.buttons !== 0);
+    };
+    const end = () => {
+      armed = false;
+      pressing = false;
+    };
+    const onLeaveDoc = () => {
+      outOfDoc = true;
+    };
+    const onEnterDoc = () => {
+      outOfDoc = false;
+    };
+    const onSelectionChange = () => {
+      if (restoring) return;
+      const s = document.getSelection();
+      if (!s || s.rangeCount === 0) return;
+      const col = root.querySelector('.editor-inner');
+      // Someone else's selection (sidebar search, chat input): not ours.
+      if (!col || !s.anchorNode || !col.contains(s.anchorNode)) return;
+      // The caret is the drag's origin — but on a fast fling the caret may
+      // never surface as its own event: the first selectionchange already
+      // shows the jump. So the starting block is taken from the anchor of
+      // the first selection the gesture shows (a flip always passes through
+      // a collapse, which corrects it back to the true origin below).
+      if (s.anchorNode && (s.isCollapsed || !startBlock)) {
+        startBlock = blockOf(s.anchorNode) ?? startBlock;
+      }
+      if (armed && pressing) {
+        // Outside the column: the browser is mapping the point to distant
+        // block boundaries — freeze.
+        // Sideways but still inside: a horizontal drag whose focus left the
+        // starting block is an overshoot, not a multi-block select (those go
+        // up or down, decisively).
+        const dx = px - sx;
+        const dy = py - sy;
+        const sideways = havePoint && !outOfDoc && Math.abs(dx) > 2 * Math.abs(dy);
+        const leftBlock = sideways && !!startBlock && !startBlock.contains(s.focusNode);
+        if (!overText() || leftBlock) {
+          if (saved && saved.anchorNode.isConnected && saved.focusNode.isConnected) {
+            restoring = true;
+            try {
+              s.setBaseAndExtent(saved.anchorNode, saved.anchorOffset, saved.focusNode, saved.focusOffset);
+            } catch {
+              saved = snapshot(s); // nodes detached mid-edit — take the browser's
+            }
+            restoring = false;
+          }
+          return;
+        }
+      }
+      saved = snapshot(s);
+    };
+
+    root.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    window.addEventListener('blur', end);
+    window.addEventListener('keydown', end);
+    document.documentElement.addEventListener('mouseleave', onLeaveDoc);
+    document.documentElement.addEventListener('mouseenter', onEnterDoc);
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => {
+      root.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('blur', end);
+      window.removeEventListener('keydown', end);
+      document.documentElement.removeEventListener('mouseleave', onLeaveDoc);
+      document.documentElement.removeEventListener('mouseenter', onEnterDoc);
+      document.removeEventListener('selectionchange', onSelectionChange);
+    };
+  }, [pageId]);
+
   // The outline sits on an element this component does not render, so it is set
   // rather than expressed in JSX.
   useEffect(() => {
@@ -3980,15 +4281,14 @@ function BlockContent({
                   <NestBlockButton key="nestBlockButton" />
                   <UnnestBlockButton key="unnestBlockButton" />
                   <CreateLinkButton key="createLinkButton" />
+                  <InlineCommentButton editor={editor} provider={provider} onSelect={onCommentSelection} />
                 </FormattingToolbar>
               )}
             />
           </BlockNoteView>
         </BlockContext.Provider>
-        {/* The keyboard bar: inline styles and AI while the caret is in the
-            text, in the one strip a phone keyboard leaves free. */}
-        <MobileEditorBar editor={editor} aiEnabled={aiEnabled} onAskAi={askAi} />
         <AiEmptyLine editor={editor} pageId={pageId} canEdit={canEdit} />
+        <OutlineMinimap editor={editor} />
         {!structureOpen && (
           <Backlinks pageId={provider.pageId} pagesById={pagesById} tagColors={tagColors} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}

@@ -824,16 +824,31 @@ func (s *Server) icsEventsFor(userID, scopeWS, scopeCol, scopeView, feedDateProp
 	}
 
 	name := "salt.md"
+	inScope := func(wsID string) bool {
+		for _, w := range ws {
+			if w == wsID {
+				return true
+			}
+		}
+		return false
+	}
 	if scopeCol != "" {
-		var title string
-		s.db.QueryRow(`SELECT title FROM pages WHERE id = ?`, scopeCol).Scan(&title)
-		if title != "" {
+		// The calendar's NAME is what the subscriber sees in their app, so it
+		// says which collection or workspace this feed is — three feeds called
+		// "salt.md" would be indistinguishable there.
+		//
+		// Only for a collection the subscriber may read. The title was looked
+		// up for any id, so the calendar name gave away the title of any page
+		// on the instance; the rows below were checked, the name was not.
+		var title, colWS string
+		s.db.QueryRow(`SELECT title, workspace_id FROM pages WHERE id = ?`, scopeCol).Scan(&title, &colWS)
+		if title != "" && inScope(colWS) && !s.forbiddenPrivateAncestor(userID, scopeCol, colWS) {
 			name = "salt.md · " + title
 			if viewScoped && viewFound && viewName != "" {
 				name += " · " + viewName
 			}
 		}
-	} else if scopeWS != "" {
+	} else if scopeWS != "" && inScope(scopeWS) {
 		var title string
 		s.db.QueryRow(`SELECT name FROM workspaces WHERE id = ?`, scopeWS).Scan(&title)
 		if title != "" {
@@ -979,7 +994,7 @@ func (s *Server) icsEventsFor(userID, scopeWS, scopeCol, scopeView, feedDateProp
 			// uses — what the view shows is what the feed carries.
 			// A flat filter list is one group (groups are ORed).
 			for offset := 0; ; {
-				list, total, err := s.collectionRowsQuery(feedUser, c.id, [][]rowFilter{viewFilters}, "", 500, offset, time.Time{})
+				list, total, err := s.collectionRowsQuery(feedUser, c.id, viewFilters, nil, "", 500, offset, time.Time{})
 				if err != nil {
 					break
 				}

@@ -423,6 +423,7 @@ body:not(.opt-ws) .cover-ws{display:none}
 .doc-comment{margin:0 0 .8em;font-size:.95em}
 .doc-comment .who{font-weight:600}
 .doc-comment .when{color:#8a8a85;font-size:.85em;margin-left:.4em}
+.doc-comment .quote{display:block;margin:.15em 0;padding-left:.7em;border-left:2px solid #e3e2df;color:#5b5b57}
 
 /* A sheet is a real sheet of paper: fixed size, its own margins, its own foot.
    The document is cut into these by the script below rather than left to the
@@ -525,6 +526,15 @@ func (srv *Server) pageHTML(p *page, printMode bool, o printOptions, pub *pubVie
 	b.WriteString("</title><style>" + style + "</style></head>")
 	b.WriteString(`<body class="` + bodyClass + `">`)
 
+	// A colleague who opened a public link and can edit the page gets one way
+	// out of the read-only view. The href was decided by the handler, which
+	// knows who is asking; an anonymous reader never sees this.
+	if pub != nil && pub.EditHref != "" {
+		b.WriteString(`<a class="pub-edit" href="` + esc(pub.EditHref) + `" target="_blank" rel="noopener">` +
+			`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">` +
+			`<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Edit</a>`)
+	}
+
 	if printMode {
 		b.WriteString(sidePanelHTML())
 	}
@@ -552,11 +562,22 @@ func (srv *Server) pageHTML(p *page, printMode bool, o printOptions, pub *pubVie
 	if len(o.CommentL) > 0 {
 		inner.WriteString(`<section class="doc-comments"><h2>Comments</h2>`)
 		for _, c := range o.CommentL {
-			inner.WriteString(`<p class="doc-comment"><span class="who">` + esc(c.AuthorName) + `</span>`)
+			who := c.AuthorName
+			if c.Agent != "" && c.AgentLabel != "" {
+				who += " via " + c.AgentLabel
+			}
+			inner.WriteString(`<p class="doc-comment"><span class="who">` + esc(who) + `</span>`)
 			if len(c.CreatedAt) >= 10 {
 				inner.WriteString(`<span class="when">` + esc(c.CreatedAt[:10]) + `</span>`)
 			}
-			inner.WriteString("<br>" + esc(c.Body) + "</p>")
+			// Paper has no highlight, so the passage has to say itself what the
+			// comment is about.
+			sep := "<br>"
+			if q := commentQuote(c.Anchor); q != "" {
+				inner.WriteString(`<span class="quote">` + esc(q) + `</span>`)
+				sep = ""
+			}
+			inner.WriteString(sep + esc(c.Body) + "</p>")
 		}
 		inner.WriteString("</section>")
 	}
@@ -564,6 +585,9 @@ func (srv *Server) pageHTML(p *page, printMode bool, o printOptions, pub *pubVie
 	var toc []tocEntry
 	if pub != nil {
 		docHTML = srv.rewriteShareFiles(docHTML, pub.Token)
+		// The cover sits outside docHTML and carries the icon: rewritten here
+		// too, or the page's own <img> asks for the locked /files/ path.
+		icon = srv.rewriteShareFiles(icon, pub.Token)
 		docHTML, toc = addHeadingIDs(docHTML)
 		b.WriteString(pubChrome(view, len(toc) > 0))
 		b.WriteString(`<div class="pub-wrap">`)
@@ -719,12 +743,14 @@ var SALT_TITLE='',SALT_DAY='',SALT_REGION='',SALT_LANG='';
 // German interface in an English browser still writes 10.08.2026 rather than
 // 08/10/2026. Falling back to the browser's own default instead was wrong in
 // exactly that case, which is the common one for anybody who keeps their
-// browser in English.
+// browser in English. The base of the language, not the whole of it: 'zh-Hans'
+// is a catalog, and a zh-TW browser still writes its dates the zh-TW way.
 function saltLocale(){
   if(SALT_REGION)return SALT_REGION;
   var tags=navigator.languages||[navigator.language||''];
   if(SALT_LANG){
-    for(var i=0;i<tags.length;i++)if(tags[i].split('-')[0]===SALT_LANG)return tags[i];
+    var base=SALT_LANG.split('-')[0].toLowerCase();
+    for(var i=0;i<tags.length;i++)if(tags[i].split('-')[0].toLowerCase()===base)return tags[i];
     return SALT_LANG;
   }
   return tags[0]||undefined;

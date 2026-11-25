@@ -2,13 +2,15 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
+import { toast } from '../toast';
 import AiAgentStep, { type AiStep } from './AiAgentStep';
+import AiRunSummary from './AiRunSummary';
 import AiErrorCard from './AiErrorCard';
 import AiMarkdown from './AiMarkdown';
 import AiApprovalSelect, { useApprovalMode } from './AiApprovalSelect';
 import { PageIcon } from '../pageIcon';
 import SheetGrab from './SheetGrab';
-import { FileText, Table2 } from 'lucide-react';
+import { FileText, Table2, ArrowDown, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronRight, CircleHelp, Copy, Globe, Menu, Paperclip, SpellCheck, Plus, Quote, RefreshCw, Search, Sparkles, SquareCheck, Upload, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
 import {
@@ -18,7 +20,7 @@ import {
   renderTextWithMentions,
 } from './aiChatHelpers';
 
-interface Msg { role: string; content: string }
+interface Msg { role: string; content: string; createdAt?: string; runId?: string }
 
 // Floating side panel variant of the chat.
 // Shares threads/messages/steps with the center AiChatView.
@@ -28,7 +30,14 @@ export default function AiChatPanel(props: {
   threads?: AiThread[];
   pagesById?: Map<string, PageMeta>;
   onSelectThread?: (id: string | null) => void;
+  onThreadsChanged?: () => void;
   quote?: string | null;
+  /** A question already phrased by its caller (the Code tab's AI button):
+   *  the composer opens with it instead of an empty box. */
+  draft?: string | null;
+  /** Open above a modal: the caller sits inside one (Process → Code). */
+  raised?: boolean;
+  onDraftConsumed?: () => void;
   onQuoteConsumed?: () => void;
   onClose: () => void;
   onOpenSidebar?: () => void;
@@ -92,6 +101,7 @@ export default function AiChatPanel(props: {
       if (!active) return;
       setThreadId(id);
       setAgentBusy(true);
+      runThreadRef.current = id;
       setRunId(active.id);
       setRunStatus(active.status === 'completed' ? '' : (active.progress || active.status || ''));
       setSteps([]);
@@ -105,6 +115,12 @@ export default function AiChatPanel(props: {
     return () => { alive = false; };
   }, [props.threadId]);
   useEffect(() => { if (props.quote) setQuote(props.quote); }, [props.quote]);
+  // Same for a pre-written task: it lands in the composer once.
+  useEffect(() => {
+    if (!props.draft) return;
+    setInput(props.draft);
+    props.onDraftConsumed?.();
+  }, [props.draft]);
   useEffect(() => {
     api.templates()
       .then((list) => setCollectionTemplates(list.filter((p) => p.type === 'collection' && !p.trashed)))
@@ -135,11 +151,44 @@ export default function AiChatPanel(props: {
     };
   }, [props.pageId, props.pagesById]);
 
-  function onInputChange(v: string) {
+  const draftKey = (t: string | null) => 'salt-ai-draft:p:' + (t ?? 'new');
+  // Composer draft survives thread switches (see AiChatView for the contract).
+  useEffect(() => {
+    try {
+      setInput(localStorage.getItem(draftKey(threadId)) ?? '');
+    } catch { setInput(''); }
+    setMentionQuery(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId]);
+  function clearDraft() {
+    try { localStorage.removeItem(draftKey(threadIdRef.current)); } catch { /* ignore */ }
+  }
+
+  // See AiChatView.mentionQueryAt for the rule: @ counts right before
+  // the caret, anywhere in the text, but not inside a word.
+  function mentionQueryAt(value: string, caret: number | null): string | null {
+    const pos = caret ?? value.length;
+    const before = value.slice(0, pos);
+    const m = before.match(/@([^@\n]{0,60})$/);
+    if (!m) return null;
+    const at = pos - m[0].length;
+    if (at > 0 && !/\s/.test(before[at - 1])) return null;
+    return m[1];
+  }
+
+  function onInputChange(v: string, caret: number | null = null) {
     setInput(v);
-    const m = v.match(/@([^@]{0,60})$/);
-    setMentionQuery(m ? m[1] : null);
+    try { localStorage.setItem(draftKey(threadIdRef.current), v); } catch { /* ignore */ }
+    setMentionQuery(mentionQueryAt(v, caret ?? v.length));
     setMentionIndex(0);
+  }
+
+  function refreshMentionFromCaret() {
+    const el = inputBoxRef.current;
+    if (!el) return;
+    const q = mentionQueryAt(el.value, el.selectionStart ?? el.value.length);
+    setMentionQuery((prev) => (prev === q ? prev : q));
+    if (q === null) setMentionIndex(0);
   }
 
   function mentionMatches(): PageMeta[] {
@@ -153,21 +202,38 @@ export default function AiChatPanel(props: {
 
   function pickMention(p: PageMeta) {
     const title = p.title || t('Untitled');
-    const next = input.replace(/@[^@]{0,60}$/, '@' + title + ' ');
+    const el = inputBoxRef.current;
+    const pos = el?.selectionStart ?? input.length;
+    const before = input.slice(0, pos);
+    const after = input.slice(pos);
+    const replaced = before.replace(/@[^@\n]{0,60}$/, '@' + title + ' ');
+    const next = replaced + after;
     setInput(next);
+    try { localStorage.setItem(draftKey(threadIdRef.current), next); } catch { /* ignore */ }
     setMentionQuery(null);
-    window.setTimeout(() => inputBoxRef.current?.focus(), 0);
+    window.setTimeout(() => {
+      const ta = inputBoxRef.current;
+      if (!ta) return;
+      ta.focus();
+      const caret = replaced.length;
+      try { ta.setSelectionRange(caret, caret); } catch { /* ignore */ }
+    }, 0);
   }
 
   function triggerMentionInInput() {
-    const next = input ? (input.endsWith(' ') ? input + '@' : input + ' @') : '@';
-    onInputChange(next);
+    const el = inputBoxRef.current;
+    const pos = el && document.activeElement === el && el.selectionStart !== null ? el.selectionStart : input.length;
+    const before = input.slice(0, pos);
+    const after = input.slice(pos);
+    const sep = before === '' || /\s$/.test(before) ? '' : ' ';
+    const next = before + sep + '@' + after;
+    const caret = before.length + sep.length + 1;
+    onInputChange(next, caret);
     window.setTimeout(() => {
-      const el = inputBoxRef.current;
-      if (el) {
-        el.focus();
-        el.setSelectionRange(next.length, next.length);
-      }
+      const ta = inputBoxRef.current;
+      if (!ta) return;
+      ta.focus();
+      try { ta.setSelectionRange(caret, caret); } catch { /* ignore */ }
     }, 0);
   }
 
@@ -230,27 +296,44 @@ export default function AiChatPanel(props: {
     if (!quote && !autoQuote) (window as any).CSS?.highlights?.delete('ai-doc-selection');
   }, [quote, autoQuote]);
 
-  const [histSteps, setHistSteps] = useState<AiStep[]>([]);
-  const [histDuration, setHistDuration] = useState<number | null>(null);
+  const [runList, setRunList] = useState<any[]>([]);
   const [traceOpen, setTraceOpen] = useState(false);
   const streamingRef = useRef(false);
 
   useEffect(() => {
+    if (streamingRef.current && runThreadRef.current !== threadId) {
+      streamingRef.current = false;
+      try { readerRef.current?.cancel(); } catch { /* already closed */ }
+      readerRef.current = null;
+      setAgentBusy(false);
+      setRunId(null);
+      setWaitingApproval(false);
+      setSteps([]);
+      setRunStatus('');
+      setPendingQuestion(null);
+    }
     if (!threadId) {
       setMessages([]);
       setSteps([]);
-      setHistSteps([]);
-      setHistDuration(null);
+      setRunList([]);
       setLastError(null);
       setLastRun(null);
       return;
     }
+    setSteps([]);
+    setRunList([]);
+    setLastError(null);
+    setLastRun(null);
+    const myTid = threadId;
+    let alive = true;
     Promise.all([
       api.getAIThreadMessages(threadId).catch(() => [] as Msg[]),
       api.getAIThreadRuns(threadId).catch(() => [] as any[]),
     ]).then(([rawMsgs, runs]) => {
-      if (streamingRef.current) return;
+      if (!alive || threadIdRef.current !== myTid) return;
+      if (streamingRef.current && runThreadRef.current === myTid) return;
       const msgs = [...rawMsgs];
+      setRunList(Array.isArray(runs) ? [...runs].reverse() : []);
       const done = [...runs].reverse().find((run) => run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled');
       if (done && done.status === 'failed') {
         if (msgs.length === 0 || msgs[msgs.length - 1].role !== 'user') {
@@ -263,24 +346,9 @@ export default function AiChatPanel(props: {
         setLastRun(null);
       }
       setMessages(msgs);
-      if (!done) return;
-      if (done.startedAt && done.finishedAt) {
-        const ms = Date.parse(done.finishedAt) - Date.parse(done.startedAt);
-        if (Number.isFinite(ms) && ms >= 0) setHistDuration(ms);
-      }
-      api.getAIRunSteps(done.id).then((st) => {
-        if (Array.isArray(st) && st.length && !streamingRef.current) setHistSteps(st as AiStep[]);
-      }).catch(() => {});
     }).catch(() => {});
+    return () => { alive = false; };
   }, [threadId]);
-
-  function formatDuration(ms: number): string {
-    const s = Math.max(0, Math.round(ms / 1000));
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    if (m < 60) return `${m}m ${s % 60}s`;
-    return `${Math.floor(m / 60)}h ${m % 60}m`;
-  }
 
   function insertIntoPage(markdown: string) {
     window.dispatchEvent(new CustomEvent('salt:ai-insert', {
@@ -336,17 +404,34 @@ export default function AiChatPanel(props: {
 
   const [lastRun, setLastRun] = useState<{ id: string; task: string; status: string; error: string } | null>(null);
   const inputBoxRef = useRef<HTMLTextAreaElement | null>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const syncBackdrop = () => {
+    const ta = inputBoxRef.current;
+    const bd = backdropRef.current;
+    if (ta && bd) { bd.scrollTop = ta.scrollTop; bd.scrollLeft = ta.scrollLeft; }
+  };
+  const threadIdRef = useRef<string | null>(threadId);
+  useEffect(() => { threadIdRef.current = threadId; }, [threadId]);
+  // Thread the live run belongs to (see AiChatView for the contract).
+  const runThreadRef = useRef<string | null>(null);
+  const readerRef = useRef<{ cancel: () => void } | null>(null);
 
-  async function consumeRun(runId: string, threadId: string, fullTask: string) {
+  async function consumeRun(runId: string, myTid: string, fullTask: string) {
     const res = await fetch(`/api/ai/runs/${runId}/events`, { credentials: 'same-origin' });
     if (!res.ok || !res.body) throw new Error('no events');
     const reader = res.body.getReader();
+    readerRef.current = reader as unknown as { cancel: () => void };
+    try {
     const dec = new TextDecoder();
     let buf = '';
     const seen = new Set<string>();
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      if (threadIdRef.current !== myTid) {
+        try { reader.cancel(); } catch { /* already closed */ }
+        return;
+      }
       buf += dec.decode(value, { stream: true });
       const lines = buf.split('\n');
       buf = lines.pop() || '';
@@ -393,15 +478,26 @@ export default function AiChatPanel(props: {
         } catch { /* ignore */ }
       }
     }
-    const msgs = await api.getAIThreadMessages(threadId).catch(() => [] as Msg[]);
+    } finally {
+      if (readerRef.current) readerRef.current = null;
+    }
+    if (threadIdRef.current !== myTid) return;
+    const msgs = await api.getAIThreadMessages(myTid).catch(() => [] as Msg[]);
     if (msgs.length) setMessages(msgs as Msg[]);
+    void api.autoThreadTitle(myTid, false).then((r) => {
+      if (threadIdRef.current === myTid && r && (r as any).generated) props.onThreadsChanged?.();
+    }).catch(() => {});
+    api.getAIThreadRuns(myTid).then((rs) => {
+      if (threadIdRef.current !== myTid) return;
+      if (Array.isArray(rs)) setRunList(rs as any[]);
+    }).catch(() => {});
   }
 
   async function runAsAgent(reuseTask?: string, isRetry = false) {
     if (agentBusy) return;
     const text = (reuseTask ?? input).trim();
     if (!text) return;
-    if (!isRetry) setInput('');
+    if (!isRetry) { setInput(''); clearDraft(); }
     const id = await ensureThread(text);
     if (!id) return;
     if (!isRetry) setMessages((m) => [...m, { role: 'user', content: text }]);
@@ -412,6 +508,7 @@ export default function AiChatPanel(props: {
     setFreeText('');
     qKeyRef.current = '';
     streamingRef.current = true;
+    runThreadRef.current = id;
     setAgentBusy(true);
     setRunStatus(t('Working…'));
     setWaitingApproval(false);
@@ -442,13 +539,18 @@ export default function AiChatPanel(props: {
       setFiles([]);
       await consumeRun(r.id, id, fullTask);
     } catch (err: any) {
-      setLastError(err?.message || t('Run failed'));
-      setRunStatus(t('Run failed'));
+      if (threadIdRef.current === id) {
+        setLastError(err?.message || t('Run failed'));
+        setRunStatus(t('Run failed'));
+      }
     } finally {
-      setAgentBusy(false);
-      setRunId(null);
-      setWaitingApproval(false);
-      streamingRef.current = false;
+      if (runThreadRef.current === id) {
+        runThreadRef.current = null;
+        streamingRef.current = false;
+        setAgentBusy(false);
+        setRunId(null);
+        setWaitingApproval(false);
+      }
     }
   }
 
@@ -477,7 +579,9 @@ export default function AiChatPanel(props: {
     if (!runId) return;
     try {
       await api.approveAIRun(runId, approved);
-    } catch { /* the run will time out on its own */ }
+    } catch (e) {
+      toast((e as Error).message || t('The approval did not reach the agent'));
+    }
   }
 
   async function submitAnswer() {
@@ -487,7 +591,9 @@ export default function AiChatPanel(props: {
     if (parts.length === 0) return;
     try {
       await api.answerAIRun(pendingQuestion.runId, parts.join('; '));
-    } catch { /* the run may have timed out or been cancelled */ }
+    } catch (e) {
+      toast((e as Error).message || t('The answer did not reach the agent'));
+    }
     setPendingQuestion(null);
     setPicked([]);
     setFreeText('');
@@ -506,25 +612,50 @@ export default function AiChatPanel(props: {
   const activeThread = (props.threads || []).find((t) => t.id === threadId);
   const currentPage = props.pageId && props.pagesById ? props.pagesById.get(props.pageId) : undefined;
   const isCollectionPage = currentPage?.type === 'collection';
-  const showZeroState = messages.length === 0 && !agentBusy && steps.length === 0 && histSteps.length === 0 && !lastError;
+  const showZeroState = messages.length === 0 && !agentBusy && steps.length === 0 && !lastError;
 
-  // The trace ("Worked for …") sits ABOVE the answer it produced; while a run
-  // streams there is no answer yet, so it stays below the question.
-  const traceEl = (steps.length > 0 || histSteps.length > 0) ? (
+  // Finished runs attach above the answer they produced (see AiChatView for
+  // the rule); the live trace below stays below the question while streaming.
+  // Each finished run belongs above the answer it produced. New answers
+  // carry their run's id, so the match is exact; older rows (and runs that
+  // produced no answer, like instant failures) fall back to the latest message
+  // the run could have answered — usually its own question.
+  const runTargets = new Map<number, any[]>();
+  {
+    const done = runList.filter(
+      (r) => r && r.finishedAt && (r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled'),
+    );
+    const order = [...done].sort((a, b) => Date.parse(a.finishedAt) - Date.parse(b.finishedAt));
+    const used = new Set<number>();
+    for (const r of order) {
+      let at = messages.findIndex((m) => m.role === 'assistant' && (m as Msg).runId === r.id);
+      if (at < 0) {
+        const end = r.finishedAt as string;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (used.has(i) || !messages[i].createdAt || (messages[i].createdAt as string) > end) continue;
+          at = i;
+          break;
+        }
+      }
+      if (at < 0) at = messages.length;
+      else used.add(at);
+      const list = runTargets.get(at) ?? [];
+      list.push(r);
+      runTargets.set(at, list);
+    }
+  }
+
+  const traceEl = steps.length > 0 ? (
           <div style={{ margin: '6px 0' }}>
             <div className="ai-actions-bar">
               <button className="ai-actions-toggle" onClick={() => setTraceOpen((v) => !v)} type="button">
-                <span style={{ fontSize: 10 }}>{traceOpen ? '▼' : '▶'}</span>
-                <span>
-                  {histDuration !== null && steps.length === 0
-                    ? `${t('Worked for')} ${formatDuration(histDuration)} (${histSteps.length} ${t('steps')})`
-                    : `${t('Agent actions')} (${steps.length > 0 ? steps.length : histSteps.length})`}
-                </span>
+                <span style={{ display: 'inline-flex' }}>{traceOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
+                <span>{t('Agent actions')} ({steps.length})</span>
               </button>
             </div>
             {traceOpen && (
               <div className="ai-actions-list">
-                {(steps.length > 0 ? steps : histSteps).map((s) => <AiAgentStep key={s.id} step={s} />)}
+                {steps.map((s) => <AiAgentStep key={s.id} step={s} />)}
               </div>
             )}
             {runStatus && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{runStatus}</div>}
@@ -539,7 +670,7 @@ export default function AiChatPanel(props: {
   const traceAt = !agentBusy && messages.length > 0 && messages[messages.length - 1].role !== 'user' ? messages.length - 1 : messages.length;
 
   return (
-    <div className="ai-panel" ref={panelRef} style={props.hidden ? { display: 'none' } : undefined}>
+    <div className={'ai-panel' + (props.raised ? ' ai-panel-raised' : '')} ref={panelRef} style={props.hidden ? { display: 'none' } : undefined}>
       <SheetGrab sheet={panelRef} onDismiss={props.onClose} />
       <div className="ai-panel-head">
         <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }} ref={threadMenuRef}>
@@ -554,11 +685,11 @@ export default function AiChatPanel(props: {
               borderRadius: 6, maxWidth: 240,
             }}
           >
-            <span style={{ fontSize: 13 }}>✨</span>
+            <Sparkles size={13} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {activeThread?.title || t('AI')}
             </span>
-            <span style={{ fontSize: 10, opacity: 0.6, flex: 'none' }}>▼</span>
+            <ChevronDown size={10} />
           </button>
           {threadMenuOpen && (
             <div
@@ -595,11 +726,27 @@ export default function AiChatPanel(props: {
             </div>
           )}
         </div>
+        {/* Only next to a chat that exists — see AiChatView. */}
+        {threadId && (
+          <button
+            className="ai-iconbtn ai-newchat-btn"
+            type="button"
+            title={t('New chat')}
+            aria-label={t('New chat')}
+            onClick={() => {
+              setThreadMenuOpen(false);
+              props.onSelectThread?.(null);
+            }}
+          >
+            <Plus size={14} />
+          </button>
+        )}
+        <span style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 4 }}>
           {props.onOpenSidebar && (
-            <button className="ai-iconbtn ai-panel-sidebarbtn" onClick={props.onOpenSidebar} title={t('Menu')} type="button">☰</button>
+            <button className="ai-iconbtn ai-panel-sidebarbtn" onClick={props.onOpenSidebar} title={t('Menu')} type="button"><Menu size={14} /></button>
           )}
-          <button className="ai-iconbtn" onClick={props.onClose} title={t('Close')} type="button">✕</button>
+          <button className="ai-iconbtn" onClick={props.onClose} title={t('Close')} type="button"><X size={14} /></button>
         </div>
       </div>
       <div className="ai-panel-body">
@@ -628,7 +775,7 @@ export default function AiChatPanel(props: {
                     className="ai-zero-item"
                     onClick={() => void runAsAgent(t('Summarize the current collection: group items by status and highlight anything overdue or blocked.'))}
                   >
-                    <span className="ai-zero-badge">📊</span>
+                    <span className="ai-zero-badge"><BarChart3 size={15} /></span>
                     <span className="ai-zero-label">{t('Summarize collection')}</span>
                   </button>
                   <button
@@ -636,7 +783,7 @@ export default function AiChatPanel(props: {
                     className="ai-zero-item"
                     onClick={() => void runAsAgent(t('Analyze this collection for patterns, bottlenecks, and actionable insights.'))}
                   >
-                    <span className="ai-zero-badge">🔍</span>
+                    <span className="ai-zero-badge"><Search size={15} /></span>
                     <span className="ai-zero-label">{t('Analyze for insights')}</span>
                   </button>
                 </>
@@ -647,23 +794,25 @@ export default function AiChatPanel(props: {
                     className="ai-zero-item"
                     onClick={() => void runAsAgent(t('Summarize this page concisely with key takeaways.'))}
                   >
-                    <span className="ai-zero-badge">📝</span>
+                    <span className="ai-zero-badge"><FileText size={15} /></span>
                     <span className="ai-zero-label">{t('Summarize this page')}</span>
                   </button>
                   <button
                     type="button"
                     className="ai-zero-item"
-                    onClick={() => void runAsAgent(t('Translate this page'))}
+                    onClick={() =>
+                      void runAsAgent(t('Fix grammar, spelling, and punctuation on this page. Reply with the corrected text only.'))
+                    }
                   >
-                    <span className="ai-zero-badge">🌐</span>
-                    <span className="ai-zero-label">{t('Translate this page')}</span>
+                    <span className="ai-zero-badge"><SpellCheck size={15} /></span>
+                    <span className="ai-zero-label">{t('Fix grammar')}</span>
                   </button>
                   <button
                     type="button"
                     className="ai-zero-item"
                     onClick={() => void runAsAgent(t('Extract action items and next steps from this page as a checklist.'))}
                   >
-                    <span className="ai-zero-badge">✅</span>
+                    <span className="ai-zero-badge"><SquareCheck size={15} /></span>
                     <span className="ai-zero-label">{t('Extract action items')}</span>
                   </button>
                 </>
@@ -673,7 +822,7 @@ export default function AiChatPanel(props: {
                 className="ai-zero-item"
                 onClick={() => fileRef.current?.click()}
               >
-                <span className="ai-zero-badge">↓</span>
+                <span className="ai-zero-badge"><Paperclip size={14} /></span>
                 <span className="ai-zero-label">{t('Attach file or CSV')}</span>
               </button>
             </div>
@@ -717,7 +866,7 @@ export default function AiChatPanel(props: {
                 className="ai-zero-item"
                 onClick={triggerMentionInInput}
               >
-                <span className="ai-zero-badge" data-tone="plain">↗</span>
+                <span className="ai-zero-badge" data-tone="plain"><ArrowUpRight size={15} /></span>
                 <span className="ai-zero-label">{t('Link workspace page or collection')}</span>
               </button>
             </div>
@@ -726,6 +875,9 @@ export default function AiChatPanel(props: {
         {messages.map((m, i) => (
           <Fragment key={i}>
           {i === traceAt && traceEl}
+          {(runTargets.get(i) ?? []).map((r) => (
+            <AiRunSummary key={r.id} run={r} />
+          ))}
           <div className={m.role === 'user' ? 'ai-msg user' : 'ai-msg assistant'}>
             {m.role === 'user' ? (
               <div className="ai-bubble-user">{renderTextWithMentions(m.content, props.pagesById, true)}</div>
@@ -735,19 +887,19 @@ export default function AiChatPanel(props: {
                 {m.content && (
                   <div className="ai-msg-actions">
                     <button className="ai-iconbtn" onClick={() => copyText(m.content, i)} title={t('Copy')}>
-                      {copiedIdx === i ? '✓' : '⧉'}
+                      {copiedIdx === i ? <Check size={14} /> : <Copy size={14} />}
                     </button>
                     {i === messages.length - 1 && (
                       <button className="ai-iconbtn" onClick={() => {
                         const lu = [...messages].reverse().find((x) => x.role === 'user');
                         if (lu) void runAsAgent(lu.content, true);
                       }} disabled={agentBusy} title={t('Regenerate')}>
-                        ↻
+                        <RefreshCw size={14} />
                       </button>
                     )}
                     {props.pageId && (
                       <button className="ai-iconbtn" onClick={() => insertIntoPage(m.content)} title={t('Insert into page')}>
-                        ⬇
+                        <ArrowDown size={14} />
                       </button>
                     )}
                   </div>
@@ -758,6 +910,9 @@ export default function AiChatPanel(props: {
           </Fragment>
         ))}
         {traceAt >= messages.length && traceEl}
+        {(runTargets.get(messages.length) ?? []).map((r) => (
+          <AiRunSummary key={r.id} run={r} />
+        ))}
         {lastError && (
           <AiErrorCard
             error={lastError}
@@ -767,7 +922,7 @@ export default function AiChatPanel(props: {
         )}
         {pendingQuestion && (
           <div className="ai-question-card">
-            <div className="ai-question-title"><span>❓</span><span>{pendingQuestion.question}</span></div>
+            <div className="ai-question-title"><span><CircleHelp size={15} /></span><span>{pendingQuestion.question}</span></div>
             <div className="ai-question-options">
               {pendingQuestion.options.map((o, idx) => {
                 const on = picked.includes(o.label);
@@ -788,7 +943,7 @@ export default function AiChatPanel(props: {
                       <span className="ai-question-opt-label">{o.label}</span>
                       {o.description && <span className="ai-question-opt-desc">{o.description}</span>}
                     </div>
-                    {on && <span className="ai-question-opt-check">✓</span>}
+                    {on && <span className="ai-question-opt-check"><Check size={13} /></span>}
                   </button>
                 );
               })}
@@ -814,7 +969,7 @@ export default function AiChatPanel(props: {
       {(quote || autoQuote) && (
         <div className="ai-quote" style={{ margin: '0 12px' }}>
           <span style={{ flex: 1, whiteSpace: 'pre-wrap', maxHeight: 60, overflow: 'auto' }}>
-            ❝ {(quote || autoQuote).slice(0, 300)}{(quote || autoQuote).length > 300 ? '…' : ''}
+            <Quote size={13} /> {(quote || autoQuote).slice(0, 300)}{(quote || autoQuote).length > 300 ? '…' : ''}
           </span>
           <button
             className="ai-iconbtn"
@@ -831,7 +986,7 @@ export default function AiChatPanel(props: {
             }}
             title={t('Remove quote')}
           >
-            ×
+            <X size={13} />
           </button>
         </div>
       )}
@@ -839,8 +994,8 @@ export default function AiChatPanel(props: {
         <div style={{ display: 'flex', gap: 6, padding: '8px 12px 0', flexWrap: 'wrap' }}>
           {files.map((f, i) => (
             <span key={i} className="ai-filechip">
-              📎 {f.name}{!f.text ? ` (${t('unreadable')})` : ''}
-              {' '}<button className="ai-iconbtn" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} title={t('Remove')}>×</button>
+              <Paperclip size={13} /> {f.name}{!f.text ? ` (${t('unreadable')})` : ''}
+              {' '}<button className="ai-iconbtn" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} title={t('Remove')}><X size={13} /></button>
             </span>
           ))}
         </div>
@@ -899,8 +1054,8 @@ export default function AiChatPanel(props: {
         <div className="ai-composer">
           <div className="ai-input-wrap">
             {input && (
-              <div className="ai-input-backdrop" aria-hidden="true">
-                {renderTextWithMentions(input, props.pagesById, false)}
+              <div className="ai-input-backdrop" aria-hidden="true" ref={backdropRef}>
+                {input.length > 20000 ? input : renderTextWithMentions(input, props.pagesById, false)}
                 {input.endsWith('\n') ? '\n ' : ''}
               </div>
             )}
@@ -909,10 +1064,15 @@ export default function AiChatPanel(props: {
               className={input ? 'ai-input-mirrored' : undefined}
               value={input}
               rows={2}
+              onScroll={syncBackdrop}
+              onSelect={() => refreshMentionFromCaret()}
+              onKeyUp={() => refreshMentionFromCaret()}
+              onClick={() => refreshMentionFromCaret()}
               onChange={(e) => {
-                onInputChange(e.target.value);
+                onInputChange(e.target.value, e.target.selectionStart);
                 e.target.style.height = 'auto';
                 e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
+                syncBackdrop();
               }}
               onKeyDown={(e) => {
                 if (mentionQuery !== null && mentionMatches().length > 0) {
@@ -984,7 +1144,7 @@ export default function AiChatPanel(props: {
                       triggerMentionInInput();
                     }}
                   >
-                    📄 {t('Mention note (@)')}
+                    <FileText size={14} /> {t('Mention note (@)')}
                   </button>
                   <button
                     type="button"
@@ -993,21 +1153,19 @@ export default function AiChatPanel(props: {
                       fileRef.current?.click();
                     }}
                   >
-                    💻 {t('File from computer')}
+                    <Upload size={14} /> {t('File from computer')}
                   </button>
                 </div>
               )}
             </div>
-            <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.json,.pdf" style={{ display: 'none' }} onChange={(e) => void attachPicked(e)} />
+            <input ref={fileRef} type="file" multiple accept=".txt,.md,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.rtf,.log,.pdf,.docx,.xlsx,.pptx,.odt" style={{ display: 'none' }} onChange={(e) => void attachPicked(e)} />
+            <AiApprovalSelect value={approval} onChange={setApproval} compact />
             <span className="spacer" />
             <button className="ai-send" onClick={() => void runAsAgent()} disabled={agentBusy} title={t('Send')}>{agentBusy ? '…' : '↑'}</button>
             {agentBusy && runId && (
               <button className="ai-iconbtn" onClick={() => { void api.cancelAIRun(runId).catch(() => {}); }} title={t('Cancel')}>■</button>
             )}
           </div>
-        </div>
-        <div style={{ paddingTop: 4 }}>
-          <AiApprovalSelect value={approval} onChange={setApproval} />
         </div>
       </div>
     </div>
