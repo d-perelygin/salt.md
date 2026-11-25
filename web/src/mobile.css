@@ -1492,6 +1492,72 @@ body.tabs-dragging .tabs-sheet-card {
   }
 }
 
+/* --- an account page on a phone -------------------------------------------- */
+
+@media (max-width: 768px) {
+  /* A page, not a dialog: it takes the screen, scrolls as one, and closes by
+     the button in its corner. */
+  .person-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .person-page {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: none;
+    border-radius: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .person-cover {
+    height: 108px;
+    border-radius: 0;
+  }
+
+  .person-head {
+    gap: 12px;
+    margin-top: -38px;
+    padding: 0 16px 4px;
+    flex-wrap: wrap;
+  }
+
+  .person-avatar {
+    width: 78px;
+    height: 78px;
+    font-size: 30px;
+    border-width: 3px;
+  }
+
+  .person-name {
+    font-size: 24px;
+  }
+
+  .person-edit {
+    margin-left: auto;
+  }
+
+  .person-body {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 16px 16px 24px;
+  }
+
+  .person-side {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+
+  .person-close {
+    top: 10px;
+    right: 10px;
+  }
+}
+
 /* --- handles are a phone thing -------------------------------------------- */
 
 /* The page menus, the AI panel, the peek and the structure panel are

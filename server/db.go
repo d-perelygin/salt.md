@@ -644,6 +644,17 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "users", "avatar", `avatar TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate users.avatar: %w", err)
 	}
+	// The second half of a name. `name` stays the legal/known name used in
+	// code and audit lines; a nickname is the informal one people actually
+	// recognise in a person field, and it is what the instance shows by default
+	// (see display_name_mode). Empty means "use the name".
+	if err := ensureColumn(db, "users", "nickname", `nickname TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate users.nickname: %w", err)
+	}
+	// A line or two about the person, shown on their account page.
+	if err := ensureColumn(db, "users", "about", `about TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate users.about: %w", err)
+	}
 	// W96: is this account's email confirmed? Existing accounts (created by
 	// setup, invitation or OAuth) count as confirmed (DEFAULT 1). An email
 	// changed BY THE ACCOUNT ITSELF sets this to 0 — and OAuth only signs in
@@ -721,6 +732,10 @@ func openDB(path string) (*sql.DB, error) {
 		// "" is automatic (off); "on" opens rows in a new tab. Like every
 		// other preference here, a TEXT column where "" means "never decided".
 		{"pref_open_rows_new_tab", `pref_open_rows_new_tab TEXT NOT NULL DEFAULT ''`},
+		// Which of a colleague's two names a person field prints: "" follows
+		// the instance default (display_name_mode), "name" or "nickname" is
+		// this reader's own choice. It changes only the viewer's screen.
+		{"pref_name_display", `pref_name_display TEXT NOT NULL DEFAULT ''`},
 	} {
 		if err := ensureColumn(db, "users", c[0], c[1]); err != nil {
 			return nil, fmt.Errorf("migrate users.%s: %w", c[0], err)

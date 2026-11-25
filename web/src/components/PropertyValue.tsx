@@ -17,6 +17,7 @@ import { t } from '../i18n';
 import { isDesktopPointer } from '../pwa';
 import { imeComposing } from '../keys';
 import { toast } from '../toast';
+import { displayName, useNameDisplay } from '../personName';
 
 interface Props {
   def: PropDef;
@@ -726,8 +727,21 @@ function ChecklistValue({ value, onChange, readOnly, compact }: Props) {
 // person value written as a name (by hand or by an agent) still finds its face.
 // One request per workspace, shared by every cell — a table with 200 person
 // cells must not make 200 calls.
-export type Member = { userId: string; name: string; color: string; avatar: string; handle: string };
+export type Member = {
+  userId: string;
+  name: string;
+  nickname?: string;
+  color: string;
+  avatar: string;
+  handle: string;
+};
 let memberCache: Promise<Member[]> | null = null;
+
+/** Drop the roster cache after a change that alters names (a new nickname),
+ *  so the chips do not keep printing the old one until a reload. */
+export function clearMemberCache(): void {
+  memberCache = null;
+}
 
 export function loadMembers(): Promise<Member[]> {
   if (!memberCache) {
@@ -737,7 +751,14 @@ export function loadMembers(): Promise<Member[]> {
       .then((lists) => {
         const byID = new Map<string, Member>();
         for (const m of lists.flat()) {
-          byID.set(m.userId, { userId: m.userId, name: m.name, color: m.color, avatar: m.avatar, handle: m.handle ?? '' });
+          byID.set(m.userId, {
+            userId: m.userId,
+            name: m.name,
+            nickname: m.nickname ?? '',
+            color: m.color,
+            avatar: m.avatar,
+            handle: m.handle ?? '',
+          });
         }
         return [...byID.values()];
       })
@@ -750,16 +771,22 @@ export function loadMembers(): Promise<Member[]> {
     value an agent wrote as plain text still finds its person; an unknown value
     stays readable text rather than disappearing. */
 export function PersonChip({ raw, members }: { raw: string; members: Member[] }) {
+  // Which name is printed is an account choice; subscribing makes a saved
+  // change show up on the chips already on screen.
+  useNameDisplay();
   const lower = raw.toLowerCase();
-  const hit = members.find((m) => m.userId === raw) ?? members.find((m) => m.name.toLowerCase() === lower);
-  const name = hit?.name ?? raw;
+  const hit =
+    members.find((m) => m.userId === raw) ??
+    members.find((m) => m.name.toLowerCase() === lower) ??
+    members.find((m) => (m.nickname ?? '').toLowerCase() === lower);
+  const name = displayName(hit) || raw;
   return (
-    <span className="prop-person" title={name}>
+    <span className="prop-person" title={hit?.name ?? name}>
       <span
         className="cp-avatar prop-person-av"
         style={{ background: hit?.avatar ? 'transparent' : hit?.color || nameColor(name) }}
       >
-        {hit?.avatar ? <img src={hit.avatar} alt="" /> : initials(name)}
+        {hit?.avatar ? <img src={hit.avatar} alt="" /> : initials(hit?.name ?? name)}
       </span>
       <span className="prop-person-name">{name}</span>
     </span>
@@ -774,6 +801,7 @@ export function PersonChip({ raw, members }: { raw: string; members: Member[] })
  *  field: who is on this card is one question, however many fields answer it.
  *  The name lives in the tooltip; the face is enough to recognise. */
 export function PersonStack({ values, max = 3 }: { values: string[]; max?: number }) {
+  useNameDisplay();
   const [members, setMembers] = useState<Member[]>([]);
   useEffect(() => {
     let alive = true;
@@ -783,38 +811,47 @@ export function PersonStack({ values, max = 3 }: { values: string[]; max?: numbe
     };
   }, []);
 
-  const people: { key: string; name: string; color: string; avatar: string }[] = [];
+  const people: { key: string; name: string; label: string; color: string; avatar: string }[] = [];
   const seen = new Set<string>();
   for (const raw of values) {
     const v = raw.trim();
     if (!v) continue;
     const lower = v.toLowerCase();
-    const hit = members.find((m) => m.userId === v) ?? members.find((m) => m.name.toLowerCase() === lower);
+    const hit =
+      members.find((m) => m.userId === v) ??
+      members.find((m) => m.name.toLowerCase() === lower) ??
+      members.find((m) => (m.nickname ?? '').toLowerCase() === lower);
     const name = hit?.name ?? v;
     // Dedupe on the resolved person: the same human written once as an id and
     // once as a name is one face, not two.
     const key = hit?.userId ?? name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    people.push({ key, name, color: hit?.color || nameColor(name), avatar: hit?.avatar ?? '' });
+    people.push({
+      key,
+      name,
+      label: hit ? displayName(hit) || name : name,
+      color: hit?.color || nameColor(name),
+      avatar: hit?.avatar ?? '',
+    });
   }
   if (people.length === 0) return null;
   const shown = people.slice(0, max);
   const rest = people.slice(max);
   return (
-    <span className="person-stack" title={people.map((p) => p.name).join(', ')}>
+    <span className="person-stack" title={people.map((p) => p.label).join(', ')}>
       {shown.map((p) => (
         <span
           key={p.key}
           className="cp-avatar person-stack-av"
           style={{ background: p.avatar ? 'transparent' : p.color }}
-          title={p.name}
+          title={p.label}
         >
           {p.avatar ? <img src={p.avatar} alt="" /> : initials(p.name)}
         </span>
       ))}
       {rest.length > 0 && (
-        <span className="cp-avatar person-stack-av person-stack-more" title={rest.map((p) => p.name).join(', ')}>
+        <span className="cp-avatar person-stack-av person-stack-more" title={rest.map((p) => p.label).join(', ')}>
           +{rest.length}
         </span>
       )}
@@ -878,8 +915,11 @@ function PersonValue({ def, value, onChange, readOnly, compact }: Props) {
   const pool = def.personPool?.length ? new Set(def.personPool) : null;
   const candidates = pool ? members.filter((m) => pool.has(m.userId)) : members;
   const q = query.trim().toLowerCase();
-  const filtered = candidates.filter((m) => m.name.toLowerCase().includes(q));
-  const holds = (m: Member) => values.includes(m.userId) || values.includes(m.name);
+  const filtered = candidates.filter(
+    (m) => m.name.toLowerCase().includes(q) || (m.nickname ?? '').toLowerCase().includes(q),
+  );
+  const holds = (m: Member) =>
+    values.includes(m.userId) || values.includes(m.name) || (!!m.nickname && values.includes(m.nickname));
   const write = (next: string[]) => {
     if (multiple) onChange!(next.length ? next : null);
     else onChange!(next[0] || null);

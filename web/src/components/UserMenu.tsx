@@ -7,7 +7,7 @@ import { confirm, promptText } from '../dialog';
 import { toast } from '../toast';
 import { useExclusiveModal } from '../modal';
 import { formatMoment, formatRelative } from '../format';
-import { plural, t } from '../i18n';
+import { plural, t, applyPrefs, getPrefs } from '../i18n';
 import { AdminSettingsModal, TwoFAModal, CalendarSubModal } from './AdminSettings';
 import { Key, History, CalendarDays, ShieldCheck, Users, Settings, LogOut, Bot, User as UserIcon, Columns2, Type, Languages, Undo2, Keyboard, SquareArrowOutUpRight, Sun, X } from 'lucide-react';
 import { chordFor } from '../keys';
@@ -15,6 +15,8 @@ import { pagePath } from '../pageUrl';
 import ThemeSwitch, { type ThemePref } from '../ThemeSwitch';
 import { LanguageTimeModal } from './LanguageTime';
 import { RowOpenModal } from './RowOpenSettings';
+import PersonPage from './PersonPage';
+import { clearMemberCache } from './PropertyValue';
 
 export function Avatar({ user, size = 22 }: { user: User; size?: number }) {
   // With an uploaded picture the circle shows the picture, otherwise the
@@ -63,6 +65,9 @@ function ProfileModal({
   onOpen2FA: () => void;
 }) {
   const [name, setName] = useState(user.name);
+  const [nickname, setNickname] = useState(user.nickname ?? '');
+  const [about, setAbout] = useState(user.about ?? '');
+  const [nameDisplay, setNameDisplay] = useState<'name' | 'nickname' | ''>(getPrefs().nameDisplay ?? '');
   const [email, setEmail] = useState(user.email);
   const [color, setColor] = useState(user.color);
   const [avatar, setAvatar] = useState(user.avatar);
@@ -89,14 +94,21 @@ function ProfileModal({
     try {
       const patch: Parameters<typeof api.updateUser>[1] = {};
       if (name.trim() && name !== user.name) patch.name = name.trim();
+      if (nickname.trim() !== (user.nickname ?? '')) patch.nickname = nickname.trim();
+      if (about.trim() !== (user.about ?? '')) patch.about = about.trim();
       if (emailChanged) patch.email = email.trim();
       if (color !== user.color) patch.color = color;
       if (avatar !== user.avatar) patch.avatar = avatar;
       if (pw) patch.password = pw;
       if (needsCurrent) patch.currentPassword = currentPw;
+      if (patch.nickname !== undefined || patch.name !== undefined) clearMemberCache();
       if (Object.keys(patch).length) {
         const updated = await api.updateUser(user.id, patch);
         onChanged(updated);
+      }
+      if (nameDisplay !== (getPrefs().nameDisplay ?? '')) {
+        const stored = await api.putPrefs({ ...getPrefs(), nameDisplay });
+        await applyPrefs(stored);
       }
       onClose();
       if (pw) toast(t('Password changed, other sessions were signed out'));
@@ -140,6 +152,33 @@ function ProfileModal({
           </div>
           <label className="profile-label">{t('Name')}</label>
           <input className="prop-input profile-input" value={name} onChange={(e) => setName(e.target.value)} />
+          <label className="profile-label">{t('Nickname')}</label>
+          <input
+            className="prop-input profile-input"
+            value={nickname}
+            maxLength={40}
+            placeholder={t('What person fields show by default')}
+            onChange={(e) => setNickname(e.target.value)}
+          />
+          <label className="profile-label">{t('About')}</label>
+          <textarea
+            className="prop-input profile-input profile-about"
+            rows={3}
+            maxLength={500}
+            value={about}
+            placeholder={t('A line or two for your account page')}
+            onChange={(e) => setAbout(e.target.value)}
+          />
+          <label className="profile-label">{t('Show people as')}</label>
+          <select
+            className="prop-input profile-input"
+            value={nameDisplay}
+            onChange={(e) => setNameDisplay(e.target.value as 'name' | 'nickname' | '')}
+          >
+            <option value="">{t('Server default')}</option>
+            <option value="nickname">{t('Nickname')}</option>
+            <option value="name">{t('Name')}</option>
+          </select>
           <label className="profile-label">{t('Email')}</label>
           <input className="prop-input profile-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <label className="profile-label">{t('Colour')}</label>
@@ -241,7 +280,7 @@ interface Props {
 
 export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, notesMode, onToggleNotesMode, onOpenShortcuts, fontPref = 'brand', onSetFont, themePref, onSetTheme }: Props) {
   const [open, setOpen] = useState(false);
-  const [modal, setModal] = useState<'users' | 'tokens' | 'activity' | 'twofa' | 'settings' | 'calendar' | 'profile' | 'langtime' | 'rowopen' | null>(null);
+  const [modal, setModal] = useState<'users' | 'tokens' | 'activity' | 'twofa' | 'settings' | 'calendar' | 'profile' | 'person' | 'langtime' | 'rowopen' | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -267,6 +306,9 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
               <span className="agents-label">{t('Agents & MCP')}</span>
             </button>
           )}
+          <button onClick={() => { setOpen(false); setModal('person'); }}>
+            <UserIcon size={16} /> {t('Account page')}
+          </button>
           <button onClick={() => { setOpen(false); setModal('profile'); }}>
             <UserIcon size={16} /> {t('Profile')}
           </button>
@@ -334,6 +376,13 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
             <LogOut size={16} /> {t('Sign out')}
           </button>
         </div>
+      )}
+      {modal === 'person' && (
+        <PersonPage
+          userId={user.id}
+          onClose={() => setModal(null)}
+          onEditSelf={() => setModal('profile')}
+        />
       )}
       {modal === 'profile' && (
         <ProfileModal

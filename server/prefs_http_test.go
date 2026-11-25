@@ -247,3 +247,31 @@ func TestMeCarriesOwnPrefsOnly(t *testing.T) {
 		t.Errorf("/api/me leaked somebody else's zone:\n%s", body)
 	}
 }
+
+// Which of a person's two names a field prints is an account preference, with
+// the instance default as the fallback. The browser cannot read the admin-only
+// settings route, so /api/me carries the default it needs to resolve that.
+func TestNameDisplayPreference(t *testing.T) {
+	s := testServer(t)
+	_, cookie := signedIn(t, s, "a@example.com")
+
+	if rec := putPrefs(t, s, `{"nameDisplay":"nickname"}`, map[string]string{"Cookie": cookie}); rec.Code != http.StatusOK {
+		t.Fatalf("saving the choice: %d %s", rec.Code, rec.Body)
+	}
+	rec := requestAs(t, s, cookie, "GET", "/api/me", "")
+	if !strings.Contains(rec.Body.String(), `"nameDisplay":"nickname"`) {
+		t.Errorf("/api/me does not carry the choice:\n%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"nameDisplayDefault":"nickname"`) {
+		t.Errorf("/api/me does not carry the instance default:\n%s", rec.Body.String())
+	}
+
+	// A value that is not one of the two names is not a third mode: it falls
+	// back to the instance default like an untouched account.
+	if rec := putPrefs(t, s, `{"nameDisplay":"formal"}`, map[string]string{"Cookie": cookie}); rec.Code != http.StatusOK {
+		t.Fatalf("saving junk: %d %s", rec.Code, rec.Body)
+	}
+	if got := s.loadPrefs(""); got.NameDisplay != "" {
+		t.Errorf("empty id resolved to %q", got.NameDisplay)
+	}
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { setFormatLocale, setFormatPrefs } from './format';
+import { setPersonalNameDisplay } from './personName';
 
 // Translation. The English source text IS the key:
 //
@@ -115,6 +116,9 @@ export type Prefs = {
   // Collection rows open in a new tab on a plain click only when the
   // account opted in: 'on'. '' is automatic, which is off.
   openRowsNewTab?: '' | 'on';
+  // Which of a person's two names a person field prints. '' follows the
+  // instance default (nameDisplayDefault on /api/me).
+  nameDisplay?: '' | 'name' | 'nickname';
 };
 
 let prefs: Prefs = {};
@@ -220,6 +224,9 @@ export function automaticFormatTag(p: Prefs = prefs): string {
  *  and the change survives a reload even before /api/me returns. */
 export async function applyPrefs(next: Prefs): Promise<void> {
   prefs = next ?? {};
+  // Person fields read from this on their next render; a saved choice shows
+  // up without a reload.
+  setPersonalNameDisplay(prefs.nameDisplay);
   try {
     localStorage.setItem(CACHE, JSON.stringify(prefs));
     localStorage.removeItem('salt-locale');
@@ -307,6 +314,7 @@ function applyDocumentLanguage(next: string) {
  *  later if they differ. */
 export function initLocale(): Promise<void> {
   prefs = cached();
+  setPersonalNameDisplay(prefs.nameDisplay);
   return setLocale(preferred(prefs));
 }
 

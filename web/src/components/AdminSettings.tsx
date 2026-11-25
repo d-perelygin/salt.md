@@ -61,6 +61,7 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
   });
   const [allowUserWs, setAllowUserWs] = useState(true);
   const [createPersonalWs, setCreatePersonalWs] = useState(true);
+  const [nameMode, setNameMode] = useState<'name' | 'nickname'>('nickname');
   // Agent keys from listed addresses only (server/agent_addresses.go).
   const [agentAddr, setAgentAddr] = useState({ on: false, list: '', anthropic: '' });
   const [aiEnabled, setAiEnabled] = useState(true);
@@ -129,6 +130,7 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
         });
         setAllowUserWs(v.allowUserWorkspaces !== false);
         setCreatePersonalWs(v.createPersonalWorkspaces !== false);
+        setNameMode(v.displayNameMode === 'name' ? 'name' : 'nickname');
         setAgentAddr({ on: v.agentAddressesOn, list: v.agentAddresses, anthropic: v.anthropicAddresses });
         setAiEnabled(v.aiEnabled !== false);
         setAiDefaultBaseUrl(v.aiDefaultBaseUrl || 'https://api.openai.com/v1');
@@ -247,6 +249,7 @@ export function AdminSettingsModal({ onClose, aiDisabled }: { onClose: () => voi
         pdfLandscape: pdf.landscape,
         allowUserWorkspaces: allowUserWs,
         createPersonalWorkspaces: createPersonalWs,
+        displayNameMode: nameMode,
         agentAddressesOn: agentAddr.on,
         agentAddresses: agentAddr.list,
         aiEnabled,
@@ -449,6 +452,21 @@ ingress:
                     <p className="dialog-hint settings-hint">
                       {t(
                         'Off: new users join existing workspaces only. On (default): each new user gets their own personal workspace and becomes its admin.',
+                      )}
+                    </p>
+
+                    <label>{t('In person fields, show')}</label>
+                    <select
+                      className="prop-select"
+                      value={nameMode}
+                      onChange={(e) => setNameMode(e.target.value as 'name' | 'nickname')}
+                    >
+                      <option value="nickname">{t('Nickname (fall back to the name)')}</option>
+                      <option value="name">{t('Name')}</option>
+                    </select>
+                    <p className="dialog-hint settings-hint">
+                      {t(
+                        'The default everywhere a person appears, Owner columns included. Each account may choose differently for its own screen in its profile.',
                       )}
                     </p>
 

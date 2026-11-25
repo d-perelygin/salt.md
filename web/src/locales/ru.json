@@ -1922,5 +1922,26 @@
     "other": "{n} правила"
   },
   "People are written by their handle, like @ada-lovelace. Renaming an account does not touch this code; the rules above still show their name.": "Люди в коде записываются по handle, например @ada-lovelace. Переименование аккаунта этот код не трогает; в правилах выше по-прежнему видно имя.",
-  "Reorder": "Переставить"
+  "Reorder": "Переставить",
+  "Nickname": "Никнейм",
+  "What person fields show by default": "Что показывать в полях людей по умолчанию",
+  "About": "О себе",
+  "A line or two for your account page": "Пара строк для страницы аккаунта",
+  "Show people as": "Показывать людей как",
+  "Server default": "Как на сервере",
+  "In person fields, show": "В полях людей показывать",
+  "Nickname (fall back to the name)": "Никнейм (иначе имя)",
+  "The default everywhere a person appears, Owner columns included. Each account may choose differently for its own screen in its profile.": "Значение по умолчанию везде, где появляется человек, включая колонку «Ответственный». Каждый аккаунт может выбрать своё для своего экрана в профиле.",
+  "Account page": "Страница аккаунта",
+  "You": "Вы",
+  "Edit profile": "Редактировать профиль",
+  "Recent activity": "Последняя активность",
+  "Edited": "Изменено",
+  "Nothing yet.": "Пока ничего.",
+  "No pages yet.": "Пока нет страниц.",
+  "Empty": "Пусто",
+  "Membership type": "Тип членства",
+  "Account": "Аккаунт",
+  "This account is not available.": "Этот аккаунт недоступен.",
+  "None": "Нет"
 }

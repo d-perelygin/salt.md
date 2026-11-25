@@ -26,12 +26,14 @@ func sessionCookieValue(r *http.Request) (string, bool) {
 }
 
 type user struct {
-	ID      string `json:"id"`
-	Email   string `json:"email"`
-	Name    string `json:"name"`
-	Color   string `json:"color"`
-	Avatar  string `json:"avatar"`
-	IsAdmin bool   `json:"isAdmin"`
+	ID       string `json:"id"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Nickname string `json:"nickname,omitempty"`
+	About    string `json:"about,omitempty"`
+	Color    string `json:"color"`
+	Avatar   string `json:"avatar"`
+	IsAdmin  bool   `json:"isAdmin"`
 	// Disabled: deactivated — no sign-in, no session, but everything stays
 	// attributable. The normal case when somebody leaves (see
 	// lifecycle_account.go).
@@ -142,9 +144,9 @@ func (s *Server) createSession(userID string) (string, error) {
 func (s *Server) userByID(id string) *user {
 	var u user
 	var isAdmin, disabled, aiDisabled int
-	err := s.db.QueryRow(`SELECT u.id, u.email, u.name, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
+	err := s.db.QueryRow(`SELECT u.id, u.email, u.name, u.nickname, u.about, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
 		FROM users u LEFT JOIN org_members m ON m.user_id = u.id WHERE u.id = ?`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole)
+		Scan(&u.ID, &u.Email, &u.Name, &u.Nickname, &u.About, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole)
 	if err != nil {
 		return nil
 	}
@@ -327,6 +329,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"prefs":               prefs,
 		"version":             Version,
 		"allowUserWorkspaces": s.loadSettings().AllowUserWorkspaces,
+		// The instance default for person fields, so a browser can resolve its
+		// own preference without the admin-only settings route.
+		"nameDisplayDefault": s.displayNameMode(),
 		"aiEnabled":           s.aiEnabledForUser(u),
 	})
 }
@@ -520,7 +525,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.Query(`SELECT u.id, u.email, u.name, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
+	rows, err := s.db.Query(`SELECT u.id, u.email, u.name, u.nickname, u.about, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
 		FROM users u LEFT JOIN org_members m ON m.user_id = u.id ORDER BY u.created_at`)
 	if err != nil {
 		httpError(w, 500, err.Error())
@@ -531,7 +536,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u user
 		var isAdmin, disabled, aiDisabled int
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Nickname, &u.About, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole); err != nil {
 			httpError(w, 500, err.Error())
 			return
 		}
@@ -622,6 +627,8 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Name            *string `json:"name"`
+		Nickname        *string `json:"nickname"`
+		About           *string `json:"about"`
 		Email           *string `json:"email"`
 		Color           *string `json:"color"`
 		Avatar          *string `json:"avatar"`
@@ -702,6 +709,21 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "invalid color")
 		return
 	}
+	var newNickname, newAbout string
+	if body.Nickname != nil {
+		newNickname = strings.TrimSpace(*body.Nickname)
+		if len([]rune(newNickname)) > 40 || strings.ContainsAny(newNickname, "\n\r") {
+			httpError(w, 400, "a nickname is one line of at most 40 characters")
+			return
+		}
+	}
+	if body.About != nil {
+		newAbout = strings.TrimSpace(*body.About)
+		if len([]rune(newAbout)) > 500 {
+			httpError(w, 400, "the about line is at most 500 characters")
+			return
+		}
+	}
 	if body.Password != nil && len(*body.Password) < 8 {
 		httpError(w, 400, "password must be at least 8 characters")
 		return
@@ -745,6 +767,12 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		if nn := strings.TrimSpace(*body.Name); nn != oldName {
 			s.rewriteMemberInCode(id, oldName, nn, me.ID, me.Name)
 		}
+	}
+	if body.Nickname != nil {
+		s.db.Exec(`UPDATE users SET nickname = ? WHERE id = ?`, newNickname, id)
+	}
+	if body.About != nil {
+		s.db.Exec(`UPDATE users SET about = ? WHERE id = ?`, newAbout, id)
 	}
 	if body.Color != nil {
 		s.db.Exec(`UPDATE users SET color = ? WHERE id = ?`, *body.Color, id)

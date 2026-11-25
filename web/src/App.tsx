@@ -43,6 +43,7 @@ import PullToRefresh from './components/PullToRefresh';
 import Logo from './Logo';
 import ThemeSwitch, { type ThemePref } from './ThemeSwitch';
 import { applyPrefs, plural, t } from './i18n';
+import { setServerNameDisplay } from './personName';
 import { isTypingTarget, useShortcut } from './keys';
 import { focusKey, useNavEntry } from './nav';
 import {
@@ -713,6 +714,7 @@ export default function App() {
         // had the localStorage cache to go on, which is a copy and may be
         // stale — somebody who changed the language on their phone gets it
         // here too, one frame later (W112).
+        setServerNameDisplay(m.nameDisplayDefault);
         if (m.authenticated && m.prefs) void applyPrefs(m.prefs);
         if (m.version && m.version !== BUILD_VERSION) {
           toast(t('A new version is available: reload the page'));

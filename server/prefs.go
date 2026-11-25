@@ -50,6 +50,9 @@ type userPrefs struct {
 	// opted in. There is no "off", because it would be a third state meaning
 	// the same as "".
 	OpenRowsNewTab string `json:"openRowsNewTab"`
+	// "" follows the instance (display_name_mode); otherwise "name" or
+	// "nickname". This only changes what THIS reader sees in a person field.
+	NameDisplay string `json:"nameDisplay"`
 }
 
 var (
@@ -89,6 +92,7 @@ func normalizePrefs(p userPrefs) userPrefs {
 		Clock:          strings.TrimSpace(p.Clock),
 		WeekStart:      strings.ToLower(strings.TrimSpace(p.WeekStart)),
 		OpenRowsNewTab: strings.TrimSpace(p.OpenRowsNewTab),
+		NameDisplay:    strings.TrimSpace(p.NameDisplay),
 	}
 	if !rxLanguage.MatchString(out.Language) {
 		out.Language = ""
@@ -109,6 +113,11 @@ func normalizePrefs(p userPrefs) userPrefs {
 	}
 	if out.OpenRowsNewTab != "on" {
 		out.OpenRowsNewTab = ""
+	}
+	switch out.NameDisplay {
+	case "name", "nickname":
+	default:
+		out.NameDisplay = ""
 	}
 	return out
 }
@@ -133,15 +142,16 @@ func languageCase(tag string) string {
 func (s *Server) loadPrefs(userID string) userPrefs {
 	var p userPrefs
 	s.db.QueryRow(`SELECT pref_language, pref_region, pref_timezone, pref_clock, pref_week_start,
-		pref_open_rows_new_tab FROM users WHERE id = ?`, userID).
-		Scan(&p.Language, &p.Region, &p.TimeZone, &p.Clock, &p.WeekStart, &p.OpenRowsNewTab)
+		pref_open_rows_new_tab, pref_name_display FROM users WHERE id = ?`, userID).
+		Scan(&p.Language, &p.Region, &p.TimeZone, &p.Clock, &p.WeekStart, &p.OpenRowsNewTab, &p.NameDisplay)
 	return p
 }
 
 func (s *Server) savePrefs(userID string, p userPrefs) error {
 	_, err := s.db.Exec(`UPDATE users SET pref_language = ?, pref_region = ?,
-		pref_timezone = ?, pref_clock = ?, pref_week_start = ?, pref_open_rows_new_tab = ? WHERE id = ?`,
-		p.Language, p.Region, p.TimeZone, p.Clock, p.WeekStart, p.OpenRowsNewTab, userID)
+		pref_timezone = ?, pref_clock = ?, pref_week_start = ?, pref_open_rows_new_tab = ?,
+		pref_name_display = ? WHERE id = ?`,
+		p.Language, p.Region, p.TimeZone, p.Clock, p.WeekStart, p.OpenRowsNewTab, p.NameDisplay, userID)
 	return err
 }
 

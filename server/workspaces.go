@@ -930,8 +930,10 @@ func normalizeRole(r string) string {
 type memberJSON struct {
 	UserID string `json:"userId"`
 	Name   string `json:"name"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
+	// The informal name a person field prints by default (see display_name_mode).
+	Nickname string `json:"nickname,omitempty"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
 	// Colour and picture travel too, so a person property can show the same
 	// face the presence dots and the comments already show. Nothing new is
 	// disclosed: both are visible to fellow members wherever a person appears.
@@ -951,7 +953,7 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.db.Query(`
-		SELECT u.id, u.name, u.email, m.role, COALESCE(u.color, ''), COALESCE(u.avatar, ''), COALESCE(u.handle, '')
+		SELECT u.id, u.name, COALESCE(u.nickname, ''), u.email, m.role, COALESCE(u.color, ''), COALESCE(u.avatar, ''), COALESCE(u.handle, '')
 		FROM workspace_members m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.workspace_id = ? ORDER BY m.role, u.name`, wsID)
@@ -963,7 +965,7 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 	list := []memberJSON{}
 	for rows.Next() {
 		var m memberJSON
-		rows.Scan(&m.UserID, &m.Name, &m.Email, &m.Role, &m.Color, &m.Avatar, &m.Handle)
+		rows.Scan(&m.UserID, &m.Name, &m.Nickname, &m.Email, &m.Role, &m.Color, &m.Avatar, &m.Handle)
 		list = append(list, m)
 	}
 	writeJSON(w, list)

@@ -3159,6 +3159,22 @@ body:has(.icon-picker) .bn-side-menu {
   font-weight: 500;
 }
 
+/* The name on a roster row opens the account page; it reads as text until
+   hovered, the way a name does everywhere else. */
+.user-row-name-btn {
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.user-row-name-btn:hover {
+  text-decoration: underline;
+}
+
 .user-row-email {
   color: var(--muted);
   font-size: 12.5px;
@@ -13111,6 +13127,321 @@ a,
 }
 
 /* ---------- W97: profile 2FA row, password errors, user management ---------- */
+
+.profile-about {
+  resize: vertical;
+  min-height: 62px;
+  font: inherit;
+}
+
+/* ---------- an account page ------------------------------------------------ */
+
+/* The view behind a name: cover, face, the two names, their activity and the
+   workspaces you share. A full page rather than a dialog — it is a place, and
+   opening pages from it should not lose your spot in another dialog. */
+.person-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 340;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.person-page {
+  position: relative;
+  width: min(980px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 32px 80px -32px rgba(0, 0, 0, 0.7);
+}
+
+.person-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  background: var(--card);
+}
+
+.person-cover {
+  height: 148px;
+  border-radius: 15px 15px 0 0;
+  overflow: hidden;
+}
+
+.person-cover-fade {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.05) 35%, rgba(0, 0, 0, 0.38) 100%);
+}
+
+.person-head {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 0 32px 6px;
+  margin-top: -46px;
+}
+
+.person-avatar {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  font-weight: 600;
+  color: #fff;
+  border: 4px solid var(--bg);
+  overflow: hidden;
+}
+
+.person-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.person-head-text {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.person-name {
+  margin: 0;
+  font-size: clamp(24px, 3.6vw, 32px);
+  line-height: 1.15;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.person-you {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.person-nick {
+  margin-top: 2px;
+  color: var(--accent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+}
+
+.person-about-lead {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.person-edit {
+  flex: none;
+  margin-bottom: 4px;
+}
+
+.person-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 36px;
+  padding: 22px 32px 34px;
+}
+
+.person-section-title,
+.person-side-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: none;
+}
+
+.person-section-title:not(:first-child) {
+  margin-top: 26px;
+}
+
+.person-activity {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.person-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 13.5px;
+  color: var(--fg);
+  border-bottom: 1px solid var(--border);
+}
+
+.person-activity-row:last-child {
+  border-bottom: none;
+}
+
+.person-activity-row:hover {
+  background: var(--hover);
+}
+
+.person-activity-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.person-activity-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.person-activity-title {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.person-activity-time {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.person-pages {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.person-page-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--fg);
+}
+
+.person-page-card:hover {
+  background: var(--hover);
+}
+
+.person-page-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.person-side {
+  border-left: 1px solid var(--border);
+  padding-left: 28px;
+}
+
+.person-side-title {
+  margin-top: 20px;
+}
+
+.person-side-title:first-child {
+  margin-top: 0;
+}
+
+.person-side-text {
+  margin: 0;
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+.person-side-text a {
+  color: var(--accent);
+}
+
+.person-side-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.person-role {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--active);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.person-role.is-owner {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.person-workspaces {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13.5px;
+}
+
+.person-workspaces li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.person-ws-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.person-ws-role {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.person-empty {
+  padding: 28px;
+  text-align: center;
+}
+
+@media (max-width: 780px) {
+  .person-body {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .person-side {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+}
 
 .profile-2fa-row {
   display: flex;

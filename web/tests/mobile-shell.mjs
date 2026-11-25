@@ -284,6 +284,22 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await p.locator('.sidebar-account .user-menu-btn').click();
   await eventually(async () => (await p.locator('.user-menu-popup').count()) === 0);
 
+  await p.locator('.sidebar-account .user-menu-btn').click();
+  await eventually(async () => (await p.locator('.user-menu-popup').count()) === 1);
+  // The account page is a page: on a phone it takes the screen and closes by
+  // its own button, not a sheet that leaves a strip of the page behind.
+  await p.getByRole('button', { name: 'Account page' }).click();
+  await eventually(async () => (await p.locator('.person-page').count()) === 1);
+  const personBox = await p.locator('.person-page').boundingBox();
+  assert(personBox && personBox.width === 390, `the account page spans the phone (${personBox?.width})`);
+  assert(personBox.height >= 840, `and takes its height (${personBox?.height})`);
+  await p.locator('.person-close').click();
+  await eventually(async () => (await p.locator('.person-page').count()) === 0);
+  // A modal opening folds the drawer away on purpose; back to it for the drag.
+  await slots.nth(0).click();
+  await eventually(async () => (await p.locator('.sidebar.open').count()) === 1);
+  await p.waitForTimeout(320); // the drawer slides in before its rows can be hit
+
   // --- carrying a row with a finger ---------------------------------------
   // HTML5 drag never starts on a phone, so the same move is a hold: the row
   // lifts after ~300 ms, follows the finger and lands by the same rules the

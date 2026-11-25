@@ -60,6 +60,36 @@ await withFixture(async ({ page, api, workspace, path, read }) => {
   await eventually(async () => (await team()) === ana.id);
   await page.locator('.relation-menu').waitFor({ state: 'hidden' });
 
+  // --- a person's two names ------------------------------------------------
+  // The instance default is the nickname; a reader may choose the formal name
+  // for their own screen. Neither changes what the account's record says.
+  await api('PATCH', `/api/users/${ana.id}`, { nickname: 'Annie' });
+  const me = await api('GET', '/api/me');
+  const setDisplay = (nameDisplay) => api('PUT', '/api/me/prefs', { ...me.prefs, nameDisplay });
+  await setDisplay('nickname');
+  await page.reload();
+  await cell().waitFor();
+  await eventually(async () => (await cell().innerText()).includes('Annie'));
+  await setDisplay('name');
+  await page.reload();
+  await cell().waitFor();
+  await eventually(async () => {
+    const text = await cell().innerText();
+    return text.includes('Ana') && !text.includes('Annie');
+  });
+
+  // --- the account page ----------------------------------------------------
+  await page.locator('.user-menu-btn').first().click();
+  await page.getByRole('button', { name: 'Account page' }).click();
+  await page.locator('.person-page').waitFor();
+  assert.match(await page.locator('.person-name').innerText(), /Browser Tester \(You\)/);
+  const side = await page.locator('.person-side').innerText();
+  assert(side.includes('browser@example.test'), 'the account page shows the email');
+  assert(side.includes('Membership type'), 'and the instance role');
+  assert.equal(await page.locator('.person-close').count(), 1);
+  await page.locator('.person-close').click();
+  await eventually(async () => (await page.locator('.person-page').count()) === 0);
+
   // And the setting itself, from the Properties dialog.
   await page.getByRole('button', { name: 'Properties', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Several people' }).check();

@@ -246,6 +246,9 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 	m.HandleFunc("POST /api/2fa/disable", s.auth(s.sessionOnly(s.handle2FADisable)))
 
 	m.HandleFunc("GET /api/users", s.adminOnly(s.handleListUsers))
+	// An account's own page: visible to the people who share a workspace with
+	// them (see people.go).
+	m.HandleFunc("GET /api/people/{id}", s.auth(s.handlePersonProfile))
 	m.HandleFunc("GET /licenses", s.handleLicenses)
 	m.HandleFunc("POST /api/admin/audit-prune", s.adminOnly(s.handleAuditPrune))
 	m.HandleFunc("GET /api/admin/access", s.adminOnly(s.handleAccessOverview))

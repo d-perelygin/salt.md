@@ -1877,5 +1877,26 @@
     "other": "{n} Regeln"
   },
   "People are written by their handle, like @ada-lovelace. Renaming an account does not touch this code; the rules above still show their name.": "Personen werden über ihren Handle geschrieben, etwa @ada-lovelace. Ein Kontowechsel des Namens lässt diesen Code unberührt; die Regeln oben zeigen weiterhin den Namen.",
-  "Reorder": "Neu anordnen"
+  "Reorder": "Neu anordnen",
+  "Nickname": "Nickname",
+  "What person fields show by default": "Was Personenfelder standardmäßig zeigen",
+  "About": "Über",
+  "A line or two for your account page": "Ein oder zwei Zeilen für deine Kontoseite",
+  "Show people as": "Personen anzeigen als",
+  "Server default": "Serverstandard",
+  "In person fields, show": "In Personenfeldern anzeigen",
+  "Nickname (fall back to the name)": "Nickname (sonst der Name)",
+  "The default everywhere a person appears, Owner columns included. Each account may choose differently for its own screen in its profile.": "Der Standard überall, wo eine Person erscheint, auch in der Spalte „Verantwortlich“. Jedes Konto kann das für den eigenen Bildschirm im Profil ändern.",
+  "Account page": "Kontoseite",
+  "You": "Du",
+  "Edit profile": "Profil bearbeiten",
+  "Recent activity": "Letzte Aktivität",
+  "Edited": "Bearbeitet",
+  "Nothing yet.": "Noch nichts.",
+  "No pages yet.": "Noch keine Seiten.",
+  "Empty": "Leer",
+  "Membership type": "Mitgliedschaft",
+  "Account": "Konto",
+  "This account is not available.": "Dieses Konto ist nicht verfügbar.",
+  "None": "Keine"
 }

@@ -129,6 +129,10 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  /** The informal name a person field prints by default; empty = use `name`. */
+  nickname?: string;
+  /** A line or two for the account page. */
+  about?: string;
   color: string;
   avatar: string;
   isAdmin: boolean;
@@ -149,9 +153,33 @@ export interface Me {
   allowUserWorkspaces?: boolean;
   /** Whether AI features are active for the current session (instance + user). */
   aiEnabled?: boolean;
+  /** The instance default for person fields: "nickname" (a nickname when the
+   *  account has one) or "name". A browser may override it per account
+   *  (prefs.nameDisplay). */
+  nameDisplayDefault?: 'name' | 'nickname';
   /** Language and time preferences of this account (W112). Empty fields mean
    *  automatic — see server/prefs.go. */
   prefs?: Prefs;
+}
+
+/** One person's account page (see server/people.go). Visible to the people who
+ *  share a workspace with them. */
+export interface PersonProfile {
+  user: {
+    id: string;
+    name: string;
+    nickname?: string;
+    about?: string;
+    email: string;
+    color: string;
+    avatar: string;
+    orgRole?: string;
+    handle?: string;
+  };
+  isYou: boolean;
+  workspaces: { id: string; name: string; role: string }[];
+  recent: { id: string; title: string; icon: string; at: string }[];
+  pages: { id: string; title: string; icon: string; type: string }[];
 }
 
 /** An outbound webhook: salt.md calls this URL when something happens, so

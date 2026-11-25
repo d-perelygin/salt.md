@@ -153,6 +153,9 @@ type appSettings struct {
 	// W97: may non-admins create workspaces of their own (and become their
 	// admin)? Default yes — that is how it was; the switch gives control.
 	AllowUserWorkspaces bool `json:"allowUserWorkspaces"`
+	// Which of a person's names person fields print by default: "nickname" or
+	// "name". Each account may override it for their own screen (prefs.go).
+	DisplayNameMode string `json:"displayNameMode"`
 	// Create personal workspace for new users upon onboarding? Default yes.
 	CreatePersonalWorkspaces bool `json:"createPersonalWorkspaces"`
 	// Agent keys from listed addresses only (agent_addresses.go). The
@@ -168,12 +171,25 @@ type appSettings struct {
 	AIInstanceKeySet   bool   `json:"aiInstanceKeySet"`
 }
 
+const settingDisplayNameMode = "display_name_mode"
+
+// displayNameMode is the instance default for person fields: the nickname when
+// an account has one, unless the instance asks for the formal name. Each
+// account may override it for its own screen (prefs.go).
+func (s *Server) displayNameMode() string {
+	if s.setting(settingDisplayNameMode, "nickname") == "name" {
+		return "name"
+	}
+	return "nickname"
+}
+
 func (s *Server) loadSettings() appSettings {
 	res := appSettings{
 		InstanceName:             s.setting("instance_name", ""),
 		SignupMode:               s.setting("signup_mode", "invite"),
 		AllowedDomains:           s.setting("allowed_domains", ""),
 		AllowUserWorkspaces:      s.setting("allow_user_workspaces", "1") != "0",
+		DisplayNameMode:          s.displayNameMode(),
 		CreatePersonalWorkspaces: s.setting("create_personal_workspaces", "1") != "0",
 		AIEnabled:                s.setting("ai_enabled", "1") == "1",
 		AIDefaultBaseURL:         s.setting("ai_default_base_url", "https://api.openai.com/v1"),
@@ -268,6 +284,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		OIDCSecret               *string `json:"oidcClientSecret"`
 		OIDCName                 *string `json:"oidcName"`
 		AllowUserWorkspaces      *bool   `json:"allowUserWorkspaces"`
+		DisplayNameMode          *string `json:"displayNameMode"`
 		CreatePersonalWorkspaces *bool   `json:"createPersonalWorkspaces"`
 		AgentAddressesOn         *bool   `json:"agentAddressesOn"`
 		AgentAddresses           *string `json:"agentAddresses"`
@@ -340,6 +357,12 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			v = "0"
 		}
 		s.setSetting("allow_user_workspaces", v)
+	}
+	if body.DisplayNameMode != nil {
+		switch *body.DisplayNameMode {
+		case "name", "nickname":
+			s.setSetting(settingDisplayNameMode, *body.DisplayNameMode)
+		}
 	}
 	if body.CreatePersonalWorkspaces != nil {
 		v := "1"

@@ -8,6 +8,7 @@ import type {
   OAuthGrant,
   Page,
   PageMeta,
+  PersonProfile,
   PublicFormConfig,
   PublicCollectionConfig,
   SaltFile,
@@ -162,6 +163,7 @@ export const api = {
       trustProxy: boolean;
       allowUserWorkspaces: boolean;
       createPersonalWorkspaces: boolean;
+      displayNameMode: 'name' | 'nickname';
       agentAddressesOn: boolean;
       agentAddresses: string;
       anthropicAddresses: string;
@@ -341,6 +343,7 @@ export const api = {
     req<{ enabled: boolean }>('/api/2fa/disable', { method: 'POST', body: JSON.stringify({ code }) }),
 
   listUsers: () => req<User[]>('/api/users'),
+  getPerson: (id: string) => req<PersonProfile>(`/api/people/${id}`),
   accessOverview: () =>
     req<{ workspaces: { id: string; name: string }[]; memberships: { userId: string; workspaceId: string; role: string }[] }>('/api/admin/access'),
   setMembership: (userId: string, workspaceId: string, role: string) =>
@@ -360,7 +363,7 @@ export const api = {
     req<{ ok: boolean }>(`/api/workspaces/${workspaceId}/break-glass/${grantId}`, { method: 'DELETE' }),
   createUser: (u: { name: string; email: string; password: string; isAdmin: boolean; workspaces?: { id: string; role: string }[] }) =>
     req<User>('/api/users', { method: 'POST', body: JSON.stringify(u) }),
-  updateUser: (id: string, patch: Partial<{ name: string; email: string; color: string; avatar: string; password: string; currentPassword: string; isAdmin: boolean; aiDisabled: boolean }>) =>
+  updateUser: (id: string, patch: Partial<{ name: string; nickname: string; about: string; email: string; color: string; avatar: string; password: string; currentPassword: string; isAdmin: boolean; aiDisabled: boolean }>) =>
     req<User>(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteUser: (id: string) => req<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
   // Lifecycle (W105): consequences before deletion, deactivation as the normal
@@ -766,6 +769,7 @@ export const api = {
       {
         userId: string;
         name: string;
+        nickname?: string;
         email: string;
         role: 'admin' | 'member' | 'viewer';
         color: string;

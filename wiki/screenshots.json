@@ -81,7 +81,7 @@
       "takenAt": {
         "web/src/components/Sidebar.tsx": "d6e72af4e032",
         "web/src/components/Editor.tsx": "65857dbf4179",
-        "web/src/App.tsx": "544821a15b99",
+        "web/src/App.tsx": "ef0ac9d915fd",
         "web/src/theme.css": "0318c08bf9ba"
       }
     },
@@ -509,7 +509,7 @@
     {
       "id": "account-profile",
       "page": "account.md",
-      "caption": "Your own account: name, colour and picture, and changing the password.",
+      "caption": "Your own profile: name, nickname, about, colour and picture, and changing the password.",
       "shows": [
         "web/src/components/UserMenu.tsx",
         "web/src/theme.css"
@@ -532,10 +532,43 @@
         }
       ],
       "takenAt": {
-        "web/src/components/UserMenu.tsx": "a731bf7d8214",
+        "web/src/components/UserMenu.tsx": "b7ba2182cd0a",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
+    },
+    {
+      "id": "account-page",
+      "page": "account.md",
+      "caption": "The account page: cover, face, both names, recent activity and the pages a person owns.",
+      "shows": [
+        "web/src/components/PersonPage.tsx",
+        "web/src/components/UserMenu.tsx",
+        "web/src/styles.css"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": ".user-menu-btn"
+        },
+        {
+          "click": ".menu >> text=Account page"
+        },
+        {
+          "waitFor": ".person-page"
+        },
+        {
+          "wait": 700
+        }
+      ],
+      "element": ".person-page",
+      "takenAt": {
+        "web/src/components/PersonPage.tsx": "fea177fd5422",
+        "web/src/components/UserMenu.tsx": "b7ba2182cd0a",
+        "web/src/styles.css": "a3b53134f93b"
+      }
     },
     {
       "id": "api-tokens",
@@ -564,8 +597,8 @@
         }
       ],
       "takenAt": {
-        "server/users.go": "54a2d663e3e5",
-        "web/src/components/UserMenu.tsx": "a731bf7d8214",
+        "server/users.go": "aceb3b4a6d90",
+        "web/src/components/UserMenu.tsx": "b7ba2182cd0a",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
@@ -598,7 +631,7 @@
       ],
       "takenAt": {
         "web/src/components/LanguageTime.tsx": "8f554fadec8c",
-        "server/prefs.go": "95d287ffd9e8",
+        "server/prefs.go": "7786372f2c02",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
@@ -662,7 +695,7 @@
         }
       ],
       "takenAt": {
-        "server/users.go": "54a2d663e3e5",
+        "server/users.go": "aceb3b4a6d90",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
@@ -700,7 +733,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "21106d093254",
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
         "server/instance.go": "c35df9908986",
         "web/src/theme.css": "0318c08bf9ba"
       },
@@ -739,7 +772,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "21106d093254",
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
         "server/oauth.go": "dc9daa5f27ea",
         "web/src/theme.css": "0318c08bf9ba"
       },
@@ -779,9 +812,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "21106d093254",
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
         "server/mail_oauth.go": "0f9335f373b5",
-        "server/admin.go": "a5fa51c628ef",
+        "server/admin.go": "60833b07dcbb",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
@@ -818,7 +851,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "21106d093254",
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
@@ -856,7 +889,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "21106d093254",
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
         "server/webhooks.go": "49e796d4fa6b",
         "web/src/theme.css": "0318c08bf9ba"
       },
@@ -896,7 +929,7 @@
       ],
       "element": ".dialog",
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "21106d093254",
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
         "server/export_html.go": "70ed73962b07",
         "web/src/theme.css": "0318c08bf9ba"
       }
@@ -934,7 +967,7 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "21106d093254",
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
         "server/backup.go": "7a2fc9954d76",
         "web/src/theme.css": "0318c08bf9ba"
       },
@@ -968,8 +1001,8 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "21106d093254",
-        "server/admin.go": "a5fa51c628ef",
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
+        "server/admin.go": "60833b07dcbb",
         "server/lifecycle_account.go": "4fa7fc024b15",
         "web/src/theme.css": "0318c08bf9ba"
       },
