@@ -531,6 +531,7 @@ func (s *Server) oauthCreateUser(email, name string) (string, error) {
 		uid, email, name, s.nextColor(), hashPassword(hex.EncodeToString(randPw)), now()); err != nil {
 		return "", fmt.Errorf("the account could not be created")
 	}
+	s.assignUserHandle(uid, email)
 	s.addOrgMember(uid, false)
 	s.onboardUser(uid, name)
 	return uid, nil

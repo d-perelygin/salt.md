@@ -47,6 +47,7 @@
   "Option {item} renamed",
   "Option {item}: colour changed",
   "Options",
+  "People are written by their handle, like @ada-lovelace. Renaming an account does not touch this code; the rules above still show their name.",
   "Pinned columns",
   "Process as code",
   "Process changed",

@@ -857,7 +857,13 @@ export function generateVisualCode(
   const propName = (id: string) => prop(id)?.name ?? id;
   const optName = (propId: string, optId: string) =>
     prop(propId)?.options?.find((o) => o.id === optId)?.name ?? optId;
-  const memberName = (id: string) => members.find((m) => m.userId === id)?.name ?? id;
+  // A person is written by their stable handle, not their name: a rename then
+  // changes one row and no code at all. Old accounts without a handle (or a
+  // person who left) fall back to the name, which the resolver still reads.
+  const memberRef = (id: string) => {
+    const m = members.find((x) => x.userId === id);
+    return m?.handle ? `@${m.handle}` : q(m?.name ?? id);
+  };
   const takenNames = new Map<string, number>();
   const ruleName = (base: string) => {
     const n = takenNames.get(base) ?? 0;
@@ -881,12 +887,13 @@ export function generateVisualCode(
         if (typeof v === 'string') {
           if (def?.type === 'date' && v.toLowerCase() === 'today') return `set ${p} = today`;
           if (def?.type === 'select') return `set ${p} = ${q(optName(a.prop, v))}`;
+          if (def?.type === 'person') return `set ${p} = ${memberRef(v)}`;
           if (def?.type === 'number' || def?.type === 'checkbox') return `set ${p} = ${v}`;
           return `set ${p} = ${q(v)}`;
         }
         if (Array.isArray(v)) {
           const names = (v as unknown[]).map((x) =>
-            def?.type === 'person' ? q(memberName(String(x))) : q(optName(a.prop, String(x))),
+            def?.type === 'person' ? memberRef(String(x)) : q(optName(a.prop, String(x))),
           );
           return `set ${p} = [${names.join(', ')}]`;
         }

@@ -1278,5 +1278,6 @@
   },
   "{n} rules": {
     "other": "{n} 條規則"
-  }
+  },
+  "People are written by their handle, like @ada-lovelace. Renaming an account does not touch this code; the rules above still show their name.": "人員在程式碼中依代號書寫，例如 @ada-lovelace。重新命名帳號不會改動這段程式碼；上方的規則仍顯示姓名。"
 }

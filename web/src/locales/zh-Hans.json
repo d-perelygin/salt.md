@@ -1278,5 +1278,6 @@
   },
   "{n} rules": {
     "other": "{n} 条规则"
-  }
+  },
+  "People are written by their handle, like @ada-lovelace. Renaming an account does not touch this code; the rules above still show their name.": "人员在代码中按句柄书写，例如 @ada-lovelace。重命名账号不会改动这段代码；上方的规则仍显示姓名。"
 }

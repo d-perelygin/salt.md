@@ -851,6 +851,20 @@ func openDB(path string) (*sql.DB, error) {
 	if err := backfillCollectionRevisions(db); err != nil {
 		return nil, fmt.Errorf("migrate collection revisions: %w", err)
 	}
+	// Process code names people by a stable handle; accounts that predate that
+	// get one here, and stored code that still spells a name is rewritten once.
+	if err := ensureColumn(db, "users", "handle", `handle TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate users.handle: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_handle ON users(handle) WHERE handle <> ''`); err != nil {
+		return nil, fmt.Errorf("index users.handle: %w", err)
+	}
+	if err := assignUserHandles(db); err != nil {
+		return nil, fmt.Errorf("assign user handles: %w", err)
+	}
+	if err := migrateProcessHandles(db); err != nil {
+		return nil, fmt.Errorf("migrate process handles: %w", err)
+	}
 	db.Exec(`INSERT INTO schema_meta (key, value) VALUES ('version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, Version)
 	return db, nil

@@ -1276,5 +1276,6 @@
   "{n} rules": {
     "one": "{n} regla",
     "other": "{n} reglas"
-  }
+  },
+  "People are written by their handle, like @ada-lovelace. Renaming an account does not touch this code; the rules above still show their name.": "Las personas se escriben por su identificador, como @ada-lovelace. Cambiar el nombre de una cuenta no toca este código; las reglas de arriba siguen mostrando el nombre."
 }

@@ -657,6 +657,7 @@
   "Password changed, other sessions were signed out",
   "Paste a link (https://…) and press Enter",
   "Paste this and the client sends you here to approve it. You pick the workspaces then. If it asks for a token instead, it cannot sign in yet: use the other way.",
+  "People are written by their handle, like @ada-lovelace. Renaming an account does not touch this code; the rules above still show their name.",
   "Percent",
   "Permanently delete {name}?",
   "Permanently delete “{name}” and its {pages}? Type the name to confirm.",

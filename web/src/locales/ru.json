@@ -1922,5 +1922,6 @@
     "few": "{n} правила",
     "many": "{n} правил",
     "other": "{n} правила"
-  }
+  },
+  "People are written by their handle, like @ada-lovelace. Renaming an account does not touch this code; the rules above still show their name.": "Люди в коде записываются по handle, например @ada-lovelace. Переименование аккаунта этот код не трогает; в правилах выше по-прежнему видно имя."
 }

@@ -322,7 +322,7 @@ var mcpTools = []map[string]any{
 	},
 	{
 		"name":        "get_workflow",
-		"description": "Read a database's business process: the status property and every When/Then rule in plain words (what triggers, who may enter from where, what is asked or set), with rule ids. No process stored means every move is allowed.",
+		"description": "Read a database's business process: the status property and every When/Then rule in plain words (what triggers, who may enter from where, what is asked or set), with rule ids. No process stored means every move is allowed. Code blocks come back as source, and `members` maps every @handle in it to the person's current name.",
 		"inputSchema": map[string]any{"type": "object",
 			"properties": map[string]any{
 				"page_id": map[string]any{"type": "string", "description": "The database page id"}},
@@ -357,7 +357,7 @@ var mcpTools = []map[string]any{
 	{
 		"name":        "set_workflow_code",
 		"annotations": overwrites,
-		"description": "Replace a database's process with a whole code document: `rule \"Name\":` blocks, two-space indentation, `when \"A\" becomes \"B\"`, `only from`, `needs checklist`, `needs filled`, `if \"Prop\" is \"x\", \"y\"`, `do:` with `set`, `assign me to`, `ask`, `webhook`; constants as `name = \"value\"` on top, referenced by their bare name. This REPLACES the process — visual rules included — and the document becomes one code block a person can edit in Process → Code. Reach for it when: a rule needs OR values or constants, several rules change at once, or you rewrite the process. For ONE simple rule with no OR and no constants, add_workflow_rule is better: it is structured and leaves other rules alone. Refusals name the line and the problem — fix and retry.",
+		"description": "Replace a database's process with a whole code document: `rule \"Name\":` blocks, two-space indentation, `when \"A\" becomes \"B\"`, `only from`, `needs checklist`, `needs filled`, `if \"Prop\" is \"x\", \"y\"`, `do:` with `set`, `assign me to`, `ask`, `webhook`; people are written by their stable handle (`set \"Owner\" = @ada-lovelace`, see get_workflow's `members`), and a display name in quotes still reads; constants as `name = \"value\"` on top, referenced by their bare name. This REPLACES the process — visual rules included — and the document becomes one code block a person can edit in Process → Code. Reach for it when: a rule needs OR values or constants, several rules change at once, or you rewrite the process. For ONE simple rule with no OR and no constants, add_workflow_rule is better: it is structured and leaves other rules alone. Refusals name the line and the problem — fix and retry.",
 		"inputSchema": map[string]any{"type": "object",
 			"properties": map[string]any{
 				"page_id": map[string]any{"type": "string", "description": "The database page id"},

@@ -128,12 +128,26 @@ func (r *codeResolver) optionID(prop PropSchema, n codeNameRef) (string, *codeDi
 func memberNames(members []codeMember) []string {
 	out := make([]string, 0, len(members))
 	for _, m := range members {
-		out = append(out, m.Name)
+		if m.Handle != "" {
+			out = append(out, "@"+m.Handle)
+		} else {
+			out = append(out, m.Name)
+		}
 	}
 	return out
 }
 
 func (r *codeResolver) memberID(n codeNameRef) (string, *codeDiag) {
+	// A handle names exactly one person, whatever they are called today.
+	if strings.HasPrefix(n.text, "@") {
+		h := strings.TrimPrefix(n.text, "@")
+		for _, m := range r.members {
+			if m.Handle != "" && strings.EqualFold(m.Handle, h) {
+				return m.ID, nil
+			}
+		}
+		return "", r.fail(n.line, "unknown handle @%s (handles: %s)", h, candidateList(memberNames(r.members), 8))
+	}
 	for _, m := range r.members {
 		if m.Name == n.text {
 			return m.ID, nil
@@ -387,12 +401,12 @@ func (r *codeResolver) resolveAction(a codeAction) (*workflowAction, *codeDiag) 
 			return &workflowAction{Type: "set_prop", Prop: p.ID, Value: raw}, nil
 		case "person":
 			var names []codeValue
-			if a.val.kind == "str" {
+			if a.val.kind == "str" || a.val.kind == "member" {
 				names = []codeValue{a.val}
 			} else if a.val.kind == "list" && len(a.val.items) > 0 {
 				names = a.val.items
 			} else {
-				return nil, fail("a member name in quotes, or a list like [\"A\", \"B\"]")
+				return nil, fail("a person by handle (@ada), a member name in quotes, or a list like [@ada, @grace]")
 			}
 			ids := make([]string, 0, len(names))
 			for _, nm := range names {

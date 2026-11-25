@@ -400,6 +400,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
+	s.assignUserHandle(id, strings.ToLower(strings.TrimSpace(body.Email)))
 	// The first admin gets a workspace and is its admin member. Reuse an
 	// existing (upgrade-migrated) workspace if one is already present.
 	var wsID string
@@ -578,6 +579,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "email already in use")
 		return
 	}
+	s.assignUserHandle(id, strings.ToLower(strings.TrimSpace(body.Email)))
 	s.addOrgMember(id, body.IsAdmin)
 	me := requestUser(r)
 	if len(body.Workspaces) > 0 {

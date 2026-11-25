@@ -43,8 +43,9 @@ func (d codeDiag) Error() string {
 }
 
 type codeMember struct {
-	ID   string
-	Name string
+	ID     string
+	Name   string
+	Handle string
 }
 
 // ---- lexer ----
@@ -57,6 +58,7 @@ const (
 	tokNum
 	tokBool
 	tokOp
+	tokHandle
 )
 
 type codeTok struct {
@@ -139,6 +141,23 @@ func tokenizeCodeLine(s string) ([]codeTok, *codeDiag) {
 		case c == '-' && strings.HasPrefix(s[i:], "->"):
 			out = append(out, codeTok{kind: tokOp, text: "->", pos: i, end: i + 2})
 			i += 2
+		case c == '@':
+			// A person, by the stable handle they were given: @ada-lovelace.
+			j := i + 1
+			for j < len(s) {
+				d := s[j]
+				if d == '.' || d == '_' || d == '-' ||
+					(d >= 'a' && d <= 'z') || (d >= 'A' && d <= 'Z') || (d >= '0' && d <= '9') {
+					j++
+					continue
+				}
+				break
+			}
+			if j == i+1 {
+				return nil, &codeDiag{Msg: "a handle needs a name after @ — write @ada"}
+			}
+			out = append(out, codeTok{kind: tokHandle, text: s[i+1 : j], pos: i, end: j})
+			i = j
 		case c == '=' || c == ',' || c == ':' || c == '*' || c == '[' || c == ']':
 			out = append(out, codeTok{kind: tokOp, text: string(c), pos: i, end: i + 1})
 			i++
@@ -919,6 +938,11 @@ func (c *codeCursor) expectValue() *codeValue {
 	case tokBool:
 		c.next()
 		return &codeValue{kind: "bool", text: t.text, line: c.no, start: t.pos, end: t.end}
+	case tokHandle:
+		c.next()
+		// A person by handle. The @ is part of the value so the resolver can
+		// tell it from a display name at a glance.
+		return &codeValue{kind: "member", text: "@" + t.text, line: c.no, start: t.pos, end: t.end}
 	case tokWord:
 		if t.text == "today" {
 			c.next()
@@ -970,11 +994,15 @@ func (c *codeCursor) expectList() *codeValue {
 			c.next()
 			break
 		}
-		if t.kind != tokString {
-			c.errf("lists hold quoted names, like [\"A\", \"B\"]")
+		if t.kind != tokString && t.kind != tokHandle {
+			c.errf("lists hold names, like [\"A\", \"B\"] or [@ada, @grace]")
 			return nil
 		}
-		items = append(items, codeValue{kind: "str", text: t.text, line: c.no, start: t.pos, end: t.end, quote: t.q})
+		if t.kind == tokHandle {
+			items = append(items, codeValue{kind: "member", text: "@" + t.text, line: c.no, start: t.pos, end: t.end})
+		} else {
+			items = append(items, codeValue{kind: "str", text: t.text, line: c.no, start: t.pos, end: t.end, quote: t.q})
+		}
 		c.next()
 		if c.atOp(",") {
 			c.next()

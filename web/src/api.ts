@@ -738,6 +738,8 @@ export const api = {
         role: 'admin' | 'member' | 'viewer';
         color: string;
         avatar: string;
+        /** Stable name process code uses: @handle. */
+        handle: string;
       }[]
     >(`/api/workspaces/${workspaceId}/members`),
   updateMember: (workspaceId: string, userId: string, role: 'admin' | 'member' | 'viewer') =>

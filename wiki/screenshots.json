@@ -564,7 +564,7 @@
         }
       ],
       "takenAt": {
-        "server/users.go": "b6e08706b191",
+        "server/users.go": "54a2d663e3e5",
         "web/src/components/UserMenu.tsx": "a731bf7d8214",
         "web/src/theme.css": "0318c08bf9ba"
       },
@@ -631,7 +631,7 @@
       ],
       "takenAt": {
         "web/src/components/AgentConnect.tsx": "3bf35e4fd74a",
-        "server/mcp.go": "cf53fd6b8fea",
+        "server/mcp.go": "75cb0a99134b",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
@@ -662,7 +662,7 @@
         }
       ],
       "takenAt": {
-        "server/users.go": "b6e08706b191",
+        "server/users.go": "54a2d663e3e5",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
@@ -740,7 +740,7 @@
       ],
       "takenAt": {
         "web/src/components/AdminSettings.tsx": "21106d093254",
-        "server/oauth.go": "36e268aec3d7",
+        "server/oauth.go": "dc9daa5f27ea",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
@@ -781,7 +781,7 @@
       "takenAt": {
         "web/src/components/AdminSettings.tsx": "21106d093254",
         "server/mail_oauth.go": "0f9335f373b5",
-        "server/admin.go": "81e6f22b4c62",
+        "server/admin.go": "a5fa51c628ef",
         "web/src/theme.css": "0318c08bf9ba"
       },
       "element": ".dialog"
@@ -969,7 +969,7 @@
       ],
       "takenAt": {
         "web/src/components/AdminSettings.tsx": "21106d093254",
-        "server/admin.go": "81e6f22b4c62",
+        "server/admin.go": "a5fa51c628ef",
         "server/lifecycle_account.go": "4fa7fc024b15",
         "web/src/theme.css": "0318c08bf9ba"
       },

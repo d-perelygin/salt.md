@@ -5373,6 +5373,14 @@ button.workflow-issue {
   flex-direction: column;
   gap: 4px;
 }
+/* A person is a handle in code: the one rule a reader cannot infer from the
+ * rules above, where names still read normally. */
+.workflow-code-hint {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
 /* Escape hatches beside a paused List: fix it where it lives, or throw the
  * half-written draft away. */
 .workflow-issue-actions {
