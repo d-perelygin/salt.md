@@ -85,7 +85,18 @@ export async function withFixture(test) {
     ]) rows.push(await api('POST', '/api/pages', { parentId: collection.id, title, props }));
     const page = await context.newPage();
     await page.goto(`${base}/p/${collection.id}`);
-    const open = () => page.getByRole('button', { name: 'Properties', exact: true }).click();
+    // The schema dialog carries its own "Properties" TAB, so the phrase matches
+    // two buttons the moment the dialog is open — and it stays mounted for the
+    // closing frame after Cancel. The toolbar button is the only one with
+    // `.btn-sm`, so the click cannot land on the tab.
+    //
+    // A schema edit that was not saved also asks "Close without saving?" when
+    // the next step moves on; these tests always mean the edit is gone.
+    const open = async () => {
+      const discard = page.getByRole('button', { name: 'Discard', exact: true });
+      if (await discard.count()) await discard.click();
+      await page.locator('button.btn-sm').filter({ hasText: /^\s*Properties\s*$/ }).click();
+    };
     const chip = (index, name) => page.locator('.schema-options').nth(index)
       .getByRole('button', { name, exact: true });
     const field = page.getByRole('textbox', { name: 'Option name' });

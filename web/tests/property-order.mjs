@@ -17,6 +17,8 @@ await withFixture(async ({ page, open, read, assertRows }) => {
   await drag(0, 1, true);
   assert.deepEqual(await names(), ['Labels', 'Status']);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // A reordered schema counts as unsaved work, so cancelling asks whether to
+  // drop it; the next open() answers that, so the schema is read first.
   assert.deepEqual((await read()).schema, initial.schema);
   await open();
   await drag(0, 1, true);
