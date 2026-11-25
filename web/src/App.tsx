@@ -28,7 +28,7 @@ import { announceModal, modalOpen } from './modal';
 import { toast } from './toast';
 import { onRefresh } from './pwa';
 import { archiveTabs, loadArchive, loadUsage, saveArchive, saveUsage, staleTabs, type ArchivedTab, type TabUsage } from './tabAging';
-import { clearOfflineData, putPage as putCachedPage, setOfflineAccount } from './offlineCache';
+import { clearOfflineData, dropPage, dropYDoc, listOps, putPage as putCachedPage, setOfflineAccount } from './offlineCache';
 import {
   REMAP_EVENT,
   enqueue,
@@ -37,6 +37,7 @@ import {
   isOfflineError,
   isTempId,
   newTempId,
+  pendingCount,
 } from './outbox';
 import PullToRefresh from './components/PullToRefresh';
 import Logo from './Logo';
@@ -544,7 +545,61 @@ export default function App() {
   // optimistic favorite toggle.
   const loadPages = useCallback(async () => {
     try {
-      setPages(await api.listPages());
+      const [list, ops] = await Promise.all([api.listPages(), listOps()]);
+      if (ops.length === 0) {
+        setPages(list);
+      } else {
+        const byId = new Map(list.map((p) => [p.id, { ...p }]));
+        for (const op of ops) {
+          if (op.kind === 'create-page' && !byId.has(op.pageId)) {
+            const p = op.payload as {
+              title?: string;
+              type?: 'doc' | 'collection';
+              props?: Record<string, unknown>;
+              workspaceId?: string;
+            };
+            const parentWs = op.parentId ? byId.get(op.parentId)?.workspaceId : undefined;
+            const now = new Date(op.createdAt).toISOString();
+            byId.set(op.pageId, {
+              id: op.pageId,
+              parentId: op.parentId ?? null,
+              title: p.title ?? '',
+              icon: '',
+              cover: '',
+              position: op.createdAt,
+              updatedAt: now,
+              trashed: false,
+              type: p.type ?? 'doc',
+              props: p.props ?? {},
+              workspaceId: p.workspaceId ?? parentWs ?? '',
+              ownerId: '',
+              visibility: 'workspace',
+              isTemplate: false,
+              tags: [],
+              description: '',
+              snippet: '',
+              thumb: '',
+            });
+          } else if (op.kind === 'update-page' && op.payload?.patch) {
+            const cur = byId.get(op.pageId);
+            if (cur) {
+              const patch = op.payload.patch as Record<string, unknown>;
+              if (typeof patch.title === 'string') cur.title = patch.title;
+              if (typeof patch.icon === 'string') cur.icon = patch.icon;
+              if (typeof patch.cover === 'string') cur.cover = patch.cover;
+              if (typeof patch.position === 'number') cur.position = patch.position;
+              if (typeof patch.workspaceId === 'string') cur.workspaceId = patch.workspaceId;
+            }
+          } else if (op.kind === 'trash-page') {
+            const cur = byId.get(op.pageId);
+            if (cur) cur.trashed = true;
+          } else if (op.kind === 'restore-page') {
+            const cur = byId.get(op.pageId);
+            if (cur) cur.trashed = false;
+          }
+        }
+        setPages([...byId.values()]);
+      }
       setLoadError(false);
     } catch (e) {
       if ((e as Error).message !== 'unauthorized') setLoadError(true);
@@ -589,7 +644,11 @@ export default function App() {
       });
       try {
         await api.setTagColor(currentWs, tag, color);
-      } catch {
+      } catch (e) {
+        if (isOfflineError(e)) {
+          await enqueue({ kind: 'tag-color', pageId: currentWs, payload: { workspaceId: currentWs, tag, color }, label: tag });
+          return;
+        }
         void api.tagColors(currentWs).then(setTagColors).catch(() => {});
       }
     },
@@ -600,6 +659,24 @@ export default function App() {
     await Promise.all([loadPages(), loadFavorites(), loadWorkspaces()]);
   }, [loadPages, loadFavorites, loadWorkspaces]);
 
+  // Quietly prefetch favorite and open-tab pages when idle so they are
+  // available offline even before being clicked in this session.
+  const prefetchedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!me?.authenticated || navigator.onLine === false) return;
+    const ids = [...new Set([...favorites, ...openTabs])].filter(
+      (id) => !isTempId(id) && !prefetchedRef.current.has(id),
+    ).slice(0, 20);
+    if (ids.length === 0) return;
+    const timer = window.setTimeout(() => {
+      for (const id of ids) {
+        prefetchedRef.current.add(id);
+        void api.getPage(id).then((p) => void putCachedPage(p)).catch(() => {});
+      }
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [me?.authenticated, favorites, openTabs]);
+
   const toggleFavorite = useCallback(
     async (id: string) => {
       const willAdd = !favorites.includes(id);
@@ -609,7 +686,11 @@ export default function App() {
       try {
         if (willAdd) await api.addFavorite(id);
         else await api.removeFavorite(id);
-      } catch {
+      } catch (e) {
+        if (isOfflineError(e)) {
+          await enqueue({ kind: 'favorite', pageId: id, payload: { add: willAdd }, label: t('Favorite') });
+          return;
+        }
         void loadFavorites(); // reconcile on failure
       }
     },
@@ -651,6 +732,7 @@ export default function App() {
 
   useEffect(() => {
     const onUnauthorized = () => {
+      setOfflineAccount(null);
       setUiAccount(null);
       setMe((prev) => ({
         setupRequired: prev?.setupRequired ?? false,
@@ -1641,13 +1723,17 @@ export default function App() {
           thumb: '',
         };
         await putCachedPage({ ...p, content: [], createdAt: now });
-        await enqueue({
+        const ok = await enqueue({
           kind: 'create-page',
           pageId: tempId,
           parentId,
           payload: { title: '', type, props: {}, workspaceId: parentId ? undefined : wsId },
           label: t('New page'),
         });
+        if (!ok) {
+          await dropPage(tempId);
+          return;
+        }
         toast.warning(t('Will sync when the connection is back'));
         // A transient blip rather than a dead network: try at once.
         void flushOutbox();
@@ -1722,14 +1808,20 @@ export default function App() {
 
   const trashPage = useCallback(
     async (id: string) => {
-      // Collection rows are excluded from the tree list. Resolve their parent
-      // before trashing them, while the server can still return the page.
-      const deleted = activeRef.current === id ? await api.getPage(id) : null;
-      await api.trashPage(id);
-      // Check the current selection after the request: the user may have
-      // navigated elsewhere while deletion was pending.
-      if (activeRef.current === id) navigate(deleted?.parentId ?? null, true);
-      // Rows absent from /api/pages cannot be pruned by the tree refresh.
+      try {
+        const deleted = activeRef.current === id ? await api.getPage(id) : null;
+        await api.trashPage(id);
+        if (activeRef.current === id) navigate(deleted?.parentId ?? null, true);
+      } catch (e) {
+        if (!isTempId(id) && !isOfflineError(e)) {
+          toast((e as Error).message || t('Could not be moved to the trash'));
+          return;
+        }
+        const ok = await enqueue({ kind: 'trash-page', pageId: id, payload: {}, label: t('Move to trash') });
+        if (!ok) return;
+        if (activeRef.current === id) navigate(null, true);
+        toast.warning(t('Will sync when the connection is back'));
+      }
       setOpenTabs((prev) => prev.filter((tab) => tab !== id));
       setExtraPages((prev) => {
         if (!prev.has(id)) return prev;
@@ -1758,7 +1850,17 @@ export default function App() {
 
   const restorePage = useCallback(
     async (id: string) => {
-      await api.restorePage(id);
+      try {
+        await api.restorePage(id);
+      } catch (e) {
+        if (!isOfflineError(e)) {
+          toast((e as Error).message || t('Could not restore'));
+          return;
+        }
+        const ok = await enqueue({ kind: 'restore-page', pageId: id, payload: {}, label: t('Restore') });
+        if (!ok) return;
+        toast.warning(t('Will sync when the connection is back'));
+      }
       await loadPages();
     },
     [loadPages],
@@ -2244,15 +2346,30 @@ export default function App() {
         themePref={themePref}
         onSetTheme={setThemePref}
         onLogout={async () => {
-          // Sign-out wipes the offline stores (snapshots, outbox, cached API
-          // responses): they belong to this account, and the next person on
-          // this browser must not inherit them. Best-effort, before leaving.
+          if (navigator.onLine !== false) {
+            await flushOutbox().catch(() => {});
+          }
+          const pending = await pendingCount();
+          if (pending > 0) {
+            const ok = await confirm(
+              plural(
+                pending,
+                '{n} offline change has not synced yet and will be lost on sign out.',
+                '{n} offline changes have not synced yet and will be lost on sign out.',
+              ),
+              { confirmText: t('Sign out'), danger: true },
+            );
+            if (!ok) return;
+          }
+          try {
+            await api.logout();
+          } catch (e) {
+            if (isOfflineError(e)) {
+              toast.warning(t('Connect to the internet before signing out so your offline changes are not lost.'));
+              return;
+            }
+          }
           await clearOfflineData().catch(() => {});
-          await api.logout();
-          // Inside the marketing site's demo frame, '/' is the marketing home
-          // page — loaded into the frame, with no way back to the application.
-          // There the session IS the in-memory store, so a reload is the
-          // sign-out: everything resets and the demo starts over.
           if (__SALT_DEMO__) window.location.reload();
           else window.location.href = '/';
         }}

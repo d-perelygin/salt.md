@@ -118,8 +118,9 @@ func (s *Server) startCleanup() {
 
 func (s *Server) runCleanup() {
 	s.deleteExpiredSessions()
-	// Idempotency keys are only useful for a short retry window.
-	s.db.Exec(`DELETE FROM idempotency WHERE created_at < ?`, time.Now().UTC().Add(-24*time.Hour).Format(time.RFC3339Nano))
+	// Idempotency keys match the 30-day offline outbox window so a weekend or
+	// long trip offline does not replay a create/comment as a duplicate.
+	s.db.Exec(`DELETE FROM idempotency WHERE created_at < ?`, time.Now().UTC().Add(-30*24*time.Hour).Format(time.RFC3339Nano))
 	s.mcpRate.evict()
 	s.loginRate.evict()
 	s.tokenRate.evict()

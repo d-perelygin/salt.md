@@ -477,9 +477,10 @@ opens in its own window: no address bar, no tabs, its own icon in the dock or on
 the home screen. Everything works exactly as it does in a tab, with one thing
 to know about, and two things added for it.
 
-**Nothing is stored on the device except the app itself.** The pages, the
-databases and the files are fetched from your instance every time, the same as in
-a browser. Offline you get the shell of the app and nothing to put in it.
+**Only opened pages, favourites and recent views are cached on the device.**
+Everything else is fetched from your instance. Offline you can read and edit
+cached pages and queue writes; see [Working at the same time](collaboration.md)
+for what syncs when the connection returns.
 
 **The thing to know about is refreshing.** An installed window has no reload
 button, and while the app is open it does not need one: it holds a live

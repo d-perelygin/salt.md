@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, FileText, MoreHorizontal, PanelRight, Pin, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../api';
+import { listCachedPages } from '../offlineCache';
 import type { PageMeta, SearchResult, User } from '../types';
 import Portal from './Portal';
 import SheetGrab from './SheetGrab';
@@ -158,7 +159,32 @@ export default function SearchModal({
     const cmdOnly = q.trimStart().startsWith('>');
     const cur = ++seq.current;
     const timer = window.setTimeout(async () => {
-      const res = q.trim() && !cmdOnly ? await api.search(q, picked) : [];
+      let res: SearchResult[] = [];
+      if (q.trim() && !cmdOnly) {
+        try {
+          res = await api.search(q, picked);
+        } catch {
+          // Offline fallback: search cached pages (titles + content) in IDB.
+          const needle = q.trim().toLowerCase();
+          const cached = await listCachedPages();
+          const hits: SearchResult[] = [];
+          for (const p of cached) {
+            if (p.trashed) continue;
+            if (picked.length > 0 && !picked.includes(p.workspaceId)) continue;
+            const bodyText = p.content ? JSON.stringify(p.content) : '';
+            if ((p.title || '').toLowerCase().includes(needle) || bodyText.toLowerCase().includes(needle)) {
+              hits.push({
+                id: p.id,
+                title: p.title,
+                icon: p.icon,
+                workspaceId: p.workspaceId,
+                snippet: '',
+              });
+            }
+          }
+          res = hits.slice(0, 30);
+        }
+      }
       if (seq.current === cur) {
         setResults(res);
         setSel(0);

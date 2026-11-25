@@ -353,14 +353,17 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Exactly-once creates for retried requests (offline outbox flushes from
-	// two tabs replay the same op): a repeated key returns the first answer
-	// instead of a second page. Scoped per user like the MCP keys.
+	// two tabs replay the same op): atomically reserve the key before creating
+	// so concurrent requests cannot race past the check.
+	idemKey := ""
 	if body.IdempotencyKey != "" {
-		if cached, ok := s.idempotentResult(userID + "\x00" + body.IdempotencyKey); ok {
+		idemKey = userID + "\x00" + body.IdempotencyKey
+		if cached, reserved := s.reserveIdempotent(idemKey); !reserved {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(cached))
 			return
 		}
+		defer s.releaseIdempotent(idemKey)
 	}
 
 	// A child inherits its parent's workspace; a root page uses the requested
@@ -448,9 +451,9 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 	for _, target := range createHooks {
 		go fireWorkflowHook(target, id, "workflow.created")
 	}
-	if body.IdempotencyKey != "" {
+	if idemKey != "" {
 		if b, err := json.Marshal(p); err == nil {
-			s.storeIdempotent(userID+"\x00"+body.IdempotencyKey, string(b))
+			s.finishIdempotent(idemKey, string(b))
 		}
 	}
 	writeJSON(w, p)

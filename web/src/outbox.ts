@@ -1,34 +1,43 @@
 // Outbox: writes made while offline, replayed in order when back online.
 //
 // Every write site in the UI is optimistic already (state updates first, the
-// request follows). On a network failure the request used to die in a catch
-// with a toast; now the intent is journaled here and replayed by flush().
-// flush() runs on the 'online' event, on boot, and from the sync button.
+// request follows). On a network failure (or 502/503/504 gateway failure) the
+// intent is journaled here in account-scoped IndexedDB and replayed by flush().
 //
-// Temp ids: a page created offline gets `temp-<uuid>` and renders immediately
-// from the snapshot cache. Ops referencing it (its own content, comments) are
-// remapped to the real id once the create replays. UI listens for
-// REMAP_EVENT to swap tabs and tree entries.
+// Cross-tab coordination: flush() is serialized via Web Locks (`salt-outbox`)
+// and outbox/remap updates are broadcast across tabs via BroadcastChannel.
 
-import { api, ApiError } from './api';
+import { api, ApiError, NetworkError } from './api';
+import { COLLAB_SYNCED_EVENT } from './collab';
 import { t } from './i18n';
 import { toast } from './toast';
 import {
   deleteOp,
   dropPage,
+  dropUploadBlob,
   dropYDoc,
   getPage,
-  getYDoc,
+  getUploadBlob,
+  getYDocEntry,
+  listDirtyYDocs,
   listOps,
+  patchCachedPage,
   putOp,
   putPage,
   putYDoc,
+  remapOps,
+  upsertContentOp,
   type OutboxOp,
 } from './offlineCache';
+import type { CollectionConfig, CommentAnchor } from './types';
 export type { OutboxOp };
 
 export const OUTBOX_EVENT = 'salt:outbox';
 export const REMAP_EVENT = 'salt:page-mapped';
+export const FILE_MAPPED_EVENT = 'salt:file-mapped';
+export const SERVER_STATUS_EVENT = 'salt:server-status';
+
+const bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('salt-outbox') : null;
 
 export function newTempId(): string {
   const uuid =
@@ -42,18 +51,32 @@ export function isTempId(id: string): boolean {
   return id.startsWith('temp-');
 }
 
-/** A fetch that never reached the server (offline, DNS, refused). Server
- *  answers — even errors — arrive as ApiError instead. */
+/** A fetch that never reached the server (offline, DNS, refused) or hit a
+ *  reverse-proxy/tunnel outage (502/503/504). */
 export function isOfflineError(e: unknown): boolean {
-  return e instanceof TypeError;
+  if (e instanceof NetworkError) return true;
+  if (e instanceof ApiError && (e.status === 502 || e.status === 503 || e.status === 504)) return true;
+  return false;
 }
 
-function notify(pending: number): void {
+function setServerReachable(reachable: boolean): void {
+  window.dispatchEvent(new CustomEvent(SERVER_STATUS_EVENT, { detail: reachable }));
+}
+
+function notify(pending: number, broadcast = true): void {
   window.dispatchEvent(new CustomEvent(OUTBOX_EVENT, { detail: pending }));
+  if (broadcast) {
+    try {
+      bc?.postMessage({ type: 'outbox', pending });
+    } catch {
+      /* best-effort */
+    }
+  }
 }
 
-async function refreshCount(): Promise<number> {
-  const n = (await listOps()).length;
+export async function refreshCount(): Promise<number> {
+  const [ops, dirtyDocs] = await Promise.all([listOps(), listDirtyYDocs()]);
+  const n = ops.length + dirtyDocs.length;
   notify(n);
   return n;
 }
@@ -65,20 +88,47 @@ export function onOutboxChange(fn: (pending: number) => void): () => void {
 }
 
 export async function pendingCount(): Promise<number> {
-  return (await listOps()).length;
+  const [ops, dirtyDocs] = await Promise.all([listOps(), listDirtyYDocs()]);
+  return ops.length + dirtyDocs.length;
 }
 
 export async function pendingOps(): Promise<OutboxOp[]> {
   return listOps();
 }
 
-export async function enqueue(op: Omit<OutboxOp, 'key' | 'createdAt' | 'attempts'>): Promise<void> {
+export async function pendingDirtyDocs(): Promise<string[]> {
+  return listDirtyYDocs();
+}
+
+export async function discardOp(key: string): Promise<void> {
+  await deleteOp(key);
+  await refreshCount();
+}
+
+export async function enqueue(op: Omit<OutboxOp, 'key' | 'createdAt' | 'attempts'>): Promise<boolean> {
   const key =
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`;
-  await putOp({ ...op, key, createdAt: Date.now(), attempts: 0 });
-  await refreshCount();
+  const full: OutboxOp = { ...op, key, createdAt: Date.now(), attempts: 0 };
+  try {
+    if (full.kind === 'update-page' && full.payload?.materialize) {
+      await upsertContentOp(full);
+    } else {
+      await putOp(full);
+    }
+    if (full.kind === 'update-page' && full.payload?.patch) {
+      void patchCachedPage(full.pageId, full.payload.patch as Record<string, unknown>);
+    }
+    await refreshCount();
+    if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+      scheduleRetry();
+    }
+    return true;
+  } catch {
+    toast.warning(t('Could not save offline change locally (storage full or unavailable).'));
+    return false;
+  }
 }
 
 export interface FlushResult {
@@ -88,21 +138,39 @@ export interface FlushResult {
 }
 
 let flushing = false;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryAttempt = 0;
 
-/** Replay queued ops in creation order. Stops at the first op that still
- *  cannot reach the server; drops ops the server refuses (gone, forbidden)
- *  with a toast so nothing waits forever. Anything else stays queued no
- *  matter how long it takes: silently dropping writes after five tries loses
- *  user data, and the pending list (see SyncButton) says what still waits. */
-export async function flush(): Promise<FlushResult> {
+function scheduleRetry(): void {
+  if (retryTimer) return;
+  const delay = Math.min(60_000, 5_000 * 2 ** retryAttempt);
+  retryAttempt++;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+      void flush();
+    }
+  }, delay);
+}
+
+function clearRetry(): void {
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+  retryAttempt = 0;
+}
+
+async function runFlush(): Promise<FlushResult> {
   if (flushing) return { synced: 0, dropped: 0, kept: await pendingCount() };
   flushing = true;
   const res: FlushResult = { synced: 0, dropped: 0, kept: 0 };
   try {
     const remap = new Map<string, string>();
     const resolve = (id: string) => remap.get(id) ?? id;
+    const skipped = new Set<string>();
     for (;;) {
-      const ops = await listOps();
+      const ops = (await listOps()).filter((o) => !skipped.has(o.key));
       if (ops.length === 0) break;
       const op = ops[0];
       try {
@@ -110,34 +178,66 @@ export async function flush(): Promise<FlushResult> {
         await replay(op, resolve, remap);
         // eslint-disable-next-line no-await-in-loop
         await deleteOp(op.key);
+        setServerReachable(true);
         res.synced++;
       } catch (e) {
-        if (isOfflineError(e)) break; // still offline: keep the rest
+        if (isOfflineError(e)) {
+          setServerReachable(false);
+          break; // still offline: keep the rest
+        }
+        if (e instanceof ApiError && e.code === 'doc_replaced') {
+          // Server already preserved the refused copy in page history via
+          // keepRefusedCopy; drop this stale op so it never blocks the queue.
+          // eslint-disable-next-line no-await-in-loop
+          await deleteOp(op.key);
+          res.dropped++;
+          toast.warning(t('“{label}” conflicted with a newer version; check Version history.', { label: op.label }));
+          continue;
+        }
         if (e instanceof ApiError && (e.status === 404 || e.status === 403 || e.status === 400)) {
-          // The target is gone or refuses us (deleted parent, revoked access,
-          // replaced page): replaying forever helps nothing.
           // eslint-disable-next-line no-await-in-loop
           await deleteOp(op.key);
           res.dropped++;
           toast(t('Could not sync “{label}”: {reason}', { label: op.label, reason: e.message }));
           continue;
         }
-        // A maybe: the request may or may not have landed (a timeout after
-        // the server committed, a 500 mid-write). Creates carry the op key
-        // as the idempotency key, so replaying is safe; content and meta
-        // patches converge by construction. The attempts count is display
-        // only (see SyncButton): the op itself is never dropped here.
         op.attempts++;
+        op.lastError = e instanceof Error ? e.message : String(e);
         // eslint-disable-next-line no-await-in-loop
-        await putOp(op);
-        break;
+        await putOp(op).catch(() => {});
+        // Skip this op for the rest of this flush pass so an unrelated page's
+        // ops are not blocked behind a single failing item.
+        skipped.add(op.key);
       }
     }
   } finally {
     flushing = false;
     res.kept = await refreshCount();
+    if (res.kept > 0) scheduleRetry();
+    else clearRetry();
   }
   return res;
+}
+
+/** Replay queued ops in creation order, serialized across tabs via Web Locks. */
+export async function flush(): Promise<FlushResult> {
+  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+    return navigator.locks.request('salt-outbox', { ifAvailable: true }, async (lock) => {
+      if (!lock) return { synced: 0, dropped: 0, kept: await pendingCount() };
+      return runFlush();
+    });
+  }
+  return runFlush();
+}
+
+function broadcastRemap(tempId: string, realId: string): void {
+  const detail = { tempId, realId };
+  window.dispatchEvent(new CustomEvent(REMAP_EVENT, { detail }));
+  try {
+    bc?.postMessage({ type: 'remap', detail });
+  } catch {
+    /* best-effort */
+  }
 }
 
 async function replay(
@@ -155,74 +255,169 @@ async function replay(
         workspaceId?: string;
       };
       const parentId = op.parentId == null ? null : resolve(op.parentId);
-      // The op key doubles as the idempotency key: two tabs flushing the
-      // same queue (or one tab retrying) create the page exactly once.
       const created = await api.createPage(parentId, p.title, p.type, p.props, p.workspaceId, op.key);
       remap.set(op.pageId, created.id);
-      // Migrate the offline state onto the real id: snapshot, CRDT edits,
-      // then tell the UI to swap tabs and tree entries.
-      const snap = await getYDoc(op.pageId);
-      if (snap && snap.length > 0) await putYDoc(created.id, snap);
+      const realGen = created.docGen ?? 0;
+      // Persist the temp->real mapping in IDB so subsequent flushes after an
+      // interruption never send `temp-...` to the server.
+      await remapOps(op.pageId, created.id, realGen);
+      const snap = await getYDocEntry(op.pageId);
+      if (snap && snap.update.length > 0) {
+        await putYDoc(created.id, snap.update, { gen: realGen, dirty: true });
+      }
       await dropYDoc(op.pageId);
       const cached = await getPage(op.pageId);
       if (cached) {
-        await putPage({ ...cached, id: created.id });
+        await putPage({ ...cached, id: created.id, docGen: realGen });
         await dropPage(op.pageId);
       }
-      window.dispatchEvent(new CustomEvent(REMAP_EVENT, { detail: { tempId: op.pageId, realId: created.id } }));
+      broadcastRemap(op.pageId, created.id);
       break;
     }
     case 'update-page': {
-      const p = op.payload as { patch: Record<string, unknown>; materialize?: boolean };
-      await api.updatePage(pageId, p.patch, p.materialize ? { materialize: true } : undefined);
+      const p = op.payload as { patch: Record<string, unknown>; materialize?: boolean; gen?: number | null };
+      await api.updatePage(
+        pageId,
+        p.patch,
+        p.materialize ? { materialize: true, gen: p.gen ?? null } : undefined,
+      );
       break;
     }
     case 'comment': {
-      const p = op.payload as { body: string; blockId?: string };
-      await api.createComment(pageId, p.body, p.blockId ?? '');
+      const p = op.payload as { body: string; blockId?: string; anchor?: CommentAnchor };
+      await api.createComment(pageId, p.body, p.blockId ?? '', p.anchor, op.key);
       break;
     }
     case 'note': {
       const p = op.payload as { body: string };
-      await api.addNote(pageId, p.body);
+      await api.addNote(pageId, p.body, op.key);
+      break;
+    }
+    case 'resolve-comment': {
+      const p = op.payload as { commentId: string; resolved: boolean };
+      await api.resolveComment(p.commentId, p.resolved);
+      break;
+    }
+    case 'delete-comment': {
+      const p = op.payload as { commentId: string };
+      await api.deleteComment(p.commentId);
+      break;
+    }
+    case 'trash-page': {
+      await api.trashPage(pageId);
+      break;
+    }
+    case 'restore-page': {
+      await api.restorePage(pageId);
+      break;
+    }
+    case 'favorite': {
+      const p = op.payload as { add: boolean };
+      if (p.add) await api.addFavorite(pageId);
+      else await api.removeFavorite(pageId);
+      break;
+    }
+    case 'tag-color': {
+      const p = op.payload as { workspaceId: string; tag: string; color: string };
+      await api.setTagColor(p.workspaceId, p.tag, p.color);
+      break;
+    }
+    case 'prefs': {
+      const p = op.payload as { prefs: Record<string, string> };
+      await api.putPrefs(p.prefs as never);
+      break;
+    }
+    case 'update-collection': {
+      const p = op.payload as { patch: Partial<CollectionConfig> };
+      await api.putCollection(pageId, p.patch);
+      break;
+    }
+    case 'upload-file': {
+      const p = op.payload as { uploadId: string; tempUrl: string };
+      const cached = await getUploadBlob(p.uploadId);
+      if (!cached) break;
+      const file = new File([cached.blob], cached.name, { type: cached.type });
+      const realUrl = await api.upload(file, pageId);
+      await dropUploadBlob(p.uploadId);
+      window.dispatchEvent(
+        new CustomEvent(FILE_MAPPED_EVENT, { detail: { tempUrl: p.tempUrl, realUrl, pageId } }),
+      );
       break;
     }
   }
 }
 
-/** updatePage with an offline fallback: temp ids never reach the network
- *  (there is nothing with that id server-side yet), anything else tries the
- *  server first and journals on a network failure. Returns true when the
- *  write landed or was queued, false when it failed hard (caller toasts). */
+/** updatePage with an offline fallback: temp ids never reach the network,
+ *  anything else tries the server first and journals on a network/gateway
+ *  failure. Returns true when the write landed or was queued. */
 export async function savePageUpdate(
   pageId: string,
   patch: Record<string, unknown>,
-  opts: { materialize?: boolean; label?: string } = {},
+  opts: { materialize?: boolean; gen?: number | null; label?: string } = {},
 ): Promise<boolean> {
   const label = opts.label ?? t('Change');
   if (isTempId(pageId)) {
-    await enqueue({ kind: 'update-page', pageId, payload: { patch, materialize: opts.materialize }, label });
-    toast.warning(t('Will sync when the connection is back'));
-    return true;
+    const ok = await enqueue({
+      kind: 'update-page',
+      pageId,
+      payload: { patch, materialize: opts.materialize, gen: opts.gen ?? 0 },
+      label,
+    });
+    if (ok) toast.warning(t('Will sync when the connection is back'));
+    return ok;
   }
   try {
-    await api.updatePage(pageId, patch, opts.materialize ? { materialize: true } : undefined);
+    await api.updatePage(
+      pageId,
+      patch,
+      opts.materialize ? { materialize: true, gen: opts.gen ?? null } : undefined,
+    );
+    setServerReachable(true);
     return true;
   } catch (e) {
     if (isOfflineError(e)) {
-      await enqueue({ kind: 'update-page', pageId, payload: { patch, materialize: opts.materialize }, label });
-      toast.warning(t('Will sync when the connection is back'));
-      return true;
+      setServerReachable(false);
+      const ok = await enqueue({
+        kind: 'update-page',
+        pageId,
+        payload: { patch, materialize: opts.materialize, gen: opts.gen ?? null },
+        label,
+      });
+      if (ok) toast.warning(t('Will sync when the connection is back'));
+      return ok;
     }
     return false;
   }
 }
 
-/** Registered once from App: flush on reconnect and shortly after boot, so
- *  ops queued in a previous session replay without a click. */
+let initialized = false;
+
+/** Registered once from App: flush on reconnect, collab sync, visibility,
+ *  and boot, plus listen to cross-tab BroadcastChannel events. */
 export function initOutbox(): void {
-  window.addEventListener('online', () => {
+  if (initialized) return;
+  initialized = true;
+  if (bc) {
+    bc.onmessage = (e: MessageEvent) => {
+      const msg = e.data as { type?: string; pending?: number; detail?: { tempId: string; realId: string } } | null;
+      if (!msg) return;
+      if (msg.type === 'outbox' && typeof msg.pending === 'number') {
+        notify(msg.pending, false);
+      } else if (msg.type === 'remap' && msg.detail) {
+        window.dispatchEvent(new CustomEvent(REMAP_EVENT, { detail: msg.detail }));
+      }
+    };
+  }
+  const triggerFlush = () => {
+    clearRetry();
     void flush();
+  };
+  window.addEventListener('online', triggerFlush);
+  window.addEventListener(COLLAB_SYNCED_EVENT, triggerFlush);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && navigator.onLine !== false) {
+      void flush();
+    }
   });
   window.setTimeout(() => {
     void flush();

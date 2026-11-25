@@ -38,6 +38,23 @@ export class ApiError extends Error {
   }
 }
 
+/** Raised when fetch/XHR fails to reach the server at all (offline, DNS,
+ *  connection refused). Kept distinct from generic TypeErrors in JS code. */
+export class NetworkError extends Error {
+  constructor(message = 'Failed to fetch') {
+    super(message);
+    this.name = 'NetworkError';
+  }
+}
+
+const offlineResponses = new WeakSet<object>();
+
+/** True when a response returned by `api.*` came from the service worker's
+ *  offline cache (`X-Salt-Offline: 1`) rather than a live server. */
+export function isOfflineResponse(data: unknown): boolean {
+  return typeof data === 'object' && data !== null && offlineResponses.has(data);
+}
+
 /** Turn an error response into an ApiError — the same handling for JSON calls
  *  as for file uploads, which cannot send JSON.
  *
@@ -88,15 +105,24 @@ export function materializeQuery(opts?: { materialize?: boolean; gen?: number | 
 }
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      ...((init?.headers as Record<string, string> | undefined) ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: {
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        ...((init?.headers as Record<string, string> | undefined) ?? {}),
+      },
+    });
+  } catch (e) {
+    throw new NetworkError(e instanceof Error ? e.message : 'Failed to fetch');
+  }
   if (!res.ok) throwApiError(url, await toApiError(res, ''));
-  return res.json() as Promise<T>;
+  const data = (await res.json()) as T;
+  if (res.headers.get('X-Salt-Offline') === '1' && typeof data === 'object' && data !== null) {
+    offlineResponses.add(data);
+  }
+  return data;
 }
 
 export const api = {
@@ -599,10 +625,16 @@ export const api = {
   // handleCommentCounts).
   commentCounts: (workspaceId: string) =>
     req<Record<string, number>>(`/api/comment-counts?workspaceId=${encodeURIComponent(workspaceId)}`),
-  createComment: (pageId: string, body: string, blockId = '', anchor?: import('./types').CommentAnchor) =>
+  createComment: (
+    pageId: string,
+    body: string,
+    blockId = '',
+    anchor?: import('./types').CommentAnchor,
+    idempotencyKey?: string,
+  ) =>
     req<{ id: string }>(`/api/pages/${pageId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ body, blockId, anchor }),
+      body: JSON.stringify({ body, blockId, anchor, ...(idempotencyKey ? { idempotencyKey } : {}) }),
     }),
   resolveComment: (id: string, resolved: boolean) =>
     req<{ ok: boolean }>(`/api/comments/${id}/resolve`, {
@@ -615,10 +647,10 @@ export const api = {
   // server/notelog.go. clearNotes drops the whole of it and is the only removal
   // there is; the server refuses it to anything but a signed-in person.
   pageNotes: (pageId: string) => req<import('./types').PageNote[]>(`/api/pages/${pageId}/notes`),
-  addNote: (pageId: string, body: string) =>
+  addNote: (pageId: string, body: string, idempotencyKey?: string) =>
     req<{ id: string }>(`/api/pages/${pageId}/notes`, {
       method: 'POST',
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, ...(idempotencyKey ? { idempotencyKey } : {}) }),
     }),
   clearNotes: (pageId: string) =>
     req<{ ok: boolean; removed: number }>(`/api/pages/${pageId}/notes`, { method: 'DELETE' }),
@@ -894,7 +926,7 @@ export const api = {
       };
       xhr.onerror = () => {
         finish();
-        reject(new ApiError(t('Upload failed: no connection to the server.'), 0));
+        reject(new NetworkError(t('Upload failed: no connection to the server.')));
       };
       xhr.send(fd);
     }),

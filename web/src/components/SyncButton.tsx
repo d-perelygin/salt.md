@@ -1,35 +1,35 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { checkForNewVersion, isDesktopApp, isDesktopPointer, isStandalone, requestRefresh } from '../pwa';
-import { flush, onOutboxChange, pendingCount, pendingOps, type OutboxOp } from '../outbox';
+import {
+  discardOp,
+  flush,
+  onOutboxChange,
+  pendingCount,
+  pendingDirtyDocs,
+  pendingOps,
+  type OutboxOp,
+} from '../outbox';
 import { plural, t } from '../i18n';
 
-/** The answer to the missing reload button, for the two windows that have none,
- *  and the face of the offline outbox everywhere else.
- *
- *  On a phone the pull gesture covers this; on a desktop there is no gesture,
- *  and neither an installed app window nor the salt.md desktop app shows any
- *  browser chrome — a window that has been open since Tuesday has nothing at
- *  all to press. (The desktop app's View → Reload exists, but it starts the
- *  window over, and nobody goes looking in a menu for it.) So the button appears
- *  in exactly those two: in a browser tab the reload button is two centimetres
- *  away and a second one would be noise.
- *
- *  Unless there are queued offline writes. Then the button appears everywhere:
- *  a pending count nobody can see is a promise nobody can check, and the panel
- *  lists what is waiting so "will sync" names names. */
 export default function SyncButton() {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(0);
   const [ops, setOps] = useState<OutboxOp[]>([]);
+  const [dirtyDocs, setDirtyDocs] = useState<string[]>([]);
   const [panelOpen, setPanelOpen] = useState(false);
+
+  const loadList = () => {
+    void Promise.all([pendingOps(), pendingDirtyDocs()]).then(([list, docs]) => {
+      setOps(list);
+      setDirtyDocs(docs);
+    });
+  };
 
   useEffect(() => {
     const decide = () => setShow((isStandalone() || isDesktopApp()) && isDesktopPointer());
     decide();
-    // Installing the app does not reload the window, so display-mode can change
-    // under a running page.
     const mq = window.matchMedia('(display-mode: standalone)');
     mq.addEventListener('change', decide);
     return () => mq.removeEventListener('change', decide);
@@ -41,7 +41,7 @@ export default function SyncButton() {
     const stop = onOutboxChange((n) => {
       setPending(n);
       if (n === 0) setPanelOpen(false);
-      if (n > 0) void pendingOps().then((list) => alive && setOps(list));
+      if (n > 0) loadList();
     });
     return () => {
       alive = false;
@@ -56,8 +56,8 @@ export default function SyncButton() {
     void flush().then(() => {
       requestRefresh();
       void checkForNewVersion();
+      loadList();
     });
-    // Same reason as the pull gesture: long enough to be seen.
     window.setTimeout(() => setBusy(false), 650);
   };
 
@@ -72,7 +72,7 @@ export default function SyncButton() {
           if (pending > 0) {
             const next = !panelOpen;
             setPanelOpen(next);
-            if (next) void pendingOps().then(setOps);
+            if (next) loadList();
           }
           syncNow();
         }}
@@ -85,12 +85,29 @@ export default function SyncButton() {
           <div className="sync-panel-title">
             {plural(pending, '{n} change waiting to sync', '{n} changes waiting to sync')}
           </div>
-          <ul>
-            {ops.slice(0, 8).map((op) => (
-              <li key={op.key}>{op.label}</li>
+          <ul style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {ops.map((op) => (
+              <li key={op.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {op.label}
+                  {op.attempts > 0 ? ` (${op.attempts})` : ''}
+                  {op.lastError ? ` — ${op.lastError}` : ''}
+                </span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title={t('Discard')}
+                  aria-label={t('Discard')}
+                  onClick={() => void discardOp(op.key).then(loadList)}
+                >
+                  <X size={12} />
+                </button>
+              </li>
+            ))}
+            {dirtyDocs.map((id) => (
+              <li key={`ydoc-${id}`}>{t('Page edits (pending live sync)')}</li>
             ))}
           </ul>
-          {ops.length > 8 ? <div className="sync-panel-more">{t('…and {n} more', { n: ops.length - 8 })}</div> : null}
         </div>
       ) : null}
     </div>

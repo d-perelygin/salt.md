@@ -133,8 +133,22 @@ export default function CommentsPanel({
       // Offline (or a not-yet-synced temp page): journal the comment, it
       // replays after the page itself exists. Anything else restores the box.
       if (isTempId(pageId) || isOfflineError(err)) {
-        await enqueue({ kind: 'comment', pageId, payload: { body: text }, label: text.slice(0, 60) });
-        toast.warning(t('Will sync when the connection is back'));
+        const ok = await enqueue({
+          kind: 'comment',
+          pageId,
+          payload: {
+            body: text,
+            ...(pending?.blockId ? { blockId: pending.blockId } : {}),
+            ...(pending?.anchor ? { anchor: pending.anchor } : {}),
+          },
+          label: text.slice(0, 60),
+        });
+        if (ok) {
+          onClearPending();
+          toast.warning(t('Will sync when the connection is back'));
+        } else {
+          setBody(text);
+        }
         return;
       }
       setBody(text); // swallow nothing if sending fails
@@ -143,12 +157,37 @@ export default function CommentsPanel({
   };
 
   const toggleResolve = async (c: Comment) => {
-    await api.resolveComment(c.id, !c.resolvedAt).catch(() => {});
-    load();
+    const resolved = !c.resolvedAt;
+    try {
+      await api.resolveComment(c.id, resolved);
+      load();
+    } catch (err) {
+      if (isOfflineError(err)) {
+        const ok = await enqueue({
+          kind: 'resolve-comment',
+          pageId,
+          payload: { commentId: c.id, resolved },
+          label: c.body.slice(0, 60),
+        });
+        if (ok) toast.warning(t('Will sync when the connection is back'));
+      }
+    }
   };
   const remove = async (c: Comment) => {
-    await api.deleteComment(c.id).catch(() => {});
-    load();
+    try {
+      await api.deleteComment(c.id);
+      load();
+    } catch (err) {
+      if (isOfflineError(err)) {
+        const ok = await enqueue({
+          kind: 'delete-comment',
+          pageId,
+          payload: { commentId: c.id },
+          label: c.body.slice(0, 60),
+        });
+        if (ok) toast.warning(t('Will sync when the connection is back'));
+      }
+    }
   };
 
   const openOnes = comments.filter((c) => !c.resolvedAt);

@@ -2,42 +2,73 @@
  *
  * Strategy:
  *  - Hashed /assets/* → cache-first (immutable by construction).
- *  - Navigations (index.html) → network-first, cache fallback, so the app
- *    shell opens offline but a deploy is picked up on the next online load.
- *  - Read-only API snapshots (GET /api/pages, /api/collections and their
- *    sub-paths) → network-first with cache fallback. These are the pages and
- *    collections the user has already opened; a stale copy with an on-screen
- *    "offline copy" badge beats no copy. Writes are never cached.
- *  - EVERYTHING else (/collab, /files, /mcp, /public) → network only.
- *    The CRDT and REST layers own their own consistency.
+ *  - Navigations (index.html) → network-first (with lie-fi timeout), cache
+ *    fallback, so the app shell opens offline and deploys are picked up.
+ *  - Read-only API snapshots (exact whitelist in isSnapshotRequest) & /files/*
+ *    → network-first (with 4s timeout) and cache fallback. Cached fallbacks
+ *    carry `X-Salt-Offline: 1` so the UI knows the copy is stale and does
+ *    not refresh IndexedDB timestamps from it.
+ *  - EVERYTHING else (/collab, /mcp, /public, revisions, search, etc.) →
+ *    network only.
  */
 const SHELL = 'salt-shell-v1';
 const DATA = 'salt-data-v1';
+const FETCH_TIMEOUT_MS = 4000;
+const MAX_DATA_ENTRIES = 250;
 
-// GETs safe to serve stale: single pages, the page tree, collection schemas
-// and paged rows. Search, presence, audit, revisions and shares stay
-// network-only — they are either live queries or security-sensitive.
-// GETs safe to serve stale: the session, the workspace list, single pages,
-// the page tree, collection schemas and paged rows. Search, presence, audit,
-// revisions and shares stay network-only — they are either live queries or
-// security-sensitive. The session entry is served stale only when the network
-// fails outright (network-first); as soon as the server answers, the fresh
-// account state wins, including a logged-out one.
+// Strict whitelist of GETs safe to serve stale. Revisions, shares, search,
+// presence, audit and live queries stay network-only.
 function isSnapshotRequest(pathname) {
-  if (pathname === '/api/me' || pathname === '/api/workspaces') return true;
-  return (
+  if (
+    pathname === '/api/me' ||
+    pathname === '/api/workspaces' ||
     pathname === '/api/pages' ||
-    pathname.startsWith('/api/pages/') ||
-    pathname === '/api/collections' ||
-    pathname.startsWith('/api/collections/') ||
-    pathname === '/api/templates'
-  );
+    pathname === '/api/templates' ||
+    pathname === '/api/tag-colors' ||
+    pathname === '/api/comment-counts' ||
+    pathname === '/api/favorites' ||
+    pathname === '/api/tags' ||
+    pathname === '/api/users' ||
+    pathname === '/api/me/prefs'
+  ) {
+    return true;
+  }
+  if (/^\/api\/pages\/[^/]+$/.test(pathname)) return true;
+  if (/^\/api\/collections(\/[^/]+(\/rows)?)?$/.test(pathname)) return true;
+  if (pathname.startsWith('/files/')) return true;
+  return false;
+}
+
+function fetchWithTimeout(request, ms = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(request, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+function withOfflineHeader(res) {
+  const headers = new Headers(res.headers);
+  headers.set('X-Salt-Offline', '1');
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}
+
+async function putDataCache(req, res) {
+  try {
+    const cache = await caches.open(DATA);
+    await cache.put(req, res);
+    const keys = await cache.keys();
+    if (keys.length > MAX_DATA_ENTRIES) {
+      await Promise.all(keys.slice(0, keys.length - MAX_DATA_ENTRIES).map((k) => cache.delete(k)));
+    }
+  } catch {
+    /* quota/private mode: best-effort */
+  }
 }
 
 self.addEventListener('install', (e) => {
-  // Precache the shell so the first offline reload already works: without
-  // this '/' only lands in the cache after a navigation the worker saw, and
-  // an SPA session may never do one (login + clicks are pushState).
   e.waitUntil(
     caches
       .open(SHELL)
@@ -51,10 +82,19 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== SHELL && k !== DATA).map((k) => caches.delete(k))),
-    ).then(() => self.clients.claim()),
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.filter((k) => k !== SHELL && k !== DATA).map((k) => caches.delete(k))),
+      )
+      .then(() => self.clients.claim()),
   );
+});
+
+self.addEventListener('message', (e) => {
+  if (e.data?.type === 'CLEAR_DATA') {
+    e.waitUntil(caches.delete(DATA).catch(() => {}));
+  }
 });
 
 self.addEventListener('fetch', (e) => {
@@ -68,25 +108,22 @@ self.addEventListener('fetch', (e) => {
         const hit = await cache.match(e.request);
         if (hit) return hit;
         const res = await fetch(e.request);
-        if (res.ok) cache.put(e.request, res.clone());
+        if (res.ok) cache.put(e.request, res.clone()).catch(() => {});
         return res;
       }),
     );
     return;
   }
 
-  // App-shell navigations: network-first with cache fallback. Server-rendered
-  // documents (share pages, ICS, API, uploaded files) are NOT the app shell —
-  // caching their HTML under the '/' key would poison the offline shell, so we
-  // only ever store a genuine React-app navigation there.
+  // App-shell navigations: network-first (with timeout) + cache fallback.
   if (e.request.mode === 'navigate') {
     const isServerDoc = /^\/(public|ics|api|files|collab|mcp)(\/|$)/.test(url.pathname);
     e.respondWith(
-      fetch(e.request)
+      fetchWithTimeout(e.request)
         .then((res) => {
           if (res.ok && !isServerDoc) {
             const copy = res.clone();
-            caches.open(SHELL).then((c) => c.put('/', copy));
+            caches.open(SHELL).then((c) => c.put('/', copy).catch(() => {}));
           }
           return res;
         })
@@ -95,22 +132,33 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Offline snapshots of opened pages and collections: network-first so the
-  // fresh server state wins whenever it answers, cache fallback so a reload
-  // in a tunnel or on a plane still shows the last seen copy. Only GET, only
-  // same-origin (checked above), never a write.
+  // Offline snapshots: network-first (with timeout), cache fallback marked with
+  // X-Salt-Offline: 1.
   if (isSnapshotRequest(url.pathname)) {
     e.respondWith(
-      fetch(e.request)
-        .then((res) => {
+      fetchWithTimeout(e.request)
+        .then(async (res) => {
           if (res.ok) {
             const copy = res.clone();
-            caches.open(DATA).then((c) => c.put(e.request, copy));
+            if (url.pathname === '/api/me') {
+              const probe = res.clone();
+              probe
+                .json()
+                .then((m) => {
+                  if (m && m.authenticated) return putDataCache(e.request, copy);
+                })
+                .catch(() => {});
+            } else {
+              void putDataCache(e.request, copy);
+            }
           }
           return res;
         })
-        .catch(() => caches.match(e.request)),
+        .catch(async () => {
+          const hit = await caches.match(e.request);
+          if (hit) return withOfflineHeader(hit);
+          return Response.error();
+        }),
     );
   }
-  // Everything else: default (network) — deliberately not cached.
 });
