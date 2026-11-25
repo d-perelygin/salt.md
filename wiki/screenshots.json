@@ -565,9 +565,9 @@
       ],
       "element": ".person-page",
       "takenAt": {
-        "web/src/components/PersonPage.tsx": "fea177fd5422",
+        "web/src/components/PersonPage.tsx": "dbed9ca964b3",
         "web/src/components/UserMenu.tsx": "b7ba2182cd0a",
-        "web/src/styles.css": "a3b53134f93b"
+        "web/src/styles.css": "c6d873fbdd01"
       }
     },
     {

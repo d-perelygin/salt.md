@@ -21,7 +21,9 @@ import Portal from './Portal';
 function roleWord(role: string | undefined): string {
   switch (role) {
     case 'owner':
-      return t('Owner');
+      // Not t('Owner'): that source is the usual name of an Owner column and
+      // reads "Ответственный" in Russian. This is the instance owner.
+      return t('Instance owner');
     case 'admin':
       return t('Admin');
     case 'member':
@@ -83,9 +85,16 @@ export default function PersonPage({
         }}
       >
         <div className="person-page" role="dialog" aria-modal="true" aria-label={user ? user.name : t('Account')}>
-          <button className="person-close icon-btn" onClick={onClose} aria-label={t('Close')} title={t('Close')}>
-            <X size={17} />
-          </button>
+          <div className="person-actions">
+            {profile?.isYou && onEditSelf && (
+              <button className="btn person-edit" onClick={onEditSelf}>
+                <Pencil size={14} /> {t('Edit profile')}
+              </button>
+            )}
+            <button className="person-close icon-btn" onClick={onClose} aria-label={t('Close')} title={t('Close')}>
+              <X size={17} />
+            </button>
+          </div>
 
           {!profile ? (
             <div className="person-empty dialog-hint">
@@ -121,11 +130,6 @@ export default function PersonPage({
                   {nick && <div className="person-nick">@{nick}</div>}
                   {user!.about ? <p className="person-about-lead">{user!.about}</p> : null}
                 </div>
-                {profile.isYou && onEditSelf && (
-                  <button className="btn person-edit" onClick={onEditSelf}>
-                    <Pencil size={14} /> {t('Edit profile')}
-                  </button>
-                )}
               </div>
 
               <div className="person-body">

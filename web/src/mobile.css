@@ -1536,24 +1536,25 @@ body.tabs-dragging .tabs-sheet-card {
     font-size: 24px;
   }
 
-  .person-edit {
-    margin-left: auto;
-  }
-
   .person-body {
     grid-template-columns: 1fr;
     gap: 20px;
     padding: 16px 16px 24px;
   }
 
+  /* Contacts and memberships answer "who is this" and come first; what the
+     person has been writing is the second question. */
   .person-side {
+    order: -1;
     border-left: none;
     padding-left: 0;
-    border-top: 1px solid var(--border);
-    padding-top: 16px;
+    border-top: none;
+    padding-top: 0;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
   }
 
-  .person-close {
+  .person-actions {
     top: 10px;
     right: 10px;
   }

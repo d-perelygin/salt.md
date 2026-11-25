@@ -13161,12 +13161,27 @@ a,
   box-shadow: 0 32px 80px -32px rgba(0, 0, 0, 0.7);
 }
 
-.person-close {
+/* Page actions sit over the cover, clear of the content: the name row gets
+   the whole width, and the edit button never squeezes a long name into
+   three-letter lines. */
+.person-actions {
   position: absolute;
   top: 12px;
   right: 12px;
   z-index: 2;
-  background: var(--card);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A plate of its own: theme.css makes a plain .btn transparent (the site's
+   glass button), and over a cover that read as bare text floating on the
+   colour. The selector is more specific than that rule, not !important. */
+.person-actions .btn:not(.primary):not(.danger),
+.person-close {
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
 }
 
 .person-cover {
@@ -13179,14 +13194,24 @@ a,
   display: block;
   width: 100%;
   height: 100%;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.05) 35%, rgba(0, 0, 0, 0.38) 100%);
+  /* Darkened at both ends: the top so the action buttons have something to
+     sit on, the bottom so the face and name land on the cover cleanly. */
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.42) 0%,
+    rgba(0, 0, 0, 0.1) 30%,
+    rgba(0, 0, 0, 0) 46%,
+    rgba(0, 0, 0, 0) 58%,
+    rgba(0, 0, 0, 0.4) 100%
+  );
 }
 
 .person-head {
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 12px 16px;
   padding: 0 32px 6px;
   margin-top: -46px;
 }
@@ -13212,8 +13237,11 @@ a,
   object-fit: cover;
 }
 
+/* A basis rather than a bare grow: when the head runs out of room the edit
+   button moves to its own line instead of squeezing the name into three
+   letters per line. */
 .person-head-text {
-  flex: 1;
+  flex: 1 1 220px;
   min-width: 0;
   padding-bottom: 4px;
 }
@@ -13223,7 +13251,9 @@ a,
   font-size: clamp(24px, 3.6vw, 32px);
   line-height: 1.15;
   font-weight: 650;
-  overflow-wrap: anywhere;
+  /* break-word, not anywhere: an unbroken long name still wraps, but ordinary
+     words keep whole instead of splitting mid-word in a narrow box. */
+  overflow-wrap: break-word;
 }
 
 .person-you {
@@ -13242,11 +13272,6 @@ a,
   margin: 6px 0 0;
   color: var(--muted);
   font-size: 13.5px;
-}
-
-.person-edit {
-  flex: none;
-  margin-bottom: 4px;
 }
 
 .person-body {
