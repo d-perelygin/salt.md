@@ -857,7 +857,19 @@
   /* The topbar says where you are, not what you can do: one title, the menu
      that opens the drawer, and ⋯. The crumbs before the last one are the
      hierarchy, and the hierarchy is one tap away in the drawer. */
+  .breadcrumbs {
+    /* The trail is one crumb here; it should still take the room it has, so
+       the title is not a short stub against the far-right menu. */
+    flex: 1 1 auto;
+  }
+
   .breadcrumbs .crumb-wrap:not(:last-child) {
+    display: none;
+  }
+
+  /* The separator sits INSIDE the row it introduces, so hiding the earlier
+     crumbs left a leading slash hanging before the only crumb. */
+  .breadcrumbs .crumb-sep {
     display: none;
   }
 
