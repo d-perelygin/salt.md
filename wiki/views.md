@@ -131,16 +131,14 @@ menu:
 | Entry | What it does |
 | --- | --- |
 | **Open** | Opens the row as a page. |
+| **Open in new tab** | Same, in a tab of its own; ⌘-click and middle-click do it too. |
 | **Move to** → a column | Same as dragging. Only columns the card is not already in are listed, and picking **No …** clears the value. |
+| **Add card at the top** / **at the bottom** | Creates a row already carrying this card's column value, at that end of the column, and opens it in the side peek. Long columns are why it is there: a board grouped by status can run to hundreds of cards, and scrolling to the foot of **Done** to add one has nothing to recommend it. Otherwise the same thing **＋ New** under the column does. |
 | **Move to trash** | Asks *Move “…” to the trash?* with the row's title first, then moves the row to the trash. Reversible from [Trash](trash-and-recovery.md). |
 
-A column heading carries a `⋯` beside its count, and it is about the column
-rather than the card: **Add card at the top** and **Add card at the bottom**
-create a row already carrying that column's value, at that end of the column,
-and open it in the side peek. Long columns are why it is there — a board grouped
-by status can run to hundreds of cards, and scrolling to the foot of **Done** to
-add one has nothing to recommend it. Both entries otherwise do the same thing
-**＋ New** under the column does.
+The column heading itself carries one control, **＋**, and no menu of its own:
+the two ways to place a new card live on the card, where the question "another
+one here" is asked.
 
 At the bottom of every column is **＋ New**, which creates a row with that
 column's value already set and opens it in the side peek — a page that slides
@@ -389,7 +387,6 @@ configures the current view sits on the right, in this order:
 | **Columns** | Which properties this view shows. Shows `Columns (4/7)` when anything is hidden. |
 | **Properties** | The schema editor: add a property, change a type, edit select options. It edits the collection, not the view, so it changes every view at once. This is the **⚙ Properties** the empty-state messages point at. |
 | **New rows from template** | In the same dialog, below the properties: a template every **＋ New** in the collection duplicates. What the button prescribes — the column on a board, the day on a calendar — is overwritten on top; values and text come from the template. Blank rows when nothing is chosen. |
-| **⋯** (*View options*) | Rename, move and remove this view. |
 | **＋ New** | Creates an *Untitled* row and opens it in the side peek. Every view except a form has it. |
 
 The side peek is a second view of the workspace rather than a modal: changing
@@ -512,6 +509,14 @@ table keeps its rows while you finish typing. A `contains` on the title is a
 plain substring, which is what you want nine times out of ten; the regex is
 there for the tenth.
 
+**Aa** beside the value decides whether case matters. Off — the default — means
+a title search folds case in every alphabet, so *авшк* finds *АвШк* and *ABSHK*
+finds *Abshk*; the regex follows the same switch, which is what a pattern like
+`^[A-Z]` needs. It is off by default because "contains" is a search, and a search
+that misses a row over a capital letter reads as broken. The switch belongs to
+the condition, not the view: one view can hold *title contains "draft"* and
+*title is "DRAFT-1"* with case respected.
+
 Titles used to be unfilterable, and this is not [Search](search.md) wearing a
 condition's clothes: a search looks across the whole workspace and cannot be
 combined with the view's other conditions, while a title filter is one more line
@@ -604,19 +609,21 @@ The two are worth telling apart before you go looking for lost data.
    menu offers **Table**, **Board**, **Gallery**, **Calendar**, **Timeline**,
    **List**, **Form**. The new view is named after its type, is appended at the
    end, and opens straight away.
-2. **Rename** by double-clicking the tab, or through `⋯` → **Rename view**. A
-   right-click on any tab offers renaming, moving and removing for that view,
-   without switching to it first; `⋯` acts on the view you are on.
-3. **Move** it along the strip with `⋯` → **Move left** / **Move right**. The
-   entries grey out at the ends. The order of the tabs is the order they are in;
-   the first tab is what opens when someone opens the collection.
-4. **Remove** with `⋯` → **Remove view**. It happens at once, without a
-   confirmation, and takes the view's filters, sort and hidden columns with it.
-   The rows are untouched. On a collection with one view the entry is not
-   offered: a collection needs something to draw.
+2. **Rename** by double-clicking the tab, or by right-clicking it (on a touch
+   screen, press and hold) and choosing **Rename view**. The menu belongs to the
+   tab you opened it on — renaming or removing a view needs no switch to it
+   first.
+3. **Move** it along the strip with **Move left** / **Move right** in the same
+   menu. The entries grey out at the ends. The order of the tabs is the order
+   they are in; the first tab is what opens when someone opens the collection.
+4. **Remove** with **Remove view**. It happens at once, without a confirmation,
+   and takes the view's filters, sort and hidden columns with it. The rows are
+   untouched. On a collection with one view the entry is not offered: a
+   collection needs something to draw.
 
-The `⋯` carries the tooltip *View options* and sits in the settings bar on the
-right, not inside the tab.
+There is no `⋯` for this in the toolbar: the right-click on the tab already
+carries every one of those actions, and a second button that only repeated them
+made the bar longer.
 
 When a new view is created, sensible defaults are filled in so it draws something
 immediately: a board takes the first select or multi-select property, a calendar

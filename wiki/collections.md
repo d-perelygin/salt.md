@@ -142,12 +142,15 @@ right, the settings for the view you are on.
 | **Group** | Board only: which property makes the columns. |
 | **Columns** | Show and hide properties. Two lists, **Shown** and **Hidden**, with **Hide all** and **Show all**. The button reads **Columns**, and `Columns (4/7)` once something is hidden. |
 | **Properties** | Opens the schema dialog (see below). |
-| `⋯` (View options) | **Rename view**, **Move left**, **Move right**, **Remove view**. The arrows grey out at the ends; with only one view left the menu offers nothing but **Rename view**. |
 | **New** | Creates a row and opens it in the side peek. |
 
-On a **form** view the bar keeps only **Columns**, **Properties** and the `⋯`.
-There is nothing to filter, sort or add by hand there, and hiding a property
-under Columns removes its field from the form.
+Renaming, moving and removing a view live on its tab: right-click (or press and
+hold) and pick one. The arrows grey out at the ends; with only one view left the
+menu offers **Rename view** alone.
+
+On a **form** view the bar keeps only **Columns** and **Properties**. There is
+nothing to filter, sort or add by hand there, and hiding a property under
+Columns removes its field from the form.
 
 **Columns hides a property everywhere in that view, not only in a table.** The
 same filtered list of properties is handed to the board cards, the gallery, the
