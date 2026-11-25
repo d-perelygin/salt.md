@@ -1,4 +1,4 @@
-import { LayoutGrid, Menu, Search, Sparkles } from 'lucide-react';
+import { LayoutGrid, Menu, Plus, Search, Sparkles } from 'lucide-react';
 import { t } from '../i18n';
 
 /** The phone's permanent navigation.
@@ -19,19 +19,25 @@ import { t } from '../i18n';
  *  only CSS decides which one the reader is in. */
 export default function MobileDock({
   aiEnabled,
+  chats,
   tabCount,
   onOpenSidebar,
   onOpenTabs,
   onSearch,
+  onNewChat,
   onAi,
 }: {
   aiEnabled: boolean;
+  /** The AI chats view is open: the dock's middle slot becomes "new chat",
+   *  because search is not what one wants from inside a conversation. */
+  chats: boolean;
   /** How many documents are open — the tabs slot answers "how many" without
    *  being opened, which the desktop strip did at a glance. */
   tabCount: number;
   onOpenSidebar: () => void;
   onOpenTabs: () => void;
   onSearch: () => void;
+  onNewChat?: () => void;
   onAi: () => void;
 }) {
   return (
@@ -65,18 +71,33 @@ export default function MobileDock({
         </span>
         <span className="dock-label">{t('Tabs')}</span>
       </button>
-      <button
-        type="button"
-        className="dock-btn"
-        onClick={onSearch}
-        aria-label={t('Search')}
-        title={t('Search')}
-      >
-        <span className="dock-icon">
-          <Search size={19} />
-        </span>
-        <span className="dock-label">{t('Search')}</span>
-      </button>
+      {chats ? (
+        <button
+          type="button"
+          className="dock-btn"
+          onClick={() => onNewChat?.()}
+          aria-label={t('New chat')}
+          title={t('New chat')}
+        >
+          <span className="dock-icon">
+            <Plus size={19} />
+          </span>
+          <span className="dock-label">{t('New chat')}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="dock-btn"
+          onClick={onSearch}
+          aria-label={t('Search')}
+          title={t('Search')}
+        >
+          <span className="dock-icon">
+            <Search size={19} />
+          </span>
+          <span className="dock-label">{t('Search')}</span>
+        </button>
+      )}
       {aiEnabled && (
         <button
           type="button"

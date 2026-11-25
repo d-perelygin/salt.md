@@ -112,6 +112,10 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await p.locator('.tabs-sheet-new').click();
   await eventually(async () => (await p.locator('.tabs-sheet').count()) === 0);
   await eventually(async () => !p.url().includes(docA.id));
+  // A new page focuses its title, and a focused field sends the dock away
+  // (the keyboard owns that edge). Leave the field before using the dock.
+  await p.evaluate(() => document.activeElement?.blur?.());
+  await eventually(async () => (await p.locator('.mobile-dock').isVisible()) === true);
   await slots.nth(1).click();
   await eventually(
     async () => (await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count()) === before + 1,
@@ -346,6 +350,37 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   assert(drawer.width < 390 - 24, 'a strip of the page stays tappable');
   await p.locator('.sidebar-backdrop').click({ position: { x: 370, y: 400 } });
   await eventually(async () => (await p.locator('.sidebar.open').count()) === 0);
+
+  // --- the AI side of the drawer -------------------------------------------
+  // Choosing Home or Chat ends the drawer's job: the choice is made and the
+  // destination is behind it. In chats the dock offers a new chat where search
+  // used to be — searching is not what one wants from inside a conversation.
+  await slots.nth(0).click();
+  await eventually(async () => (await p.locator('.sidebar.open').count()) === 1);
+  await p.locator('.ai-side-tab', { hasText: 'Chat' }).click();
+  await eventually(async () => (await p.locator('.sidebar.open').count()) === 0);
+  await eventually(async () => (await p.locator('.ai-chat-root').count()) === 1);
+  assert.deepEqual(
+    await slots.evaluateAll((els) => els.map((el) => el.getAttribute('aria-label'))),
+    ['Menu', 'Tabs', 'New chat'],
+  );
+
+  // Typing in the composer sends the dock away; leaving the field brings it
+  // back. The keyboard needs the bottom edge, and the dock is in its way.
+  const composer = p.locator('.ai-composer textarea').first();
+  await composer.waitFor();
+  await composer.focus();
+  await eventually(async () => (await p.locator('.mobile-dock').isVisible()) === false);
+  await composer.blur();
+  await eventually(async () => (await p.locator('.mobile-dock').isVisible()) === true);
+
+  // Back to the notes side: the drawer closes by the same rule, and the dock
+  // returns to its four destinations.
+  await slots.nth(0).click();
+  await eventually(async () => (await p.locator('.sidebar.open').count()) === 1);
+  await p.locator('.ai-side-tab', { hasText: 'Home' }).click();
+  await eventually(async () => (await p.locator('.sidebar.open').count()) === 0);
+  await eventually(async () => (await p.locator('.mobile-dock .dock-btn').count()) === 4);
 
   // --- search fills the screen ---------------------------------------------
   await slots.nth(2).click();

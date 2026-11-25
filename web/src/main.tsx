@@ -21,7 +21,7 @@ import './mobile.css';
 import App from './App';
 import { installRingHover } from './ring';
 import { installViewportVars } from './viewport';
-import { installTouchGuards } from './touch';
+import { installTouchGuards, installTypingState } from './touch';
 import { installNavIndex } from './navStack';
 import { initLocale, useLocale } from './i18n';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -33,6 +33,8 @@ installRingHover();
 installViewportVars();
 // A long press on a draggable card is a drag, not the browser's menu.
 installTouchGuards();
+// While a field has the keyboard, the phone's dock steps out of its way.
+installTypingState();
 // The position in the history stack, for the back and forward arrows in the
 // tabs sheet — the ones a browser would otherwise provide.
 installNavIndex();

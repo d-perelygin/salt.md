@@ -1365,7 +1365,8 @@ body.tabs-dragging .tabs-sheet-card {
   /* While the caret is in the text the dock has no job: the keyboard covers
      the bottom of the screen and the strip above it is where the typing
      actions belong. They swap places, so nothing is ever two bars high. */
-  body.mobile-editing .mobile-dock {
+  body.mobile-editing .mobile-dock,
+  body.mobile-typing .mobile-dock {
     display: none;
   }
 

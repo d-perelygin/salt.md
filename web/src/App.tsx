@@ -2405,6 +2405,9 @@ export default function App() {
         sidebarMode={sidebarMode}
         onSidebarModeChange={(m) => {
           setSidebarMode(m);
+          // The drawer exists to make the choice; once it is made, it steps
+          // out of the way — the chats view or the tree is the destination.
+          setSidebarOpen(false);
           if (m === 'chats') void loadAiThreads();
         }}
         aiThreads={aiThreads}
@@ -2625,10 +2628,12 @@ export default function App() {
           wide the window is. */}
       <MobileDock
         aiEnabled={aiEnabled && sidebarMode === 'docs'}
+        chats={sidebarMode === 'chats'}
         tabCount={openTabs.length}
         onOpenSidebar={openSidebar}
         onOpenTabs={() => setTabsSheetOpen(true)}
         onSearch={() => setSearchOpen(true)}
+        onNewChat={() => setActiveChatId(null)}
         onAi={() => {
           const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
           if (sel) setAiQuote(sel);
