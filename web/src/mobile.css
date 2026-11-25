@@ -80,7 +80,30 @@
 }
 
 /* How many documents are open — the same information the tab strip carried, in
-   the one place a thumb can see it. */
+   the one place a thumb can see it. A count on its own backing, tucked into
+   the corner of the grid icon; the label under it still says what the slot
+   is, so the number never has to stand alone. */
+.dock-badge {
+  position: absolute;
+  top: -8px;
+  right: -13px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  /* A dock-coloured ring cuts the chip out of the icon it overlaps. It is
+     wider than a hairline on purpose: the number sits on a busy corner of a
+     19px glyph, and the ring is what keeps the shape legible. */
+  border: 2px solid var(--bg);
+  border-radius: 10px;
+  background: var(--muted);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
 /* The dock's one action, marked as one. */
 .dock-btn.dock-primary {
   color: var(--accent);
@@ -715,6 +738,42 @@
     backdrop-filter: none;
   }
 
+  /* The share dialog is a .menu hanging off the topbar's globe. On a phone
+     those buttons live behind the ⋯ sheet, so its anchor is a zero-width box
+     at the right edge and the desktop's right-aligned 400px panel hung off the
+     screen — half the form was unreachable. It is a bottom sheet here: opaque,
+     full width, with its own veil. */
+  .share-dialog {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: var(--kb-inset, 0px);
+    width: auto;
+    max-width: none;
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
+    z-index: 320;
+    padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    background: var(--card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+  }
+
+  .share-dialog .share-tabs {
+    gap: 6px;
+    padding-bottom: 12px;
+  }
+
+  .share-dialog .share-tab {
+    min-height: 36px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+
   .menu button,
   .menu .menu-item {
     min-height: 44px;
@@ -1020,7 +1079,9 @@
     border: none;
     border-top: 1px solid var(--border-strong);
     border-radius: 18px 18px 0 0;
-    padding: 14px 12px calc(20px + env(safe-area-inset-bottom));
+    /* The sheet stays attached to the bottom edge; the room is inside it, so
+       the last row is not level with the home indicator. */
+    padding: 14px 14px calc(32px + env(safe-area-inset-bottom));
     box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
     font-size: 15px;
   }
@@ -1031,8 +1092,7 @@
     content: attr(data-title);
     display: block;
     flex: none;
-    padding: 2px 2px 10px;
-    border-bottom: 1px solid var(--border);
+    padding: 2px 2px 6px;
     color: var(--fg);
     font-size: 22px;
     font-weight: 650;

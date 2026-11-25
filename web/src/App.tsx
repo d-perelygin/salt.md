@@ -2500,6 +2500,7 @@ export default function App() {
           wide the window is. */}
       <MobileDock
         aiEnabled={aiEnabled && sidebarMode === 'docs'}
+        tabCount={openTabs.length}
         onOpenSidebar={openSidebar}
         onOpenTabs={() => setTabsSheetOpen(true)}
         onSearch={() => setSearchOpen(true)}

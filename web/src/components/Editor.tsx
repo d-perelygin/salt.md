@@ -56,6 +56,7 @@ import PageShares from './PageShares';
 import SheetBackdrop from './SheetBackdrop';
 import SheetGrab from './SheetGrab';
 import ShareDialog, { type ShareTab } from './ShareDialog';
+import { usePhoneLayout } from '../viewport';
 import { HistoryModal } from './PageHistory';
 import CommentsPanel, {
   COMMENTS_CHANGED,
@@ -1071,6 +1072,10 @@ function PageHeader({
   const [visibility, setVisibility] = useState(page.visibility);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  // On a phone the share dialog is a bottom sheet and needs a veil: its own
+  // outside-click listener would otherwise let the first tap through to the
+  // board underneath.
+  const phoneLayout = usePhoneLayout();
   // The two entries — the lock and the globe — open one dialog on different
   // tabs, so the access list and the public link stop being two menus.
   const [shareTab, setShareTab] = useState<ShareTab>('share');
@@ -1996,6 +2001,9 @@ function PageHeader({
             <button className={'icon-btn topbar-wide-only' + (isShared ? ' shared-active' : '')} title={isShared ? t('Shared') : t('Share to web (read-only link)')} onClick={() => void openShareDialog('publish')}>
               <Globe size={17} />
             </button>
+            {shareOpen && phoneLayout && (
+              <div className="fs-backdrop share-backdrop" onClick={() => setShareOpen(false)} />
+            )}
             {shareOpen && (
               <ShareDialog
                 tab={shareTab}

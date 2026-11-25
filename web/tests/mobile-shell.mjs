@@ -43,6 +43,14 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
     assert(box.y > 844 * 0.9, `dock slot ${i} sits at the bottom of the screen`);
   }
 
+  // The tabs slot answers "how many" without being opened. The count is a
+  // chip of its own, hidden from the accessible name so the slot still reads
+  // as "Tabs".
+  const badge = slots.nth(1).locator('.dock-badge');
+  assert.equal(await badge.count(), 1);
+  assert.equal(await badge.getAttribute('aria-hidden'), 'true');
+  assert(Number(await badge.innerText()) >= 1);
+
   // The strip it replaced is gone, not merely scrolled away.
   assert.equal(await p.locator('.tab-bar').isVisible(), false);
   // And the floating AI button, which was the second bottom-right corner.
@@ -289,6 +297,26 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   if (await sep.count()) assert((await sep.boundingBox()).height >= 1);
   await p.locator('.sheet-backdrop').click({ position: { x: 195, y: 60 } });
   await eventually(async () => (await p.locator('.overflow-menu').count()) === 0);
+
+  // The share dialog is a .menu hanging off topbar buttons that are hidden on
+  // a phone, so its anchor is a zero-width box at the right edge: the desktop
+  // 400px panel used to hang off the screen with half the form unreachable.
+  await p.locator('.topbar button[title="More"]').click();
+  await eventually(async () => (await p.locator('.overflow-menu').count()) === 1);
+  await p.getByRole('button', { name: 'Share to web (read-only link)', exact: true }).click();
+  await eventually(async () => (await p.locator('.share-dialog').count()) === 1);
+  const shareBox = await p.locator('.share-dialog').boundingBox();
+  assert(shareBox && shareBox.x === 0 && shareBox.width > 380, `the share dialog spans the screen (${shareBox?.width})`);
+  assert.equal(
+    await p.locator('.share-dialog').evaluate((el) => getComputedStyle(el).backdropFilter),
+    'none',
+    'no glass blur over the page',
+  );
+  // Its own veil, so the first tap closes the sheet instead of landing on
+  // the board underneath.
+  assert.equal(await p.locator('.share-backdrop').count(), 1);
+  await p.locator('.share-backdrop').click({ position: { x: 200, y: 80 } });
+  await eventually(async () => (await p.locator('.share-dialog').count()) === 0);
 
   // --- dialogs are sheets, their actions always under the thumb -------------
   await p.goto(`${base}/p/${collection.id}`);

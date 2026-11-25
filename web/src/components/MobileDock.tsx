@@ -19,12 +19,16 @@ import { t } from '../i18n';
  *  only CSS decides which one the reader is in. */
 export default function MobileDock({
   aiEnabled,
+  tabCount,
   onOpenSidebar,
   onOpenTabs,
   onSearch,
   onAi,
 }: {
   aiEnabled: boolean;
+  /** How many documents are open — the tabs slot answers "how many" without
+   *  being opened, which the desktop strip did at a glance. */
+  tabCount: number;
   onOpenSidebar: () => void;
   onOpenTabs: () => void;
   onSearch: () => void;
@@ -53,6 +57,11 @@ export default function MobileDock({
       >
         <span className="dock-icon">
           <LayoutGrid size={19} />
+          {tabCount > 0 && (
+            <span className="dock-badge" aria-hidden="true">
+              {tabCount}
+            </span>
+          )}
         </span>
         <span className="dock-label">{t('Tabs')}</span>
       </button>
