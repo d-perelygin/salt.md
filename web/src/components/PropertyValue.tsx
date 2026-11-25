@@ -13,6 +13,7 @@ import { Check, ExternalLink, GripVertical, Link2 as LinkIcon, Pencil, Plus, Tra
 import { PageIcon } from '../pageIcon';
 import { openCollectionRow, peekPage, type PageOpeners } from '../pageOpen';
 import { t } from '../i18n';
+import { isDesktopPointer } from '../pwa';
 
 interface Props {
   def: PropDef;
@@ -226,7 +227,10 @@ export function SelectCell({
               <>
                 <input
                   className="select-search"
-                  autoFocus
+                  // On a phone the menu is tapped through, not typed into:
+                  // opening the keyboard over the options was the wrong first
+                  // move nine times out of ten. A desktop keeps the focus.
+                  autoFocus={isDesktopPointer()}
                   placeholder={t('Search or create…')}
                   value={q}
                   onChange={(e) => setQ(e.target.value)}

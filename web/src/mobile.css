@@ -590,9 +590,14 @@
      fill the rest, and the whole thing lifts above the keyboard (`--kb-inset`)
      instead of hiding under it. The preview switch and the keyboard footer go:
      there is no second column and no keyboard. */
+  /* Dialogs are sheets too: full width, bottom edge, no side margins. The
+     overlay lifts by the keyboard's height and the dialog's height comes from
+     the VISUAL viewport — on iOS the layout viewport does not shrink, so a
+     dialog sized in dvh kept its height and pushed its own top rows (the
+     checklist somebody was typing in) off the screen. */
   .modal-overlay {
     align-items: flex-end;
-    padding: 0 0 var(--kb-inset, 0px);
+    padding: 8px 0 calc(8px + var(--kb-inset, 0px));
   }
 
   .search-modal,
@@ -691,7 +696,41 @@
   }
 
   .modal-overlay > .dialog {
-    max-height: 88dvh;
+    width: 100%;
+    max-width: none;
+    max-height: calc(var(--vvh, 100dvh) - 16px);
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* Floating popovers (columns, filters, sort) are sheets as well — the
+     measured position is ignored, because half of them opened with a gap on
+     one side and half without, and the sheet is the shape that fits a thumb. */
+  .fs-popover {
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: var(--kb-inset, 0px) !important;
+    width: auto;
+    min-width: 0;
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+    font-size: 15px;
+  }
+
+  .fs-popover .col-row {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  .fs-popover .col-section-head {
+    font-size: 12px;
   }
 
   /* The AI panel is a sheet that stops above the keyboard. Anchored to the
