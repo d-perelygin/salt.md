@@ -55,9 +55,13 @@ await withFixture(async ({ page, context, api, base, workspace }) => {
   // Swipe down on the handle: a short pull springs back, a long one closes.
   const grab = await p.locator('.tabs-sheet .sheet-grab').boundingBox();
   const dragTo = async (dy) => {
-    await p.mouse.move(grab.x + grab.width / 2, grab.y + grab.height / 2);
+    const from = { x: grab.x + grab.width / 2, y: grab.y + grab.height / 2 };
+    // Released inside the viewport, clear of the dock: a pointerup over the
+    // dock's own tabs slot would reopen the sheet the drag just closed.
+    const to = { x: from.x, y: Math.min(from.y + dy, 844 - 90) };
+    await p.mouse.move(from.x, from.y);
     await p.mouse.down();
-    await p.mouse.move(grab.x + grab.width / 2, grab.y + grab.height / 2 + dy, { steps: 12 });
+    await p.mouse.move(to.x, to.y, { steps: 12 });
     await p.mouse.up();
     await p.waitForTimeout(320);
   };

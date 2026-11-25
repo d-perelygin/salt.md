@@ -30,14 +30,30 @@ export function installSheetDrag(
     sheet.style.transform = '';
   };
 
+  // The drag owns the pointer for its whole life, so the moves are listened
+  // for on the window rather than on the handle. Pointer capture alone was not
+  // enough: the first move leaves the 26px handle immediately, and any re-render
+  // that replaced the element took the capture with it — the drag then sat at
+  // offset 0 and sprang back.
+  const bind = () => {
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+  };
+  const unbind = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onCancel);
+  };
+
   const onDown = (e: PointerEvent) => {
-    if (closing || e.button !== 0) return;
+    if (closing || dragging || e.button !== 0) return;
     dragging = true;
     offset = 0;
     startY = e.clientY;
     startTime = performance.now();
     sheet.style.transition = 'none';
-    handle.setPointerCapture?.(e.pointerId);
+    bind();
   };
 
   const onMove = (e: PointerEvent) => {
@@ -48,10 +64,10 @@ export function installSheetDrag(
     sheet.style.transform = `translateY(${offset}px)`;
   };
 
-  const onUp = (e: PointerEvent) => {
+  const onUp = () => {
     if (!dragging) return;
     dragging = false;
-    handle.releasePointerCapture?.(e.pointerId);
+    unbind();
     const height = sheet.getBoundingClientRect().height;
     const velocity = offset / Math.max(1, performance.now() - startTime);
     // A quarter of the sheet, or a flick: the two ways people mean "close".
@@ -80,6 +96,7 @@ export function installSheetDrag(
   const onCancel = () => {
     if (!dragging) return;
     dragging = false;
+    unbind();
     settle('transform 160ms ease-out');
     window.setTimeout(() => {
       if (!dragging) sheet.style.transition = '';
@@ -87,13 +104,8 @@ export function installSheetDrag(
   };
 
   handle.addEventListener('pointerdown', onDown);
-  handle.addEventListener('pointermove', onMove);
-  handle.addEventListener('pointerup', onUp);
-  handle.addEventListener('pointercancel', onCancel);
   return () => {
     handle.removeEventListener('pointerdown', onDown);
-    handle.removeEventListener('pointermove', onMove);
-    handle.removeEventListener('pointerup', onUp);
-    handle.removeEventListener('pointercancel', onCancel);
+    unbind();
   };
 }

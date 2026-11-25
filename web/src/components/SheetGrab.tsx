@@ -15,10 +15,17 @@ export default function SheetGrab({
   onDismiss: () => void;
 }) {
   const handle = useRef<HTMLDivElement>(null);
+  // The listeners must not be rebound when the parent re-renders. `onDismiss`
+  // is a fresh arrow function on every render of most callers, and rebinding
+  // mid-gesture dropped the drag on the floor: the old closure owned the
+  // pointer, the new one started with nothing in its hand, and the sheet
+  // sprang back for no reason the person could see.
+  const dismiss = useRef(onDismiss);
+  dismiss.current = onDismiss;
   useEffect(() => {
     if (!handle.current || !sheet.current) return;
-    return installSheetDrag(handle.current, sheet.current, onDismiss);
-  }, [sheet, onDismiss]);
+    return installSheetDrag(handle.current, sheet.current, () => dismiss.current());
+  }, [sheet]);
   return (
     <div className="sheet-grab sheet-drag" ref={handle} aria-hidden="true">
       <span />
