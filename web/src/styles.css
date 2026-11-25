@@ -4395,8 +4395,57 @@ body.is-col-resizing {
    process stays one click away without shouting at readers who never use it. */
 .schema-tabs {
   display: flex;
+  align-items: center;
   gap: 4px;
   margin-bottom: 12px;
+}
+
+/* Reorder sits at the far end of the tab row: it acts on the list below,
+   not on the tabs. */
+.schema-reorder-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.schema-reorder-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.schema-reorder-btn.is-on {
+  background: var(--active);
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+/* Reorder view: every property is its editable line and nothing else. The
+   options, the type configuration and the two bottom blocks step aside, so a
+   long schema fits at once and the drag handles are a row apart. */
+.schema-reorder .schema-options,
+.schema-reorder .schema-config,
+.schema-reorder .schema-add,
+.schema-reorder .schema-template {
+  display: none;
+}
+
+.schema-reorder .schema-list {
+  gap: 4px;
+}
+
+.schema-reorder .schema-item {
+  border-radius: 6px;
+}
+
+.schema-reorder .schema-row {
+  min-height: 34px;
 }
 .schema-tab {
   border: 1px solid transparent;
@@ -15174,6 +15223,16 @@ body:has(.live-down) .update-banner {
   .schema-item .schema-row > .prop-input { grid-column: 2 / -1; }
   .schema-item .schema-type-select { grid-column: 2; width: 100%; }
   .schema-item .schema-row > .danger { grid-column: 3; }
+
+  /* Reorder keeps one line even here: the row's whole point is that thirty
+     properties fit at once. */
+  .schema-reorder .schema-item .schema-row {
+    grid-template-columns: auto minmax(0, 1fr) 94px 24px;
+    min-height: 36px;
+  }
+  .schema-reorder .schema-item .schema-row > .prop-input { grid-column: 2; }
+  .schema-reorder .schema-item .schema-type-select { grid-column: 3; width: 94px; }
+  .schema-reorder .schema-item .schema-row > .danger { grid-column: 4; }
 }
 
 .schema-options { position: relative; }

@@ -10,7 +10,7 @@ import { OPTION_HEXES, optionPalette } from '../selectOptions';
 import { renameSelectOption, moveSelectOption, reorderSelectOption } from '../renameSelectOption';
 import { confirm } from '../dialog';
 import { toast } from '../toast';
-import { GripVertical, Check, Trash2, X } from 'lucide-react';
+import { ArrowUpDown, GripVertical, Check, Trash2, X } from 'lucide-react';
 import { t } from '../i18n';
 import { imeComposing } from '../keys';
 import { loadMembers, type Member } from './PropertyValue';
@@ -107,6 +107,10 @@ export default function SchemaEditor({
   const [dropProperty, setDropProperty] = useState<{ id: string; after: boolean } | null>(null);
   const [views, setViews] = useState<ViewDef[]>(config.views);
   const [tab, setTab] = useState<'props' | 'process'>(initialTab ?? 'props');
+  // Reorder view: every property collapses to its one editable line, so a
+  // schema with thirty properties fits on a screen and the handles are all
+  // next to each other instead of three cards apart.
+  const [reorder, setReorder] = useState(false);
   // Which tab the dialog is on is part of what a reload restores.
   useEffect(() => {
     writeProcessPart(collectionId, 'tab', tab);
@@ -652,7 +656,7 @@ export default function SchemaEditor({
   return (
     <Portal>
     <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) void tryClose(); }}>
-      <div className="dialog wide">
+      <div className={'dialog wide' + (reorder && tab === 'props' ? ' schema-reorder' : '')}>
         <h2>{t('Collection properties')}</h2>
         <div className="schema-tabs">
           <button
@@ -670,6 +674,16 @@ export default function SchemaEditor({
             {t('Process')}
             {processRuleCount > 0 ? ` · ${processRuleCount}` : ''}
           </button>
+          {tab === 'props' && (
+            <button
+              type="button"
+              className={'schema-reorder-btn' + (reorder ? ' is-on' : '')}
+              aria-pressed={reorder}
+              onClick={() => setReorder((v) => !v)}
+            >
+              <ArrowUpDown size={14} /> {t('Reorder')}
+            </button>
+          )}
         </div>
         {tab === 'process' ? (
           <WorkflowRules

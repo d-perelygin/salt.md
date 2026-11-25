@@ -53,5 +53,21 @@ await withFixture(async ({ page, open, read, assertRows }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   assert(await items.first().locator('.schema-drag-handle').isVisible());
   assert(await page.locator('.dialog.wide').evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth));
+
+  // Reorder view: one editable line per property. The type configuration and
+  // the add/template blocks step aside, so a long schema fits and the handles
+  // sit next to each other; dragging still reorders.
+  const tall = (await items.first().boundingBox()).height;
+  await page.getByRole('button', { name: 'Reorder', exact: true }).click();
+  assert.equal(await page.locator('.dialog.wide.schema-reorder').count(), 1);
+  assert.equal(await page.getByPlaceholder('New property name').isVisible(), false);
+  assert.equal(await page.locator('.schema-options').first().isVisible(), false);
+  const flat = (await items.first().boundingBox()).height;
+  assert(flat < tall, `reorder rows are thinner (${Math.round(flat)} < ${Math.round(tall)})`);
+  const before = await names();
+  await drag(0, 1, true);
+  assert.deepEqual(await names(), [before[1], before[0], ...before.slice(2)]);
+  await page.getByRole('button', { name: 'Reorder', exact: true }).click();
+  assert.equal(await page.getByPlaceholder('New property name').isVisible(), true);
 });
 console.log('Property order: drag, save/cancel, reload, unchanged data and narrow layout passed.');
