@@ -1943,5 +1943,8 @@
   "Membership type": "Тип членства",
   "Account": "Аккаунт",
   "This account is not available.": "Этот аккаунт недоступен.",
-  "None": "Нет"
+  "None": "Нет",
+  "Search archived chats": "Поиск по архиву чатов",
+  "No archived chats": "Нет архивных чатов",
+  "Nothing archived matches.": "В архиве ничего не найдено."
 }

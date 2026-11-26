@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { MessageCircle, MoreHorizontal, Plus, Pin, FileText, Link2, SquareCheck, Pencil, Trash2, ArrowUpRight, RefreshCw, Archive, ArchiveRestore, ChevronDown, ChevronRight } from 'lucide-react';
+import { MessageCircle, MoreHorizontal, Plus, Pin, FileText, Link2, SquareCheck, Pencil, Trash2, ArrowUpRight, RefreshCw, Archive, ArchiveRestore } from 'lucide-react';
 import { api } from '../api';
 import { confirm, promptText } from '../dialog';
 import { formatMoment } from '../format';
@@ -47,6 +47,9 @@ export default function AiThreadList(props: {
   onDelete: (id: string) => void;
   onRefresh: () => void;
   onMarkRead?: (id: string) => void;
+  /** Fired after a chat is archived or unarchived, so the sidebar's own
+   *  Archived drawer can refresh its list. */
+  onArchivedChange?: () => void;
   hideNew?: boolean;
 }) {
   const list = props.threads;
@@ -98,23 +101,14 @@ export default function AiThreadList(props: {
     } catch { /* keep old title */ }
   }
 
-  const [archived, setArchived] = useState<AiThread[] | null>(null);
-  const [archivedOpen, setArchivedOpen] = useState(false);
-
-  async function loadArchived() {
-    try {
-      setArchived(((await api.listAIThreads(undefined, true)) as AiThread[]) ?? []);
-    } catch {
-      setArchived([]);
-    }
-  }
-
   async function setArchivedState(th: AiThread, to: boolean) {
     setMenuFor(null);
     try {
       await api.archiveAIThread(th.id, to);
       props.onRefresh();
-      void loadArchived();
+      // The archived chats live in the sidebar's own drawer now (where the
+      // trash sits); it reloads through this.
+      props.onArchivedChange?.();
     } catch { /* keep where it is */ }
   }
 
@@ -248,29 +242,6 @@ export default function AiThreadList(props: {
         </div>
       )}
       {unpinned.map((th) => renderRow(th, false))}
-      {archived === null ? (
-        <button
-          className="ai-section-toggle"
-          onClick={() => {
-            setArchivedOpen((v) => !v);
-            if (!archivedOpen) void loadArchived();
-          }}
-          type="button"
-        >
-          <span style={{ display: 'inline-flex' }}>{archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
-          <span>{t('Archived')}</span>
-        </button>
-      ) : (
-        <>
-          <button className="ai-section-toggle" onClick={() => setArchivedOpen((v) => !v)} type="button">
-            <span style={{ display: 'inline-flex' }}>{archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
-            <span>
-              {t('Archived')} ({archived.length})
-            </span>
-          </button>
-          {archivedOpen && archived.map((th) => renderRow(th, false, true))}
-        </>
-      )}
     </div>
   );
 }

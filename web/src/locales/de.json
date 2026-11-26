@@ -1898,5 +1898,8 @@
   "Membership type": "Mitgliedschaft",
   "Account": "Konto",
   "This account is not available.": "Dieses Konto ist nicht verfügbar.",
-  "None": "Keine"
+  "None": "Keine",
+  "Search archived chats": "Archivierte Chats durchsuchen",
+  "No archived chats": "Keine archivierten Chats",
+  "Nothing archived matches.": "Keine archivierten Chats gefunden."
 }

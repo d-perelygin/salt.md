@@ -383,10 +383,19 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await composer.blur();
   await eventually(async () => (await p.locator('.mobile-dock').isVisible()) === true);
 
-  // Back to the notes side: the drawer closes by the same rule, and the dock
-  // returns to its four destinations.
+  // The Chat side has no trash: the footer button is Archived, and it opens
+  // the archived conversations in the same sheet the trash uses.
   await slots.nth(0).click();
   await eventually(async () => (await p.locator('.sidebar.open').count()) === 1);
+  assert.equal(await p.locator('.trash-fab').getAttribute('title'), 'Archived');
+  await p.locator('.trash-fab').click();
+  await eventually(async () => (await p.locator('.trash-dialog').count()) === 1);
+  assert.match(await p.locator('.trash-dialog h2').innerText(), /Archived/);
+  await p.keyboard.press('Escape');
+  await eventually(async () => (await p.locator('.trash-dialog').count()) === 0);
+
+  // Back to the notes side: the drawer closes by the same rule, and the dock
+  // returns to its four destinations.
   await p.locator('.ai-side-tab', { hasText: 'Home' }).click();
   await eventually(async () => (await p.locator('.sidebar.open').count()) === 0);
   await eventually(async () => (await p.locator('.mobile-dock .dock-btn').count()) === 4);
