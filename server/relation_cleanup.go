@@ -317,6 +317,24 @@ func (s *Server) purgeTrashed(roots []string) {
 	for i, id := range roots {
 		args[i] = id
 	}
+	// The search index is virtual tables with no foreign keys, so the cascade
+	// that removes the pages does not reach it. Their rows used to outlive the
+	// pages for good: invisible to search (every hit joins pages) but growing
+	// with each sweep.
+	idArgs := make([]any, len(ids))
+	for i, id := range ids {
+		idArgs[i] = id
+	}
+	if _, err := tx.Exec(`DELETE FROM pages_fts WHERE id IN (`+placeholders(len(ids))+`)`, idArgs...); err != nil {
+		return
+	}
+	if _, err := tx.Exec(`DELETE FROM chunks_fts WHERE chunk_id IN
+		(SELECT id FROM page_chunks WHERE page_id IN (`+placeholders(len(ids))+`))`, idArgs...); err != nil {
+		return
+	}
+	if _, err := tx.Exec(`DELETE FROM page_chunks WHERE page_id IN (`+placeholders(len(ids))+`)`, idArgs...); err != nil {
+		return
+	}
 	if _, err := tx.Exec(`DELETE FROM pages WHERE id IN (`+placeholders(len(roots))+`)`, args...); err != nil {
 		return
 	}
