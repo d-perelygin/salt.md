@@ -1678,6 +1678,16 @@ export default function Sidebar({
         <span style={{ flex: 1, textAlign: 'left' }}>{aiEnabled ? t('Search or ask') : t('Search')}</span>
         <span className="kbd">{chordFor('search.open')}</span>
       </button>
+      {aiEnabled && (
+        <div className="ai-side-tabs" role="tablist" aria-label={t('Sidebar mode')}>
+          <button className={'ai-side-tab' + (sidebarMode === 'docs' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'docs'} onClick={() => onSidebarModeChange?.('docs')}>
+            <Home size={15} /> {t('Home')}
+          </button>
+          <button className={'ai-side-tab' + (sidebarMode === 'chats' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'chats'} onClick={() => onSidebarModeChange?.('chats')}>
+            <MessageCircle size={15} /> {t('Chat')}
+          </button>
+        </div>
+      )}
       {aiEnabled && sidebarMode === 'chats' && (
         <div className="tree">
           <button className="ai-newchat" onClick={() => onNewChat?.()}>
@@ -1908,20 +1918,13 @@ export default function Sidebar({
           }
         </SidebarSection>
       )}
-      {!phone && trashRoots.length > 0 && (
-        <TrashSection roots={trashRoots} pages={pages} onRestore={onRestore} onDeleteForever={onDeleteForever} />
-      )}
         </div>
       ) : null}
-      {aiEnabled && (
-        <div className="ai-side-tabs" role="tablist" aria-label={t('Sidebar mode')}>
-          <button className={'ai-side-tab' + (sidebarMode === 'docs' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'docs'} onClick={() => onSidebarModeChange?.('docs')}>
-            <Home size={15} /> {t('Home')}
-          </button>
-          <button className={'ai-side-tab' + (sidebarMode === 'chats' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'chats'} onClick={() => onSidebarModeChange?.('chats')}>
-            <MessageCircle size={15} /> {t('Chat')}
-          </button>
-        </div>
+      {/* Below the tree, not inside it: open, it takes a third of the sidebar
+          and keeps its own list — inside the tree its toggle would scroll away
+          with the pages. */}
+      {!phone && trashRoots.length > 0 && (
+        <TrashSection roots={trashRoots} pages={pages} onRestore={onRestore} onDeleteForever={onDeleteForever} />
       )}
       <div className="sidebar-footer">
         <div className="sidebar-footer-row">
