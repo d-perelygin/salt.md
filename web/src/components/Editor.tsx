@@ -59,6 +59,7 @@ import SheetGrab from './SheetGrab';
 import ShareDialog, { type ShareTab } from './ShareDialog';
 import MobileEditorBar from './MobileEditorBar';
 import { usePhoneLayout } from '../viewport';
+import { isStandalone, requestRefresh } from '../pwa';
 import { HistoryModal } from './PageHistory';
 import CommentsPanel, {
   COMMENTS_CHANGED,
@@ -77,7 +78,7 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles, Lightbulb, Bookmark, Table2, List, Files, TriangleAlert } from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles, Lightbulb, Bookmark, Table2, List, Files, TriangleAlert, RefreshCw } from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
 import { InlineCommentButton, useInlineComments } from './InlineComments';
 
@@ -2386,6 +2387,23 @@ function PageHeader({
                 >
                   <Printer size={15} /> {t('Print / as PDF')}
                 </button>
+                {/* An installed window has no browser reload button and no
+                    browser pull-to-refresh, and a phone that slept can leave
+                    the live connection dead without an error. This refetches
+                    what is on screen and opens a fresh stream without losing
+                    tabs, scroll or half-typed text. Last among the ordinary
+                    entries, so no thumb lands on it by accident. */}
+                {isStandalone() && (
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      requestRefresh();
+                    }}
+                  >
+                    <RefreshCw size={15} /> {t('Refresh data')}
+                  </button>
+                )}
                 {canEdit && (
                   <button
                     className="menu-item danger"

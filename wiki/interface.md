@@ -297,6 +297,10 @@ the second tab: one document needs no tab bar.
 - The set of open tabs is remembered in this browser. A tab whose page was
   trashed or deleted elsewhere drops out on its own, within a moment of the
   change arriving, so no ghost tabs pile up.
+- **Pin** (a tab's right-click menu, or `Ctrl+Alt+P`) marks a tab and nothing
+  else: it shows a pin glyph, loses its ✕, and stays exactly where it is —
+  pinning does not shuffle it to the start. A pin survives bulk closes, never
+  joins the unused group on a phone, and keeps its place across a reload.
 
 ## The topbar
 
@@ -491,17 +495,13 @@ stopped listening. So:
 
 | Where | How to refresh |
 | --- | --- |
-| Phone or tablet | pull down from the top of the page |
+| Phone or tablet | ⋯ menu on the page → **Refresh data** |
 | Desktop | the ↻ button next to the theme switch, bottom of the sidebar |
 
 Both do the same two things: fetch what is on screen again, and throw the live
 connection away and open a new one. Neither reloads the window, so your open
-tabs, your place on the page and anything half-typed survive.
-
-The pull gesture only listens when the page is already scrolled to the top, and
-only for a clearly downward pull: a sideways swipe across a wide table is a
-sideways swipe. In an ordinary browser tab neither appears: the browser's own
-gesture and its own reload button are already there.
+tabs, your place on the page and anything half-typed survive. In an ordinary
+browser tab neither appears: the browser's own reload button is already there.
 
 ## Messages and overlays
 

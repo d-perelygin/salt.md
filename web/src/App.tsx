@@ -40,7 +40,6 @@ import {
   pendingCount,
   savePageUpdate,
 } from './outbox';
-import PullToRefresh from './components/PullToRefresh';
 import Logo from './Logo';
 import ThemeSwitch, { type ThemePref } from './ThemeSwitch';
 import { applyPrefs, plural, t } from './i18n';
@@ -2819,7 +2818,6 @@ export default function App() {
       <DialogHost />
       <UploadBar />
       <ImageLightbox />
-      <PullToRefresh />
     </div>
     </UserContext.Provider>
   );

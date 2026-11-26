@@ -27,6 +27,7 @@ import { initLocale, useLocale } from './i18n';
 import ErrorBoundary from './components/ErrorBoundary';
 import UpdateBanner from './components/UpdateBanner';
 import ActivityLogHost from './components/ActivityLogHost';
+import { checkForNewVersion } from './pwa';
 
 installRingHover();
 // The keyboard's height, for the phone sheets that have to sit above it.
@@ -85,5 +86,18 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('/sw.js').catch(() => {
       /* offline shell is a nice-to-have; never break the app over it */
     });
+  });
+  // An installed window can stay open for days without navigating, and a
+  // navigation is the only time the browser looks for a new build on its own.
+  // Ask when the window comes back to the foreground instead — at most once
+  // in ten minutes, since every answer is a network call. Never on a gesture:
+  // a worker that swaps under running JavaScript can leave the page asking for
+  // a chunk the new build no longer has.
+  let lastAsked = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (Date.now() - lastAsked < 10 * 60_000) return;
+    lastAsked = Date.now();
+    void checkForNewVersion();
   });
 }
