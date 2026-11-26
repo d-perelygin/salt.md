@@ -70,6 +70,9 @@
   Commit your own files by name, never `git add -A`.
 - `npm run check` failing on screenshots after a UI change is routine:
   fresh throwaway instance + `seed-wiki-instance.mjs` + `shoot-wiki.mjs <ids>`.
+  The shoot script reads `SALT_SHOOT_EMAIL` / `SALT_SHOOT_PASSWORD` (and
+  `SALT_SHOOT_FRESH_URL`, a second empty instance, for `setup-welcome`); with
+  them unset it waits for the sidebar after an empty sign-in and times out.
 - `vite build` and `go build` must run from the repo root for the binary to
   embed the fresh `web/dist` (running them under `web/` builds nothing Go).
 
