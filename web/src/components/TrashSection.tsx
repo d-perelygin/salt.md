@@ -123,7 +123,7 @@ function TrashList({ roots, pages, onRestore, onDeleteForever, trashDays }: Prop
             <Undo2 size={14} />
           </button>
           <button title={t('Delete forever')} className="danger" onClick={() => onDeleteForever(p.id)}>
-            <Trash2 size={14} />
+            <X size={14} />
           </button>
         </div>
       ))}

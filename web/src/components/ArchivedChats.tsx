@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Archive, ArchiveRestore, MessageCircle, Search, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, MessageCircle, Search, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
 import { t } from '../i18n';
@@ -93,7 +93,7 @@ function ArchivedList({ threads, activeId, pagesById, onOpen, onUnarchive, onDel
                 });
               }}
             >
-              <Trash2 size={14} />
+              <X size={14} />
             </button>
           </div>
         );

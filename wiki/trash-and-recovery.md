@@ -117,7 +117,7 @@ Open the section and each entry shows its icon, its title with a line through
 it, a line saying who threw it away and when, and two buttons:
 
 - **Restore** (the arrow): puts it back, no confirmation.
-- **Delete forever** (the trash icon): asks first, then it is gone.
+- **Delete forever** (the cross): asks first, then it is gone. The cross means *gone for good* here, not *close*; closing the section is the toggle above.
 
 **Newest first.** What went a minute ago is at the top.
 
