@@ -1267,32 +1267,19 @@ export default function App() {
     setOpenTabs(next);
   }, []);
 
-  // pinTab moves `id` to the end of the pinned prefix; unpinTab moves it to
-  // the head of the unpinned rest. Both keep the pins-are-the-prefix invariant
-  // the strip renders and moveTab relies on.
-  const pinTab = useCallback(
-    (id: string) => {
-      const tabs = tabsRef.current;
-      if (!tabs.includes(id) || pinnedRef.current.includes(id)) return;
-      const pinned = [...pinnedRef.current, id];
-      const rest = tabs.filter((x) => x !== id && !pinned.includes(x));
-      setPinnedTabs(pinned);
-      replaceTabs([...pinned, ...rest]);
-    },
-    [replaceTabs],
-  );
+  // Pinning marks a tab; it does not move it. Browsers lead their strip with
+  // pins, but a reader who pinned a tab to keep it should find it where they
+  // left it — the pin glyph and the menu entry are the state. Unpinning takes
+  // the mark away and nothing else.
+  const pinTab = useCallback((id: string) => {
+    if (!tabsRef.current.includes(id) || pinnedRef.current.includes(id)) return;
+    setPinnedTabs([...pinnedRef.current, id]);
+  }, []);
 
-  const unpinTab = useCallback(
-    (id: string) => {
-      if (!pinnedRef.current.includes(id)) return;
-      const tabs = tabsRef.current;
-      const pinned = pinnedRef.current.filter((x) => x !== id);
-      const rest = tabs.filter((x) => x !== id && !pinned.includes(x));
-      setPinnedTabs(pinned);
-      replaceTabs([...pinned, id, ...rest]);
-    },
-    [replaceTabs],
-  );
+  const unpinTab = useCallback((id: string) => {
+    if (!pinnedRef.current.includes(id)) return;
+    setPinnedTabs(pinnedRef.current.filter((x) => x !== id));
+  }, []);
 
   const togglePinTab = useCallback(
     (id: string) => {
@@ -1302,19 +1289,15 @@ export default function App() {
     [pinTab, unpinTab],
   );
 
-  // moveTab steps `id` within its own block: a pinned tab shuffles inside the
-  // pinned prefix, an unpinned one inside the rest, so neither move can break
-  // the prefix invariant (or smuggle a tab across it by accident).
+  // moveTab steps `id` one place anywhere in the strip: a pin is a mark, not a
+  // separate block, so it can pass and be passed like any other tab.
   const moveTab = useCallback(
     (id: string, delta: -1 | 1) => {
       const tabs = tabsRef.current;
       const at = tabs.indexOf(id);
       if (at < 0) return;
-      const pinnedCount = pinnedRef.current.filter((x) => tabs.includes(x)).length;
-      const lo = pinnedRef.current.includes(id) ? 0 : pinnedCount;
-      const hi = (pinnedRef.current.includes(id) ? pinnedCount : tabs.length) - 1;
       const to = at + delta;
-      if (to < lo || to > hi) return;
+      if (to < 0 || to >= tabs.length) return;
       const next = [...tabs];
       [next[at], next[to]] = [next[to], next[at]];
       replaceTabs(next);
@@ -1322,18 +1305,13 @@ export default function App() {
     [replaceTabs],
   );
 
-  // moveTabTo drops `id` at an absolute position (tab-strip drag and drop),
-  // clamped into its own block the way moveTab is.
+  // moveTabTo drops `id` at an absolute position (tab-strip drag and drop).
   const moveTabTo = useCallback(
     (id: string, to: number) => {
       const tabs = tabsRef.current;
       if (!tabs.includes(id)) return;
-      const pinned = pinnedRef.current.includes(id);
       const rest = tabs.filter((x) => x !== id);
-      const pinnedCount = pinnedRef.current.filter((x) => rest.includes(x)).length;
-      const lo = pinned ? 0 : pinnedCount;
-      const hi = pinned ? pinnedCount : rest.length;
-      const at = Math.max(lo, Math.min(hi, to));
+      const at = Math.max(0, Math.min(rest.length, to));
       replaceTabs([...rest.slice(0, at), id, ...rest.slice(at)]);
     },
     [replaceTabs],
@@ -1512,8 +1490,8 @@ export default function App() {
   });
 
   // Ctrl+Alt+Shift+←/→ moves the active tab along the strip rather than
-  // switching to the neighbour: inside the pinned prefix for a pinned tab,
-  // inside the rest otherwise. Ignored while typing, like the cycling above.
+  // switching to the neighbour. A pin is a mark, not a block: the tab moves
+  // anywhere in the strip. Ignored while typing, like the cycling above.
   useShortcut({
     id: 'tabs.moveLeft',
     keys: ['ctrl+alt+shift+arrowleft'],

@@ -149,8 +149,8 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await openSheet();
   assert.equal(await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count(), 2);
 
-  // Every card carries the pin. Pinning marks it — the card moves to the head
-  // of the strip and reports its own state for a screen reader too.
+  // Every card carries the pin. Pinning marks it — the card keeps its place
+  // and reports its own state for a screen reader too.
   const pinButton = (title) => sheetCard(title).locator('.tabs-sheet-card-pin');
   assert.equal(await pinButton('Phone A').getAttribute('aria-label'), 'Pin tab');
   await pinButton('Phone A').click();

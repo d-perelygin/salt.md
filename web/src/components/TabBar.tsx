@@ -156,14 +156,12 @@ export default function TabBar({
   };
   if (tabs.length <= 1) return null; // a single doc needs no tab strip
   const isPinned = (id: string) => pinned.includes(id);
-  const pinnedCount = tabs.filter(isPinned).length;
-  // Where `id` sits among its own block, for greying the move entries out at
-  // the ends instead of hiding them.
+  // Grey the move entries out at the ends of the strip instead of hiding them.
+  // A pinned tab moves like any other: the pin is a mark, not a block.
   const canMove = (id: string, delta: -1 | 1) => {
     const at = tabs.indexOf(id);
     if (at < 0) return false;
-    if (isPinned(id)) return delta < 0 ? at > 0 : at < pinnedCount - 1;
-    return delta < 0 ? at > pinnedCount : at < tabs.length - 1;
+    return delta < 0 ? at > 0 : at < tabs.length - 1;
   };
   const closeMenu = () => setMenu(null);
   const act = (fn: () => void) => () => {

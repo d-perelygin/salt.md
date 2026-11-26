@@ -36,6 +36,13 @@
 - `node run.mjs --serial` restores the one-at-a-time order when a failure needs a clean,
   uncluttered log.
 
+## UI conventions
+- Never draw a coloured emphasis outline on one side of a tab, card, field or
+  panel (top, left or right). It reads as a broken border, not as "selected",
+  and the user rejects it outright. Emphasis is a fill, a full border, weight or
+  spacing. The one single-edge mark that is wanted: the short neutral bar in the
+  page colour at the bottom of the open tab, which says "this is what is open".
+
 ## Architecture
 - Single `server/` Go package, entry `server.New()` in `server/server.go`
 - SQLite `salt.db` + `files/`; no external services

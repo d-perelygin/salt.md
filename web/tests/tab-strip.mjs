@@ -34,37 +34,37 @@ await withFixture(async ({ page, api, base, workspace, path }) => {
   await eventually(async () => (await tabs.count()) === 3);
   assert.deepEqual(await tabTitles(), ['Tab Alpha', 'Tab Beta', 'Tab Gamma']);
 
-  // Pin Beta from the tab's own menu: it leads the strip and shows the pin.
+  // Pin Beta from the tab's own menu: it shows the pin and keeps its place.
   await tabMenu('Tab Beta', 'Pin tab');
-  await eventually(async () => (await tabTitles()).join('|') === 'Tab Beta|Tab Alpha|Tab Gamma');
-  assert.equal(await page.locator('.tab-bar .tab.pinned').count(), 1);
+  await eventually(async () => (await page.locator('.tab-bar .tab.pinned').count()) === 1);
+  assert.deepEqual(await tabTitles(), ['Tab Alpha', 'Tab Beta', 'Tab Gamma']);
 
   // Pins and order survive a reload.
   await page.reload();
   await eventually(async () => (await tabs.count()) === 3);
-  assert.deepEqual(await tabTitles(), ['Tab Beta', 'Tab Alpha', 'Tab Gamma']);
+  assert.deepEqual(await tabTitles(), ['Tab Alpha', 'Tab Beta', 'Tab Gamma']);
   assert.equal(await page.locator('.tab-bar .tab.pinned').count(), 1);
 
-  // Move Gamma left with the keyboard: past Alpha, but never past the pins.
+  // Move Gamma left with the keyboard: past the pin too — a pin is a mark,
+  // not a block that other tabs cannot cross.
   await tabs.filter({ hasText: 'Tab Gamma' }).click();
   await page.keyboard.press('Control+Alt+Shift+ArrowLeft');
-  await eventually(async () => (await tabTitles()).join('|') === 'Tab Beta|Tab Gamma|Tab Alpha');
+  await eventually(async () => (await tabTitles()).join('|') === 'Tab Alpha|Tab Gamma|Tab Beta');
   await page.keyboard.press('Control+Alt+Shift+ArrowLeft');
-  await page.waitForTimeout(300);
-  assert.deepEqual(await tabTitles(), ['Tab Beta', 'Tab Gamma', 'Tab Alpha']);
+  await eventually(async () => (await tabTitles()).join('|') === 'Tab Gamma|Tab Alpha|Tab Beta');
 
-  // Close others from Gamma: the pin survives beside it.
+  // Close others from Gamma: the pin survives beside it, in strip order.
   await tabMenu('Tab Gamma', 'Close other tabs');
   await eventually(async () => (await tabs.count()) === 2);
-  assert.deepEqual(await tabTitles(), ['Tab Beta', 'Tab Gamma']);
+  assert.deepEqual(await tabTitles(), ['Tab Gamma', 'Tab Beta']);
 
   // Close to the right drops what follows and keeps the pin and the tab.
   await openInNewTab('Tab Alpha');
   await eventually(async () => (await tabs.count()) === 3);
-  assert.deepEqual(await tabTitles(), ['Tab Beta', 'Tab Gamma', 'Tab Alpha']);
+  assert.deepEqual(await tabTitles(), ['Tab Gamma', 'Tab Alpha', 'Tab Beta']);
   await tabMenu('Tab Gamma', 'Close tabs to the right');
   await eventually(async () => (await tabs.count()) === 2);
-  assert.deepEqual(await tabTitles(), ['Tab Beta', 'Tab Gamma']);
+  assert.deepEqual(await tabTitles(), ['Tab Gamma', 'Tab Beta']);
 
   // Workspace switching: the other side opens after the current tab, and
   // coming back focuses the tab you were on without touching the order.
@@ -75,13 +75,14 @@ await withFixture(async ({ page, api, base, workspace, path }) => {
   await page.locator('.ws-btn').click();
   await page.locator('.ws-menu-item', { hasText: 'Second space' }).click();
   await eventually(async () => (await tabs.count()) === 3);
-  assert.deepEqual(await tabTitles(), ['Tab Beta', 'Tab Gamma', 'Tab Delta']);
+  assert.deepEqual(await tabTitles(), ['Tab Gamma', 'Tab Delta', 'Tab Beta']);
   await page.locator('.ws-btn').click();
   await page.locator('.ws-menu-item', { hasText: workspace.name }).click();
   await eventually(async () => ((await tabs.filter({ hasText: 'Tab Gamma' }).getAttribute('class')) ?? '').includes('active'));
-  assert.deepEqual(await tabTitles(), ['Tab Beta', 'Tab Gamma', 'Tab Delta']);
+  assert.deepEqual(await tabTitles(), ['Tab Gamma', 'Tab Delta', 'Tab Beta']);
 
-  // Drag Delta onto Beta: it lands right after the pin block, never inside it.
-  await page.dragAndDrop('.tab-bar .tab >> nth=2', '.tab-bar .tab >> nth=0');
-  await eventually(async () => (await tabTitles()).join('|') === 'Tab Beta|Tab Delta|Tab Gamma');
+  // Drag Delta onto Gamma: it lands before it, across the strip, while the
+  // pinned Beta stays at the end.
+  await page.dragAndDrop('.tab-bar .tab >> nth=1', '.tab-bar .tab >> nth=0');
+  await eventually(async () => (await tabTitles()).join('|') === 'Tab Delta|Tab Gamma|Tab Beta');
 });

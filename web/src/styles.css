@@ -28,6 +28,9 @@
   --muted: #787774;
   --sidebar-bg: #f7f6f3;
   --hover: rgba(0, 0, 0, 0.05);
+  /* A pinned tab is a step above the strip but below the open one. */
+  --tab-pinned: rgba(0, 0, 0, 0.035);
+  --tab-open-bar: #ffffff;
   --active: rgba(0, 0, 0, 0.08);
   --border: #e9e7e4;
   --accent: #2f7d4f;
@@ -54,6 +57,8 @@
   --muted: #8f8f8f;
   --sidebar-bg: #202020;
   --hover: rgba(255, 255, 255, 0.055);
+  --tab-pinned: rgba(255, 255, 255, 0.035);
+  --tab-open-bar: #e6e6e6;
   --active: rgba(255, 255, 255, 0.09);
   --border: #2f2f2f;
   --accent: #4fa872;
@@ -626,6 +631,7 @@ button {
   gap: 6px;
   max-width: 200px;
   min-width: 96px;
+  position: relative;
   padding: 6px 8px 6px 10px;
   border-radius: 10px 10px 0 0;
   font-size: 13px;
@@ -641,8 +647,24 @@ button {
 }
 .tab.active {
   color: var(--text);
-  background: var(--card);
+  background: var(--active);
   border-color: var(--border);
+  /* The open tab reads by weight and by a short light bar along its bottom
+     edge — the one thing that says "this is what is open". The body is a step
+     darker than a pinned tab, so the bar has something to sit against. No
+     coloured edge anywhere: a coloured line on one side reads as a broken
+     border, not as emphasis. */
+  font-weight: 600;
+}
+.tab.active::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--tab-open-bar);
 }
 .tab-icon {
   display: inline-flex;
@@ -674,12 +696,12 @@ button {
   opacity: 1;
   background: var(--hover);
 }
-/* A pinned tab leads the strip, keeps its place and shows the pin. Its × is
-   hidden (unpin from the menu first) but middle-click still closes it. */
+/* A pinned tab keeps its place in the strip and shows the pin. Its × is hidden
+   (unpin from the menu first) but middle-click still closes it. It sits a step
+   above the strip — a faint fill, no border — so it reads as kept apart from
+   ordinary tabs without competing with the open one. */
 .tab.pinned {
-  background: var(--hover);
-  border-color: var(--border);
-  border-bottom: none;
+  background: var(--tab-pinned);
 }
 .tab-pin {
   display: inline-flex;
