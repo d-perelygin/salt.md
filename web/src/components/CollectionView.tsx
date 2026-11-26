@@ -4180,8 +4180,11 @@ function BoardView({
                             a long column makes "all the way to the top" a
                             scroll and a guess, and touch has no drag at all.
                             Missing in a sorted view, which has no manual
-                            order to change. */}
-                        {manualOrder && (
+                            order to change. A column of two has nothing to
+                            reorder (the pair simply swaps), and a single card
+                            has no order at all: the two entries appear once
+                            there are three cards to stand between. */}
+                        {manualOrder && rowsFor(col.id).length >= 3 && (
                           <>
                             <button
                               onClick={() => {
