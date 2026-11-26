@@ -79,6 +79,13 @@ export default function AiChatView(props: {
   const attachMenuRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(attachMenuOpen, attachMenuRef, () => setAttachMenuOpen(false));
   const bottomRef = useRef<HTMLDivElement>(null);
+  // The list follows the end only while the reader is already there: scrolling
+  // up to read must not be undone by the next streamed chunk. Opening a thread
+  // lands on its end at once — an animated scroll through the whole history is
+  // a slideshow, not a load.
+  const chatBodyRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+  const instantRef = useRef(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const inputBoxRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -129,7 +136,10 @@ export default function AiChatView(props: {
       return;
     }
     // Reset per-thread UI at once: the previous thread must not flash through
-    // while its replacement loads.
+    // under the new title while its replacement loads.
+    setMessages([]);
+    stickRef.current = true;
+    instantRef.current = true;
     setSteps([]);
     setRunList([]);
     setLastError(null);
@@ -168,8 +178,19 @@ export default function AiChatView(props: {
     return () => { alive = false; };
   }, [tid]);
 
+  const onChatScroll = () => {
+    const el = chatBodyRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!stickRef.current) return;
+    if (!messages.length && !steps.length) return;
+    const el = chatBodyRef.current;
+    if (!el) return;
+    // The list itself, not scrollIntoView: that also moves the page when the
+    // list is not tall enough to have its own scroll position.
+    el.scrollTo({ top: el.scrollHeight, behavior: instantRef.current ? 'auto' : 'smooth' });
+    instantRef.current = false;
   }, [messages, steps]);
 
   // Ticking elapsed time while an agent run is live.
@@ -222,17 +243,34 @@ export default function AiChatView(props: {
   }, [pendingQuestion, picked, freeText]);
 
   // Composer draft survives unmounts (Chat/Home switch) and thread
-  // switches: one draft per thread, restored when coming back.
-  const draftKey = (t: string | null) => 'salt-ai-draft:v:' + (t ?? 'new');
-  useEffect(() => {
+  // switches: one draft per conversation, shared with the side panel. The two
+  // surfaces used to keep a box each, so a prompt written in one was gone when
+  // the other opened. The old per-surface keys are still read once, so a draft
+  // left behind by the earlier shape is not lost.
+  const draftKey = (t: string | null) => 'salt-ai-draft:' + (t ?? 'new');
+  function readDraft(t: string | null) {
+    const legacy = (p: string) => { try { return localStorage.getItem(p); } catch { return null; } };
     try {
-      setInput(localStorage.getItem(draftKey(tid)) ?? '');
-    } catch { setInput(''); }
+      return localStorage.getItem(draftKey(t))
+        ?? legacy('salt-ai-draft:v:' + (t ?? 'new'))
+        ?? legacy('salt-ai-draft:p:' + (t ?? 'new'))
+        ?? '';
+    } catch {
+      return '';
+    }
+  }
+  useEffect(() => {
+    setInput(readDraft(tid));
     setMentionQuery(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tid]);
   function clearDraft() {
-    try { localStorage.removeItem(draftKey(tidRef.current)); } catch { /* ignore */ }
+    try {
+      const t = tidRef.current;
+      localStorage.removeItem(draftKey(t));
+      localStorage.removeItem('salt-ai-draft:v:' + (t ?? 'new'));
+      localStorage.removeItem('salt-ai-draft:p:' + (t ?? 'new'));
+    } catch { /* ignore */ }
   }
 
   // The mention query is whatever an @ started right before the caret —
@@ -811,7 +849,7 @@ export default function AiChatView(props: {
             )}
           </span>
         </div>
-        <div className="ai-chat-body">
+        <div className="ai-chat-body" ref={chatBodyRef} onScroll={onChatScroll}>
           {showZeroState && (
             <div className="ai-view-zero">
               <div className="ai-view-zero-hero">

@@ -342,7 +342,6 @@
   "Delete permanently": "Удалить окончательно",
   "Delete property": "Удалить свойство",
   "Delete rule": "Удалить правило",
-  "Delete this chat?": "Удалить этот чат?",
   "Delete this page and all its sub-pages forever?": "Удалить эту страницу и все её вложенные страницы навсегда?",
   "Delete this rule?": "Удалить это правило?",
   "Delete user": "Удалить пользователя",
@@ -1230,6 +1229,7 @@
   "Verify the model name configured in Admin Settings.": "Проверьте название модели в настройках администратора.",
   "Version": "Версия",
   "Version history": "История версий",
+  "Refresh data": "Обновить данные",
   "Version restored": "Версия восстановлена",
   "Via relation": "Через связь",
   "Video": "Видео",
@@ -1769,7 +1769,6 @@
   "Uses the OAuth apps from the Access tab: connect once and invitations go out through the chosen mailbox, no SMTP needed. Store and save the client ID and secret there first, then connect here. In the sign-in window you may pick any account at all, including a dedicated sending mailbox such as noreply@example.com; it does not have to be the account you sign in with.": "Используются приложения OAuth со вкладки «Доступ»: подключите один раз — и приглашения будут отправляться через выбранный почтовый ящик, SMTP не нужен. Сначала сохраните там идентификатор клиента и секрет, затем подключитесь здесь. В окне входа можно выбрать любой аккаунт — в том числе отдельный ящик для отправки, например noreply@example.com; это не обязательно должен быть аккаунт, с которым вы входите.",
   "Regenerate title": "Обновить название",
   "Archive": "Архивировать",
-  "Unarchive": "Вернуть из архива",
   "Archived": "Архив",
   "Memory": "Память",
   "Remember this…": "Запомнить…",
@@ -1943,5 +1942,16 @@
   "Membership type": "Тип членства",
   "Account": "Аккаунт",
   "This account is not available.": "Этот аккаунт недоступен.",
-  "None": "Нет"
+  "None": "Нет",
+  "Search archived chats": "Поиск по архиву чатов",
+  "No archived chats": "Нет архивных чатов",
+  "Nothing archived matches.": "В архиве ничего не найдено.",
+  "Delete this chat forever?": "Удалить этот чат навсегда?",
+  "The trash is not emptied automatically.": "Корзина не очищается автоматически.",
+  "Items in the trash are deleted forever after {n} days.": {
+    "one": "Страницы в корзине удаляются навсегда через {n} день.",
+    "few": "Страницы в корзине удаляются навсегда через {n} дня.",
+    "many": "Страницы в корзине удаляются навсегда через {n} дней.",
+    "other": "Страницы в корзине удаляются навсегда через {n} дня."
+  }
 }

@@ -79,7 +79,7 @@ export default function TabsSheet({
 
   /** Press a card to pick it up. A mouse lifts at once; a finger after a short
    *  hold, so a swipe still scrolls the grid. Release over another card moves
-   *  the tab there (within its pinned or unpinned block, as the strip does). */
+   *  the tab there, anywhere in the strip; a pin is a mark, not a block. */
   const startDrag = (e: React.PointerEvent, id: string) => {
     if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
     const startX = e.clientX;

@@ -570,6 +570,11 @@ func (s *Server) handleGetAIThreadMessages(w http.ResponseWriter, r *http.Reques
 		httpError(w, 404, "not found")
 		return
 	}
+	// Fetching the messages is reading the chat, whichever surface asked: the
+	// panel's switcher, a copied link, a reload and the run that just finished
+	// all load history this way, and none of them used to clear the unread dot.
+	// The sidebar row marks read explicitly on top of this.
+	s.db.Exec(`UPDATE ai_threads SET last_read_at = ? WHERE id = ? AND user_id = ?`, now(), threadID, u.ID)
 	rows, err := s.db.Query(`SELECT id, thread_id, role, content, model, tokens_in, tokens_out, attachments, created_at, COALESCE(run_id,'') FROM ai_messages WHERE thread_id = ? ORDER BY created_at ASC`, threadID)
 	if err != nil {
 		httpError(w, 500, err.Error())
@@ -915,7 +920,10 @@ func (s *Server) handleArchiveAIThread(w http.ResponseWriter, r *http.Request) {
 	if body.Archived {
 		v = 1
 	}
-	res, err := s.db.Exec(`UPDATE ai_threads SET archived = ?, updated_at = ? WHERE id = ? AND user_id = ?`, v, now(), id, u.ID)
+	// archived only: updated_at means "the conversation changed", and it is what
+	// the client reads to draw the unread dot. Bumping it here made a chat that
+	// had been read to the end come back from the archive flagged unread.
+	res, err := s.db.Exec(`UPDATE ai_threads SET archived = ? WHERE id = ? AND user_id = ?`, v, id, u.ID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -1708,6 +1716,10 @@ var aiDestructiveTools = map[string]bool{
 	"delete_comment": true, "delete_view": true, "set_trashed": true,
 	"set_sharing": true, "propose_workspace_rules": true,
 	"update_schema": true, "workspace": true, "set_workflow_code": true,
+	// Deleting a process rule is the same act as rewriting the process in
+	// smaller pieces: "review" has to ask about it too, or the guarded whole
+	// can be dismantled one unguarded rule at a time.
+	"remove_workflow_rule": true,
 }
 
 func toolNeedsApproval(name, mode string) bool {

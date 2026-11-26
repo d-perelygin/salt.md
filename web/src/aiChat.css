@@ -1287,3 +1287,48 @@ body.workflow-full-open:has(.confirm-dialog) .ai-panel {
     grid-template-columns: 1fr;
   }
 }
+
+/* Archived chats in the sidebar's drawer (where the trash sits in Notes mode).
+   The rows are chat rows; only the unarchive action and the frame are new. */
+.archive-section .trash-toggle .sidebar-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.archive-row {
+  margin: 1px 4px;
+}
+.archive-row .ai-row-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.archive-restore {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.archive-restore:hover {
+  background: var(--active);
+  color: var(--fg);
+}
+.archive-delete:hover {
+  color: var(--danger);
+}
+.trash-dialog .ai-chat-row {
+  margin: 0 0 2px;
+  min-height: 48px;
+  padding: 6px 4px;
+}
+
+/* The comments panel owns the same bottom-right corner as the floating AI
+   button; while it is open the button sits on the composer's Send and eats the
+   click. */
+body:has(.comments-panel) .ai-fab {
+  display: none !important;
+}

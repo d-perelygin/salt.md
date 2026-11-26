@@ -149,8 +149,8 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await openSheet();
   assert.equal(await p.locator('.tabs-sheet-card:not(.tabs-sheet-new)').count(), 2);
 
-  // Every card carries the pin. Pinning marks it — the card moves to the head
-  // of the strip and reports its own state for a screen reader too.
+  // Every card carries the pin. Pinning marks it — the card keeps its place
+  // and reports its own state for a screen reader too.
   const pinButton = (title) => sheetCard(title).locator('.tabs-sheet-card-pin');
   assert.equal(await pinButton('Phone A').getAttribute('aria-label'), 'Pin tab');
   await pinButton('Phone A').click();
@@ -383,10 +383,19 @@ await withFixture(async ({ page, context, api, base, workspace, collection }) =>
   await composer.blur();
   await eventually(async () => (await p.locator('.mobile-dock').isVisible()) === true);
 
-  // Back to the notes side: the drawer closes by the same rule, and the dock
-  // returns to its four destinations.
+  // The Chat side has no trash: the footer button is Archived, and it opens
+  // the archived conversations in the same sheet the trash uses.
   await slots.nth(0).click();
   await eventually(async () => (await p.locator('.sidebar.open').count()) === 1);
+  assert.equal(await p.locator('.trash-fab').getAttribute('title'), 'Archived');
+  await p.locator('.trash-fab').click();
+  await eventually(async () => (await p.locator('.trash-dialog').count()) === 1);
+  assert.match(await p.locator('.trash-dialog h2').innerText(), /Archived/);
+  await p.keyboard.press('Escape');
+  await eventually(async () => (await p.locator('.trash-dialog').count()) === 0);
+
+  // Back to the notes side: the drawer closes by the same rule, and the dock
+  // returns to its four destinations.
   await p.locator('.ai-side-tab', { hasText: 'Home' }).click();
   await eventually(async () => (await p.locator('.sidebar.open').count()) === 0);
   await eventually(async () => (await p.locator('.mobile-dock .dock-btn').count()) === 4);

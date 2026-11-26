@@ -1133,7 +1133,12 @@ func (s *Server) handleSharePage(w http.ResponseWriter, r *http.Request) {
 		AllowedViews  []string `json:"allowedViews"`
 		AllowDetail   bool     `json:"allowDetail"`
 	}
-	decodeJSON(w, r, &body)
+	// A malformed body is not a request to reset the link's password, expiry
+	// and view list to their defaults: refuse it before anything is deleted.
+	if err := decodeJSON(w, r, &body); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 	var expiresAt any
 	if body.ExpiresInDays > 0 {
 		expiresAt = time.Now().UTC().AddDate(0, 0, body.ExpiresInDays).Format(time.RFC3339Nano)
@@ -1153,9 +1158,23 @@ func (s *Server) handleSharePage(w http.ResponseWriter, r *http.Request) {
 	}
 	// One live read-share per page: replace any existing read link so a re-share
 	// with a new expiry/password doesn't leave the old token valid. Form-shares
-	// (mode='form') are independent and left untouched.
-	s.db.Exec(`DELETE FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID)
-	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, token, page_id, created_at, expires_at, password_hash, options, file_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, tokenHash(token), token, pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail), newID()+newID()); err != nil {
+	// (mode='form') are independent and left untouched. One transaction, so a
+	// failed insert leaves the old link working instead of deleting it first.
+	tx, err := s.db.Begin()
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	if _, err := tx.Exec(`INSERT INTO share_links (token_hash, token, page_id, created_at, expires_at, password_hash, options, file_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, tokenHash(token), token, pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail), newID()+newID()); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}

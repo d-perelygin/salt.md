@@ -5,6 +5,9 @@ import { eventually, withFixture } from './fixture.mjs';
 // create a link the moment its menu opened, so checking whether Stop sharing
 // had worked published the page again under a fresh address, and every page
 // somebody looked at this way ended up public.
+//
+// The two halves now live in one dialog (Access and Publish). The globe opens
+// it on Publish; opening is still free, and only "Share publicly" mints.
 await withFixture(async ({ page, api, base, workspace }) => {
   page.setDefaultTimeout(15000);
   const doc = await api('POST', '/api/pages', { title: 'Quarterly notes', workspaceId: workspace.id });
@@ -12,40 +15,42 @@ await withFixture(async ({ page, api, base, workspace }) => {
   const status = async (url) => (await fetch(url)).status;
 
   await page.goto(`${base}/p/${doc.id}`);
-  const globe = page.locator('.share-wrap .icon-btn').first();
-  const menu = page.locator('.share-menu');
+  const globe = page.locator('.share-wrap button[title="Share to web (read-only link)"]');
+  await globe.waitFor();
+  const dialog = page.locator('.share-dialog');
 
-  // Opening the menu shows the state and publishes nothing.
+  // Opening the dialog shows the state and publishes nothing.
   await globe.click();
-  await menu.getByText('This page is not public.', { exact: false }).waitFor();
-  assert.equal(await shared(), false, 'opening the menu published the page');
+  await dialog.waitFor();
+  await dialog.getByRole('button', { name: 'Share publicly', exact: true }).waitFor();
+  assert.equal(await shared(), false, 'opening the dialog published the page');
 
-  // Create link publishes, and the address works.
-  await menu.getByRole('button', { name: 'Create link', exact: true }).click();
-  const field = menu.locator('input.share-input[readonly]');
+  // "Share publicly" publishes, and the address works.
+  await dialog.getByRole('button', { name: 'Share publicly', exact: true }).click();
+  const field = dialog.locator('input.share-input[readonly]');
   await eventually(async () => (await field.count()) === 1 && (await field.inputValue()).includes('/public/'));
   const first = await field.inputValue();
   assert.equal(await status(first), 200);
   assert.equal(await shared(), true);
 
-  // A password typed and left behind does not replace the address on screen;
-  // it waits for New link.
-  await menu.locator('input[type=password]').fill('correct horse');
-  await menu.locator('.share-hint').first().click();
-  await menu.getByRole('button', { name: 'New link', exact: true }).waitFor();
-  assert.equal(await field.inputValue(), first);
-  assert.equal(await status(first), 200, 'leaving the password field replaced the link');
+  // A password applies to the link that is already on screen; it must not mint
+  // a new address behind the reader's back.
+  await dialog.locator('input[type=password]').fill('correct horse');
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
+  await eventually(async () => (await dialog.locator('input[type=password]').inputValue()) === '');
+  assert.equal(await field.inputValue(), first, 'applying a password replaced the link');
 
-  // Stop sharing ends the address, and opening the menu again to check does not
-  // bring the page back.
-  await menu.getByRole('button', { name: 'Stop sharing', exact: true }).click();
-  await eventually(async () => (await menu.count()) === 0);
+  // Stop sharing ends the address and closes the dialog; opening it again to
+  // check does not bring the page back.
+  await dialog.getByRole('button', { name: 'Stop sharing', exact: true }).click();
+  await eventually(async () => (await dialog.count()) === 0);
   assert.equal(await status(first), 404);
   assert.equal(await shared(), false);
   await globe.click();
-  await menu.getByText('This page is not public.', { exact: false }).waitFor();
-  assert.equal(await shared(), false, 'checking the menu after Stop sharing published the page again');
+  await dialog.waitFor();
+  await dialog.getByRole('button', { name: 'Share publicly', exact: true }).waitFor();
+  assert.equal(await shared(), false, 'checking the dialog after Stop sharing published the page again');
   await page.keyboard.press('Escape');
-  await eventually(async () => (await menu.count()) === 0);
+  await eventually(async () => (await dialog.count()) === 0);
   assert.equal(await shared(), false);
 });

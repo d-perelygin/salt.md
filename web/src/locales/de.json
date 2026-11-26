@@ -883,6 +883,7 @@
   "Value": "Wert",
   "Version": "Version",
   "Version history": "Versionsverlauf",
+  "Refresh data": "Daten aktualisieren",
   "Version restored": "Version wiederhergestellt",
   "Via relation": "Über Relation",
   "Viewer": "Betrachter",
@@ -1316,7 +1317,6 @@
   "Default base URL": "Standard-Basis-URL",
   "Default model": "Standardmodell",
   "Delete rule": "Regel löschen",
-  "Delete this chat?": "Diesen Chat löschen?",
   "Delete this rule?": "Diese Regel löschen?",
   "Describe the content that should be generated.": "Beschreiben Sie den zu erzeugenden Inhalt.",
   "Describe the note to write…": "Beschreibe die Notiz …",
@@ -1696,7 +1696,6 @@
   "Filter": "Filter",
   "Regenerate title": "Titel neu generieren",
   "Archive": "Archivieren",
-  "Unarchive": "Aus dem Archiv holen",
   "Archived": "Archiviert",
   "Memory": "Gedächtnis",
   "Remember this…": "Merken…",
@@ -1898,5 +1897,14 @@
   "Membership type": "Mitgliedschaft",
   "Account": "Konto",
   "This account is not available.": "Dieses Konto ist nicht verfügbar.",
-  "None": "Keine"
+  "None": "Keine",
+  "Search archived chats": "Archivierte Chats durchsuchen",
+  "No archived chats": "Keine archivierten Chats",
+  "Nothing archived matches.": "Keine archivierten Chats gefunden.",
+  "Delete this chat forever?": "Diesen Chat endgültig löschen?",
+  "The trash is not emptied automatically.": "Der Papierkorb wird nicht automatisch geleert.",
+  "Items in the trash are deleted forever after {n} days.": {
+    "one": "Seiten im Papierkorb werden nach {n} Tag endgültig gelöscht.",
+    "other": "Seiten im Papierkorb werden nach {n} Tagen endgültig gelöscht."
+  }
 }

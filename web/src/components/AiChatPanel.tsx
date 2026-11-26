@@ -151,17 +151,32 @@ export default function AiChatPanel(props: {
     };
   }, [props.pageId, props.pagesById]);
 
-  const draftKey = (t: string | null) => 'salt-ai-draft:p:' + (t ?? 'new');
-  // Composer draft survives thread switches (see AiChatView for the contract).
-  useEffect(() => {
+  const draftKey = (t: string | null) => 'salt-ai-draft:' + (t ?? 'new');
+  function readDraft(t: string | null) {
+    const legacy = (p: string) => { try { return localStorage.getItem(p); } catch { return null; } };
     try {
-      setInput(localStorage.getItem(draftKey(threadId)) ?? '');
-    } catch { setInput(''); }
+      return localStorage.getItem(draftKey(t))
+        ?? legacy('salt-ai-draft:p:' + (t ?? 'new'))
+        ?? legacy('salt-ai-draft:v:' + (t ?? 'new'))
+        ?? '';
+    } catch {
+      return '';
+    }
+  }
+  // Composer draft survives thread switches, and it is the same draft the full
+  // chat view has for this conversation (see AiChatView).
+  useEffect(() => {
+    setInput(readDraft(threadId));
     setMentionQuery(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
   function clearDraft() {
-    try { localStorage.removeItem(draftKey(threadIdRef.current)); } catch { /* ignore */ }
+    try {
+      const t = threadIdRef.current;
+      localStorage.removeItem(draftKey(t));
+      localStorage.removeItem('salt-ai-draft:p:' + (t ?? 'new'));
+      localStorage.removeItem('salt-ai-draft:v:' + (t ?? 'new'));
+    } catch { /* ignore */ }
   }
 
   // See AiChatView.mentionQueryAt for the rule: @ counts right before
@@ -299,8 +314,17 @@ export default function AiChatPanel(props: {
   const [runList, setRunList] = useState<any[]>([]);
   const [traceOpen, setTraceOpen] = useState(false);
   const streamingRef = useRef(false);
+  // Same contract as the full chat view: follow the end only while the reader
+  // is there, and land on it at once when a thread opens.
+  const panelBodyRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+  const instantRef = useRef(true);
 
   useEffect(() => {
+    // A closed panel is not reading anything: loading a thread here used to
+    // mark it read (the server says fetching messages is reading) and fetch a
+    // conversation nobody had on screen.
+    if (props.hidden) return;
     if (streamingRef.current && runThreadRef.current !== threadId) {
       streamingRef.current = false;
       try { readerRef.current?.cancel(); } catch { /* already closed */ }
@@ -320,6 +344,11 @@ export default function AiChatPanel(props: {
       setLastRun(null);
       return;
     }
+    // The previous conversation must not show under the new title while its
+    // replacement loads.
+    setMessages([]);
+    stickRef.current = true;
+    instantRef.current = true;
     setSteps([]);
     setRunList([]);
     setLastError(null);
@@ -348,7 +377,7 @@ export default function AiChatPanel(props: {
       setMessages(msgs);
     }).catch(() => {});
     return () => { alive = false; };
-  }, [threadId]);
+  }, [threadId, props.hidden]);
 
   function insertIntoPage(markdown: string) {
     window.dispatchEvent(new CustomEvent('salt:ai-insert', {
@@ -356,8 +385,17 @@ export default function AiChatPanel(props: {
     }));
   }
 
+  const onPanelScroll = () => {
+    const el = panelBodyRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!stickRef.current) return;
+    if (!messages.length && !steps.length) return;
+    const el = panelBodyRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: instantRef.current ? 'auto' : 'smooth' });
+    instantRef.current = false;
   }, [messages, steps]);
 
   async function ensureThread(text: string): Promise<string | null> {
@@ -749,7 +787,7 @@ export default function AiChatPanel(props: {
           <button className="ai-iconbtn" onClick={props.onClose} title={t('Close')} type="button"><X size={14} /></button>
         </div>
       </div>
-      <div className="ai-panel-body">
+      <div className="ai-panel-body" ref={panelBodyRef} onScroll={onPanelScroll}>
         {showZeroState && (
           <div className="ai-panel-zero">
             {currentPage && (

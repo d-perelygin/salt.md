@@ -39,13 +39,16 @@
     "board-edge-scroll.mjs",
     "collection-defaults.mjs",
     "share-menu.mjs",
+    "public-share.mjs",
     "slash-menu.mjs",
     "scroll-memory.mjs",
     "board-tick.mjs",
     "oauth-consent.mjs",
     "oauth-grants.mjs",
     "toolbar-menus.mjs",
+    "menu-refresh.mjs",
     "inline-comments.mjs",
+    "ai-chat-lifecycle.mjs",
     "language.mjs"
   ]
 }

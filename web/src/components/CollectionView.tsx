@@ -2106,8 +2106,12 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             // than the column's lowest position. A sorted view orders by its
             // sort, so positions stay out of it.
             const col = viewSorts(view).length === 0 ? boardColumnRows(viewRows, groupBy, optId) : [];
+            // The column's own value, empty ones included: the view may filter
+            // on this property ("show only To do"), and a card made in "No
+            // Status" would otherwise arrive with the filter's value instead of
+            // the column's.
             return void addRow(
-              optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) },
+              { [groupBy]: groupValueFor(schema, groupBy, optId) },
               col.length > 0 ? { prependBefore: Math.min(...col.map((r) => r.position)) } : undefined,
             );
           }}
@@ -4176,8 +4180,11 @@ function BoardView({
                             a long column makes "all the way to the top" a
                             scroll and a guess, and touch has no drag at all.
                             Missing in a sorted view, which has no manual
-                            order to change. */}
-                        {manualOrder && (
+                            order to change. A column of two has nothing to
+                            reorder (the pair simply swaps), and a single card
+                            has no order at all: the two entries appear once
+                            there are three cards to stand between. */}
+                        {manualOrder && rowsFor(col.id).length >= 3 && (
                           <>
                             <button
                               onClick={() => {

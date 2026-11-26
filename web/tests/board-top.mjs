@@ -40,6 +40,30 @@ await withFixture(async ({ page, api, path }) => {
   assert.match((await titles('third'))[0], /Untitled/);
   assert.match((await titles('todo'))[0], /Untitled/);
 
+  // "Move to the top/bottom of the column" appears only when there is an
+  // order worth changing: a column of two swaps either way, and one card has
+  // nowhere to go.
+  const cardMenu = async () => {
+    await page.locator('.board-col[data-col=todo] .card-move-btn').first().click();
+    const menu = page.locator('.card-move-menu');
+    await menu.waitFor();
+    return {
+      top: menu.getByRole('button', { name: 'Move to the top of the column', exact: true }).count(),
+      bottom: menu.getByRole('button', { name: 'Move to the bottom of the column', exact: true }).count(),
+    };
+  };
+  let order = await cardMenu();
+  assert.equal(await order.top, 0, 'two cards need no top entry');
+  assert.equal(await order.bottom, 0);
+  await page.keyboard.press('Escape');
+  await page.locator('.board-col[data-col=todo] .board-add').click();
+  await page.keyboard.press('Escape');
+  await eventually(async () => (await titles('todo')).length === 3);
+  order = await cardMenu();
+  assert.equal(await order.top, 1, 'three cards get the top entry');
+  assert.equal(await order.bottom, 1);
+  await page.keyboard.press('Escape');
+
   // The move button fades in over the card's corner; the marks (faces) slide
   // aside so the two never sit on top of each other. At rest they stay put.
   const card = page.locator('.board-card').first();

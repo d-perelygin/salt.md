@@ -40,13 +40,20 @@ await withFixture(async ({ page, api, base, workspace }) => {
   // On a phone the toolbar is wider than the screen and still scrolls.
   await page.setViewportSize({ width: 375, height: 800 });
   const narrow = await openTypeList();
-  const scrolls = await narrow.toolbar.evaluate((el) => ({
-    overflow: getComputedStyle(el).overflowX,
-    wider: el.scrollWidth > el.clientWidth,
-  }));
-  assert.equal(scrolls.overflow, 'auto');
-  assert.equal(scrolls.wider, true, 'at 375 px the toolbar should be wider than its box');
+  // The dropdown has to stay visible (theme.css keeps the toolbar from
+  // clipping it), so a narrow screen cannot scroll: the toolbar wraps instead
+  // and every button stays on screen.
+  const narrowBox = await narrow.toolbar.evaluate((el) => {
+    const buttons = [...el.querySelectorAll('button')].map((b) => b.getBoundingClientRect());
+    const r = el.getBoundingClientRect();
+    return {
+      fits: buttons.every((b) => b.left >= -1 && b.right <= window.innerWidth + 1),
+      tall: r.height > 44,
+    };
+  });
+  assert.equal(narrowBox.fits, true, 'every toolbar button is on screen on a phone');
+  assert.equal(narrowBox.tall, true, 'the toolbar wraps on a phone instead of running off the edge');
   assert.equal(await seen(narrow.list), true, 'the list must be visible on a phone too');
 
-  console.log('Toolbar menus: the block type list opens in sight, and the toolbar still scrolls on a phone.');
+  console.log('Toolbar menus: the block type list opens in sight, and the toolbar stays on screen on a phone.');
 });

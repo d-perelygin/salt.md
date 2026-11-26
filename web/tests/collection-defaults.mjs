@@ -9,7 +9,7 @@ await withFixture(async ({ page, api, base, workspace, path }) => {
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await eventually(async () => (await rows()).length === before.length + 1);
   assert.equal((await rows()).find(row => !before.includes(row.id)).props.status, 'todo');
-  assert.ok(page.url().endsWith(`/p/${id}`), 'New keeps the collection open');
+  assert.ok(new URL(page.url()).pathname.endsWith(id), 'New keeps the collection open');
   await eventually(async () => await page.locator('.db-table tbody tr').count() === 2);
 
   const doc = await api('POST', '/api/pages', { title: 'Filtered embed', workspaceId: workspace.id });

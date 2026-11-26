@@ -36,14 +36,18 @@ export async function withFixture(test) {
     // that gap matter. Retry with a fresh port and data directory instead of
     // failing a test over the race.
     let base = '';
+    // The data directory of the instance that came up: a test that needs rows
+    // no endpoint can create (a chat history, say) seeds them with sqlite3.
+    let dataDir = '';
     for (let attempt = 1; ; attempt++) {
       const listener = createServer();
       listener.listen(0, '127.0.0.1');
       await once(listener, 'listening');
       const port = listener.address().port;
       await new Promise(resolve => listener.close(resolve));
+      dataDir = join(temp, `data-${attempt}`);
       server = spawn(binary, [], {
-        env: { ...env, SALT_DATA: join(temp, `data-${attempt}`), SALT_ADDR: `127.0.0.1:${port}` },
+        env: { ...env, SALT_DATA: dataDir, SALT_ADDR: `127.0.0.1:${port}` },
         stdio: 'ignore',
       });
       base = `http://127.0.0.1:${port}`;
@@ -122,7 +126,7 @@ export async function withFixture(test) {
     };
     // One fixture for every test here: the collection ones use its helpers,
     // the callout one only needs the API and a workspace to write into.
-    await test({ page, context, api, base, workspace, collection, path, open, chip, field, read, assertRows, schema });
+    await test({ page, context, api, base, workspace, collection, path, open, chip, field, read, assertRows, schema, dataDir });
   } finally {
     await browser?.close();
     if (server && server.exitCode === null) {

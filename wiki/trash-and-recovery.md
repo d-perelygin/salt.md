@@ -117,7 +117,7 @@ Open the section and each entry shows its icon, its title with a line through
 it, a line saying who threw it away and when, and two buttons:
 
 - **Restore** (the arrow): puts it back, no confirmation.
-- **Delete forever** (the cross): asks first, then it is gone.
+- **Delete forever** (the cross): asks first, then it is gone. The cross means *gone for good* here, not *close*; closing the section is the toggle above.
 
 **Newest first.** What went a minute ago is at the top.
 
@@ -204,7 +204,9 @@ See [Self-hosting](self-hosting.md).
 By default, anything that has been in the trash for **30 days** is deleted
 permanently, without asking. The sweep runs every half hour while the server is
 up, and it writes nothing to the audit log, unlike **Delete forever**, which
-records who pressed it.
+records who pressed it. The trash says so above its list — *Items in the trash
+are deleted forever after 30 days* — and with the sweep switched off the same
+line reads *The trash is not emptied automatically*.
 
 It works **per page, not per batch**: each page goes when its own trashing date
 passes the cutoff. A sub-page thrown away three weeks before its parent

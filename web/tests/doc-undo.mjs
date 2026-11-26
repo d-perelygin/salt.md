@@ -32,8 +32,11 @@ await withFixture(async ({ page, api, workspace }) => {
   }
   assert.ok(!(await text()).includes('hello'), 'undo took the typed word back');
 
+  // Redo has to give the word back, not merely leave a non-empty block: the
+  // empty paragraph after an undo already has length, which is how this check
+  // stayed green while redo did nothing.
   await more().click();
   await eventually(async () => (await redo().isDisabled()) === false);
   await redo().click();
-  await eventually(async () => (await text()).length > 0);
+  await eventually(async () => (await text()).includes('hello undo'));
 });

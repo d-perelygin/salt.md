@@ -608,6 +608,18 @@
   overflow: visible;
 }
 
+/* With the dropdown visible, a toolbar wider than a phone cannot scroll (a
+   scroll container would clip the dropdown again). It wraps instead, so every
+   button stays reachable; the last one used to sit 125px off a 375px screen. */
+@media (max-width: 768px) {
+  .bn-root .bn-toolbar,
+  .bn-mantine .bn-toolbar {
+    flex-wrap: wrap;
+    height: auto;
+    max-width: calc(100vw - 12px);
+  }
+}
+
 /* The slash menu's group headings ("Basic blocks", "Media") are labels, so
    they get the label style the sidebar sections have. */
 [data-font='brand'] .bn-root .bn-suggestion-menu-label {

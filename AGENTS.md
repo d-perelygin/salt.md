@@ -36,6 +36,14 @@
 - `node run.mjs --serial` restores the one-at-a-time order when a failure needs a clean,
   uncluttered log.
 
+## UI conventions
+- Never draw a coloured emphasis outline on one side of a tab, card, field or
+  panel (top, left or right). It reads as a broken border, not as "selected",
+  and the user rejects it outright. Emphasis is a fill, a full border, weight or
+  spacing. The one single-edge mark that is wanted: the short bar in the text
+  colour (black on light, light on dark) at the bottom of the open tab, which
+  says "this is what is open".
+
 ## Architecture
 - Single `server/` Go package, entry `server.New()` in `server/server.go`
 - SQLite `salt.db` + `files/`; no external services
@@ -70,6 +78,9 @@
   Commit your own files by name, never `git add -A`.
 - `npm run check` failing on screenshots after a UI change is routine:
   fresh throwaway instance + `seed-wiki-instance.mjs` + `shoot-wiki.mjs <ids>`.
+  The shoot script reads `SALT_SHOOT_EMAIL` / `SALT_SHOOT_PASSWORD` (and
+  `SALT_SHOOT_FRESH_URL`, a second empty instance, for `setup-welcome`); with
+  them unset it waits for the sidebar after an empty sign-in and times out.
 - `vite build` and `go build` must run from the repo root for the binary to
   embed the fresh `web/dist` (running them under `web/` builds nothing Go).
 

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
-import { MessageCircle, MoreHorizontal, Plus, Pin, FileText, Link2, SquareCheck, Pencil, Trash2, ArrowUpRight, RefreshCw, Archive, ArchiveRestore, ChevronDown, ChevronRight } from 'lucide-react';
+import { MessageCircle, MoreHorizontal, Plus, Pin, FileText, Link2, SquareCheck, Pencil, Trash2, ArrowUpRight, RefreshCw, Archive, ArchiveRestore } from 'lucide-react';
 import { api } from '../api';
+import { toast } from '../toast';
 import { confirm, promptText } from '../dialog';
 import { formatMoment } from '../format';
 import { t } from '../i18n';
@@ -47,6 +48,9 @@ export default function AiThreadList(props: {
   onDelete: (id: string) => void;
   onRefresh: () => void;
   onMarkRead?: (id: string) => void;
+  /** Fired after a chat is archived or unarchived, so the sidebar's own
+   *  Archived drawer can refresh its list. */
+  onArchivedChange?: () => void;
   hideNew?: boolean;
 }) {
   const list = props.threads;
@@ -98,23 +102,14 @@ export default function AiThreadList(props: {
     } catch { /* keep old title */ }
   }
 
-  const [archived, setArchived] = useState<AiThread[] | null>(null);
-  const [archivedOpen, setArchivedOpen] = useState(false);
-
-  async function loadArchived() {
-    try {
-      setArchived(((await api.listAIThreads(undefined, true)) as AiThread[]) ?? []);
-    } catch {
-      setArchived([]);
-    }
-  }
-
   async function setArchivedState(th: AiThread, to: boolean) {
     setMenuFor(null);
     try {
       await api.archiveAIThread(th.id, to);
       props.onRefresh();
-      void loadArchived();
+      // The archived chats live in the sidebar's own drawer now (where the
+      // trash sits); it reloads through this.
+      props.onArchivedChange?.();
     } catch { /* keep where it is */ }
   }
 
@@ -137,10 +132,16 @@ export default function AiThreadList(props: {
 
   async function remove(th: AiThread) {
     setMenuFor(null);
-    if (!(await confirm(t('Delete this chat?'), { confirmText: t('Delete'), danger: true }))) return;
-    await api.deleteAIThread(th.id).catch(() => null);
-    props.onDelete(th.id);
-    props.onRefresh();
+    if (!(await confirm(t('Delete this chat forever?'), { confirmText: t('Delete forever'), danger: true }))) return;
+    try {
+      await api.deleteAIThread(th.id);
+      props.onDelete(th.id);
+      props.onRefresh();
+    } catch {
+      // A failed delete must not remove the row: it would come back on the
+      // next refresh, looking like it deleted itself twice.
+      toast(t('Deleting failed'));
+    }
   }
 
   const pinned = list.filter((th) => pinnedIds.includes(th.id));
@@ -203,11 +204,11 @@ export default function AiThreadList(props: {
                 </button>
               ) : (
                 <button onClick={() => void setArchivedState(th, false)}>
-                  <ArchiveRestore size={14} /> {t('Unarchive')}
+                  <ArchiveRestore size={14} /> {t('Restore')}
                 </button>
               )}
               <button className="danger" onClick={() => void remove(th)}>
-                <Trash2 size={14} /> {t('Delete')}
+                <Trash2 size={14} /> {t('Delete forever')}
               </button>
               <button onClick={() => { setMenuFor(null); window.open(threadLink(th.id), '_blank', 'noopener'); }}>
                 <ArrowUpRight size={14} /> {t('Open in new tab')}
@@ -248,29 +249,6 @@ export default function AiThreadList(props: {
         </div>
       )}
       {unpinned.map((th) => renderRow(th, false))}
-      {archived === null ? (
-        <button
-          className="ai-section-toggle"
-          onClick={() => {
-            setArchivedOpen((v) => !v);
-            if (!archivedOpen) void loadArchived();
-          }}
-          type="button"
-        >
-          <span style={{ display: 'inline-flex' }}>{archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
-          <span>{t('Archived')}</span>
-        </button>
-      ) : (
-        <>
-          <button className="ai-section-toggle" onClick={() => setArchivedOpen((v) => !v)} type="button">
-            <span style={{ display: 'inline-flex' }}>{archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
-            <span>
-              {t('Archived')} ({archived.length})
-            </span>
-          </button>
-          {archivedOpen && archived.map((th) => renderRow(th, false, true))}
-        </>
-      )}
     </div>
   );
 }

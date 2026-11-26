@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { api } from '../api';
 import { isTempId, savePageUpdate } from '../outbox';
 import type { FontPref } from '../App';
@@ -20,6 +20,7 @@ import { plural, t } from '../i18n';
 import { openPage, openPageAux, peekPanel } from '../pageOpen';
 import AgentConnectModal from './AgentConnect';
 import AiThreadList, { type AiThread } from './AiThreadList';
+import { ArchivedChatsDialog, ArchivedChatsSection } from './ArchivedChats';
 import { useAiEnabled } from '../aiState';
 import BreakGlassLog from './BreakGlassLog';
 import TemplateGallery from './TemplateGallery';
@@ -29,7 +30,7 @@ import StrandedWorkspaces from './StrandedWorkspaces';
 import { modalOpen, useExclusiveModal, useMenuDismiss } from '../modal';
 import { chordFor, hint, useShortcut } from '../keys';
 import { focusRegion, focusedKey, navItem, useNavRegion, withFocusSurvival } from '../nav';
-import { Sun, Moon, Search, Library, Plus, Table2, FileText, Trash2, LayoutTemplate, Tag, ChevronRight, ChevronDown, Users, Check, Download, Upload, Image, PanelLeftClose, PanelLeftOpen, Pencil, Star, ShieldAlert, ScrollText, Paperclip, SquareArrowOutUpRight, Copy, CornerUpRight, CornerLeftUp, Undo2, X, MoreHorizontal, Settings2, Globe, Home, MessageCircle } from 'lucide-react';
+import { Sun, Moon, Search, Library, Plus, Table2, FileText, Archive, Trash2, LayoutTemplate, Tag, ChevronRight, ChevronDown, Users, Check, Download, Upload, Image, PanelLeftClose, PanelLeftOpen, Pencil, Star, ShieldAlert, ScrollText, Paperclip, SquareArrowOutUpRight, Copy, CornerUpRight, CornerLeftUp, Undo2, X, MoreHorizontal, Settings2, Globe, Home, MessageCircle } from 'lucide-react';
 import { AgentDot } from './AgentBadge';
 import { tagColorClass } from '../tags';
 import { childrenForSection, topLevelForDocs } from '../treeMode';
@@ -61,6 +62,8 @@ interface Props {
   onDuplicate: (id: string) => void;
   onRestore: (id: string) => void;
   onDeleteForever: (id: string) => void;
+  /** Trash retention in days (0 = never), from /api/me. */
+  trashDays?: number;
   onMove: (id: string, parentId: string | null, position: number) => void;
   onToggleFavorite: (id: string) => void;
   onOpenSearch: () => void;
@@ -844,6 +847,7 @@ export default function Sidebar({
   onDuplicate,
   onRestore,
   onDeleteForever,
+  trashDays,
   onMove,
   onToggleFavorite,
   onOpenSearch,
@@ -898,6 +902,10 @@ export default function Sidebar({
   }, [expanded]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
+  // Archived chats take the trash's place when the sidebar is on its Chat
+  // side: same drawer, different list.
+  const [archivedChats, setArchivedChats] = useState<AiThread[]>([]);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const [addFor, setAddFor] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const dragId = useRef<string | null>(null);
@@ -1404,6 +1412,41 @@ export default function Sidebar({
 
   const activeWs = workspaces.find((w) => w.id === currentWs);
   const aiEnabled = useAiEnabled();
+
+  // The archived chats live where the trash does, so they are loaded when the
+  // sidebar turns to its Chat side (and again after archiving or unarchiving
+  // anything there).
+  const loadArchivedChats = useCallback(() => {
+    if (!aiEnabled) return;
+    void api
+      .listAIThreads(undefined, true)
+      .then((list) => setArchivedChats((list as AiThread[]) ?? []))
+      .catch(() => {});
+  }, [aiEnabled]);
+  useEffect(() => {
+    if (aiEnabled && sidebarMode === 'chats') loadArchivedChats();
+  }, [aiEnabled, sidebarMode, loadArchivedChats]);
+
+  const unarchiveChat = (id: string) => {
+    void api
+      .archiveAIThread(id, false)
+      .then(() => {
+        setArchivedChats((prev) => prev.filter((x) => x.id !== id));
+        onRefreshChats?.();
+      })
+      .catch(() => {});
+  };
+
+  const deleteArchivedChat = (id: string) => {
+    void api
+      .deleteAIThread(id)
+      .then(() => {
+        setArchivedChats((prev) => prev.filter((x) => x.id !== id));
+        onChatDeleted?.(id);
+        onRefreshChats?.();
+      })
+      .catch(() => {});
+  };
   // A viewer may only read the workspace; the server refuses anything new at
   // its top level, so the sidebar offers nothing that would fail.
   const canCreateTop = activeWs?.role !== 'viewer';
@@ -1443,8 +1486,10 @@ export default function Sidebar({
         (p) =>
           !p.trashed && !p.isTemplate && inWs(p) && !chainHasDb(p) && (mixed || p.type !== 'collection'),
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pages, currentWs],
+    // `mixed` and `byId` decide chainHasDb and the filter: switching the tree
+    // mode changes the count too, and leaving them out kept the old one until
+    // the next page event.
+    [pages, currentWs, mixed, byId],
   );
   // `!p.isTemplate` for the same reason allDocs carries it: a template is a
   // snapshot that stands on its own, not a page in the tree. Without it here, a
@@ -1704,6 +1749,7 @@ export default function Sidebar({
             onDelete={(id) => onChatDeleted?.(id)}
             onRefresh={() => onRefreshChats?.()}
             onMarkRead={(id) => onMarkRead?.(id)}
+            onArchivedChange={loadArchivedChats}
           />
         </div>
       )}
@@ -1922,24 +1968,48 @@ export default function Sidebar({
       ) : null}
       {/* Below the tree, not inside it: open, it takes a third of the sidebar
           and keeps its own list — inside the tree its toggle would scroll away
-          with the pages. */}
-      {!phone && trashRoots.length > 0 && (
-        <TrashSection roots={trashRoots} pages={pages} onRestore={onRestore} onDeleteForever={onDeleteForever} />
+          with the pages. On the Chat side the same drawer holds the archived
+          conversations. */}
+      {!phone && sidebarMode === 'chats' && archivedChats.length > 0 && (
+        <ArchivedChatsSection
+          threads={archivedChats}
+          activeId={activeChatId}
+          pagesById={byIdAll}
+          onOpen={(id) => onSelectChat?.(id)}
+          onUnarchive={unarchiveChat}
+          onDelete={deleteArchivedChat}
+        />
+      )}
+      {!phone && sidebarMode !== 'chats' && trashRoots.length > 0 && (
+        <TrashSection roots={trashRoots} pages={pages} onRestore={onRestore} onDeleteForever={onDeleteForever} trashDays={trashDays} />
       )}
       <div className="sidebar-footer">
         <div className="sidebar-footer-row">
           {phone && workspaceSwitcher}
           {phone ? (
-            <button
-              type="button"
-              className="trash-fab"
-              aria-label={t('Trash')}
-              title={t('Trash')}
-              onClick={() => setTrashOpen(true)}
-            >
-              <Trash2 size={18} />
-              {trashRoots.length > 0 && <span className="trash-fab-count">{trashRoots.length}</span>}
-            </button>
+            sidebarMode === 'chats' ? (
+              <button
+                type="button"
+                className="trash-fab"
+                aria-label={t('Archived')}
+                title={t('Archived')}
+                onClick={() => setArchivedOpen(true)}
+              >
+                <Archive size={18} />
+                {archivedChats.length > 0 && <span className="trash-fab-count">{archivedChats.length}</span>}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="trash-fab"
+                aria-label={t('Trash')}
+                title={t('Trash')}
+                onClick={() => setTrashOpen(true)}
+              >
+                <Trash2 size={18} />
+                {trashRoots.length > 0 && <span className="trash-fab-count">{trashRoots.length}</span>}
+              </button>
+            )
           ) : (
             <>
               {accountMenu}
@@ -1948,13 +2018,29 @@ export default function Sidebar({
             </>
           )}
         </div>
-        {phone && (
+        {phone && sidebarMode === 'chats' && (
+          <ArchivedChatsDialog
+            open={archivedOpen}
+            threads={archivedChats}
+            activeId={activeChatId}
+            pagesById={byIdAll}
+            onOpen={(id) => {
+              onSelectChat?.(id);
+              setArchivedOpen(false);
+            }}
+            onUnarchive={unarchiveChat}
+            onDelete={deleteArchivedChat}
+            onClose={() => setArchivedOpen(false)}
+          />
+        )}
+        {phone && sidebarMode !== 'chats' && (
           <TrashDialog
             open={trashOpen}
             roots={trashRoots}
             pages={pages}
             onRestore={onRestore}
             onDeleteForever={onDeleteForever}
+            trashDays={trashDays}
             onClose={() => setTrashOpen(false)}
           />
         )}
