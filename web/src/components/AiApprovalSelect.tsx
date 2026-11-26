@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Shield, Check } from 'lucide-react';
+import { Shield, ShieldCheck, ShieldHalf, ShieldOff, Check, type LucideIcon } from 'lucide-react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
@@ -11,6 +11,16 @@ const MODES: { id: ApprovalMode; hint: string }[] = [
   { id: 'review', hint: 'Only consult me about potentially unsafe actions' },
   { id: 'skip', hint: 'Act without asking. Use with caution.' },
 ];
+
+// One shield per mode, and the trigger shows the one in force: a full shield
+// with a tick means every write is checked, a half shield means only the
+// unsafe ones are, a crossed-out shield means nothing is. Reading the state
+// from the composer must not require opening the menu.
+const MODE_ICON: Record<ApprovalMode, LucideIcon> = {
+  always: ShieldCheck,
+  review: ShieldHalf,
+  skip: ShieldOff,
+};
 
 export function approvalLabel(m: string): string {
   if (m === 'always') return t('Always ask');
@@ -36,6 +46,7 @@ export default function AiApprovalSelect(props: {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   useMenuDismiss(open, ref, () => setOpen(false));
+  const ActiveIcon = MODE_ICON[props.value as ApprovalMode] ?? Shield;
   return (
     <span ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
       {props.compact ? (
@@ -48,7 +59,7 @@ export default function AiApprovalSelect(props: {
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
         >
-          <Shield size={15} />
+          <ActiveIcon size={15} />
         </button>
       ) : (
         <button
@@ -56,7 +67,7 @@ export default function AiApprovalSelect(props: {
           title={t('How should the agent ask for approval?')}
           onClick={() => setOpen((v) => !v)}
         >
-          <Shield size={14} /> {approvalLabel(props.value)}
+          <ActiveIcon size={14} /> {approvalLabel(props.value)}
         </button>
       )}
       {open && (
@@ -71,29 +82,35 @@ export default function AiApprovalSelect(props: {
           role="menu"
         >
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{t('How should the agent ask for approval?')}</div>
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              role="menuitemradio"
-              aria-checked={props.value === m.id}
-              onClick={() => { props.onChange(m.id); setOpen(false); }}
-              style={{
-                display: 'block', width: '100%', textAlign: 'left', background: 'none',
-                border: 'none', cursor: 'pointer', color: m.id === 'skip' ? 'var(--warning, #e07d10)' : 'inherit',
-                padding: '8px 4px', borderRadius: 8,
-              }}
-            >
-              <div style={{ fontWeight: 600, fontSize: 14 }}>
-                {m.id === 'always' ? t('Always ask') : m.id === 'review' ? t('Review for me') : t('Skip all approvals')}
-                {props.value === m.id && <span style={{ float: 'right' }}><Check size={12} /></span>}
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>
-                {m.id === 'always' ? t('Ask before making changes or sharing content')
-                  : m.id === 'review' ? t('Only consult me about potentially unsafe actions')
-                  : t('Act without asking. Use with caution.')}
-              </div>
-            </button>
-          ))}
+          {MODES.map((m) => {
+            const Icon = MODE_ICON[m.id];
+            return (
+              <button
+                key={m.id}
+                role="menuitemradio"
+                aria-checked={props.value === m.id}
+                onClick={() => { props.onChange(m.id); setOpen(false); }}
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', textAlign: 'left', background: 'none',
+                  border: 'none', cursor: 'pointer', color: m.id === 'skip' ? 'var(--warning, #e07d10)' : 'inherit',
+                  padding: '8px 4px', borderRadius: 8,
+                }}
+              >
+                <span style={{ display: 'inline-flex', marginTop: 2 }}><Icon size={15} /></span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>
+                    {m.id === 'always' ? t('Always ask') : m.id === 'review' ? t('Review for me') : t('Skip all approvals')}
+                    {props.value === m.id && <span style={{ float: 'right' }}><Check size={12} /></span>}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>
+                    {m.id === 'always' ? t('Ask before making changes or sharing content')
+                      : m.id === 'review' ? t('Only consult me about potentially unsafe actions')
+                      : t('Act without asking. Use with caution.')}
+                  </div>
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </span>
