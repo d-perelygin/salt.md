@@ -85,6 +85,11 @@
   Server dirs `/opt/docker/salt-wiki` and `/opt/docker/salt-kbrd` keep the tag
   in `.env` (`IMAGE_TAG`); never pin it in their compose files, and do not
   build on the server any more.
+- The package is private only because the owner profile `d-perelygin` is
+  private: Forgejo ties package visibility to the owner, not to the repository
+  a package is linked to, so flipping the profile back to public publishes
+  every image it owns. Any machine that pulls needs
+  `docker login git.emotera.ru` first.
 - One commit per fix; commit named files only, never `git add -A` (it once
   staged committed conflict markers).
 - Scratch dirs as `tmp/` inside the working dir, never `/tmp`.
