@@ -43,14 +43,16 @@ await withFixture(async ({ page, api, base, workspace }) => {
   const item = menu.getByRole('button', { name: 'Refresh data', exact: true });
   await item.waitFor();
 
-  // Near the end of the menu, not at the top where a thumb lands first: the
-  // destructive entry stays last and this one right above it.
+  // Beside the page's own actions, between Duplicate and Import: it belongs
+  // with them rather than among the export entries, and never right under the
+  // thumb at the top where the first entries live.
   const labels = await menu
     .locator('.menu-item')
     .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()));
   const at = labels.indexOf('Refresh data');
-  assert.ok(at > labels.length / 2, `Refresh data sits at the end of the menu (index ${at} of ${labels.length})`);
-  assert.equal(labels.at(-1), 'Move to trash', 'the destructive entry stays last');
+  assert.ok(at > 0, 'the entry is in the menu');
+  assert.equal(labels[at - 1], 'Duplicate', 'Refresh data follows Duplicate');
+  assert.equal(labels[at + 1], 'Import (.md / .zip)', 'and precedes Import');
 
   await item.click();
   await page.waitForFunction(() => window.__refreshes >= 1);

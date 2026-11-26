@@ -2332,6 +2332,23 @@ function PageHeader({
                     <Copy size={15} /> {t('Duplicate')}
                   </button>
                 )}
+                {/* An installed window has no browser reload button and no
+                    browser pull-to-refresh, and a phone that slept can leave
+                    the live connection dead without an error. This refetches
+                    what is on screen and opens a fresh stream without losing
+                    tabs, scroll or half-typed text. It sits with the page's
+                    own actions, above the export block. */}
+                {isStandalone() && (
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      setOverflowOpen(false);
+                      requestRefresh();
+                    }}
+                  >
+                    <RefreshCw size={15} /> {t('Refresh data')}
+                  </button>
+                )}
                 {canEdit && (
                   <button
                     className="menu-item"
@@ -2387,23 +2404,6 @@ function PageHeader({
                 >
                   <Printer size={15} /> {t('Print / as PDF')}
                 </button>
-                {/* An installed window has no browser reload button and no
-                    browser pull-to-refresh, and a phone that slept can leave
-                    the live connection dead without an error. This refetches
-                    what is on screen and opens a fresh stream without losing
-                    tabs, scroll or half-typed text. Last among the ordinary
-                    entries, so no thumb lands on it by accident. */}
-                {isStandalone() && (
-                  <button
-                    className="menu-item"
-                    onClick={() => {
-                      setOverflowOpen(false);
-                      requestRefresh();
-                    }}
-                  >
-                    <RefreshCw size={15} /> {t('Refresh data')}
-                  </button>
-                )}
                 {canEdit && (
                   <button
                     className="menu-item danger"
