@@ -1486,8 +1486,10 @@ export default function Sidebar({
         (p) =>
           !p.trashed && !p.isTemplate && inWs(p) && !chainHasDb(p) && (mixed || p.type !== 'collection'),
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pages, currentWs],
+    // `mixed` and `byId` decide chainHasDb and the filter: switching the tree
+    // mode changes the count too, and leaving them out kept the old one until
+    // the next page event.
+    [pages, currentWs, mixed, byId],
   );
   // `!p.isTemplate` for the same reason allDocs carries it: a template is a
   // snapshot that stands on its own, not a page in the tree. Without it here, a
