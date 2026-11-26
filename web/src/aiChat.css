@@ -295,13 +295,14 @@
 }
 .ai-search:hover { background: var(--active); }
 .ai-search .kbd { margin-left: auto; }
-/* Sits above the sidebar footer, not under the search field: the two modes are
-   a place you switch between, not a filter for what the tree shows. */
+/* Under the search field: Home and Chat are the two rooms of the sidebar, and
+   the search above them belongs to both. On a phone the stylesheet moves this
+   row to the bottom, beside the footer. */
 .ai-side-tabs {
   display: flex;
   gap: 2px;
-  padding: 8px 12px 6px;
-  border-top: 1px solid var(--border);
+  padding: 4px 12px 8px;
+  border-bottom: 1px solid var(--border);
 }
 .ai-side-tab {
   flex: 1;

@@ -81,7 +81,7 @@ function TrashList({ roots, pages, onRestore, onDeleteForever }: Props) {
   const previewPage = previewId ? (roots.find((r) => r.id === previewId) ?? null) : null;
 
   return (
-    <>
+    <div className="trash-body">
       {/* Nothing to search when nothing is in there; the dialog already looks
           empty enough without a field that can only find nothing. */}
       {roots.length > 0 && (
@@ -126,7 +126,7 @@ function TrashList({ roots, pages, onRestore, onDeleteForever }: Props) {
           onDeleteForever={onDeleteForever}
         />
       )}
-    </>
+    </div>
   );
 }
 

@@ -717,14 +717,30 @@ button {
   color: var(--fg);
 }
 
+/* The trash is a drawer inside the drawer: closed it is one row, open it takes
+   a third of the sidebar's height and its own list scrolls under a search that
+   stays put. */
 .trash-section {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-top: 1px solid var(--border);
   padding: 6px;
-  max-height: 180px;
+}
+
+.trash-section.open {
+  flex: 0 0 33%;
+}
+
+.trash-section .trash-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
 .trash-toggle {
+  flex: none;
   width: 100%;
   text-align: left;
   padding: 6px 10px;
@@ -777,17 +793,18 @@ button {
   color: var(--danger);
 }
 
-/* Open, the trash has a search field and two lines per entry; at the closed
-   height only three entries would fit. */
-.trash-section.open {
-  max-height: 340px;
-}
-
 .trash-search {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 2px 4px 6px;
+  /* Sticky: the list scrolls under it, so the question stays reachable while
+     the answers move. The background is the frame's, or the rows would show
+     through the field. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--sidebar-bg);
+  margin: 0 4px 6px;
   padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -3041,6 +3058,24 @@ body:has(.icon-picker) .bn-side-menu {
 }
 .dialog.wide {
   width: min(680px, 94vw);
+}
+
+/* The trash dialog scrolls its list, not the whole dialog: the search stays at
+   its top rather than travelling away with the entries. */
+.trash-dialog {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.trash-dialog .trash-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.trash-dialog .trash-search {
+  background: var(--card);
 }
 
 .dialog h2 {

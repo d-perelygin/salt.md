@@ -740,6 +740,20 @@ body.tabs-dragging .tabs-sheet-card {
     padding-top: 8px;
   }
 
+  /* On a phone the drawer is a thumb-reach sheet: the Home/Chat switch belongs
+     just above the footer, not under a search field at the top. Written as
+     flex order because the markup puts it under the search for the desktop. */
+  .sidebar .ai-side-tabs {
+    order: 1;
+    padding: 8px 12px 6px;
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+  }
+
+  .sidebar .sidebar-footer {
+    order: 2;
+  }
+
   .mobile-dock {
     display: flex;
   }
