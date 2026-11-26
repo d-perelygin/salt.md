@@ -915,7 +915,10 @@ func (s *Server) handleArchiveAIThread(w http.ResponseWriter, r *http.Request) {
 	if body.Archived {
 		v = 1
 	}
-	res, err := s.db.Exec(`UPDATE ai_threads SET archived = ?, updated_at = ? WHERE id = ? AND user_id = ?`, v, now(), id, u.ID)
+	// archived only: updated_at means "the conversation changed", and it is what
+	// the client reads to draw the unread dot. Bumping it here made a chat that
+	// had been read to the end come back from the archive flagged unread.
+	res, err := s.db.Exec(`UPDATE ai_threads SET archived = ? WHERE id = ? AND user_id = ?`, v, id, u.ID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
