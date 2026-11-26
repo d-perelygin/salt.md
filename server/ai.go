@@ -1711,6 +1711,10 @@ var aiDestructiveTools = map[string]bool{
 	"delete_comment": true, "delete_view": true, "set_trashed": true,
 	"set_sharing": true, "propose_workspace_rules": true,
 	"update_schema": true, "workspace": true, "set_workflow_code": true,
+	// Deleting a process rule is the same act as rewriting the process in
+	// smaller pieces: "review" has to ask about it too, or the guarded whole
+	// can be dismantled one unguarded rule at a time.
+	"remove_workflow_rule": true,
 }
 
 func toolNeedsApproval(name, mode string) bool {
