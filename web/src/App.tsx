@@ -38,6 +38,7 @@ import {
   isTempId,
   newTempId,
   pendingCount,
+  savePageUpdate,
 } from './outbox';
 import PullToRefresh from './components/PullToRefresh';
 import Logo from './Logo';
@@ -1904,8 +1905,21 @@ export default function App() {
 
   const movePage = useCallback(
     async (id: string, parentId: string | null, position: number) => {
-      await api.updatePage(id, { parentId, position });
-      const fresh = await api.listPages();
+      // savePageUpdate journals the move when the server cannot be reached and
+      // says so; a bare api.updatePage used to reject unhandled, leaving the row
+      // where it was with no message and nothing to replay.
+      const ok = await savePageUpdate(id, { parentId, position }, { label: t('Move') });
+      if (!ok) {
+        toast(t('Moving failed'));
+        return;
+      }
+      // The tree reads `pages`, so the move shows at once even offline.
+      setPages((prev) =>
+        prev ? prev.map((p) => (p.id === id ? { ...p, parentId, position } : p)) : prev,
+      );
+      if (navigator.onLine === false) return;
+      const fresh = await api.listPages().catch(() => null);
+      if (!fresh) return;
       setPages(fresh);
       // Self-heal float precision: if two siblings ended up closer than this,
       // renumber them to clean integers so midpoints can't exhaust f64.
