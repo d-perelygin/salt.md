@@ -19,6 +19,7 @@ import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmen
 import { de as coreDe, en as coreEn, es as coreEs, ru as coreRu, zh as coreZh, zhTW as coreZhTW } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
 import { TextSelection } from 'prosemirror-state';
+import { yUndoPluginKey } from 'y-prosemirror';
 import { api, ApiError, isOfflineResponse, materializeQuery } from '../api';
 import * as Y from 'yjs';
 import { dropPage, dropYDoc, getPage as getCachedPage, getYDocEntry, putPage as putCachedPage, putUploadBlob, putYDoc } from '../offlineCache';
@@ -3134,6 +3135,28 @@ function BlockContent({
   // The states self-correct: a no-op call (empty stack) switches its own
   // side back off, and a fresh edit burns the redo tail, like everywhere.
   const [docUndo, setDocUndo] = useState({ canUndo: false, canRedo: false });
+  // Tiptap registers part of its plugins once the view already exists.
+  // ProseMirror then reconfigures and destroys the view of every plugin it
+  // replaced — and y-prosemirror's undo plugin answers destroy() with
+  // undoManager.destroy(), which unhooks the manager from the Y.Doc. Its state
+  // and stacks stay in place, so nothing looks broken until somebody undoes:
+  // history simply stopped recording, and both ⌘Z and the ⋯ menu found an
+  // empty stack. Keep a subscription of our own, which that destroy() does not
+  // know about, and drop the manager's own so a change is recorded once.
+  useEffect(() => {
+    type UndoInternals = { afterTransactionHandler: (tr: unknown) => void };
+    const um = yUndoPluginKey.getState(editor.prosemirrorState)?.undoManager;
+    if (!um) return;
+    const inner = (um as unknown as UndoInternals).afterTransactionHandler;
+    if (typeof inner !== 'function') return;
+    const doc = um.doc;
+    const forward = (tr: unknown) => inner.call(um, tr);
+    doc.off('afterTransaction', inner);
+    doc.on('afterTransaction', forward);
+    return () => {
+      doc.off('afterTransaction', forward);
+    };
+  }, [editor]);
   useEffect(() => {
     const off = editor.onChange(() => setDocUndo({ canUndo: true, canRedo: false }), false);
     return off;
