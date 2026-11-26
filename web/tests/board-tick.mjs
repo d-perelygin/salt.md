@@ -34,8 +34,10 @@ await withFixture(async ({ page, api, base, path }) => {
   await eventually(async () => (await approved()) === true);
   assert.equal(page.url(), board, 'ticking must not open the card');
 
+  // The card opens in the side peek, so the board (and its URL) stays put.
   await card.getByText('First row', { exact: true }).click();
-  await eventually(async () => page.url() !== board);
+  await eventually(async () => (await page.locator('.peek-panel').count()) === 1);
+  assert.equal(page.url(), board, 'opening the card must not navigate away from the board');
 
   console.log('Board tick: a box on a card ticks in one write and leaves the card closed.');
 });
