@@ -13,7 +13,12 @@
  */
 const SHELL = 'salt-shell-v1';
 const DATA = 'salt-data-v1';
-const FETCH_TIMEOUT_MS = 4000;
+// Long enough for an honest slow read (a 1369-row collection, a cold SQLite
+// page), short enough to still open a dead-server page from the cache. At four
+// seconds a loaded instance aborted requests that would have finished, served
+// the stale copy, and left the abandoned query running on the server — a slow
+// server then looked offline and every retry piled another query behind it.
+const FETCH_TIMEOUT_MS = 12000;
 const MAX_DATA_ENTRIES = 250;
 
 // Strict whitelist of GETs safe to serve stale. Revisions, shares, search,

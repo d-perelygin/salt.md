@@ -124,18 +124,103 @@ export function materializeQuery(opts?: { materialize?: boolean; gen?: number | 
   return `?materialize=1&gen=${opts.gen}${opts.replaced ? '&replaced=1' : ''}`;
 }
 
+/**
+ * A read is a question, and asking it twice in a frame is never a new answer.
+ *
+ * Under a render loop the same three GETs (pages, a collection, its rows) can be
+ * issued dozens of times a second; with no coalescing each one waits its turn on
+ * a server that is already behind, so the loop feeds itself. Identical GETs now
+ * share one request, a result is reused for a short window (a loop cannot beat
+ * it), and a failing or timed-out address is given room to breathe instead of
+ * being retried at render speed.
+ */
+const READ_SHARE_MS = 400;
+const READ_TIMEOUT_MS = 20_000;
+const readInFlight = new Map<string, { promise: Promise<unknown>; at: number }>();
+const readFailed = new Map<string, { until: number; error: unknown; attempts: number }>();
+
+function transientFailure(e: unknown): boolean {
+  if (e instanceof NetworkError) return true;
+  if (e instanceof ApiError) return e.status === 429 || e.status >= 500;
+  return false;
+}
+
+function readGate<T>(url: string, run: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const failed = readFailed.get(url);
+  if (failed && now < failed.until) {
+    // Refused locally: the caller gets the same answer it got a moment ago,
+    // without touching a server that is already struggling.
+    return Promise.reject(failed.error);
+  }
+  const shared = readInFlight.get(url);
+  if (shared && now - shared.at < READ_SHARE_MS) return shared.promise as Promise<T>;
+  const promise = run().then(
+    (value) => {
+      readFailed.delete(url);
+      // Keep the ANSWER, not just the promise: a loop that starts again right
+      // after this resolves gets the same result instead of another request.
+      readInFlight.set(url, { promise: Promise.resolve(value), at: Date.now() });
+      return value;
+    },
+    (error) => {
+      readInFlight.delete(url);
+      if (transientFailure(error)) {
+        const attempts = (failed?.attempts ?? 0) + 1;
+        const wait = Math.min(30_000, 500 * 2 ** (attempts - 1));
+        readFailed.set(url, { until: Date.now() + wait, error, attempts });
+      }
+      throw error;
+    },
+  );
+  readInFlight.set(url, { promise, at: now });
+  if (readInFlight.size > 200) {
+    for (const [key, hit] of readInFlight) {
+      if (Date.now() - hit.at > 60_000) readInFlight.delete(key);
+    }
+  }
+  return promise;
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  if (method !== 'GET') {
+    // A write makes every read answer suspect. Drop the shared results so the
+    // next read goes to the server instead of being served a pre-write copy.
+    return rawReq<T>(url, init).finally(() => {
+      readInFlight.clear();
+      readFailed.clear();
+    });
+  }
+  return readGate(url, () => rawReq<T>(url, init));
+}
+
+async function rawReq<T>(url: string, init?: RequestInit): Promise<T> {
+  // A request that hangs forever holds a socket, a server goroutine and the
+  // caller's spinner. Twenty seconds is far past any honest read on this app.
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), READ_TIMEOUT_MS);
+  if (init?.signal) {
+    if (init.signal.aborted) controller.abort();
+    else init.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
   let res: Response;
   try {
     res = await fetch(url, {
       ...init,
+      signal: controller.signal,
       headers: {
         ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
         ...((init?.headers as Record<string, string> | undefined) ?? {}),
       },
     });
   } catch (e) {
-    throw new NetworkError(e instanceof Error ? e.message : 'Failed to fetch');
+    const aborted = controller.signal.aborted;
+    throw new NetworkError(
+      aborted ? 'request timed out' : e instanceof Error ? e.message : 'Failed to fetch',
+    );
+  } finally {
+    window.clearTimeout(timer);
   }
   if (!res.ok) throwApiError(url, await toApiError(res, ''));
   const data = (await res.json()) as T;

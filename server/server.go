@@ -42,9 +42,16 @@ type Server struct {
 	mcpIcon          string          // data URI of the logo for serverInfo.icons (see mcp.go)
 	ingest           *ingestRegistry // bulk imports in flight (see ingest.go)
 	loginRate        *rateLimiter
-	tokenRate        *rateLimiter
-	formRate         *rateLimiter
-	sharePwRate      *rateLimiter
+	// Read fuse: how many /api requests one account (or address) may make and
+	// may have in flight at once. A page stuck in a render loop asks the same
+	// three questions many times a second; without this the server queues them
+	// all and takes the whole instance down with it.
+	readRate    *rateLimiter
+	busyMu      sync.Mutex
+	busy        map[string]int
+	tokenRate   *rateLimiter
+	formRate    *rateLimiter
+	sharePwRate *rateLimiter
 	// Refresh tokens replaced a moment ago, by the hash of the old one; see
 	// oauthRefresh.
 	renewMu     sync.Mutex
@@ -134,8 +141,10 @@ func New(dataDir string, dist fs.FS) (*Server, error) {
 		loginSem:  make(chan struct{}, 4),
 		events:    newEventHub(),
 		collab:    newCollabHub(),
-		mcpRate:   newRateLimiter(240, 60), // 240 writes/min per token, burst 60
-		loginRate: newRateLimiter(30, 10),  // 30 login attempts/min per IP, burst 10
+		mcpRate:   newRateLimiter(240, 60),   // 240 writes/min per token, burst 60
+		loginRate: newRateLimiter(30, 10),    // 30 login attempts/min per IP, burst 10
+		readRate:  newRateLimiter(1800, 200), // 30 reads/s per account, burst 200
+		busy:      map[string]int{},
 		// Fed by REJECTED tokens only, so a working agent never touches it.
 		tokenRate: newRateLimiter(60, 20),
 		formRate:  newRateLimiter(20, 8), // 20 public form submits/min per IP, burst 8
@@ -503,6 +512,44 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mux.ServeHTTP(w, r)
 		return
 	}
+	// One client must not be able to fill the server's request slots. A page
+	// stuck asking the same question twenty times a second is a client bug, but
+	// it is the instance that stops answering: past the per-account budget the
+	// excess is refused at once (429, retry after a second) instead of being
+	// queued behind requests that are already slow. The cap is counted by
+	// account when signed in and by address otherwise; the event stream above
+	// is long-lived and never counted.
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		key := s.requestOwnerKey(r)
+		if r.Method == http.MethodGet && !s.readRate.allow(key) {
+			w.Header().Set("Retry-After", "2")
+			httpError(w, http.StatusTooManyRequests, "too many requests")
+			return
+		}
+		limit := maxConcurrentPerAddress
+		if strings.HasPrefix(key, "u:") {
+			limit = maxConcurrentPerUser
+		}
+		s.busyMu.Lock()
+		n := s.busy[key]
+		if n >= limit {
+			s.busyMu.Unlock()
+			w.Header().Set("Retry-After", "1")
+			httpError(w, http.StatusTooManyRequests, "too many concurrent requests")
+			return
+		}
+		s.busy[key] = n + 1
+		s.busyMu.Unlock()
+		defer func() {
+			s.busyMu.Lock()
+			if s.busy[key] <= 1 {
+				delete(s.busy, key)
+			} else {
+				s.busy[key]--
+			}
+			s.busyMu.Unlock()
+		}()
+	}
 	start := time.Now()
 	sc := &statusCatcher{ResponseWriter: w, status: 200}
 	s.mux.ServeHTTP(sc, r)
@@ -525,6 +572,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Requests slower than this get the slow mark in the log.
 const slowRequestThreshold = 500 * time.Millisecond
+
+// How many /api requests one owner may have in flight. A page load fires about
+// a dozen at once, so the user cap leaves room for two tabs and a slow upload;
+// an address without a session (the sign-in screen) gets a little more because
+// there is no account to attribute it to.
+const (
+	maxConcurrentPerUser    = 24
+	maxConcurrentPerAddress = 36
+)
+
+// requestOwnerKey names who the fuse counts against. currentUser is a lookup,
+// not the auth middleware: this runs before the handler and must not depend on
+// the request context the middleware fills later.
+func (s *Server) requestOwnerKey(r *http.Request) string {
+	if u := s.currentUser(r); u != nil {
+		return "u:" + u.ID
+	}
+	return "ip:" + s.clientIP(r)
+}
 
 // statusCatcher records the status for the access log while forwarding the
 // interfaces streaming endpoints need: without Flush the SSE stream breaks,
