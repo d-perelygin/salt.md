@@ -118,7 +118,7 @@ for v in versions:
 }
 
 resolve_tag() {
-    local target="$1" matched
+    local target="$1" bare="${1#v}" matched
 
     matched=$(registry_versions | cut -f1 | while read -r tag; do
         [ -z "$tag" ] && continue
@@ -126,9 +126,9 @@ resolve_tag() {
         version=${version%%-*}
         sha=${tag##*-}
         if [ "$tag" = "$target" ] ||
-           [ "v${target}" = "$tag" ] ||
-           [ "$version" = "$target" ] ||
-           [ "$sha" = "$target" ]; then
+           [ "$tag" = "v${bare}" ] ||
+           [ "$version" = "$bare" ] ||
+           [ "$sha" = "$bare" ]; then
             echo "$tag"
             break
         fi
