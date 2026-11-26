@@ -78,6 +78,13 @@
 - Questionable changes are never pushed without the user: collect open
   questions and decide together (usually in the morning); keep them out of PRs.
 - Deploy only on explicit request, through the separate deploy session.
+- Registry deploy: images are built on the laptop and pushed to the Forgejo
+  registry on the server; the server only pulls. `scripts/deploy-registry.sh`
+  runs the whole cycle (`--kbrd`, `--both`, `--list`, `--rollback <tag>`).
+  Image `git.emotera.ru/d-perelygin/salt.md`, tags `v<commit-count>-<sha>`.
+  Server dirs `/opt/docker/salt-wiki` and `/opt/docker/salt-kbrd` keep the tag
+  in `.env` (`IMAGE_TAG`); never pin it in their compose files, and do not
+  build on the server any more.
 - One commit per fix; commit named files only, never `git add -A` (it once
   staged committed conflict markers).
 - Scratch dirs as `tmp/` inside the working dir, never `/tmp`.
