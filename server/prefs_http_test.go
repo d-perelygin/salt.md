@@ -275,3 +275,19 @@ func TestNameDisplayPreference(t *testing.T) {
 		t.Errorf("empty id resolved to %q", got.NameDisplay)
 	}
 }
+
+// The trash's own policy is not an admin secret: every reader of the trash has
+// to know whether it empties itself.
+func TestMeCarriesTrashRetention(t *testing.T) {
+	s := testServer(t)
+	_, cookie := signedIn(t, s, "a@example.com")
+	rec := requestAs(t, s, cookie, "GET", "/api/me", "")
+	if !strings.Contains(rec.Body.String(), `"trashDays":30`) {
+		t.Errorf("/api/me does not carry the default retention:\n%s", rec.Body.String())
+	}
+	s.setSetting("trash_days", "7")
+	rec = requestAs(t, s, cookie, "GET", "/api/me", "")
+	if !strings.Contains(rec.Body.String(), `"trashDays":7`) {
+		t.Errorf("/api/me ignores the instance retention:\n%s", rec.Body.String())
+	}
+}

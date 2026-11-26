@@ -131,7 +131,7 @@ export default function AiThreadList(props: {
 
   async function remove(th: AiThread) {
     setMenuFor(null);
-    if (!(await confirm(t('Delete this chat?'), { confirmText: t('Delete'), danger: true }))) return;
+    if (!(await confirm(t('Delete this chat forever?'), { confirmText: t('Delete forever'), danger: true }))) return;
     await api.deleteAIThread(th.id).catch(() => null);
     props.onDelete(th.id);
     props.onRefresh();
@@ -197,11 +197,11 @@ export default function AiThreadList(props: {
                 </button>
               ) : (
                 <button onClick={() => void setArchivedState(th, false)}>
-                  <ArchiveRestore size={14} /> {t('Unarchive')}
+                  <ArchiveRestore size={14} /> {t('Restore')}
                 </button>
               )}
               <button className="danger" onClick={() => void remove(th)}>
-                <Trash2 size={14} /> {t('Delete')}
+                <Trash2 size={14} /> {t('Delete forever')}
               </button>
               <button onClick={() => { setMenuFor(null); window.open(threadLink(th.id), '_blank', 'noopener'); }}>
                 <ArrowUpRight size={14} /> {t('Open in new tab')}

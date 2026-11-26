@@ -157,6 +157,9 @@ export interface Me {
    *  account has one) or "name". A browser may override it per account
    *  (prefs.nameDisplay). */
   nameDisplayDefault?: 'name' | 'nickname';
+  /** Days the trash keeps a deleted page before deleting it forever; 0 means
+   *  never automatically. Shown under the trash's search. */
+  trashDays?: number;
   /** Language and time preferences of this account (W112). Empty fields mean
    *  automatic — see server/prefs.go. */
   prefs?: Prefs;

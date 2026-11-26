@@ -18,6 +18,9 @@ interface Props {
   pages: PageMeta[];
   onRestore: (id: string) => void;
   onDeleteForever: (id: string) => void;
+  /** Days the trash keeps a page before the server removes it for good;
+   *  0 = never. Undefined before /api/me answers, and then the hint waits. */
+  trashDays?: number;
 }
 
 /** The trash at the bottom of the sidebar.
@@ -30,7 +33,7 @@ interface Props {
  *  likeliest thing to want back. */
 /** The list every trash surface shows: the search, the entries, the preview.
  *  The sidebar section and the phone's dialog differ only in their frame. */
-function TrashList({ roots, pages, onRestore, onDeleteForever }: Props) {
+function TrashList({ roots, pages, onRestore, onDeleteForever, trashDays }: Props) {
   const [query, setQuery] = useState('');
   const [previewId, setPreviewId] = useState<string | null>(null);
 
@@ -96,6 +99,17 @@ function TrashList({ roots, pages, onRestore, onDeleteForever }: Props) {
           />
         </label>
       )}
+      {roots.length > 0 && trashDays !== undefined && (
+        <p className="trash-hint">
+          {trashDays > 0
+            ? plural(
+                trashDays,
+                'Items in the trash are deleted forever after {n} day.',
+                'Items in the trash are deleted forever after {n} days.',
+              )
+            : t('The trash is not emptied automatically.')}
+        </p>
+      )}
       {shown.map((p) => (
         <div key={p.id} className="trash-item">
           <button className="trash-peek" title={t('Preview')} onClick={() => setPreviewId(p.id)}>
@@ -109,7 +123,7 @@ function TrashList({ roots, pages, onRestore, onDeleteForever }: Props) {
             <Undo2 size={14} />
           </button>
           <button title={t('Delete forever')} className="danger" onClick={() => onDeleteForever(p.id)}>
-            <X size={14} />
+            <Trash2 size={14} />
           </button>
         </div>
       ))}

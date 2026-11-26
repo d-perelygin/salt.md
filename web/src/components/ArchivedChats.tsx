@@ -72,8 +72,8 @@ function ArchivedList({ threads, activeId, pagesById, onOpen, onUnarchive, onDel
             <button
               type="button"
               className="archive-restore"
-              title={t('Unarchive')}
-              aria-label={t('Unarchive')}
+              title={t('Restore')}
+              aria-label={t('Restore')}
               onClick={(e) => {
                 e.stopPropagation();
                 onUnarchive(th.id);
@@ -88,7 +88,7 @@ function ArchivedList({ threads, activeId, pagesById, onOpen, onUnarchive, onDel
               aria-label={t('Delete forever')}
               onClick={(e) => {
                 e.stopPropagation();
-                void confirm(t('Delete this chat?'), { confirmText: t('Delete'), danger: true }).then((ok) => {
+                void confirm(t('Delete this chat forever?'), { confirmText: t('Delete forever'), danger: true }).then((ok) => {
                   if (ok) onDelete(th.id);
                 });
               }}

@@ -62,6 +62,8 @@ interface Props {
   onDuplicate: (id: string) => void;
   onRestore: (id: string) => void;
   onDeleteForever: (id: string) => void;
+  /** Trash retention in days (0 = never), from /api/me. */
+  trashDays?: number;
   onMove: (id: string, parentId: string | null, position: number) => void;
   onToggleFavorite: (id: string) => void;
   onOpenSearch: () => void;
@@ -845,6 +847,7 @@ export default function Sidebar({
   onDuplicate,
   onRestore,
   onDeleteForever,
+  trashDays,
   onMove,
   onToggleFavorite,
   onOpenSearch,
@@ -1976,7 +1979,7 @@ export default function Sidebar({
         />
       )}
       {!phone && sidebarMode !== 'chats' && trashRoots.length > 0 && (
-        <TrashSection roots={trashRoots} pages={pages} onRestore={onRestore} onDeleteForever={onDeleteForever} />
+        <TrashSection roots={trashRoots} pages={pages} onRestore={onRestore} onDeleteForever={onDeleteForever} trashDays={trashDays} />
       )}
       <div className="sidebar-footer">
         <div className="sidebar-footer-row">
@@ -2035,6 +2038,7 @@ export default function Sidebar({
             pages={pages}
             onRestore={onRestore}
             onDeleteForever={onDeleteForever}
+            trashDays={trashDays}
             onClose={() => setTrashOpen(false)}
           />
         )}

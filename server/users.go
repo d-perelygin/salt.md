@@ -332,6 +332,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		// The instance default for person fields, so a browser can resolve its
 		// own preference without the admin-only settings route.
 		"nameDisplayDefault": s.displayNameMode(),
+		// How long the trash keeps things. Not an admin secret: every reader of
+		// the trash needs to know whether it empties itself.
+		"trashDays": s.trashRetentionDays(),
 		"aiEnabled":           s.aiEnabledForUser(u),
 	})
 }

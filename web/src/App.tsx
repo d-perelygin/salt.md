@@ -1892,7 +1892,7 @@ export default function App() {
       if (
         !(await confirm(t('Delete this page and all its sub-pages forever?') + note, {
           danger: true,
-          confirmText: t('Delete'),
+          confirmText: t('Delete forever'),
         }))
       )
         return;
@@ -2343,6 +2343,7 @@ export default function App() {
         onDuplicate={duplicatePage}
         onRestore={restorePage}
         onDeleteForever={deleteForever}
+        trashDays={me?.trashDays}
         onMove={movePage}
         onToggleFavorite={toggleFavorite}
         onOpenSearch={() => setSearchOpen(true)}

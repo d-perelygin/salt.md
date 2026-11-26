@@ -15939,3 +15939,12 @@ body:has(.live-down) .update-banner {
 .cp-quote small { display: block; color: var(--muted); margin-top: 4px; }
 .cp-pending { display: flex; gap: 8px; justify-content: space-between; max-height: 100px; overflow: auto; }
 .cp-pending button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 18px; align-self: start; }
+
+/* How long the trash keeps things. Muted and small: it is a policy, not a
+   warning, but it sits above the list so nobody learns it too late. */
+.trash-hint {
+  margin: 0 6px 6px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--muted);
+}
