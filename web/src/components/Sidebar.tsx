@@ -1433,6 +1433,17 @@ export default function Sidebar({
       })
       .catch(() => {});
   };
+
+  const deleteArchivedChat = (id: string) => {
+    void api
+      .deleteAIThread(id)
+      .then(() => {
+        setArchivedChats((prev) => prev.filter((x) => x.id !== id));
+        onChatDeleted?.(id);
+        onRefreshChats?.();
+      })
+      .catch(() => {});
+  };
   // A viewer may only read the workspace; the server refuses anything new at
   // its top level, so the sidebar offers nothing that would fail.
   const canCreateTop = activeWs?.role !== 'viewer';
@@ -1961,6 +1972,7 @@ export default function Sidebar({
           pagesById={byIdAll}
           onOpen={(id) => onSelectChat?.(id)}
           onUnarchive={unarchiveChat}
+          onDelete={deleteArchivedChat}
         />
       )}
       {!phone && sidebarMode !== 'chats' && trashRoots.length > 0 && (
@@ -2012,6 +2024,7 @@ export default function Sidebar({
               setArchivedOpen(false);
             }}
             onUnarchive={unarchiveChat}
+            onDelete={deleteArchivedChat}
             onClose={() => setArchivedOpen(false)}
           />
         )}

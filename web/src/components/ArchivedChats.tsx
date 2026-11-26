@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Archive, ArchiveRestore, MessageCircle, Search, X } from 'lucide-react';
+import { Archive, ArchiveRestore, MessageCircle, Search, Trash2, X } from 'lucide-react';
 import type { AiThread } from './AiThreadList';
 import type { PageMeta } from '../types';
 import { t } from '../i18n';
+import { confirm } from '../dialog';
 import Portal from './Portal';
 
 // Archived chats, where the trash sits when the sidebar is on its Chat side:
@@ -20,9 +21,10 @@ interface Props {
   pagesById: Map<string, PageMeta>;
   onOpen: (id: string) => void;
   onUnarchive: (id: string) => void;
+  onDelete: (id: string) => void;
 }
 
-function ArchivedList({ threads, activeId, pagesById, onOpen, onUnarchive }: Props) {
+function ArchivedList({ threads, activeId, pagesById, onOpen, onUnarchive, onDelete }: Props) {
   const [query, setQuery] = useState('');
   const q = fold(query.trim());
   const shown = q
@@ -78,6 +80,20 @@ function ArchivedList({ threads, activeId, pagesById, onOpen, onUnarchive }: Pro
               }}
             >
               <ArchiveRestore size={14} />
+            </button>
+            <button
+              type="button"
+              className="archive-restore archive-delete"
+              title={t('Delete forever')}
+              aria-label={t('Delete forever')}
+              onClick={(e) => {
+                e.stopPropagation();
+                void confirm(t('Delete this chat?'), { confirmText: t('Delete'), danger: true }).then((ok) => {
+                  if (ok) onDelete(th.id);
+                });
+              }}
+            >
+              <Trash2 size={14} />
             </button>
           </div>
         );

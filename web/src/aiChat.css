@@ -1317,6 +1317,9 @@ body.workflow-full-open:has(.confirm-dialog) .ai-panel {
   background: var(--active);
   color: var(--fg);
 }
+.archive-delete:hover {
+  color: var(--danger);
+}
 .trash-dialog .ai-chat-row {
   margin: 0 0 2px;
   min-height: 48px;
