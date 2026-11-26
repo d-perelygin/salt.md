@@ -299,6 +299,11 @@ export default function AiChatPanel(props: {
   const [runList, setRunList] = useState<any[]>([]);
   const [traceOpen, setTraceOpen] = useState(false);
   const streamingRef = useRef(false);
+  // Same contract as the full chat view: follow the end only while the reader
+  // is there, and land on it at once when a thread opens.
+  const panelBodyRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+  const instantRef = useRef(true);
 
   useEffect(() => {
     // A closed panel is not reading anything: loading a thread here used to
@@ -324,6 +329,11 @@ export default function AiChatPanel(props: {
       setLastRun(null);
       return;
     }
+    // The previous conversation must not show under the new title while its
+    // replacement loads.
+    setMessages([]);
+    stickRef.current = true;
+    instantRef.current = true;
     setSteps([]);
     setRunList([]);
     setLastError(null);
@@ -360,8 +370,17 @@ export default function AiChatPanel(props: {
     }));
   }
 
+  const onPanelScroll = () => {
+    const el = panelBodyRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!stickRef.current) return;
+    if (!messages.length && !steps.length) return;
+    const el = panelBodyRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: instantRef.current ? 'auto' : 'smooth' });
+    instantRef.current = false;
   }, [messages, steps]);
 
   async function ensureThread(text: string): Promise<string | null> {
@@ -753,7 +772,7 @@ export default function AiChatPanel(props: {
           <button className="ai-iconbtn" onClick={props.onClose} title={t('Close')} type="button"><X size={14} /></button>
         </div>
       </div>
-      <div className="ai-panel-body">
+      <div className="ai-panel-body" ref={panelBodyRef} onScroll={onPanelScroll}>
         {showZeroState && (
           <div className="ai-panel-zero">
             {currentPage && (

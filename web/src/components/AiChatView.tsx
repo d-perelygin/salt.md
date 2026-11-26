@@ -79,6 +79,13 @@ export default function AiChatView(props: {
   const attachMenuRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(attachMenuOpen, attachMenuRef, () => setAttachMenuOpen(false));
   const bottomRef = useRef<HTMLDivElement>(null);
+  // The list follows the end only while the reader is already there: scrolling
+  // up to read must not be undone by the next streamed chunk. Opening a thread
+  // lands on its end at once — an animated scroll through the whole history is
+  // a slideshow, not a load.
+  const chatBodyRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+  const instantRef = useRef(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const inputBoxRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -129,7 +136,10 @@ export default function AiChatView(props: {
       return;
     }
     // Reset per-thread UI at once: the previous thread must not flash through
-    // while its replacement loads.
+    // under the new title while its replacement loads.
+    setMessages([]);
+    stickRef.current = true;
+    instantRef.current = true;
     setSteps([]);
     setRunList([]);
     setLastError(null);
@@ -168,8 +178,19 @@ export default function AiChatView(props: {
     return () => { alive = false; };
   }, [tid]);
 
+  const onChatScroll = () => {
+    const el = chatBodyRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!stickRef.current) return;
+    if (!messages.length && !steps.length) return;
+    const el = chatBodyRef.current;
+    if (!el) return;
+    // The list itself, not scrollIntoView: that also moves the page when the
+    // list is not tall enough to have its own scroll position.
+    el.scrollTo({ top: el.scrollHeight, behavior: instantRef.current ? 'auto' : 'smooth' });
+    instantRef.current = false;
   }, [messages, steps]);
 
   // Ticking elapsed time while an agent run is live.
@@ -811,7 +832,7 @@ export default function AiChatView(props: {
             )}
           </span>
         </div>
-        <div className="ai-chat-body">
+        <div className="ai-chat-body" ref={chatBodyRef} onScroll={onChatScroll}>
           {showZeroState && (
             <div className="ai-view-zero">
               <div className="ai-view-zero-hero">
