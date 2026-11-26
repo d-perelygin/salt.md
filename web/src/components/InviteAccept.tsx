@@ -98,7 +98,7 @@ export default function InviteAccept({
           <h1>{t('Join the workspace')}</h1>
           <p>
             {info?.workspace
-              ? t('You have been invited to the workspace "{workspace}".', { workspace: info.workspace })
+              ? t('You have been invited to the workspace “{workspace}”.', { workspace: info.workspace })
               : t('You have been invited.')}
           </p>
           {mismatch ? (
@@ -137,7 +137,7 @@ export default function InviteAccept({
         <h1>{t('Join')}</h1>
         <p>
           {info?.workspace
-            ? t('You have been invited to the workspace "{workspace}".', { workspace: info.workspace })
+            ? t('You have been invited to the workspace “{workspace}”.', { workspace: info.workspace })
             : t('You have been invited.')}
         </p>
         <input

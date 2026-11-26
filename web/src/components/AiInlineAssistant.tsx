@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { api } from '../api';
 import { t } from '../i18n';
 
@@ -82,7 +83,7 @@ export default function AiInlineAssistant(props: { editor: any; pageId: string }
   return (
     <div className="ai-inline-wrap">
       <div className="ai-inline-bar">
-        <span className="ai-inline-spark" title={t('AI')}>✨</span>
+        <span className="ai-inline-spark" title={t('AI')}><Sparkles size={14} /></span>
         {opts.map((o) => (
           <button key={o.label} className="ai-inline-opt" disabled={busy} onClick={() => run(o.instruction)}>
             {o.label}

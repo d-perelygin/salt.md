@@ -39,13 +39,11 @@ export function peekPage(
 /** Open in the side peek when one exists to answer, else false. The plain
  *  click of a collection row or relation chip lands here.
  *
- *  Never on a narrow screen: the peek is a wide-screen panel, and on a phone
- *  it reads as a place you got stuck in rather than a preview — there rows
- *  open tabs, like everywhere else. Same breakpoint as the full-screen peek
- *  stylesheet below (see styles.css). */
+ *  On a phone the same panel is a modal sheet (see mobile.css): same
+ *  semantics, presented where a phone puts a modal, with its close and
+ *  open-in-tab actions at the thumb instead of in the topbar corners. */
 export function peekPanel(id: string, opts?: { focusTitle?: boolean; siblingIds?: string[] }): boolean {
   if (typeof window === 'undefined') return false;
-  if (window.matchMedia('(max-width: 768px)').matches) return false;
   return !window.dispatchEvent(
     new CustomEvent('salt:peek', {
       detail: { id, focusTitle: !!opts?.focusTitle, siblingIds: opts?.siblingIds },

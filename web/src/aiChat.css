@@ -30,6 +30,22 @@
   font-size: 14px;
   min-height: 40px;
 }
+/* The chats view's own drawer button: this view has no document topbar, so
+   without it the tree is unreachable once the sidebar is closed. */
+.ai-view-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  color: var(--muted);
+}
+.ai-view-menu:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
 .ai-topbar .ai-avatar {
   width: 26px;
   height: 26px;
@@ -43,6 +59,13 @@
   flex: none;
 }
 .ai-topbar .ai-crumb { opacity: 0.55; white-space: nowrap; }
+/* The + beside the chat title: start an empty chat without opening the list. */
+.ai-newchat-btn {
+  flex: none;
+  padding: 3px 5px;
+  color: var(--muted);
+}
+.ai-newchat-btn:hover { color: var(--fg); }
 .ai-topbar .ai-title {
   font-weight: 600;
   white-space: nowrap;
@@ -168,9 +191,12 @@
   font-size: 15px;
   line-height: 1.5;
   font-family: inherit;
+  /* Same wrapping as the textarea (soft wrap, no word breaking): the two
+     layers must break lines at exactly the same places, or long tokens drift
+     apart once the field scrolls. */
   white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  overflow-wrap: normal;
+  word-break: normal;
   pointer-events: none;
   overflow: hidden;
   color: var(--fg);
@@ -269,7 +295,14 @@
 }
 .ai-search:hover { background: var(--active); }
 .ai-search .kbd { margin-left: auto; }
-.ai-side-tabs { display: flex; gap: 2px; padding: 2px 12px 6px; }
+/* Sits above the sidebar footer, not under the search field: the two modes are
+   a place you switch between, not a filter for what the tree shows. */
+.ai-side-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 12px 6px;
+  border-top: 1px solid var(--border);
+}
 .ai-side-tab {
   flex: 1;
   display: flex;
@@ -398,6 +431,17 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
   z-index: 90;
   overflow: hidden;
+}
+/* Summoned from inside a modal (Process → Code's Ask AI), the panel must be
+ * visible over it. The raised class keeps normal openings below modals, and
+ * a pairing rule sends it back down when a confirm opens on top of both. */
+.ai-panel-raised,
+.workflow-full-open .ai-panel {
+  z-index: 110;
+}
+body:has(.confirm-dialog) .ai-panel-raised,
+body.workflow-full-open:has(.confirm-dialog) .ai-panel {
+  z-index: 80;
 }
 .ai-panel-head {
   display: flex;
@@ -771,6 +815,27 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
+}
+/* Collapsible section header (Archived chats): same quiet caps row as the
+   titles above, but a button. */
+.ai-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.ai-section-toggle:hover {
+  color: var(--fg);
 }
 .ai-pin-badge {
   font-size: 11px;

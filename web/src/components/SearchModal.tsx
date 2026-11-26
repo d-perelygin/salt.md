@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, PanelRight, SlidersHorizontal } from 'lucide-react';
+import { ExternalLink, FileText, MoreHorizontal, PanelRight, Pin, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../api';
+import { listCachedPages } from '../offlineCache';
 import type { PageMeta, SearchResult, User } from '../types';
 import Portal from './Portal';
+import SheetGrab from './SheetGrab';
 import Editor from './Editor';
 import { PageIcon } from '../pageIcon';
 import { useExclusiveModal } from '../modal';
@@ -10,6 +12,7 @@ import { t } from '../i18n';
 import { compare } from '../format';
 import { openPage, openPageAux, peekPage } from '../pageOpen';
 import { matchCommands, paletteCommands, runPaletteCommand, workspaceSwitchCommands, type PaletteCommand } from '../commands';
+import { imeComposing } from '../keys';
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -52,6 +55,12 @@ interface Props {
   onClose: () => void;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
+  /** The pages open as tabs, and what can be done to one from here. Search is
+   *  where people find a page they already have open. */
+  openTabs?: string[];
+  pinnedTabs?: string[];
+  onCloseTab?: (id: string) => void;
+  onTogglePinTab?: (id: string) => void;
 }
 
 type NavItem =
@@ -80,6 +89,10 @@ export default function SearchModal({
   onClose,
   onNavigate,
   onOpenInNewTab,
+  openTabs,
+  pinnedTabs,
+  onCloseTab,
+  onTogglePinTab,
 }: Props) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -146,7 +159,32 @@ export default function SearchModal({
     const cmdOnly = q.trimStart().startsWith('>');
     const cur = ++seq.current;
     const timer = window.setTimeout(async () => {
-      const res = q.trim() && !cmdOnly ? await api.search(q, picked) : [];
+      let res: SearchResult[] = [];
+      if (q.trim() && !cmdOnly) {
+        try {
+          res = await api.search(q, picked);
+        } catch {
+          // Offline fallback: search cached pages (titles + content) in IDB.
+          const needle = q.trim().toLowerCase();
+          const cached = await listCachedPages();
+          const hits: SearchResult[] = [];
+          for (const p of cached) {
+            if (p.trashed) continue;
+            if (picked.length > 0 && !picked.includes(p.workspaceId)) continue;
+            const bodyText = p.content ? JSON.stringify(p.content) : '';
+            if ((p.title || '').toLowerCase().includes(needle) || bodyText.toLowerCase().includes(needle)) {
+              hits.push({
+                id: p.id,
+                title: p.title,
+                icon: p.icon,
+                workspaceId: p.workspaceId,
+                snippet: '',
+              });
+            }
+          }
+          res = hits.slice(0, 30);
+        }
+      }
       if (seq.current === cur) {
         setResults(res);
         setSel(0);
@@ -222,6 +260,31 @@ export default function SearchModal({
   // and preview clicks alike. Modified clicks keep their meaning.
   const openPageId = (id: string) => (previewNewTab ? (onOpenInNewTab ?? onNavigate)(id) : onNavigate(id));
 
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const rowMenuRef = useRef<HTMLDivElement>(null);
+  // The per-result tab menu: which page, and where to put it.
+  const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const openRowMenu = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const width = 236;
+    // One row always, plus the two that only exist for a page already open as
+    // a tab. Measured rather than guessed because the menu has to be placed
+    // before it renders.
+    const items = 1 + (openTabs?.includes(id) ? (onTogglePinTab ? 1 : 0) + (onCloseTab ? 1 : 0) : 0);
+    const height = 12 + items * 44;
+    // Above the row, the way a context menu near the bottom edge opens: below
+    // it there is the search field, and a menu that covers the field reads as
+    // part of the sheet.
+    const above = r.top - height - 6;
+    setRowMenu({
+      id,
+      x: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
+      y: above >= 8 ? above : Math.max(8, Math.min(r.bottom + 6, window.innerHeight - height - 8)),
+    });
+  };
+
   const openRowClick = (e: React.MouseEvent, id: string) => {
     if (e.button === 0 && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
       openPageId(id);
@@ -265,7 +328,7 @@ export default function SearchModal({
   };
 
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.nativeEvent.isComposing) return; // don't hijack IME composition keys
+    if (imeComposing(e)) return; // don't hijack IME composition keys
     if (e.key === 'Escape') onClose();
     else if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -386,7 +449,14 @@ export default function SearchModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={'search-modal' + (showPreview ? ' has-preview' : '')} onKeyDown={onKey}>
+      <div
+        className={'search-modal' + (showPreview ? ' has-preview' : '')}
+        role="dialog"
+        aria-label={t('Search')}
+        ref={sheetRef}
+        onKeyDown={onKey}
+      >
+        <SheetGrab sheet={sheetRef} onDismiss={onClose} />
         <div className="search-topbar">
           <input
             ref={inputRef}
@@ -403,6 +473,17 @@ export default function SearchModal({
             aria-label={t('Preview')}
           >
             <PanelRight size={17} />
+          </button>
+          {/* Search covers the whole screen on a phone, so the two ways out of
+              it on a desktop — Escape and a click outside — do not exist. */}
+          <button
+            type="button"
+            className="search-icon-btn search-cancel"
+            onClick={onClose}
+            title={t('Close')}
+            aria-label={t('Close')}
+          >
+            <X size={18} />
           </button>
         </div>
         <div className="search-body">
@@ -436,14 +517,22 @@ export default function SearchModal({
                 const idx = items.findIndex((i) => (i.kind === 'result' || i.kind === 'recent') && i.r.id === r.id);
                 const context = resultContext(r, workspaces);
                 return (
-                  <button
+                  // A div, not a button: the row carries its own ⋯ button, and
+                  // a button inside a button is invalid HTML that browsers
+                  // resolve by unnesting — the tap target lands somewhere else.
+                  <div
                     key={r.id}
+                    role="button"
+                    tabIndex={0}
                     className={'search-result' + (idx === sel ? ' selected' : '')}
                     onMouseEnter={() => idx >= 0 && setSel(idx)}
                     onClick={(e) => openRowClick(e, r.id)}
                     onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') openPageId(r.id);
+                    }}
                   >
-                    <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
+                    <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback={<FileText size={16} />} /></span>
                     <span className="result-body">
                       <span className="result-title">{r.title || t('Untitled')}</span>
                       {context && <span className="result-context">{context}</span>}
@@ -454,7 +543,16 @@ export default function SearchModal({
                         />
                       )}
                     </span>
-                  </button>
+                    <button
+                      type="button"
+                      className="search-row-menu-btn"
+                      aria-label={t('More actions')}
+                      title={t('More actions')}
+                      onClick={(e) => openRowMenu(e, r.id)}
+                    >
+                      <MoreHorizontal size={16} />
+                    </button>
+                  </div>
                 );
               })}
             {q.trim() !== '' && !cmdOnly && results.length === 0 && matchedCmds.length === 0 && (
@@ -476,7 +574,7 @@ export default function SearchModal({
                       onClick={(e) => openRowClick(e, r.id)}
                       onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
                     >
-                      <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback="📄" /></span>
+                      <span className="result-icon"><PageIcon icon={r.icon} size={16} fallback={<FileText size={16} />} /></span>
                       <span className="result-body">
                         <span className="result-title">{r.title || t('Untitled')}</span>
                       </span>
@@ -572,6 +670,58 @@ export default function SearchModal({
           </div>
         )}
         </div>
+      {rowMenu && (() => {
+        const isOpen = !!openTabs?.includes(rowMenu.id);
+        const isPinned = !!pinnedTabs?.includes(rowMenu.id);
+        const close = () => setRowMenu(null);
+        return (
+          <>
+            <div className="search-row-backdrop" onClick={close} />
+            <div
+              className="menu search-row-menu"
+              style={{ position: 'fixed', left: rowMenu.x, top: rowMenu.y, right: 'auto' }}
+              role="menu"
+              ref={rowMenuRef}
+            >
+              <SheetGrab sheet={rowMenuRef} onDismiss={close} />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  close();
+                  (onOpenInNewTab ?? onNavigate)(rowMenu.id);
+                }}
+              >
+                <ExternalLink size={15} /> {t('Open in new tab')}
+              </button>
+              {isOpen && onTogglePinTab && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    close();
+                    onTogglePinTab(rowMenu.id);
+                  }}
+                >
+                  <Pin size={15} /> {isPinned ? t('Unpin tab') : t('Pin tab')}
+                </button>
+              )}
+              {isOpen && onCloseTab && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    close();
+                    onCloseTab(rowMenu.id);
+                  }}
+                >
+                  <X size={15} /> {t('Close tab')}
+                </button>
+              )}
+            </div>
+          </>
+        );
+      })()}
       <div className="search-footer">
         <button
           type="button"

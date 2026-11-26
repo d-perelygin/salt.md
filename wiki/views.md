@@ -34,12 +34,11 @@ A collection that has just been created carries two views: **Board**, grouped by
 the Status property, and **Table**, in that order, so the board is what opens
 first.
 
-A database created by an agent gets those same two views, whatever schema the
-agent supplied, including a Board grouped by a property with the id `status`.
-If the schema has no such property the database opens on *This board needs a
-Select property to group by. Open ⚙ Properties to add one.* Point the board at a
-real property with the **Group** button, or with `set_view` and `group_by`, or
-remove the board and keep the table.
+A database created by an agent gets the same two views, with the board pointed
+at the schema the agent supplied: grouped by `status` if that is a select, a
+multi-select or a relation, otherwise by the first property of those kinds. A
+schema with none of them gets only the table. Point the board at another
+property with the **Group** button, or with `set_view` and `group_by`.
 
 ### `table`
 
@@ -132,8 +131,12 @@ menu:
 | Entry | What it does |
 | --- | --- |
 | **Open** | Opens the row as a page. |
+| **Open in new tab** | Same, in a tab of its own; ⌘-click and middle-click do it too. |
 | **Move to** → a column | Same as dragging. Only columns the card is not already in are listed, and picking **No …** clears the value. |
+| **Move to the top of the column** / **at the bottom** | Moves this card above or below every other card in its own column. The same as dragging it all the way, without the scroll — and the only way on touch, where a card has no drag. Offered only while the view has no sort, which is the only case where a manual order exists. |
 | **Move to trash** | Asks *Move “…” to the trash?* with the row's title first, then moves the row to the trash. Reversible from [Trash](trash-and-recovery.md). |
+
+The column heading itself carries one control, **＋**, and no menu of its own.
 
 At the bottom of every column is **＋ New**, which creates a row with that
 column's value already set and opens it in the side peek — a page that slides
@@ -206,7 +209,9 @@ does.
 
 A mode picker beside it switches between **Day**, **Week**,
 **Month**, **2 months** and **Year**; two months stack one under the other, and
-the year is twelve small grids whose month names jump straight there. `‹`/`›`
+the year is twelve small grids whose month names jump straight there. Right
+after the picker, **−** and **+** choose how many of the span to show at once —
+three weeks, two months — up to twelve. `‹`/`›`
 always slide by one step of the shown span — one day, week, month or year — so
 no month is ever skipped over in the two-month view. The choice
 is stored on the view, and a public link shows what its owner set. Which day the
@@ -249,7 +254,8 @@ holds **+ New**, which adds a row dated at what the timeline is showing and
 opens it in the side peek.
 
 The head carries the same Day / Week / Month / 2 months / Year switch as the
-calendar, stored on the view the same way, and a button that collapses the sticky
+calendar, stored on the view the same way, and with the same **−** / **+** span
+count beside it; a button that collapses the sticky
 title column, leaving the axis alone; both live on the view, and a public link
 shows what its owner set, without the switch, the button and the add button. The
 add button goes with the column it sits at the foot of: collapsed, the timeline
@@ -379,7 +385,6 @@ configures the current view sits on the right, in this order:
 | **Columns** | Which properties this view shows. Shows `Columns (4/7)` when anything is hidden. |
 | **Properties** | The schema editor: add a property, change a type, edit select options. It edits the collection, not the view, so it changes every view at once. This is the **⚙ Properties** the empty-state messages point at. |
 | **New rows from template** | In the same dialog, below the properties: a template every **＋ New** in the collection duplicates. What the button prescribes — the column on a board, the day on a calendar — is overwritten on top; values and text come from the template. Blank rows when nothing is chosen. |
-| **⋯** (*View options*) | Rename, move and remove this view. |
 | **＋ New** | Creates an *Untitled* row and opens it in the side peek. Every view except a form has it. |
 
 The side peek is a second view of the workspace rather than a modal: changing
@@ -397,6 +402,16 @@ own close button; closing forgets the pin.
 A new row, and a page made from a template, open in it — and a new row opens
 with the caret already in its title, since a row is made to be named. A screen
 too narrow for a peek has none, so both open as a tab there instead.
+
+A row made in a filtered view starts with the values its filters fix: in a view
+filtered to *Status is Done*, **New** makes a row whose status is Done. A filter
+that allows several values (*is any of*) leaves the property empty rather than
+picking one, a board column's value always wins (the *No …* column's empty one
+included), a relative day like *today* is stored as that day's date, and
+**Current user** is stored as whoever made the row. If the
+new row still does not match the filters, a message says so: *"The new row does
+not match this view's filters, so it is not shown here."* An embedded collection
+does the same with its own filters.
 
 **Filter**, **Sort**, **Group** and **Columns** light up in the accent colour as
 soon as anything is set, so you can see that a view is filtered without opening
@@ -421,6 +436,13 @@ Add a condition with **+ Add filter…** inside a group; add a group with
 group with the `✕` in its foot (removing the last condition of a group
 removes the group).
 
+**Conditions can be reordered.** Drag the grip at the head of one condition: it
+moves inside its group and across the OR divider, and a condition dropped on a
+group's empty space lands at the end of that group. The order is the order the
+conditions are read in, and it is saved with the view. Right-click a condition
+for **Duplicate** and **Remove filter** — duplicating is how *the same, but
+Done instead* is made without rebuilding it.
+
 Seven operators exist. Which of them are offered depends on the property type,
 and the labels change to suit it:
 
@@ -428,15 +450,17 @@ and the labels change to suit it:
 | --- | --- |
 | number, rollup, formula | is · is not · **greater than** · **less than** · **between** · is empty · is not empty |
 | date | is · is not · **after** · **before** · **between** · is empty · is not empty |
-| text, person | is · is not · **contains** · is empty · is not empty |
+| person | **is any of** · **is none of** · **contains** · is empty · is not empty |
+| text | is · is not · **contains** · is empty · is not empty |
 | select, multi-select, relation | **is any of** · **is none of** · is empty · is not empty |
+| the row's title | is · is not · **contains** · **does not contain** · **matches regex** · is empty · is not empty |
 | everything else | is · is not · is empty · is not empty |
 
 What they mean:
 
 | Operator | Matches |
 | --- | --- |
-| `is` | equal to the value, or, on a list property, containing it |
+| `is` | equal to the value, or, on a list property, containing it. A number compares as a number, so 5 and 5.0 are equal, and on a checkbox **Unchecked** includes a box nobody ever touched. |
 | `is_not` | not equal, **and an empty value counts as "is not X"** |
 | `is_empty` | nothing there: no value, an empty text, an empty list |
 | `is_not_empty` | anything there |
@@ -445,18 +469,18 @@ What they mean:
 | `lt` | less than, same rule |
 | `between` | inside a range, **inclusive at both ends**: a range named by two dates contains the days it is named after. Takes two values, and does nothing until both are set. |
 
-Where the values come from a fixed list (a select, a multi-select, a relation),
-`is` and `is_not` take **several** values at once and read *is any of* and *is
-none of*. That is one condition with two boxes ticked, not two conditions that
+Where the values come from a fixed list (a select, a multi-select, a relation, a
+person), `is` and `is_not` take **several** values at once and read *is any of* and
+*is none of*. That is one condition with two boxes ticked, not two conditions that
 happen to be about the same column: "class is none of A, H" is a single thing to
 read and a single thing to change.
 
-Three conditions are not about a property at all. **Is a template** and **is
-not a template** filter by whether the row is a template; **Created** and
-**Updated** filter by when the row was made and last touched, with the date
-operators. All three are facts about the page rather than about any column, and
-the picker keeps them under their own **System** heading, away from the
-collection's **Columns**.
+Four conditions are not about a property at all. **Title** filters by the row's
+own name — see below; **Is a template** and **is not a template** filter by
+whether the row is a template; **Created** and **Updated** filter by when the row
+was made and last touched, with the date operators. All of them are facts about
+the page rather than about any column, and the picker keeps them under their own
+**System** heading, away from the collection's **Columns**.
 
 **A condition with nothing filled in does not filter.** It waits, and says so.
 It used to compare against the empty string and therefore match nothing, so the
@@ -470,12 +494,43 @@ Three behaviours that surprise people:
 - **`is` and `contains` look inside lists.** Filtering a multi-select or a
   relation for one value needs no special operator.
 - **You never type an id.** The value box adapts to the property: a select offers
-  its options, a checkbox offers **Checked** and **Unchecked**, and a relation or
+  its options, a checkbox offers **Checked** and **Unchecked**, a person offers
+  workspace members with **Current user** (`@me`) at the top, and a relation or
   backrelation offers the titles of the rows it points at. Free text is only for
   the types that have nothing to offer.
+- **A person filter accepts `@me`.** Filtering an Assignee column by **Current user**
+  resolves to whoever is looking at the view, per query on the server and live in
+  the browser. A shared "My tasks" view therefore shows each colleague their own
+  tasks without needing a separate view per person. It belongs to *is any of* and
+  *is none of*; under *contains* it is plain text. An agent filtering with `@me`
+  gets the account its key or sign-in belongs to.
 
-The row **title** is not a property and cannot be filtered. To find rows by
-title use [Search](search.md).
+**Title** is the row's name, offerable as a condition of its own: `contains`,
+`does not contain`, `is`, `is not`, `is empty`, `is not empty`, and `matches
+regex`. A new title condition starts on `contains`, because the part somebody
+remembers is a fragment: typing *авшк* into a condition that means exact
+equality finds nothing, and reads as a broken search. The regex is unanchored
+and follows the case switch below, so `#1[0-9]{2}\b` finds rows mentioning an
+issue in the hundreds and `draft|todo` finds either word. A pattern that does
+not compile is not a condition yet: it filters nothing, so the table keeps its
+rows while you finish typing. A `contains` on the title is a plain substring,
+which is what you want nine times out of ten; the regex is there for the tenth.
+
+**Aa** beside the value decides whether case matters, and the line under the
+value says which way it is set: **Case is ignored** or **Case matters**. Off —
+the default — means a title search folds case in every alphabet, so *авшк*
+finds *АвШк* and *ABSHK* finds *Abshk*; the regex follows the same switch,
+which is what a pattern like `^[A-Z]` needs. It is off by default because
+"contains" is a search, and a search that misses a row over a capital letter
+reads as broken. The switch belongs to the condition, not the view: one view
+can hold *title contains "draft"* and *title is "DRAFT-1"* with case respected.
+Both halves obey it — the database narrows with the same case rule the browser
+applies afterwards, so the rows that arrive and the rows shown agree.
+
+Titles used to be unfilterable, and this is not [Search](search.md) wearing a
+condition's clothes: a search looks across the whole workspace and cannot be
+combined with the view's other conditions, while a title filter is one more line
+in the same AND/OR tree and is saved with the view like the rest.
 
 **Filtering happens twice.** The conditions go to the database first, so a
 collection with fifty thousand rows is narrowed before anything is sent; what is
@@ -508,8 +563,12 @@ not: there the sort is the database's alone.
 
 ## Sorting
 
-One property, **Ascending** or **Descending**, or **No sort** (the popover
-behind the **Sort** button). Text is compared the way your language sorts it, so
+One or several properties, each **Ascending** or **Descending** (the popover
+behind the **Sort** button, **+ Add sort…** appends another key). Keys apply in
+order, like SQL `ORDER BY`: the first decides, the next breaks its ties. Drag
+the grip at the head of a key to change that order — the list is read top to
+bottom, and the order is saved with the view. Text
+is compared the way your language sorts it, so
 accented letters land beside their plain forms instead of after Z; numbers are
 compared as numbers. Below the collection's columns, under a **System** heading
 of their own, sit two orders that are not columns at all: **Created** and
@@ -562,19 +621,21 @@ The two are worth telling apart before you go looking for lost data.
    menu offers **Table**, **Board**, **Gallery**, **Calendar**, **Timeline**,
    **List**, **Form**. The new view is named after its type, is appended at the
    end, and opens straight away.
-2. **Rename** by double-clicking the tab, or through `⋯` → **Rename view**. A
-   right-click on any tab offers renaming, moving and removing for that view,
-   without switching to it first; `⋯` acts on the view you are on.
-3. **Move** it along the strip with `⋯` → **Move left** / **Move right**. The
-   entries grey out at the ends. The order of the tabs is the order they are in;
-   the first tab is what opens when someone opens the collection.
-4. **Remove** with `⋯` → **Remove view**. It happens at once, without a
-   confirmation, and takes the view's filters, sort and hidden columns with it.
-   The rows are untouched. On a collection with one view the entry is not
-   offered: a collection needs something to draw.
+2. **Rename** by double-clicking the tab, or by right-clicking it (on a touch
+   screen, press and hold) and choosing **Rename view**. The menu belongs to the
+   tab you opened it on — renaming or removing a view needs no switch to it
+   first.
+3. **Move** it along the strip with **Move left** / **Move right** in the same
+   menu. The entries grey out at the ends. The order of the tabs is the order
+   they are in; the first tab is what opens when someone opens the collection.
+4. **Remove** with **Remove view**. It happens at once, without a confirmation,
+   and takes the view's filters, sort and hidden columns with it. The rows are
+   untouched. On a collection with one view the entry is not offered: a
+   collection needs something to draw.
 
-The `⋯` carries the tooltip *View options* and sits in the settings bar on the
-right, not inside the tab.
+There is no `⋯` for this in the toolbar: the right-click on the tab already
+carries every one of those actions, and a second button that only repeated them
+made the bar longer.
 
 When a new view is created, sensible defaults are filled in so it draws something
 immediately: a board takes the first select or multi-select property, a calendar

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Maximize2, X } from 'lucide-react';
 import Editor, { type EditorProps } from './Editor';
+import SheetGrab from './SheetGrab';
 import { t } from '../i18n';
 
 // A side peek at a page: the document opens in a panel over the right side
@@ -33,6 +34,7 @@ export default function PeekPanel({
   pageId,
   onClose,
   onOpenFull,
+  onOpenInNewTab,
   focusTitleOnMount,
   pinned,
   onTogglePin,
@@ -42,6 +44,7 @@ export default function PeekPanel({
   hasNext,
   ...editorProps
 }: Props) {
+  const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const pinnedRef = useRef(pinned);
@@ -53,7 +56,9 @@ export default function PeekPanel({
       // closes itself) — closing the panel under it would strand the click
       // that opened it and surprise nobody in a good way.
       const t = e.target as Element | null;
-      if (t?.closest?.('.peek-panel .menu')) return;
+      // A portalled layer (a select menu lives on the body, not in the panel)
+      // owns Escape too: it closes itself, and the panel must stay.
+      if (t?.closest?.('.menu, .select-menu, .select-backdrop, .fs-popover, [role="dialog"], [role="listbox"]')) return;
       // A pinned panel is one you asked to keep: Escape is not its master.
       if (pinnedRef.current) return;
       closeRef.current();
@@ -63,8 +68,14 @@ export default function PeekPanel({
   }, []);
 
   return (
-    <aside className="peek-panel" aria-label={t('Preview')}>
-      {(hasPrev || hasNext) && (
+    <>
+      {/* The side panel needs no veil — the page behind stays usable. On a
+          phone it is a sheet over the document, and the veil is what makes the
+          first tap close it instead of landing on a card. */}
+      <div className="peek-backdrop" onClick={pinned ? undefined : onClose} />
+      <aside className="peek-panel" aria-label={t('Preview')} ref={panelRef}>
+        <SheetGrab sheet={panelRef} onDismiss={pinned ? () => {} : onClose} />
+        {(hasPrev || hasNext) && (
         <div className="peek-nav" aria-label={t('Row navigation')}>
           <button
             className="peek-nav-btn"
@@ -90,6 +101,7 @@ export default function PeekPanel({
         key={pageId}
         {...editorProps}
         pageId={pageId}
+        onOpenInNewTab={onOpenInNewTab}
         focusTitleOnMount={focusTitleOnMount}
         regionId="peek"
         primary={false}
@@ -98,6 +110,32 @@ export default function PeekPanel({
         onPeekPin={onTogglePin}
         peekPinned={pinned}
       />
+      {/* The sheet's own actions, at the thumb instead of in the topbar
+          corners. Desktop keeps its inline pair; this bar is phone-only. */}
+      <div className="peek-actions">
+        <button
+          type="button"
+          className="peek-action"
+          title={t('Open full screen')}
+          aria-label={t('Open full screen')}
+          onClick={() => {
+            onOpenFull(pageId);
+            onClose();
+          }}
+        >
+          <Maximize2 size={18} />
+        </button>
+        <button
+          type="button"
+          className="peek-action"
+          title={t('Close preview')}
+          aria-label={t('Close preview')}
+          onClick={onClose}
+        >
+          <X size={18} />
+        </button>
+      </div>
     </aside>
+    </>
   );
 }

@@ -64,7 +64,7 @@ func count(t *testing.T, s *Server, col string, f rowFilter) int {
 
 func countGroups(t *testing.T, s *Server, col string, groups [][]rowFilter) int {
 	t.Helper()
-	_, total, err := s.collectionRowsQuery(&user{ID: "u"}, col, groups, "", 100, 0, time.Time{})
+	_, total, err := s.collectionRowsQuery(&user{ID: "u"}, col, nil, groups, "", 100, 0, time.Time{})
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
@@ -158,25 +158,39 @@ func TestFilterGroupsOrSemantics(t *testing.T) {
 	}
 }
 
-// A flat filter beside groups holds for every group: "due after X AND (this
-// OR that)". Checked through distributeFilters, the same combination both the
-// REST handler and query_rows build.
-func TestFilterGroupsDistributeFlat(t *testing.T) {
+// A flat filter beside groups is a term of its own: "this AND (that OR
+// those)", the combination both the REST handler and query_rows build. It used
+// to be copied into every group, which let an unfinished group match whatever
+// the flat filter matched: [klasse a] OR [unfinished] answered 2 rows, and
+// adding "datum is set" answered 4.
+func TestFlatFilterIsATermOfItsOwn(t *testing.T) {
 	s, col := filterFixture(t)
+	query := func(flat []rowFilter, groups [][]rowFilter) int {
+		t.Helper()
+		_, total, err := s.collectionRowsQuery(&user{ID: "u"}, col, flat, groups, "", 100, 0, time.Time{})
+		if err != nil {
+			t.Fatalf("query: %v", err)
+		}
+		return total
+	}
 
 	flat := []rowFilter{{Prop: "klasse", Op: "is_not", Value: "c"}}
-	groups := distributeFilters(flat, [][]rowFilter{
+	groups := [][]rowFilter{
 		{{Prop: "datum", Op: "lt", Value: "2026-04-01"}},
 		{{Prop: "datum", Op: "gt", Value: "2026-06-01"}},
-	})
+	}
 	// (a,01-10) and (b,03-15) pass the first group, (a,08-01) the second;
 	// (c,05-20) fails the flat condition either way.
-	if n := countGroups(t, s, col, groups); n != 3 {
-		t.Errorf("distributed query returned %d, want 3", n)
+	if n := query(flat, groups); n != 3 {
+		t.Errorf("flat AND groups returned %d, want 3", n)
 	}
-	// Without groups the flat list is the one group there is.
-	if n := countGroups(t, s, col, distributeFilters(flat, nil)); n != 3 {
+	if n := query(flat, nil); n != 3 {
 		t.Errorf("flat alone returned %d, want 3", n)
+	}
+
+	unfinished := [][]rowFilter{{{Prop: "klasse", Op: "is", Value: "a"}}, {}}
+	if n := query([]rowFilter{{Prop: "datum", Op: "is_not_empty"}}, unfinished); n != 2 {
+		t.Errorf("a flat condition widened the answer to %d rows, want the 2 of klasse a", n)
 	}
 }
 
@@ -198,6 +212,143 @@ func TestParseFilterGroups(t *testing.T) {
 	}
 	if groups[1][0].Op != "between" || groups[1][0].Value2 != "2026-12-31" {
 		t.Errorf("second group is %#v, want the datum range", groups[1])
+	}
+}
+
+// "is" and "is not" on a number or a checkbox (#95). A number is stored as a
+// JSON number and a ticked box as JSON true, and comparing either with the
+// filter's text matched nothing, while the browser's own pass matched them.
+func TestFilterIsOnNumbersAndCheckboxes(t *testing.T) {
+	s := testServer(t)
+	_, _ = signedIn(t, s, "typed@example.com")
+	var ws string
+	if err := s.db.QueryRow(`SELECT id FROM workspaces LIMIT 1`).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	col := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at)
+		VALUES (?, NULL, ?, 'Stock', 'collection', '{}', ?, ?)`, col, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	schema := `[{"id":"qty","name":"Qty","type":"number"},{"id":"ok","name":"Done","type":"checkbox"}]`
+	if _, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, '[]')`, col, schema); err != nil {
+		t.Fatal(err)
+	}
+	// Five rows: 5 ticked, 5.0 unticked, "5" as text and never touched, 7
+	// ticked, and one with nothing at all.
+	for i, props := range []string{`{"qty":5,"ok":true}`, `{"qty":5.0,"ok":false}`, `{"qty":"5"}`, `{"qty":7,"ok":true}`, `{}`} {
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, 'Item', 'row', ?, ?, ?, ?)`, newID(), col, ws, props, i, now(), now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		f    rowFilter
+		want int
+	}{
+		{rowFilter{Prop: "qty", Op: "is", Value: "5"}, 3},
+		{rowFilter{Prop: "qty", Value: "5"}, 3},
+		{rowFilter{Prop: "qty", Op: "is", Values: []string{"5", "7"}}, 4},
+		{rowFilter{Prop: "qty", Op: "is_not", Value: "5"}, 2},
+		{rowFilter{Prop: "qty", Op: "gt", Value: "4"}, 4},
+		{rowFilter{Prop: "ok", Op: "is", Value: "true"}, 2},
+		{rowFilter{Prop: "ok", Op: "is", Value: "false"}, 3},
+		{rowFilter{Prop: "ok", Op: "is_not", Value: "true"}, 3},
+		{rowFilter{Prop: "ok", Op: "is_not", Value: "false"}, 2},
+		{rowFilter{Prop: "ok", Op: "is", Values: []string{"true", "false"}}, 5},
+	} {
+		if n := count(t, s, col, c.f); n != c.want {
+			t.Errorf("%+v matched %d rows, want %d", c.f, n, c.want)
+		}
+	}
+	// The flat list takes the same path as the groups.
+	if _, total, err := s.collectionRowsQuery(&user{ID: "u"}, col, []rowFilter{{Prop: "ok", Op: "is", Value: "true"}}, nil, "", 100, 0, time.Time{}); err != nil || total != 2 {
+		t.Errorf("flat ok is true: %d rows, %v; want 2", total, err)
+	}
+}
+
+func TestPersonFilterMe(t *testing.T) {
+	s := testServer(t)
+	_, _ = signedIn(t, s, "person_filter@example.com")
+	var ws string
+	if err := s.db.QueryRow(`SELECT id FROM workspaces LIMIT 1`).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+
+	col := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at)
+		VALUES (?, NULL, ?, 'Tasks', 'collection', '{}', ?, ?)`, col, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	schema := `[{"id":"assignee","name":"Assignee","type":"person"},{"id":"note","name":"Note","type":"text"}]`
+	if _, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, '[]')`, col, schema); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := []string{
+		`{"assignee":"u_ada"}`,
+		`{"assignee":"Ada Lovelace"}`,
+		`{"assignee":["u_ada","u_bob"]}`,
+		`{"assignee":"u_bob"}`,
+		`{"note":"@me"}`,
+	}
+	for i, r := range rows {
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, 'Task', 'row', ?, ?, ?, ?)`,
+			newID(), col, ws, r, i, now(), now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ada := &user{ID: "u_ada", Name: "Ada Lovelace"}
+	bob := &user{ID: "u_bob", Name: "Bob"}
+
+	query := func(u *user, f rowFilter) int {
+		_, total, err := s.collectionRowsQuery(u, col, []rowFilter{f}, nil, "", 100, 0, time.Time{})
+		if err != nil {
+			t.Fatalf("query: %v", err)
+		}
+		return total
+	}
+
+	// For Ada:
+	if n := query(ada, rowFilter{Prop: "assignee", Op: "is", Value: "@me"}); n != 3 {
+		t.Errorf("Ada is @me: got %d rows, want 3", n)
+	}
+	if n := query(ada, rowFilter{Prop: "assignee", Op: "is", Values: []string{"@me"}}); n != 3 {
+		t.Errorf("Ada is [@me]: got %d rows, want 3", n)
+	}
+	if n := query(ada, rowFilter{Prop: "assignee", Op: "is_not", Value: "@me"}); n != 2 {
+		t.Errorf("Ada is_not @me: got %d rows, want 2", n)
+	}
+	if n := query(ada, rowFilter{Prop: "assignee", Op: "is", Values: []string{"@me", "u_bob"}}); n != 4 {
+		t.Errorf("Ada is [@me, u_bob]: got %d rows, want 4", n)
+	}
+
+	// For Bob:
+	if n := query(bob, rowFilter{Prop: "assignee", Op: "is", Value: "@me"}); n != 2 {
+		t.Errorf("Bob is @me: got %d rows, want 2", n)
+	}
+	if n := query(bob, rowFilter{Prop: "assignee", Op: "is_not", Value: "@me"}); n != 3 {
+		t.Errorf("Bob is_not @me: got %d rows, want 3", n)
+	}
+
+	// Unauthenticated:
+	if n := query(nil, rowFilter{Prop: "assignee", Op: "is", Value: "@me"}); n != 0 {
+		t.Errorf("nil user is @me: got %d rows, want 0", n)
+	}
+
+	// Only the marker, only on a person, only where whole values compare: a
+	// plain "me" may be somebody's name, a text property holding "@me" holds
+	// text, and contains looks for text, as it does in the browser.
+	if n := query(ada, rowFilter{Prop: "assignee", Op: "is", Value: "me"}); n != 0 {
+		t.Errorf("Ada is me: got %d rows, want 0", n)
+	}
+	if n := query(ada, rowFilter{Prop: "note", Op: "is", Value: "@me"}); n != 1 {
+		t.Errorf("Ada note is @me: got %d rows, want 1", n)
+	}
+	if n := query(ada, rowFilter{Prop: "assignee", Op: "contains", Value: "@me"}); n != 0 {
+		t.Errorf("Ada assignee contains @me: got %d rows, want 0", n)
 	}
 }
 
@@ -223,6 +374,103 @@ func TestTemplateFilter(t *testing.T) {
 		}
 		if len(args) != 1 || args[0] != c.want {
 			t.Errorf("%q %q: args = %v, want %d", c.op, c.value, args, c.want)
+		}
+	}
+}
+
+// The row's title as a condition of its own. Titles are not a property, so this
+// is a pseudo-property beside the template one — and the regex is the reason it
+// exists: "contains" is the usual question, and the tenth time it is
+// "draft|todo" or "#1[0-9]{2}".
+func TestTitleFilter(t *testing.T) {
+	s := testServer(t)
+	_, _ = signedIn(t, s, "titlefilter@example.com")
+	var ws string
+	if err := s.db.QueryRow(`SELECT id FROM workspaces LIMIT 1`).Scan(&ws); err != nil {
+		t.Fatal(err)
+	}
+	col := newID()
+	if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, created_at, updated_at)
+		VALUES (?, NULL, ?, 'Notes', 'collection', '{}', ?, ?)`, col, ws, now(), now()); err != nil {
+		t.Fatal(err)
+	}
+	schema := `[{"id":"kind","name":"Kind","type":"text"}]`
+	if _, err := s.db.Exec(`INSERT INTO collections (page_id, schema, views) VALUES (?, ?, '[]')`, col, schema); err != nil {
+		t.Fatal(err)
+	}
+	rows := []struct{ title, kind string }{
+		{"Draft: intro", "draft"},
+		{"Draft: outro", "draft"},
+		{"Release notes", "shipped"},
+		{"", "empty"},
+	}
+	for i, r := range rows {
+		props, _ := json.Marshal(map[string]any{"kind": r.kind})
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'row', ?, ?, ?, ?)`,
+			newID(), col, ws, r.title, string(props), i, now(), now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name string
+		f    rowFilter
+		want int
+	}{
+		{"contains", rowFilter{Prop: titleFilterProp, Op: "contains", Value: "Draft"}, 2},
+		{"contains is case-insensitive", rowFilter{Prop: titleFilterProp, Op: "contains", Value: "draft"}, 2},
+		{"not contains", rowFilter{Prop: titleFilterProp, Op: "not_contains", Value: "Draft"}, 2},
+		{"is", rowFilter{Prop: titleFilterProp, Op: "is", Value: "Release notes"}, 1},
+		{"is not", rowFilter{Prop: titleFilterProp, Op: "is_not", Value: "Release notes"}, 3},
+		{"matches", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "^Draft: (intro|outro)$"}, 2},
+		{"matches is case-insensitive", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "^draft"}, 2},
+		// An unfinished pattern is not a condition yet: comparing with it would
+		// blank the table while it is being typed.
+		{"broken regex does not filter", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "Draft: ("}, 4},
+		{"empty pattern does not filter", rowFilter{Prop: titleFilterProp, Op: "matches"}, 4},
+		{"is empty", rowFilter{Prop: titleFilterProp, Op: "is_empty"}, 1},
+		{"is not empty", rowFilter{Prop: titleFilterProp, Op: "is_not_empty"}, 3},
+		{"empty value does not filter", rowFilter{Prop: titleFilterProp, Op: "contains"}, 4},
+	}
+	for _, c := range cases {
+		if n := count(t, s, col, c.f); n != c.want {
+			t.Errorf("%s: got %d rows, want %d", c.name, n, c.want)
+		}
+	}
+	// A title condition combines with the view's own columns like any other.
+	if n := countGroups(t, s, col, [][]rowFilter{{
+		{Prop: titleFilterProp, Op: "contains", Value: "Draft"},
+		{Prop: "kind", Op: "is", Value: "draft"},
+	}}); n != 2 {
+		t.Errorf("title AND kind: got %d rows, want 2", n)
+	}
+
+	// Case: SQLite's LIKE folds ASCII alone, so "АвШк" never found "авшк" —
+	// the database answered no about a row the browser then found. The
+	// reader's switch decides, and both halves agree in every alphabet.
+	for i, title := range []string{"АвШк раз", "авшк два"} {
+		props, _ := json.Marshal(map[string]any{"kind": "cyr"})
+		if _, err := s.db.Exec(`INSERT INTO pages (id, parent_id, workspace_id, title, type, props, position, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'row', ?, ?, ?, ?)`,
+			newID(), col, ws, title, string(props), 10+i, now(), now()); err != nil {
+			t.Fatalf("cyrillic row: %v", err)
+		}
+	}
+	caseCases := []struct {
+		name string
+		f    rowFilter
+		want int
+	}{
+		{"contains folds case", rowFilter{Prop: titleFilterProp, Op: "contains", Value: "АвШк"}, 2},
+		{"contains exact", rowFilter{Prop: titleFilterProp, Op: "contains", Value: "АвШк", CaseSensitive: true}, 1},
+		{"is folds case", rowFilter{Prop: titleFilterProp, Op: "is", Value: "авшк раз"}, 1},
+		{"is exact", rowFilter{Prop: titleFilterProp, Op: "is", Value: "авшк раз", CaseSensitive: true}, 0},
+		{"regex folds case", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "^АВШК"}, 2},
+		{"regex exact", rowFilter{Prop: titleFilterProp, Op: "matches", Value: "^АВШК", CaseSensitive: true}, 0},
+	}
+	for _, c := range caseCases {
+		if n := count(t, s, col, c.f); n != c.want {
+			t.Errorf("%s: got %d rows, want %d", c.name, n, c.want)
 		}
 	}
 }
@@ -330,7 +578,7 @@ func TestSystemSorts(t *testing.T) {
 		{sortUpdatedProp + ":asc", true},
 		{sortUpdatedProp + ":desc", false},
 	} {
-		list, _, err := s.collectionRowsQuery(u, col, nil, tc.sort, 10, 0, time.Time{})
+		list, _, err := s.collectionRowsQuery(u, col, nil, nil, tc.sort, 10, 0, time.Time{})
 		if err != nil {
 			t.Fatalf("%s: %v", tc.sort, err)
 		}
@@ -389,7 +637,7 @@ func TestSystemDateFilters(t *testing.T) {
 		{"updated is not empty", rowFilter{Prop: sortUpdatedProp, Op: "is_not_empty"}, true, true},
 		{"updated is empty", rowFilter{Prop: sortUpdatedProp, Op: "is_empty"}, false, false},
 	} {
-		list, _, err := s.collectionRowsQuery(u, col, [][]rowFilter{{tc.filter}}, "", 10, 0, time.Time{})
+		list, _, err := s.collectionRowsQuery(u, col, []rowFilter{tc.filter}, nil, "", 10, 0, time.Time{})
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
@@ -461,5 +709,25 @@ func TestNewFromTemplateRoundtrip(t *testing.T) {
 	}
 	if got, _ := get()["newFromTemplate"].(string); got != tmpl {
 		t.Errorf("untouched save cleared it: got %q, want %q", got, tmpl)
+	}
+}
+
+// The title condition's case switch travels as part of the condition. The
+// browser writes it into filter_group; dropping it in the middle made the
+// database ignore case whatever the reader had chosen, so the query answered
+// a different question than the table then showed.
+func TestFilterGroupJSONKeepsCaseSensitivity(t *testing.T) {
+	groups := parseFilterGroups([]string{
+		`[{"property":"@title","op":"contains","value":"авшк","caseSensitive":true}]`,
+	})
+	if len(groups) != 1 || len(groups[0]) != 1 {
+		t.Fatalf("parsed %#v, want one group with one condition", groups)
+	}
+	if !groups[0][0].CaseSensitive {
+		t.Errorf("caseSensitive was dropped: %#v", groups[0][0])
+	}
+	plain := parseFilterGroups([]string{`[{"property":"@title","op":"contains","value":"авшк"}]`})
+	if len(plain) == 1 && len(plain[0]) == 1 && plain[0][0].CaseSensitive {
+		t.Errorf("caseSensitive defaulted to true")
 	}
 }

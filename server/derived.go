@@ -16,6 +16,10 @@ type propDef struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Type string `json:"type"`
+	// select / multiselect: the options a stored id names. Kept here because a
+	// lookup rollup has to turn a related row's option id into its name, and a
+	// column of "prop-2" strings is worse than no column at all.
+	Options []propOption `json:"options"`
 	// relation
 	RelationCollection string `json:"relationCollection"`
 	// rollup
@@ -46,6 +50,12 @@ type propDef struct {
 	BackrelationProp       string `json:"backrelationProp"`
 	// formula
 	Formula string `json:"formula"`
+}
+
+// propOption is one choice of a select or multi-select property.
+type propOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // matchesRollupWhere reports whether one related row satisfies a rollup's
@@ -173,19 +183,58 @@ func (s *Server) computeDerived(u *user, schema []propDef, rows []map[string]any
 
 	// Rollups: for each row, aggregate a target property over its related rows,
 	// optionally only those meeting a condition.
+	//
+	// Where the related rows live, and their schema: a lookup has to name an
+	// option rather than print its id, which needs the target collection's
+	// definitions. Loaded once per query, not once per row.
+	targetOf := make(map[string]string, len(relations)+len(backrelations))
+	for _, r := range relations {
+		if r.RelationCollection != "" {
+			targetOf[r.ID] = r.RelationCollection
+		}
+	}
+	for _, b := range backrelations {
+		if b.BackrelationCollection != "" {
+			targetOf[b.ID] = b.BackrelationCollection
+		}
+	}
+	schemas := map[string]map[string]propDef{}
+	names := map[string]string{}
 	for _, ru := range rollups {
 		related := s.relatedRows(u, ru.RollupRelation, rows)
+		var lookupDefs map[string]propDef
+		if isLookupAgg(ru.RollupAgg) {
+			lookupDefs = s.rollupTargetDefs(targetOf[ru.RollupRelation], schemas)
+		}
 		for i, row := range rows {
 			props, _ := row["props"].(map[string]any)
 			if props == nil {
 				continue
 			}
+			// A lookup carries a value across the relation instead of a number:
+			// the status of the linked reel, the scale of the linked company.
+			// Empty values stay out of the answer, so a row with no status does
+			// not blank out the one that has it.
+			if isLookupAgg(ru.RollupAgg) {
+				target, ok := lookupDefs[ru.RollupTarget]
+				text, cell := s.lookupCell(u, ru, targetOf[ru.RollupRelation], target, ok, related[i], names)
+				props[ru.ID] = text
+				if cell != nil {
+					lookups, _ := row["lookup"].(map[string]any)
+					if lookups == nil {
+						lookups = map[string]any{}
+					}
+					lookups[ru.ID] = cell
+					row["lookup"] = lookups
+				}
+				continue
+			}
 			vals := make([]any, 0, len(related[i]))
 			for _, target := range related[i] {
-				if !matchesRollupWhere(ru, target) {
+				if !matchesRollupWhere(ru, target.props) {
 					continue
 				}
-				vals = append(vals, target[ru.RollupTarget])
+				vals = append(vals, target.props[ru.RollupTarget])
 			}
 			// "percent" is the share of the related rows that meet the condition,
 			// and it exists so a progress bar needs no formula. A formula would
@@ -249,29 +298,26 @@ func (s *Server) fillDerivedForPage(u *user, p *page) {
 	}
 	rows := []map[string]any{{"id": p.ID, "props": props}}
 	s.computeDerived(u, parseSchema(schemaJSON), rows)
+	p.Lookup, _ = rows[0]["lookup"].(map[string]any)
 	if b, err := json.Marshal(props); err == nil {
 		p.Props = b
 	}
 }
 
-// relatedRowProps returns, per input row, the target-property values of the
-// rows it relates to. Kept as the thin wrapper it always was; the fetching now
-// lives in relatedRows so a rollup can also look at properties OTHER than the
-// one it aggregates — which is what a condition needs.
-func (s *Server) relatedRowProps(u *user, relationProp, targetProp string, rows []map[string]any) [][]any {
-	related := s.relatedRows(u, relationProp, rows)
-	out := make([][]any, len(rows))
-	for i, props := range related {
-		for _, p := range props {
-			out[i] = append(out[i], p[targetProp])
-		}
-	}
-	return out
+// relatedRow is one row reached through a relation: its values, and enough of
+// its identity to name it. A lookup that can be edited where it is read has to
+// tell the interface WHICH record the value belongs to (see
+// describeLookupWrite), and an id alone would make the interface fetch a title
+// for every cell.
+type relatedRow struct {
+	id    string
+	title string
+	props map[string]any
 }
 
-// relatedRows returns, per input row, the full property maps of the rows it
-// relates to (via relationProp holding an array of target ids).
-func (s *Server) relatedRows(u *user, relationProp string, rows []map[string]any) [][]map[string]any {
+// relatedRows returns, per input row, the rows it relates to (via relationProp
+// holding an array of target ids).
+func (s *Server) relatedRows(u *user, relationProp string, rows []map[string]any) [][]relatedRow {
 	// Collect all referenced target ids.
 	idSet := map[string]bool{}
 	for _, row := range rows {
@@ -281,7 +327,7 @@ func (s *Server) relatedRows(u *user, relationProp string, rows []map[string]any
 		}
 	}
 	// Fetch target props for referenced ids.
-	targetVal := map[string]map[string]any{}
+	targetVal := map[string]relatedRow{}
 	for id := range idSet {
 		// The target ids come from a row the user fills in themselves —
 		// unchecked that was a read primitive on EVERY page of the instance:
@@ -298,14 +344,14 @@ func (s *Server) relatedRows(u *user, relationProp string, rows []map[string]any
 		if !s.credentialMayEnter(u, s.pageWorkspace(id)) {
 			continue
 		}
-		var p string
-		if s.db.QueryRow(`SELECT props FROM pages WHERE id = ? AND trashed_at IS NULL`, id).Scan(&p) == nil {
+		var p, title string
+		if s.db.QueryRow(`SELECT title, props FROM pages WHERE id = ? AND trashed_at IS NULL`, id).Scan(&title, &p) == nil {
 			var m map[string]any
 			json.Unmarshal([]byte(p), &m)
-			targetVal[id] = m
+			targetVal[id] = relatedRow{id: id, title: title, props: m}
 		}
 	}
-	out := make([][]map[string]any, len(rows))
+	out := make([][]relatedRow, len(rows))
 	for i, row := range rows {
 		props, _ := row["props"].(map[string]any)
 		for _, id := range relationIDs(props[relationProp]) {

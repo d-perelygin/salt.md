@@ -13,19 +13,27 @@ await withFixture(async ({ page, api, base, path }) => {
     schema: [
       { id: 'start', name: 'Start', type: 'date' },
       { id: 'end', name: 'End', type: 'date' },
+      { id: 'blocks', name: 'Blocks', type: 'relation', relationCollection: collectionId },
     ],
-    views: [{ id: 'timeline', name: 'Timeline', type: 'timeline', dateProp: 'start', endDateProp: 'end' }],
+    views: [{
+      id: 'timeline', name: 'Timeline', type: 'timeline',
+      dateProp: 'start', endDateProp: 'end', depProp: 'blocks',
+    }],
   });
-  await api('POST', '/api/pages', {
+  const winter = await api('POST', '/api/pages', {
     parentId: collectionId,
     title: 'Winter',
     props: { start: iso(2026, 1, 10), end: iso(2026, 1, 12) },
   });
-  await api('POST', '/api/pages', {
+  const timedPage = await api('POST', '/api/pages', {
     parentId: collectionId,
     title: 'Timed',
     props: { start: iso(2026, 6, 10, 'T14:30'), end: iso(2026, 6, 12, 'T14:30') },
   });
+  // A row outside the window is listed only when an edge connects it to a row
+  // inside: the timeline shows the work in view plus what it depends on, not
+  // every row ever created. Winter blocks Timed, so it keeps a label.
+  await api('PATCH', `/api/pages/${timedPage.id}`, { props: { ...timedPage.props, blocks: [winter.id] } });
   await api('POST', '/api/pages', {
     parentId: collectionId,
     title: 'Plain',
@@ -36,14 +44,14 @@ await withFixture(async ({ page, api, base, path }) => {
   const rows = page.locator('.tl-row');
   await eventually(async () => (await rows.count()) >= 3);
 
-  // Out-of-window rows keep their labels: January is listed although the
-  // window opens on the data around June, and only its bar is gone.
-  assert.equal(await rows.filter({ hasText: 'Winter' }).count(), 1);
-  assert.equal(
-    await page.locator('.tl-row', { hasText: 'Winter' }).locator('.tl-bar').count(),
-    0,
-    'a row outside the window must keep its label and lose only its bar',
-  );
+  // The window opens on the data, not on today. Winter sits five months
+  // before it; because it blocks a row in view it keeps its label, and its
+  // bar becomes the small offscreen marker with the date and an arrow.
+  const winterRow = page.locator('.tl-row', { hasText: 'Winter' });
+  assert.equal(await winterRow.count(), 1);
+  assert.equal(await winterRow.locator('.tl-offscreen-arrow').count(), 1);
+  assert.equal(await winterRow.locator('.tl-bar-offscreen').count(), 1);
+  assert.equal(await winterRow.locator('.tl-bar:not(.tl-bar-offscreen)').count(), 0);
 
   // The mode menu opens at its button, not far above it.
   const rangeBtn = page.locator('.tl-right .cal-range-wrap > button');
@@ -55,12 +63,20 @@ await withFixture(async ({ page, api, base, path }) => {
   assert(box.y >= btn.y + btn.height - 8, `menu at ${box.y}, button ends at ${btn.y + btn.height}`);
   await page.locator('.fs-backdrop').first().click();
 
-  // Stretching a timed value by about two days keeps its time.
-  const handle = page.locator('.tl-row', { hasText: 'Timed' }).locator('.tl-resize-r');
+  // Stretching a timed value by about two days keeps its time. The edge
+  // handles surface on hover, so the row has to be hovered before the handle
+  // is measured and grabbed.
+  const timedRow = page.locator('.tl-row', { hasText: 'Timed' });
+  await timedRow.locator('.tl-bar').hover();
+  await page.waitForTimeout(150);
+  const handle = timedRow.locator('.tl-resize-r');
   const hb = await handle.boundingBox();
   await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
   await page.mouse.down();
   await page.mouse.move(hb.x + hb.width / 2 + 60, hb.y + hb.height / 2, { steps: 8 });
+  // A finger pauses before letting go; without this the synthetic moves land
+  // in one frame and the release reads the day before the last move.
+  await page.waitForTimeout(200);
   await page.mouse.up();
   await eventually(async () => {
     const res = await api('GET', `/api/collections/${collectionId}/rows?limit=100`);

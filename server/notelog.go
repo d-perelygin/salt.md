@@ -1,9 +1,11 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // The raw trail: dated notes beside the edited version of a page.
@@ -88,8 +90,7 @@ func (s *Server) notesChanged(pageID string) {
 	if ws == "" {
 		return
 	}
-	s.events.broadcastTo(fmt.Sprintf(`{"type":"notes","id":%q}`, pageID),
-		func(uid string) bool { return s.isMember(uid, ws) })
+	s.events.broadcastTo(fmt.Sprintf(`{"type":"notes","id":%q}`, pageID), s.inWorkspace(ws))
 }
 
 func (s *Server) pageNotes(pageID string) ([]pageNote, error) {
@@ -107,6 +108,46 @@ func (s *Server) pageNotes(pageID string) ([]pageNote, error) {
 		}
 	}
 	return list, nil
+}
+
+// noteTrailMarkdown is the trail as get_page hands it to an agent with
+// include_notes. The browser and REST could read it; an agent connected over
+// MCP, the usual way, could only write to it, so it could not see what another
+// helper had already reported on a task (#118). The caller has checked that the
+// page may be read, which is the trail's whole permission.
+func (s *Server) noteTrailMarkdown(pageID string) (string, error) {
+	list, err := s.pageNotes(pageID)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## Note trail\n\n")
+	if len(list) == 0 {
+		b.WriteString("No notes on this page yet.\n")
+		return b.String(), nil
+	}
+	for _, n := range list {
+		who := n.Author
+		if who == "" {
+			who = "a removed account"
+		}
+		// The account is verified, the agent is a claim: both, as the trail
+		// in the browser shows them.
+		if via := n.Label; via != "" || n.Agent != "" {
+			if via == "" {
+				via = n.Agent
+			} else if n.Agent != "" && n.Agent != n.Label {
+				via += " (" + n.Agent + ")"
+			}
+			who += " via " + via
+		}
+		when := n.CreatedAt
+		if ts, err := time.Parse(time.RFC3339Nano, n.CreatedAt); err == nil {
+			when = ts.UTC().Format("2006-01-02 15:04 UTC")
+		}
+		fmt.Fprintf(&b, "- %s, %s: %s\n", when, who, strings.ReplaceAll(n.Body, "\n", "\n  "))
+	}
+	return b.String(), nil
 }
 
 func (s *Server) handleListNotes(w http.ResponseWriter, r *http.Request) {
@@ -131,18 +172,36 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Body string `json:"body"`
+		Body           string `json:"body"`
+		IdempotencyKey string `json:"idempotencyKey"`
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
 		return
 	}
-	id, err := s.addNote(requestUser(r), pageID, body.Body, "", "")
+	u := requestUser(r)
+	idemKey := ""
+	if body.IdempotencyKey != "" {
+		idemKey = u.ID + "\x00note\x00" + body.IdempotencyKey
+		if cached, reserved := s.reserveIdempotent(idemKey); !reserved {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(cached))
+			return
+		}
+		defer s.releaseIdempotent(idemKey)
+	}
+	id, err := s.addNote(u, pageID, body.Body, "", "")
 	if err != nil {
 		httpErrorFrom(w, 400, err)
 		return
 	}
-	writeJSON(w, map[string]string{"id": id})
+	resp := map[string]string{"id": id}
+	if idemKey != "" {
+		if b, err := json.Marshal(resp); err == nil {
+			s.finishIdempotent(idemKey, string(b))
+		}
+	}
+	writeJSON(w, resp)
 }
 
 // handleClearNotes discards a page's whole trail. sessionOnly on the route: a
@@ -187,5 +246,5 @@ func (s *Server) mcpNote(u *user, pageID, text, agent, label string) (string, er
 	}
 	var n int
 	s.db.QueryRow(`SELECT COUNT(*) FROM page_notes WHERE page_id = ?`, pageID).Scan(&n)
-	return fmt.Sprintf("Noted, %d on that page now. Nobody can edit or remove a single one, including you — correct a wrong note by adding another.", n), nil
+	return fmt.Sprintf("Noted, %d on that page now. Nobody can edit or remove a single one, including you — correct a wrong note by adding another. get_page with include_notes reads the trail.", n), nil
 }

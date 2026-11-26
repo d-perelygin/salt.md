@@ -46,14 +46,16 @@ already completed*. The screen itself is in
 
 ## Instance settings
 
-Seven tabs (**General**, **Access**, **Email**, **Domain & proxy**,
-**Webhooks**, **Documents**, **Maintenance**) and one pair of buttons at the
+Eight tabs (**General**, **Access**, **Email**, **Domain & proxy**,
+**Webhooks**, **Documents**, **Maintenance**, **AI**) and one pair of buttons at the
 bottom, **Cancel** and **Save**.
 **Save** writes the fields of every tab at once, so you can change the instance
 name and the signup policy in one pass. Some controls do **not** wait for Save
 because they act the moment you press them: starting or stopping a tunnel,
 connecting or disconnecting a mail account, sending a test mail, and adding or
-removing a webhook. **Cancel** therefore does not undo those.
+removing a webhook. **Cancel** therefore does not undo those. The **AI** tab is
+read-only: messages, runs and input/output tokens per account, for the owner
+and admins to see who uses the assistant and how much.
 
 ### General
 
@@ -139,11 +141,51 @@ disabled on this instance. Ask an admin"*. On, anybody can create one and
 becomes its workspace admin, which makes them responsible for that one
 workspace's members, not for the instance.
 
+**Create personal workspace for new users**: a checkbox, on by default. Off,
+new users do not receive a personal workspace upon registration and only join
+workspaces they were invited to or that are open to everyone. On, each new user
+automatically gets their own personal workspace and becomes its admin.
+
 The rest of the tab configures **Sign in with Google / Microsoft / OIDC (OAuth)**: the
 redirect URIs to paste into the provider's console are shown ready to copy, and
 the client ID and secret go underneath. A stored secret shows as *•••••• (stored)*
-and is never sent back to the browser. The whole procedure, including the one
-mistake that costs an afternoon, is in [Single sign-on](sso.md).
+and is never sent back to the browser. Microsoft has a third field,
+**Tenant (optional)**: empty lets in any organisation, a directory ID or a
+verified domain limits sign-in to that one organisation, and an app registered
+for a single organisation does not work without it
+([One organisation only](sso.md#one-organisation-only)). The whole procedure,
+including the one mistake that costs an afternoon, is in [Single sign-on](sso.md).
+
+#### Agent keys
+
+**Accept agent keys only from these addresses** is off by default. Switched on,
+every request that carries an agent key, an API token as much as the access an
+agent got by [signing in](agents.md#signing-in), is accepted only from the
+addresses in the list underneath, over MCP and over the REST API alike. Signing
+in with a browser, the desktop app, public links, forms and calendar feeds are
+not affected, so nobody can be locked out of the interface with it.
+
+The list takes one address or one network per line, IPv4 or IPv6, in CIDR
+notation for a network (`160.79.104.0/21`); `#` starts a comment. **Add
+Anthropic (Claude)** puts in `160.79.104.0/21`, the range Anthropic publishes as
+the one Claude's connectors call from. Beside the button stands your own address
+as the server sees it.
+
+- Claude in the browser and in the desktop app reaches the instance from
+  Anthropic's addresses. **Claude Code and any other agent running on a computer
+  of your own call from that computer's address**, so a list with only
+  Anthropic's range turns those away.
+- **Save** refuses a line that is neither an address nor a network and names it,
+  and refuses to switch the list on while it is empty. Nothing in the dialog is
+  stored until the list is right.
+- Behind a reverse proxy or the built-in tunnel the address is the one
+  [the proxy reports](domain.md); without **Run behind a reverse proxy** every
+  agent looks like the proxy.
+- A refused key gets `403` with the code `agent_address_not_allowed` and the
+  address it came from, and the server log gets a line
+  `agents: key refused from <address>, not on the address list`, at most once
+  every ten minutes per address. The refusal comes before the key is looked up,
+  so it says nothing about whether the key itself is good.
 
 #### Agent keys
 
@@ -203,7 +245,8 @@ including why mail is a convenience and never a dependency, are in
 Four routes to a public address, in the order the tab lists them:
 
 1. **Start quick tunnel**: a temporary `trycloudflare.com` address that changes
-   on every start. cloudflared is downloaded the first time.
+   on every start. cloudflared is downloaded the first time and then kept up to
+   date ([Keeping cloudflared current](domain.md#keeping-cloudflared-current)).
 2. A permanent Cloudflare tunnel: paste the token from the dashboard, press
    **Connect**. salt.md keeps it running across restarts.
 3. Built-in HTTPS: a domain field plus an **Active** switch; salt.md fetches

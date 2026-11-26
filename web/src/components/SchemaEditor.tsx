@@ -10,45 +10,65 @@ import { OPTION_HEXES, optionPalette } from '../selectOptions';
 import { renameSelectOption, moveSelectOption, reorderSelectOption } from '../renameSelectOption';
 import { confirm } from '../dialog';
 import { toast } from '../toast';
-import { GripVertical, Check, Trash2 } from 'lucide-react';
+import { GripVertical, Check, Trash2, X } from 'lucide-react';
 import { t } from '../i18n';
+import { imeComposing } from '../keys';
 import { loadMembers, type Member } from './PropertyValue';
+import { writeProcessPart } from '../processSession';
 
-const TYPES: { value: PropType; label: string }[] = [
-  { value: 'text', label: 'Text' },
-  { value: 'number', label: 'Number' },
-  { value: 'select', label: 'Select' },
-  { value: 'multiselect', label: 'Multi-select' },
-  { value: 'date', label: 'Date' },
-  { value: 'checkbox', label: 'Checkbox' },
+// Functions, not constants: t() at module level resolves once at import and
+// keeps that language forever.
+const propTypes = (): { value: PropType; label: string }[] => [
+  { value: 'text', label: t('Text') },
+  { value: 'number', label: t('Number') },
+  { value: 'select', label: t('Select') },
+  { value: 'multiselect', label: t('Multi-select') },
+  { value: 'date', label: t('Date') },
+  { value: 'checkbox', label: t('Checkbox') },
   // A checklist is not a checkbox with extra steps: it holds sub-tasks and
   // shows their progress, which is what a card needs to say "half done".
-  { value: 'checklist', label: 'Checklist' },
+  { value: 'checklist', label: t('Checklist') },
   // The server has long known url (validPropTypes) and MCP advertises it —
   // only the interface never offered it and quietly treated it as text.
   { value: 'url', label: 'URL' },
-  { value: 'person', label: 'Person' },
-  { value: 'relation', label: 'Relation' },
-  { value: 'backrelation', label: 'Backrelation' },
-  { value: 'rollup', label: 'Rollup' },
+  { value: 'person', label: t('Person') },
+  { value: 'relation', label: t('Relation') },
+  { value: 'backrelation', label: t('Backrelation') },
+  { value: 'rollup', label: t('Rollup') },
   // Read-only and self-updating: there is nothing to configure, which is why it
   // sits with the computed types rather than the ones you fill in.
-  { value: 'lastActivity', label: 'Last activity' },
-  { value: 'formula', label: 'Formula' },
+  { value: 'lastActivity', label: t('Last activity') },
+  { value: 'formula', label: t('Formula') },
 ];
 
-const AGGS: { value: NonNullable<PropDef['rollupAgg']>; label: string }[] = [
-  { value: 'sum', label: 'Sum' },
-  { value: 'count', label: 'Count' },
-  { value: 'avg', label: 'Average' },
-  { value: 'min', label: 'Min' },
-  { value: 'max', label: 'Max' },
+const rollupAggs = (): { value: NonNullable<PropDef['rollupAgg']>; label: string }[] => [
+  { value: 'sum', label: t('Sum') },
+  { value: 'count', label: t('Count') },
+  { value: 'avg', label: t('Average') },
+  { value: 'min', label: t('Min') },
+  { value: 'max', label: t('Max') },
   // Percent is the share of the related rows that meet the condition. It exists
   // so a progress bar needs no formula: a formula would have to divide, and
   // 0 of 0 related rows is a division by zero — an error message in the column
   // of every newly created row.
-  { value: 'percent', label: 'Percent' },
+  { value: 'percent', label: t('Percent') },
+  // Lookups: the same wiring, a value instead of a number. "First value" is the
+  // status of the one reel a task belongs to; "all" and "unique" read the
+  // categories of every company a sponsor is linked to.
+  { value: 'first', label: t('First value') },
+  // "All" repeats a value once per record that holds it — the honest answer to
+  // "what do the linked rows say", and the wrong one for a column of people:
+  // two companies sharing a contact read as two contacts. The label says so,
+  // because the difference between it and "Unique values" is invisible
+  // otherwise.
+  { value: 'all', label: t('All values (with repeats)') },
+  { value: 'unique', label: t('Unique values') },
 ];
+
+/** The rollup functions that return text rather than a number: they have no
+ *  progress bar to draw, and a "Max (= 100%)" field would mean nothing. */
+const LOOKUP_AGGS = new Set(['first', 'all', 'unique']);
+const isLookupAgg = (agg?: PropDef['rollupAgg']) => !!agg && LOOKUP_AGGS.has(agg);
 
 const OPTION_COLORS = OPTION_HEXES;
 
@@ -67,12 +87,14 @@ const slug = (name: string) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `p${++idCounter}`;
 
 export default function SchemaEditor({
+  collectionId,
   config,
   collections,
   onSave,
   onClose,
   initialTab,
 }: {
+  collectionId: string;
   config: CollectionConfig;
   collections?: { id: string; title: string }[];
   /** Which tab the dialog opens on — the block toast jumps straight in. */
@@ -85,9 +107,26 @@ export default function SchemaEditor({
   const [dropProperty, setDropProperty] = useState<{ id: string; after: boolean } | null>(null);
   const [views, setViews] = useState<ViewDef[]>(config.views);
   const [tab, setTab] = useState<'props' | 'process'>(initialTab ?? 'props');
+  // Reorder view: every property collapses to its one editable line, so a
+  // schema with thirty properties fits on a screen and the handles are all
+  // next to each other instead of three cards apart.
+  const [reorder, setReorder] = useState(false);
+  // Which tab the dialog is on is part of what a reload restores.
+  useEffect(() => {
+    writeProcessPart(collectionId, 'tab', tab);
+  }, [collectionId, tab]);
   // Lightweight process: absent = no rules. The status defaults to the first
   // select property so opening the tab never shows a dead picker.
   const [workflow, setWorkflow] = useState<WorkflowConfig | undefined>(config.workflow);
+  // Visual rules plus the rules compiled from code: the tab counts the whole
+  // process, not the half the List happens to show.
+  const processRuleCount =
+    (workflow?.rules?.length ?? 0) +
+    (workflow?.code ?? []).reduce((n, b) => n + (b.rules?.length ?? 0), 0);
+  // True while the Code tab's draft does not compile: the visual model is
+  // stale then, and saving would close the dialog on a process the person is
+  // not looking at.
+  const [codeLocked, setCodeLocked] = useState(false);
   // A rule the save-guard wants the reader to look at (broken reference).
   const [focusRule, setFocusRule] = useState<string | null>(null);
   // Whatever the dialog opened with, for the unsaved-changes question.
@@ -168,7 +207,7 @@ export default function SchemaEditor({
   }, [schema, targetSchemas]);
 
   const addProp = () => {
-    const name = newName.trim() || 'Property';
+    const name = newName.trim() || t('Property');
     let id = slug(name);
     while (schema.some((p) => p.id === id)) id += '_';
     const def: PropDef = { id, name, type: newType };
@@ -238,6 +277,14 @@ export default function SchemaEditor({
   const removeProp = (id: string) => setSchema((prev) => prev.filter((p) => p.id !== id));
 
   const save = async () => {
+    // The Code tab holds a draft that no longer compiles: the stored model
+    // behind it is stale, and closing on it would silently drop what the
+    // person typed. Send them back to the errors instead.
+    if (codeLocked) {
+      setTab('process');
+      toast(t('Fix the code errors before saving'));
+      return;
+    }
     // Every option WITHOUT a colour gets the fallback written in on save.
     // Otherwise the editor shows a colour (the fallback) while the board shows
     // grey — because only the stored colour counts there. After saving the two
@@ -304,6 +351,11 @@ export default function SchemaEditor({
                 return !!a.prop;
               }),
             })),
+            // Process code is content, not a draft of the visual rules: its
+            // source is the truth and the server recompiles it on save.
+            // Dropping it here stored a process with the code silently gone —
+            // and a code-only process came back empty.
+            ...(workflow.code && workflow.code.length > 0 ? { code: workflow.code } : {}),
           }
         : undefined;
     // Broken references never reach the server: it would reject the whole
@@ -327,6 +379,25 @@ export default function SchemaEditor({
     onClose();
   };
 
+  // Cmd/Ctrl+S anywhere in the dialog saves it, the way the same keystroke
+  // saves a document. The code editor calls this first and marks the event
+  // handled, so the two listeners never save twice.
+  const saveRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    saveRef.current = () => void save();
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || !(e.metaKey || e.ctrlKey) || (e.key !== 's' && e.key !== 'S')) return;
+      // A confirm on top owns the keystroke decision, not the dialog below it.
+      if (document.querySelector('.confirm-dialog')) return;
+      e.preventDefault();
+      saveRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const relationProps = schema.filter((p) => p.type === 'relation');
 
   // Config UI shown under a property row for the computed/linked types.
@@ -344,7 +415,7 @@ export default function SchemaEditor({
       </select>
       {(p.numberDisplay === 'bar' || p.numberDisplay === 'ring') && (
         <>
-          <label>Max (= 100%)</label>
+          <label>{t('Max (= 100%)')}</label>
           <input
             className="prop-input"
             type="number"
@@ -377,7 +448,7 @@ export default function SchemaEditor({
             <option value="">{t('Select a collection…')}</option>
             {targets.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.title || 'Untitled'}
+                {c.title || t('Untitled')}
               </option>
             ))}
           </select>
@@ -455,10 +526,22 @@ export default function SchemaEditor({
           <select
             className="prop-select"
             value={p.rollupTarget ?? ''}
-            onChange={(e) => updateProp(p.id, { rollupTarget: e.target.value })}
+            onChange={(e) => {
+              // A number function over a column of text reads as 0: when the
+              // target is not a number, start from the lookup that collapses
+              // repeats, which is what a list of names or dates wants.
+              const next = targetSchema.find((t) => t.id === e.target.value);
+              const numeric = next?.type === 'number';
+              const agg = p.rollupAgg ?? 'sum';
+              const aggIsNumeric = ['sum', 'count', 'avg', 'min', 'max', 'percent'].includes(agg);
+              updateProp(p.id, {
+                rollupTarget: e.target.value,
+                ...(next && !numeric && aggIsNumeric ? { rollupAgg: 'unique' as const } : {}),
+              });
+            }}
             disabled={!rel}
           >
-            <option value="">{rel ? 'Select…' : '(pick relation first)'}</option>
+            <option value="">{rel ? t('Choose…') : t('(pick relation first)')}</option>
             {targetSchema
               .filter((t) => t.type !== 'rollup' && t.type !== 'formula' && t.type !== 'relation')
               .map((t) => (
@@ -473,7 +556,7 @@ export default function SchemaEditor({
             value={p.rollupAgg ?? 'sum'}
             onChange={(e) => updateProp(p.id, { rollupAgg: e.target.value as PropDef['rollupAgg'] })}
           >
-            {AGGS.map((a) => (
+            {rollupAggs().map((a) => (
               <option key={a.value} value={a.value}>
                 {a.label}
               </option>
@@ -535,7 +618,7 @@ export default function SchemaEditor({
               )}
             </div>
           )}
-          {numberDisplayFields(p)}
+          {!isLookupAgg(p.rollupAgg) && numberDisplayFields(p)}
         </div>
       );
     }
@@ -550,15 +633,18 @@ export default function SchemaEditor({
             onChange={(e) => updateProp(p.id, { formula: e.target.value })}
           />
           <div className="formula-hint">
-            Reference other properties with <code>{'{id}'}</code>. Available:{' '}
-            {schema
-              .filter((o) => o.id !== p.id)
-              .map((o) => (
-                <code key={o.id} className="formula-token" title={o.name}>
-                  {'{' + o.id + '}'}
-                </code>
-              ))}
-            . Supports <code>+ - * / ( )</code>.
+            <div>{t('Reference other properties with')} <code>{'{id}'}</code></div>
+            <div>
+              {t('Available:')}{' '}
+              {schema
+                .filter((o) => o.id !== p.id)
+                .map((o) => (
+                  <code key={o.id} className="formula-token" title={o.name}>
+                    {'{' + o.id + '}'}
+                  </code>
+                ))}
+            </div>
+            <div>{t('Supports')} <code>+ - * / ( )</code></div>
           </div>
           {numberDisplayFields(p)}
         </div>
@@ -570,7 +656,7 @@ export default function SchemaEditor({
   return (
     <Portal>
     <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) void tryClose(); }}>
-      <div className="dialog wide">
+      <div className={'dialog wide' + (reorder && tab === 'props' ? ' schema-reorder' : '')}>
         <h2>{t('Collection properties')}</h2>
         <div className="schema-tabs">
           <button
@@ -585,11 +671,46 @@ export default function SchemaEditor({
             className={'schema-tab' + (tab === 'process' ? ' schema-tab-on' : '')}
             onClick={() => setTab('process')}
           >
-            {t('Process')}{workflow?.rules?.length ? ` · ${workflow.rules.length}` : ''}
+            {t('Process')}
+            {processRuleCount > 0 ? ` · ${processRuleCount}` : ''}
           </button>
         </div>
+        {/* The same sub-tabs the Process tab has: one row of views over one
+            schema, so Edit and Reorder read as peers and neither looks like a
+            command that changes the data. */}
+        {tab === 'props' && (
+          <div className="workflow-view-toggle" role="tablist" aria-label={t('Properties')}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!reorder}
+              className={'workflow-view-tab' + (!reorder ? ' workflow-view-tab-on' : '')}
+              onClick={() => setReorder(false)}
+            >
+              {t('Edit')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={reorder}
+              className={'workflow-view-tab' + (reorder ? ' workflow-view-tab-on' : '')}
+              onClick={() => setReorder(true)}
+            >
+              {t('Reorder')}
+            </button>
+          </div>
+        )}
         {tab === 'process' ? (
-          <WorkflowRules schema={schema} workflow={workflow} onChange={setWorkflow} highlightRuleId={focusRule} />
+          <WorkflowRules
+            collectionId={collectionId}
+            schema={schema}
+            workflow={workflow}
+            onChange={setWorkflow}
+            highlightRuleId={focusRule}
+            onSave={() => void save()}
+            onClose={() => void tryClose()}
+            onCodeLockedChange={setCodeLocked}
+          />
         ) : (
         <>
         <div className="schema-list">
@@ -645,14 +766,14 @@ export default function SchemaEditor({
                   value={p.type}
                   onChange={(e) => changeType(p.id, e.target.value as PropType)}
                 >
-                  {TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
+                  {propTypes().map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
                     </option>
                   ))}
                 </select>
                 <button className="icon-btn danger" title={t('Delete property')} onClick={() => removeProp(p.id)}>
-                  ✕
+                  <X size={14} />
                 </button>
               </div>
               {(p.type === 'select' || p.type === 'multiselect') && (
@@ -749,7 +870,7 @@ export default function SchemaEditor({
                     className="opt-input"
                     placeholder={t('+ Option')}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' && !imeComposing(e)) {
                         addOption(p.id, (e.target as HTMLInputElement).value);
                         (e.target as HTMLInputElement).value = '';
                       }
@@ -767,20 +888,20 @@ export default function SchemaEditor({
             placeholder={t('New property name')}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addProp()}
+            onKeyDown={(e) => e.key === 'Enter' && !imeComposing(e) && addProp()}
           />
           <select
             className="prop-select"
             value={newType}
             onChange={(e) => setNewType(e.target.value as PropType)}
           >
-            {TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
+            {propTypes().map((type) => (
+              <option key={type.value} value={type.value}>
+                {type.label}
               </option>
             ))}
           </select>
-          <button className="btn" onClick={addProp}>Add</button>
+          <button className="btn" onClick={addProp}>{t('Add')}</button>
         </div>
         <div className="schema-template">
           <label className="schema-template-row">

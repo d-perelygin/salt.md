@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { api } from '../api';
 import { isTempId, savePageUpdate } from '../outbox';
 import type { FontPref } from '../App';
@@ -14,7 +14,7 @@ import AnchoredMenu from './AnchoredMenu';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { PageHoverCard, holdWarm, releaseWarm } from './PageHoverCard';
-import TrashSection from './TrashSection';
+import TrashSection, { TrashDialog } from './TrashSection';
 import { compare } from '../format';
 import { plural, t } from '../i18n';
 import { openPage, openPageAux, peekPanel } from '../pageOpen';
@@ -35,6 +35,7 @@ import { tagColorClass } from '../tags';
 import { childrenForSection, topLevelForDocs } from '../treeMode';
 import SyncButton from './SyncButton';
 import ThemeSwitch, { type ThemePref } from '../ThemeSwitch';
+import { usePhoneLayout } from '../viewport';
 
 interface Props {
   pages: PageMeta[];
@@ -147,6 +148,17 @@ interface TreeCtx {
   dragLeave: (id: string) => void;
   drop: (p: PageMeta, e: React.DragEvent) => void;
   dragEnd: () => void;
+  /** Whether a row is a native HTML5 draggable. Never on a phone: Chrome
+   *  Android starts its own touch drag on a long press, and that cancels the
+   *  pointer stream the hold-to-carry gesture runs on. */
+  htmlDrag: boolean;
+  // The same move for a finger. Desktop drag events never fire on a phone, so
+  // a hold carries the row instead (see beginTouchDrag in Sidebar).
+  beginTouchDrag: (p: PageMeta, e: ReactPointerEvent<HTMLElement>) => void;
+  /** Id of the row a finger is carrying, for its dimmed look. */
+  touchCarried: string | null;
+  /** True for the click that ends a drop — it must not open the page. */
+  touchJustDropped: () => boolean;
 }
 
 // The children of an open row hang on a hairline through the middle of its
@@ -248,7 +260,7 @@ function DbRows({
         };
         return (
           <div key={r.id}>
-            <PageHoverCard
+            <SidebarHoverCard
               page={rowPage}
               side="right"
               tagColors={ctx.tagColors}
@@ -283,7 +295,7 @@ function DbRows({
                   <span className="chevron spacer" />
                 )}
                 <span className="tree-icon"><PageIcon icon={r.icon} size={14} fallback={<FileText size={14} />} /></span>
-                <span className="tree-title">{r.title || 'Untitled'}</span>
+                <span className="tree-title">{r.title || t('Untitled')}</span>
                 <AgentDot pageId={r.id} />
                 {/* Until now a row could only get sub-pages through MCP — the
                     interface offered no way at all, so the dossier under a deal
@@ -294,7 +306,7 @@ function DbRows({
                     to open it first and hope its own menu had what you wanted. */}
                 <RowActions id={r.id} title={r.title} parentId={collectionId} workspaceId={workspaceId} ctx={ctx} />
               </div>
-            </PageHoverCard>
+            </SidebarHoverCard>
             {isOpen && (
               <div className="tree-children" style={guideAt(depth)}>
                 {kids.map((k) => <TreeItem key={k.id} p={k} depth={depth + 1} ctx={ctx} section="dbs" />)}
@@ -366,33 +378,12 @@ function SidebarSection({
       return !o;
     });
 
-  const holdingRef = useRef(false);
-  const enterHead = () => {
-    if (!holdingRef.current) {
-      holdingRef.current = true;
-      holdWarm();
-    }
-  };
-  const leaveHead = () => {
-    if (holdingRef.current) {
-      holdingRef.current = false;
-      releaseWarm();
-    }
-  };
-  useEffect(() => {
-    window.addEventListener('blur', leaveHead);
-    return () => {
-      window.removeEventListener('blur', leaveHead);
-      leaveHead();
-    };
-  }, []);
-
   return (
     <div className={'sb-section' + (open ? ' open' : '')}>
       <div
         className="sb-section-head"
-        onMouseEnter={enterHead}
-        onMouseLeave={leaveHead}
+        onMouseEnter={holdWarm}
+        onMouseLeave={releaseWarm}
       >
         {/* A topic looks like a row, only bolder: icon on the left, title,
             count, chevron on the right. No more micro-heading — one single row
@@ -425,13 +416,22 @@ function SidebarSection({
   );
 }
 
+/** The sidebar's preview is for a pointer that can hover. A phone has no such
+ *  pointer: a tap fires mouseenter, the card lands under the thumb that just
+ *  tapped and covers the rows being scrolled. Elsewhere the preview carries
+ *  real information (a link in the text, a breadcrumb); in a list you are
+ *  already navigating it is only in the way, so the drawer keeps none. */
+function SidebarHoverCard(props: ComponentProps<typeof PageHoverCard>) {
+  const phone = usePhoneLayout();
+  return <PageHoverCard {...props} disabled={props.disabled || phone} />;
+}
+
 // One flat row — no chevron, no nesting. Used by the favourites and template
 // lists, where the tree hierarchy would be noise.
 function FlatRow({
   p,
   active,
   parentLabel,
-  tagColors,
   onNavigate,
   onOpenInNewTab,
   action,
@@ -439,13 +439,12 @@ function FlatRow({
   p: PageMeta;
   active: boolean;
   parentLabel?: string;
-  tagColors?: Record<string, string>;
   onNavigate: (id: string) => void;
   onOpenInNewTab?: (id: string) => void;
   action?: React.ReactNode;
 }) {
   return (
-    <PageHoverCard page={p} side="right" tagColors={tagColors}>
+    <SidebarHoverCard page={p} side="right">
       <div
         className={'tree-item sb-flat' + (active ? ' active' : '')}
         onClick={(e) => openPage(e, p.id, { onNavigate, onOpenInNewTab })}
@@ -460,7 +459,7 @@ function FlatRow({
           />
         </span>
         <span className="sb-flat-text">
-          <span className="tree-title">{p.title || 'Untitled'}</span>
+          <span className="tree-title">{p.title || t('Untitled')}</span>
           {parentLabel && <span className="sb-flat-parent">{parentLabel}</span>}
         </span>
         {action && (
@@ -469,7 +468,7 @@ function FlatRow({
           </span>
         )}
       </div>
-    </PageHoverCard>
+    </SidebarHoverCard>
   );
 }
 
@@ -716,7 +715,7 @@ function TreeItem({
   return (
     <div>
       {dt === 'before' && <div className="tree-drop-line" aria-hidden="true" />}
-      <PageHoverCard
+      <SidebarHoverCard
         page={p}
         side="right"
         tagColors={ctx.tagColors}
@@ -726,24 +725,32 @@ function TreeItem({
           className={
             'tree-item' +
             (p.id === ctx.currentId ? ' active' : '') +
-            (dt === 'inside' ? ' drop-inside' : '')
+            (dt === 'inside' ? ' drop-inside' : '') +
+            (ctx.touchCarried === p.id ? ' is-touch-carry' : '')
           }
           style={{ paddingLeft: 6 + depth * 14 }}
           // A step for the arrow keys, and an element a keyboard can reach at
           // all: these rows were divs with an onClick.
           {...navItem(p.id)}
+          // What a finger has to find when a carried row is over this one.
+          data-page-id={p.id}
+          onPointerDown={(e) => ctx.beginTouchDrag(p, e)}
           // Plain DOM state rather than aria-expanded: a real treeitem has to be
           // owned by a role="tree" through a chain of role="group"s, and the
           // sidebar's sections are not that chain. Claiming the role without the
           // structure describes the tree wrongly, which is worse than not at all.
           data-expanded={hasExpand ? (isExpanded ? 'true' : 'false') : undefined}
-          draggable
+          draggable={ctx.htmlDrag}
           onDragStart={(e) => ctx.dragStart(p.id, e)}
           onDragOver={(e) => ctx.dragOver(p, e)}
           onDragLeave={() => ctx.dragLeave(p.id)}
           onDrop={(e) => ctx.drop(p, e)}
           onDragEnd={ctx.dragEnd}
-          onClick={(e) => openPage(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab })}
+          onClick={(e) => {
+            // The click that ends a drag is the drag's, not a navigation.
+            if (ctx.touchJustDropped()) return;
+            openPage(e, p.id, { onNavigate: ctx.onNavigate, onOpenInNewTab: ctx.onOpenInNewTab });
+          }}
           // The whole row answers a right-click with the same menu the ⋯ offers.
           // Hunting for a three-dot button that only appears on hover is the
           // slowest way to reach an action everybody knows is there.
@@ -770,7 +777,7 @@ function TreeItem({
             <span className="chevron spacer" />
           )}
           <span className="tree-icon"><PageIcon icon={p.icon} size={15} fallback={p.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />} /></span>
-          <span className="tree-title">{p.title || 'Untitled'}</span>
+          <span className="tree-title">{p.title || t('Untitled')}</span>
           {p.shared && (
             <span className="tree-shared" title={t('Shared')}>
               <Globe size={12} />
@@ -801,7 +808,7 @@ function TreeItem({
             )}
           </span>
         </div>
-      </PageHoverCard>
+      </SidebarHoverCard>
       {dt === 'after' && <div className="tree-drop-line" aria-hidden="true" />}
       {isExpanded && (
         <div className="tree-children" style={guideAt(depth)}>
@@ -866,6 +873,11 @@ export default function Sidebar({
   onRefreshChats,
   onMarkRead,
 }: Props) {
+  // On a phone the thumb decides the layout: switching workspaces is a reach,
+  // opening the account (and every setting behind it) is not. The two trade
+  // places, and the account row is taller than the workspace name it replaces —
+  // which is what buys the top of the tree its extra distance from the edge.
+  const phone = usePhoneLayout();
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     // An open tree stays open: which branches were expanded is part of the
     // workspace's open state, like the tabs, and survives a reload the same way.
@@ -885,9 +897,17 @@ export default function Sidebar({
     }
   }, [expanded]);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [addFor, setAddFor] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const dragId = useRef<string | null>(null);
+  // Finger carrying a row: where it is drawn, and which row it is. Separate
+  // from the desktop drag because a phone never fires HTML5 drag events.
+  const [touchCarry, setTouchCarry] = useState<
+    { id: string; title: string; icon: string; type: string; x: number; y: number } | null
+  >(null);
+  const touchDroppedAt = useRef(0);
+  const touchStop = useRef<() => void>(() => {});
   const favSet = useMemo(() => new Set(favorites), [favorites]);
   const byIdAll = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages]);
   // The open page stays visible in the tree: its ancestors expand so the
@@ -1109,6 +1129,129 @@ export default function Sidebar({
     }
   };
 
+  // ---- a finger carries a row ---------------------------------------------
+  // The desktop drag above is HTML5 drag-and-drop, which a touch browser never
+  // starts. A hold picks the row up instead — 300 ms, so a quicker move still
+  // scrolls the drawer — and from there the same geometry applies: the top and
+  // bottom thirds of a row insert before/after it, the middle nests inside it.
+  // The drop runs handleDrop, so a note lands under a note exactly as it would
+  // with a mouse.
+  const beginTouchDrag = (p: PageMeta, e: ReactPointerEvent<HTMLElement>) => {
+    if (e.pointerType !== 'touch' || e.button !== 0) return;
+    // The chevron, ＋ and ⋯ keep their own jobs.
+    if ((e.target as HTMLElement).closest('button')) return;
+    const scroller = (e.currentTarget as HTMLElement).closest('.tree') as HTMLElement | null;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let x = startX;
+    let y = startY;
+    let armed = false;
+    let timer = 0;
+    let frame = 0;
+    let over: DropTarget | null = null;
+
+    const setOver = (next: DropTarget | null) => {
+      over = next;
+      setDropTarget((cur) =>
+        (cur?.id ?? '') === (next?.id ?? '') && (cur?.zone ?? '') === (next?.zone ?? '') ? cur : next,
+      );
+    };
+
+    // touch-action is fixed when the gesture begins, so a hold that turns into
+    // a drag cannot switch it off now: the scroll is stopped by hand.
+    const stopScroll = (ev: TouchEvent) => ev.preventDefault();
+
+    const hit = (): DropTarget | null => {
+      const el = document.elementFromPoint(x, y) as HTMLElement | null;
+      const row = el?.closest?.('.tree-item[data-page-id]') as HTMLElement | null;
+      const id = row?.dataset.pageId ?? '';
+      // The carried row is under the finger by definition; "onto itself" is
+      // not a question, and neither is one of its own descendants.
+      if (!row || !id || id === p.id || !canDropOn(id)) return null;
+      const rect = row.getBoundingClientRect();
+      const at = rect.height > 0 ? (y - rect.top) / rect.height : 0.5;
+      return { id, zone: at < 0.3 ? 'before' : at > 0.7 ? 'after' : 'inside' };
+    };
+
+    const refresh = () => setOver(hit());
+
+    // A finger held at the edge produces no more moves, so the scrolling has
+    // to come from a frame loop — the same reason the board's edge scroll does.
+    const tick = () => {
+      if (!armed) return;
+      frame = requestAnimationFrame(tick);
+      if (!scroller) return;
+      const r = scroller.getBoundingClientRect();
+      const edge = 52;
+      let dy = 0;
+      if (y < r.top + edge) dy = -Math.ceil((r.top + edge - y) / 4);
+      else if (y > r.bottom - edge) dy = Math.ceil((y - (r.bottom - edge)) / 4);
+      if (!dy) return;
+      const before = scroller.scrollTop;
+      scroller.scrollTop += dy;
+      // The list moved under a still finger: the row it is over changed too.
+      if (scroller.scrollTop !== before) refresh();
+    };
+
+    const arm = () => {
+      if (armed) return;
+      armed = true;
+      dragId.current = p.id;
+      setTouchCarry({ id: p.id, title: p.title || t('Untitled'), icon: p.icon, type: p.type, x, y });
+      document.body.classList.add('tree-dragging');
+      window.addEventListener('touchmove', stopScroll, { passive: false });
+      refresh();
+      frame = requestAnimationFrame(tick);
+    };
+
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('touchmove', stopScroll);
+      document.body.classList.remove('tree-dragging');
+      dragId.current = null;
+      setTouchCarry(null);
+      setDropTarget(null);
+      touchStop.current = () => {};
+    };
+
+    const move = (ev: PointerEvent) => {
+      x = ev.clientX;
+      y = ev.clientY;
+      if (!armed) {
+        // A finger that moves before the hold is scrolling, not carrying.
+        if (Math.hypot(x - startX, y - startY) > 6) cleanup();
+        return;
+      }
+      ev.preventDefault();
+      setTouchCarry((c) => (c ? { ...c, x, y } : c));
+      refresh();
+    };
+
+    const up = () => {
+      if (armed) {
+        touchDroppedAt.current = Date.now();
+        const dropped = over;
+        const target = dropped ? byId.get(dropped.id) : undefined;
+        if (dropped && target) handleDrop(target, dropped.zone);
+      }
+      cleanup();
+    };
+
+    const cancel = () => cleanup();
+
+    touchStop.current = cleanup;
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    timer = window.setTimeout(arm, 300);
+  };
+
+  useEffect(() => () => touchStop.current(), []);
+
   // The tree is the region; the rows carry navItem() and nothing else. See
   // nav.ts for why the DOM, not a selected-index, is the state here.
   const asideRef = useRef<HTMLElement>(null);
@@ -1253,6 +1396,10 @@ export default function Sidebar({
       dragId.current = null;
       setDropTarget(null);
     },
+    beginTouchDrag,
+    touchCarried: touchCarry?.id ?? null,
+    touchJustDropped: () => Date.now() - touchDroppedAt.current < 700,
+    htmlDrag: !phone,
   };
 
   const activeWs = workspaces.find((w) => w.id === currentWs);
@@ -1404,7 +1551,7 @@ export default function Sidebar({
         throw new Error(err?.error || t('Import failed (HTTP {status})', { status: res.status }));
       }
       const out = (await res.json()) as { workspaceId: string; name: string; pages: number };
-      toast.success(t('Imported “{name}” — {pages}', { name: out.name, pages: plural(out.pages, '{n} page', '{n} pages') }));
+      toast(t('Imported “{name}” ({pages})', { name: out.name, pages: plural(out.pages, '{n} page', '{n} pages') }));
       onWorkspacesChanged();
       onSwitchWorkspace(out.workspaceId);
     } catch (err) {
@@ -1412,72 +1559,93 @@ export default function Sidebar({
     }
   };
 
+  // The workspace switcher and the account row are each rendered in exactly
+  // one place, chosen by width: one element, one open menu, no ghost copy
+  // behind the drawer.
+  const workspaceSwitcher = (
+    <div className="ws-switcher" ref={wsMenuRef}>
+      <button className="ws-btn" onClick={() => setWsMenuOpen((o) => !o)}>
+        <WorkspaceAvatar ws={activeWs} />
+        <strong>{activeWs?.name ?? 'salt.md'}</strong>
+        <ChevronDown size={14} className="ws-caret" />
+      </button>
+      {wsMenuOpen && (
+        <div className="menu ws-menu">
+          {workspaces.map((w) => (
+            <button
+              key={w.id}
+              className={'ws-menu-item' + (w.id === currentWs ? ' active' : '')}
+              onClick={() => {
+                onSwitchWorkspace(w.id);
+                setWsMenuOpen(false);
+              }}
+            >
+              <WorkspaceAvatar ws={w} />
+              <span className="ws-menu-name">{w.name}</span>
+              {w.personal && <span className="ws-tag">{t('own space')}</span>}
+              {w.autoJoin && !w.personal && <span className="ws-tag">{t('open to all')}</span>}
+              {w.id === currentWs && <Check size={14} />}
+            </button>
+          ))}
+          <div className="menu-sep" />
+          {/* One entry instead of the sixteen that used to stand here. A
+              menu is a list of actions you take now; most of what was in it
+              are settings you look at and compare, which is a different
+              shape and now has its own dialog. */}
+          {activeWs?.role === 'admin' && (
+            <button className="menu-item" onClick={() => { setWsMenuOpen(false); setWsSettingsOpen(true); }}>
+              <Settings2 size={15} /> {t('Workspace settings')}
+            </button>
+          )}
+          {canCreateWorkspace && (
+            <button className="menu-item" onClick={newWorkspace}>
+              <Plus size={15} /> {t('New workspace')}
+            </button>
+          )}
+          {user.orgRole === 'owner' && (
+            <button
+              className="menu-item"
+              title={t('Workspaces nobody can look after any more')}
+              onClick={() => { setWsMenuOpen(false); setStrandedOpen(true); }}
+            >
+              <ShieldAlert size={15} /> {t('With nobody in charge…')}
+            </button>
+          )}
+          {/* Deleting lives in the settings dialog now, next to everything else
+              about this workspace — offering it in two places invites the
+              accident. */}
+        </div>
+      )}
+      <input
+        ref={wsImportRef}
+        type="file"
+        accept=".zip"
+        style={{ display: 'none' }}
+        onChange={(e) => void importWorkspace(e)}
+      />
+    </div>
+  );
+  const accountMenu = (
+    <UserMenu
+      user={user}
+      onUserChanged={onUserChanged}
+      onLogout={onLogout}
+      onOpenAgents={() => setAgentOpen(true)}
+      notesMode={notesModeSetting}
+      onToggleNotesMode={onToggleNotesMode}
+      onOpenShortcuts={onOpenShortcuts}
+      fontPref={fontPref}
+      onSetFont={onSetFont}
+      themePref={phone ? themePref : undefined}
+      onSetTheme={phone ? onSetTheme : undefined}
+    />
+  );
   return (
     <aside className={'sidebar' + (open ? ' open' : '')} ref={asideRef}>
       <div className="sidebar-header">
-        <div className="ws-switcher" ref={wsMenuRef}>
-          <button className="ws-btn" onClick={() => setWsMenuOpen((o) => !o)}>
-            <WorkspaceAvatar ws={activeWs} />
-            <strong>{activeWs?.name ?? 'salt.md'}</strong>
-            <ChevronDown size={14} className="ws-caret" />
-          </button>
-          {wsMenuOpen && (
-            <div className="menu ws-menu">
-              {workspaces.map((w) => (
-                <button
-                  key={w.id}
-                  className={'ws-menu-item' + (w.id === currentWs ? ' active' : '')}
-                  onClick={() => {
-                    onSwitchWorkspace(w.id);
-                    setWsMenuOpen(false);
-                  }}
-                >
-                  <WorkspaceAvatar ws={w} />
-                  <span className="ws-menu-name">{w.name}</span>
-                  {w.personal && <span className="ws-tag">{t('own space')}</span>}
-                  {w.autoJoin && !w.personal && <span className="ws-tag">{t('open to all')}</span>}
-                  {w.id === currentWs && <Check size={14} />}
-                </button>
-              ))}
-              <div className="menu-sep" />
-              {/* One entry instead of the sixteen that used to stand here. A
-                  menu is a list of actions you take now; most of what was in it
-                  are settings you look at and compare, which is a different
-                  shape and now has its own dialog. */}
-              {activeWs?.role === 'admin' && (
-                <button className="menu-item" onClick={() => { setWsMenuOpen(false); setWsSettingsOpen(true); }}>
-                  <Settings2 size={15} /> {t('Workspace settings')}
-                </button>
-              )}
-              {canCreateWorkspace && (
-                <button className="menu-item" onClick={newWorkspace}>
-                  <Plus size={15} /> {t('New workspace')}
-                </button>
-              )}
-              {user.orgRole === 'owner' && (
-                <button
-                  className="menu-item"
-                  title={t('Workspaces nobody can look after any more')}
-                  onClick={() => { setWsMenuOpen(false); setStrandedOpen(true); }}
-                >
-                  <ShieldAlert size={15} /> {t('With nobody in charge…')}
-                </button>
-              )}
-              {/* Deleting lives in the settings dialog now, next to everything else
-                  about this workspace — offering it in two places invites the
-                  accident. */}
-            </div>
-          )}
-          <input
-            ref={wsImportRef}
-            type="file"
-            accept=".zip"
-            style={{ display: 'none' }}
-            onChange={(e) => void importWorkspace(e)}
-          />
-        </div>
+        {phone ? <div className="sidebar-account">{accountMenu}</div> : workspaceSwitcher}
         <div className="sidebar-header-actions">
-          <button className="icon-btn" title={t('Library — every page')} onClick={onOpenIndex}>
+          <button className="icon-btn" title={t('Library (every page)')} onClick={onOpenIndex}>
             <Library size={17} />
           </button>
           {collapsed ? (
@@ -1510,16 +1678,6 @@ export default function Sidebar({
         <span style={{ flex: 1, textAlign: 'left' }}>{aiEnabled ? t('Search or ask') : t('Search')}</span>
         <span className="kbd">{chordFor('search.open')}</span>
       </button>
-      {aiEnabled && (
-        <div className="ai-side-tabs" role="tablist" aria-label={t('Sidebar mode')}>
-          <button className={'ai-side-tab' + (sidebarMode === 'docs' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'docs'} onClick={() => onSidebarModeChange?.('docs')}>
-            <Home size={15} /> {t('Home')}
-          </button>
-          <button className={'ai-side-tab' + (sidebarMode === 'chats' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'chats'} onClick={() => onSidebarModeChange?.('chats')}>
-            <MessageCircle size={15} /> {t('Chat')}
-          </button>
-        </div>
-      )}
       {aiEnabled && sidebarMode === 'chats' && (
         <div className="tree">
           <button className="ai-newchat" onClick={() => onNewChat?.()}>
@@ -1546,7 +1704,6 @@ export default function Sidebar({
                 key={p.id}
                 p={p}
                 active={p.id === currentId}
-                tagColors={tagColors}
                 onNavigate={onNavigate}
                 onOpenInNewTab={onOpenInNewTab}
                 action={
@@ -1560,7 +1717,7 @@ export default function Sidebar({
         </SidebarSection>
       )}
       {sidebarMode === 'docs' && tagCounts.length > 0 && (
-        <SidebarSection id="tags" label="Tags" icon={<Tag size={17} />} count={tagCounts.length}>
+        <SidebarSection id="tags" label={t('Tags')} icon={<Tag size={17} />} count={tagCounts.length}>
           <div className="tag-cloud">
               {tagCounts.map(([t, n]) => (
                 <button
@@ -1607,7 +1764,7 @@ export default function Sidebar({
               <span className="tree-icon">
                 <PageIcon icon={p.icon} size={15} fallback={p.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />} />
               </span>
-              <span className="tree-title">{p.title || 'Untitled'}</span>
+              <span className="tree-title">{p.title || t('Untitled')}</span>
           {/* Same reason as in the table: seeing who is on something should not
               depend on which view you happen to have open. */}
           <AgentDot pageId={p.id} />
@@ -1657,8 +1814,6 @@ export default function Sidebar({
             )}
           </SidebarSection>
           )}
-        </div>
-      ) : null}
       {/* The ＋ of the Templates section means "start from a template" — which
           is the gallery, where you can see one before copying it. */}
       {sidebarMode === 'docs' && templatePages.length > 0 && (
@@ -1701,7 +1856,7 @@ export default function Sidebar({
                 <span className="tree-icon">
                   <PageIcon icon={p.icon} size={15} fallback={<LayoutTemplate size={15} />} />
                 </span>
-                <span className="tree-title">{p.title || 'Untitled'}</span>
+                <span className="tree-title">{p.title || t('Untitled')}</span>
                 <span
                   className="tree-actions"
                   ref={tplMenuFor === p.id ? tplActionsRef : undefined}
@@ -1753,25 +1908,53 @@ export default function Sidebar({
           }
         </SidebarSection>
       )}
-      {trashRoots.length > 0 && (
+      {!phone && trashRoots.length > 0 && (
         <TrashSection roots={trashRoots} pages={pages} onRestore={onRestore} onDeleteForever={onDeleteForever} />
+      )}
+        </div>
+      ) : null}
+      {aiEnabled && (
+        <div className="ai-side-tabs" role="tablist" aria-label={t('Sidebar mode')}>
+          <button className={'ai-side-tab' + (sidebarMode === 'docs' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'docs'} onClick={() => onSidebarModeChange?.('docs')}>
+            <Home size={15} /> {t('Home')}
+          </button>
+          <button className={'ai-side-tab' + (sidebarMode === 'chats' ? ' active' : '')} role="tab" aria-selected={sidebarMode === 'chats'} onClick={() => onSidebarModeChange?.('chats')}>
+            <MessageCircle size={15} /> {t('Chat')}
+          </button>
+        </div>
       )}
       <div className="sidebar-footer">
         <div className="sidebar-footer-row">
-          <UserMenu
-            user={user}
-            onUserChanged={onUserChanged}
-            onLogout={onLogout}
-            onOpenAgents={() => setAgentOpen(true)}
-            notesMode={notesModeSetting}
-            onToggleNotesMode={onToggleNotesMode}
-            onOpenShortcuts={onOpenShortcuts}
-            fontPref={fontPref}
-            onSetFont={onSetFont}
-          />
-          <SyncButton />
-          <ThemeSwitch value={themePref} onChange={onSetTheme} />
+          {phone && workspaceSwitcher}
+          {phone ? (
+            <button
+              type="button"
+              className="trash-fab"
+              aria-label={t('Trash')}
+              title={t('Trash')}
+              onClick={() => setTrashOpen(true)}
+            >
+              <Trash2 size={18} />
+              {trashRoots.length > 0 && <span className="trash-fab-count">{trashRoots.length}</span>}
+            </button>
+          ) : (
+            <>
+              {accountMenu}
+              <SyncButton />
+              <ThemeSwitch value={themePref} onChange={onSetTheme} />
+            </>
+          )}
         </div>
+        {phone && (
+          <TrashDialog
+            open={trashOpen}
+            roots={trashRoots}
+            pages={pages}
+            onRestore={onRestore}
+            onDeleteForever={onDeleteForever}
+            onClose={() => setTrashOpen(false)}
+          />
+        )}
         {membersOpen && currentWs && (
           <WorkspaceMembers
             workspaceId={currentWs}
@@ -1833,7 +2016,7 @@ export default function Sidebar({
         {bgLogOpen && currentWs && (
           <BreakGlassLog
             workspaceId={currentWs}
-            workspaceName={activeWs?.name ?? 'Workspace'}
+            workspaceName={activeWs?.name ?? t('Workspace')}
             onClose={() => setBgLogOpen(false)}
           />
         )}
@@ -1857,6 +2040,24 @@ export default function Sidebar({
           />
         )}
       </div>
+      {/* What the finger is carrying. Above the drawer and below the menus,
+          and it never takes a hit: the row under it is what the drop needs. */}
+      {touchCarry && (
+        <Portal>
+          <div
+            className="tree-drag-ghost"
+            style={{ left: touchCarry.x, top: touchCarry.y }}
+            aria-hidden="true"
+          >
+            <PageIcon
+              icon={touchCarry.icon}
+              size={15}
+              fallback={touchCarry.type === 'collection' ? <Table2 size={15} /> : <FileText size={15} />}
+            />
+            <span className="tree-drag-ghost-title">{touchCarry.title}</span>
+          </div>
+        </Portal>
+      )}
     </aside>
   );
 }
@@ -1891,14 +2092,14 @@ function WorkspaceImageModal({
   const pickerBtnRef = useRef<HTMLButtonElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const saveEmoji = async (val: string = emoji, close = true) => {
+  const saveEmoji = async (val: string = emoji) => {
     if (!val.trim()) return; // never let an empty "save" wipe an existing logo
     setBusy(true);
     try {
       // Setting an emoji clears any image, and vice-versa (one identity at a time).
       await api.updateWorkspace(ws.id, { icon: val.trim(), image: '' });
       onChanged();
-      if (close) onClose();
+      onClose();
     } catch (e) {
       toast((e as Error).message || t('Saving failed'));
     } finally {
@@ -1943,7 +2144,7 @@ function WorkspaceImageModal({
           <label className="dialog-hint">{t('Emoji')}</label>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', position: 'relative' }}>
             <button className="btn icon-trigger" ref={pickerBtnRef} onClick={() => setPickerOpen((o) => !o)}>
-              {emoji ? <PageIcon icon={emoji} size={16} /> : '🙂'} {t('Choose…')}
+              {emoji || '🙂'} {t('Choose…')}
             </button>
             <input
               className="prop-input"
@@ -1961,7 +2162,7 @@ function WorkspaceImageModal({
                 onPick={(e, close = true) => {
                   if (close) setPickerOpen(false);
                   setEmoji(e);
-                  void saveEmoji(e, close);
+                  void saveEmoji(e);
                 }}
                 onRemove={() => {
                   setPickerOpen(false);

@@ -12,24 +12,17 @@ import {
   NestBlockButton,
   UnnestBlockButton,
   CreateLinkButton,
-  FileCaptionButton,
-  FileDeleteButton,
-  FileDownloadButton,
-  FilePreviewButton,
-  FileRenameButton,
-  FileReplaceButton,
-  TableCellMergeButton,
   SideMenuController,
 } from '@blocknote/react';
 import { CustomSideMenu } from './CustomDragHandleMenu';
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu, selectedFragmentToHTML } from '@blocknote/core';
-import { de as coreDe, en as coreEn, ru as coreRu } from '@blocknote/core/locales';
+import { de as coreDe, en as coreEn, es as coreEs, ru as coreRu, zh as coreZh, zhTW as coreZhTW } from '@blocknote/core/locales';
 import { BlockNoteView } from '@blocknote/mantine';
-import { Selection, TextSelection } from 'prosemirror-state';
-import { api, ApiError, materializeQuery, type PageDetail } from '../api';
+import { TextSelection } from 'prosemirror-state';
+import { api, ApiError, isOfflineResponse, materializeQuery } from '../api';
 import * as Y from 'yjs';
-import { clearJournal, dropYDoc, getPage as getCachedPage, putPage as putCachedPage, getYDoc, putYDoc } from '../offlineCache';
-import { enqueue, isOfflineError, isTempId, newTempId, savePageUpdate } from '../outbox';
+import { dropPage, dropYDoc, getPage as getCachedPage, getYDocEntry, putPage as putCachedPage, putUploadBlob, putYDoc } from '../offlineCache';
+import { enqueue, FILE_MAPPED_EVENT, isOfflineError, isTempId, newTempId, refreshCount, REMAP_EVENT, savePageUpdate, SERVER_STATUS_EVENT } from '../outbox';
 import {
   activeViewOf,
   canRedo,
@@ -40,24 +33,31 @@ import {
 import { useOnline } from '../useOnline';
 import { toast } from '../toast';
 import { workflowBlockReason, planStatusMove, postMoveComment } from '../workflow';
-import type { Backlink, CollectionConfig, Page, PageMeta, PropOption, User, Workspace } from '../types';
+import { StatusGateProvider } from '../statusMarks';
+import type { Backlink, CollectionConfig, Comment, CommentAnchor, LookupCell, Page, PageMeta, PropOption, User, Workspace } from '../types';
 import { SaltProvider } from '../collab';
-import { plural, t } from '../i18n';
+import { getLocale, plural, t } from '../i18n';
 import { formatDay } from '../format';
 import { blockedByMap, dayNum, depListOf, isoDay, nextWorkday, prevWorkday, shiftTarget, type DepNode } from '../depUtils';
-import PropertyValue, { idList } from './PropertyValue';
+import PropertyValue from './PropertyValue';
 import { saltSchema } from '../pageLink';
 import AnchoredMenu from './AnchoredMenu';
 import AiEmptyLine from './AiEmptyLine';
+import OutlineMinimap from './OutlineMinimap';
 import IconPicker from './IconPicker';
 import { PageIcon } from '../pageIcon';
 import { BlockContext } from '../blockContext';
 import { exitsDown, exitsStart, focusedKey, focusItem, focusKey, focusRegion, navItem, nothingBefore, useNavRegion } from '../nav';
 import { openPage, openPageAux, type PageOpeners } from '../pageOpen';
 import { readPageScroll, writePageScroll } from '../pageUiState';
-import { useShortcut } from '../keys';
+import { imeComposing, useShortcut } from '../keys';
 import CollectionView from './CollectionView';
 import PageShares from './PageShares';
+import SheetBackdrop from './SheetBackdrop';
+import SheetGrab from './SheetGrab';
+import ShareDialog, { type ShareTab } from './ShareDialog';
+import MobileEditorBar from './MobileEditorBar';
+import { usePhoneLayout } from '../viewport';
 import { HistoryModal } from './PageHistory';
 import CommentsPanel, {
   COMMENTS_CHANGED,
@@ -76,8 +76,36 @@ import { usePeers, setPeers, clearPeers } from '../presence';
 import { tagColorClass, TAG_PALETTE } from '../tags';
 import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
-import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles } from 'lucide-react';
+import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles, Lightbulb, Bookmark, Table2, List, Files, TriangleAlert } from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
+import { InlineCommentButton, useInlineComments } from './InlineComments';
+
+// The dictionaries BlockNote ships for the languages the interface has.
+const blockNoteDictionaries: Record<string, typeof coreEn> = {
+  en: coreEn,
+  de: consistentGroups(coreDe),
+  es: consistentGroups(coreEs),
+  // BlockNote's 'zh' is written in Simplified characters.
+  'zh-Hans': consistentGroups(coreZh),
+  'zh-Hant': consistentGroups(coreZhTW),
+};
+
+// One section per kind of block in the slash menu. BlockNote's German
+// dictionary files one subheading under the singular of the group's name and
+// the others under the plural, which split the menu into two sections side by
+// side; every item now takes the name the first item of its English group has.
+function consistentGroups(dict: typeof coreEn): typeof coreEn {
+  type Item = { group: string };
+  const english = coreEn.slash_menu as unknown as Record<string, Item>;
+  const local: Record<string, Item> = { ...(dict.slash_menu as unknown as Record<string, Item>) };
+  const names = new Map<string, string>();
+  for (const [key, item] of Object.entries(english)) {
+    if (!local[key]) continue;
+    if (!names.has(item.group)) names.set(item.group, local[key].group);
+    local[key] = { ...local[key], group: names.get(item.group)! };
+  }
+  return { ...dict, slash_menu: local as unknown as typeof dict.slash_menu };
+}
 
 export interface EditorProps {
   pageId: string;
@@ -133,7 +161,15 @@ export default function Editor(props: EditorProps) {
   const [page, setPage] = useState<Page | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [offlineCopy, setOfflineCopy] = useState(false);
+  const [serverReachable, setServerReachable] = useState(true);
   const online = useOnline();
+  const rescueRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    const h = (e: Event) => setServerReachable((e as CustomEvent<boolean>).detail !== false);
+    window.addEventListener(SERVER_STATUS_EVENT, h);
+    return () => window.removeEventListener(SERVER_STATUS_EVENT, h);
+  }, []);
   const [nonce, setNonce] = useState(0);
   const regionId = props.regionId ?? 'content';
   const primary = props.primary ?? true;
@@ -144,6 +180,25 @@ export default function Editor(props: EditorProps) {
   // his colleagues work in them all day and reported the old shape as awkward:
   // at the very bottom, and two lines to write in.
   const [commentsOpen, setCommentsOpen] = useState(commentsPanelOpen);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [pendingComment, setPendingComment] = useState<{ anchor: CommentAnchor; blockId: string } | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [activeComment, setActiveComment] = useState<string | null>(null);
+  const [anchorStatuses, setAnchorStatuses] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let alive = true;
+    setComments([]);
+    setPendingComment(null);
+    setCommentDraft('');
+    setActiveComment(null);
+    setAnchorStatuses({});
+    const load = () => void api.listComments(props.pageId).then((items) => { if (alive) setComments(items); }).catch(() => {});
+    load();
+    window.addEventListener(COMMENTS_CHANGED, load);
+    window.addEventListener('focus', load);
+    return () => { alive = false; window.removeEventListener(COMMENTS_CHANGED, load); window.removeEventListener('focus', load); };
+  }, [props.pageId]);
 
   // Both panels occupy the same strip on the right, so opening one closes the
   // other. Sharing the width would leave two columns too narrow to be either.
@@ -227,14 +282,31 @@ export default function Editor(props: EditorProps) {
     setOfflineCopy(false);
     api
       .getPage(props.pageId)
-      .then((p) => {
+      .then(async (p) => {
         if (!alive) return;
-        setPage(p);
-        void putCachedPage(p);
+        if (isOfflineResponse(p)) {
+          const cached = await getCachedPage(props.pageId);
+          if (!alive) return;
+          setPage(cached ?? p);
+          setOfflineCopy(true);
+        } else {
+          setPage(p);
+          setServerReachable(true);
+          void putCachedPage(p);
+        }
       })
       .catch((e: Error) => {
-        // Offline with a snapshot: render the last seen copy instead of an
-        // error. Edits still merge through the CRDT layer on reconnect.
+        // Only fall back to the offline snapshot on network/gateway errors;
+        // 403/404 means access was revoked or the page was deleted.
+        if (!isOfflineError(e)) {
+          if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+            void dropPage(props.pageId);
+            void dropYDoc(props.pageId);
+          }
+          if (alive) setError(e.message);
+          return;
+        }
+        setServerReachable(false);
         void getCachedPage(props.pageId).then((cached) => {
           if (!alive) return;
           if (cached) {
@@ -280,9 +352,12 @@ export default function Editor(props: EditorProps) {
         (arriving ? ' panel-arriving' : '')
       }
     >
-      {(offlineCopy || !online) && page ? (
+      {(offlineCopy || !online || !serverReachable) && page ? (
         <div className="offline-banner" role="status">
           {t('Offline copy — changes will sync when the connection is back')}
+          {!window.isSecureContext && !('serviceWorker' in navigator && navigator.serviceWorker.controller)
+            ? ` (${t('HTTPS required for offline reload')})`
+            : ''}
         </div>
       ) : null}
       <PageHeader
@@ -323,18 +398,21 @@ export default function Editor(props: EditorProps) {
             onOpenInNewTab={props.onOpenInNewTab}
             onCreatePage={props.onCreatePage}
             onPagesChanged={props.onPagesChanged}
-            onReset={() => {
+            rescueRef={rescueRef}
+            onReset={async () => {
               // The server replaced the document under us (restore, agent
-              // rewrite, import): our in-flight edits lost to the replacement.
-              // The state before it survives as a revision — point there.
-              // The offline journal and snapshot die with it: replaying them
-              // onto the new document would resurrect exactly what was
-              // replaced.
-              void clearJournal(props.pageId);
-              void dropYDoc(props.pageId);
+              // rewrite, import): rescue any unsynced offline text into page
+              // history before clearing the stale local doc and remounting.
+              await rescueRef.current?.().catch(() => {});
+              await dropYDoc(props.pageId);
+              void refreshCount();
               toast.warning(t('This page was replaced on the server. Open Version history to recover your text.'));
               setNonce((n) => n + 1);
             }}
+            comments={comments}
+            onCommentSelection={(anchor, blockId) => { setPendingComment({ anchor, blockId }); setActiveComment(null); showComments(true); }}
+            onCommentOpen={(id) => { setActiveComment(id); showComments(true); }}
+            onAnchorStatuses={(statuses) => setAnchorStatuses((previous) => JSON.stringify(previous) === JSON.stringify(statuses) ? previous : statuses)}
           />
         )}
       </PageHeader>
@@ -344,6 +422,13 @@ export default function Editor(props: EditorProps) {
           myUserId={props.user.id}
           open
           onClose={() => showComments(false)}
+          pending={pendingComment}
+          draft={commentDraft}
+          onDraftChange={setCommentDraft}
+          onClearPending={() => setPendingComment(null)}
+          activeComment={activeComment}
+          anchorStatuses={anchorStatuses}
+          narrow={narrow}
         />
       )}
       {structureOpen && (
@@ -501,7 +586,6 @@ function BlockedBanner({
   canEdit,
   onShift,
   onPagesChanged,
-  onConfigViewsChange,
 }: {
   pageId: string;
   parentId: string;
@@ -510,46 +594,16 @@ function BlockedBanner({
   canEdit: boolean;
   onShift: (startProp: string, endProp: string, startIso: string, endIso: string | null) => void;
   onPagesChanged?: () => void;
-  onConfigViewsChange?: (views: CollectionConfig['views']) => void;
 }) {
   const [rows, setRows] = useState<{ id: string; title: string; props: Record<string, unknown> }[] | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [skipWeekendsOverride, setSkipWeekendsOverride] = useState<boolean | null>(null);
-  const tlSkipWeekends = config.views.find((v) => v.type === 'timeline')?.tlSkipWeekends;
   const loadRows = useCallback(() => {
     api
       .collectionRows(parentId, { limit: 500 })
       .then((r) => setRows(r.rows))
       .catch(() => setRows([]));
   }, [parentId]);
-
-  useEffect(() => {
-    setSkipWeekendsOverride(null);
-  }, [tlSkipWeekends, parentId, pageId]);
-
-  useEffect(() => {
-    setMoreOpen(false);
-  }, [pageId]);
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        setMoreOpen(false);
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [moreOpen]);
-
-  useEffect(() => {
-    const onRows = (e: Event) => {
-      if ((e as CustomEvent<string>).detail === parentId) loadRows();
-    };
-    window.addEventListener('salt:rows', onRows);
-    return () => window.removeEventListener('salt:rows', onRows);
-  }, [parentId, loadRows]);
 
   useEffect(() => {
     let alive = true;
@@ -575,16 +629,6 @@ function BlockedBanner({
     tlView?.dateProp && dateIds.includes(tlView.dateProp) ? tlView.dateProp : (dateIds[0] ?? '');
   if (!startProp) return null;
   const endProp = tlView?.endDateProp && dateIds.includes(tlView.endDateProp) ? tlView.endDateProp : '';
-
-  const isoDayKeepTime = (props: Record<string, unknown> | undefined, propId: string, n: number) => {
-    const raw = props?.[propId];
-    const day = isoDay(n);
-    return typeof raw === 'string' && raw.length > 10 ? day + raw.slice(10) : day;
-  };
-  const hasEndValue = (props: Record<string, unknown> | undefined, dur: number) =>
-    !!(endProp && (dur > 0 || (typeof props?.[endProp] === 'string' && props[endProp])));
-
-  const rawById = new Map(rows.map((r) => [r.id, r]));
 
   const toNode = (id: string, props: Record<string, unknown>, known: Set<string>): DepNode | null => {
     const sv = props[startProp];
@@ -639,30 +683,24 @@ function BlockedBanner({
   const target = rawTarget !== null ? shiftDay(rawTarget) : null;
 
   const onToggleSkipWeekends = async (checked: boolean) => {
-    if (!config || !tlView) return;
     setSkipWeekendsOverride(checked);
-    try {
-      const fresh = await api.getCollection(parentId);
-      const freshTl =
-        fresh.views.find((v) => v.id === tlView.id) ?? fresh.views.find((v) => v.type === 'timeline');
-      if (!freshTl) {
-        setSkipWeekendsOverride(null);
-        return;
+    if (!config) return;
+    const views = config.views.map((v) => {
+      if (tlView && v.id === tlView.id) {
+        return { ...v, tlSkipWeekends: checked };
       }
-      const views = fresh.views.map((v) =>
-        v.id === freshTl.id ? { ...v, tlSkipWeekends: checked } : v,
-      );
+      return v;
+    });
+    try {
       await api.putCollection(parentId, { views });
-      onConfigViewsChange?.(views);
     } catch {
-      setSkipWeekendsOverride(null);
       toast(t('Could not save settings'));
     }
   };
 
   return (
     <div className="dep-banner" role="status">
-      <span className="dep-banner-ic">⚠</span>
+      <span className="dep-banner-ic"><TriangleAlert size={15} /></span>
       <div className="dep-banner-text">
         {t('Blocked by {names} until {d}', {
           names: blockers.map((p) => titles.get(p.id) ?? t('Untitled')).join(', '),
@@ -674,14 +712,7 @@ function BlockedBanner({
           <button
             className="btn-sm primary"
             onClick={() =>
-              onShift(
-                startProp,
-                endProp,
-                isoDayKeepTime(liveProps, startProp, target),
-                hasEndValue(liveProps, self.end - self.start)
-                  ? isoDayKeepTime(liveProps, endProp, target + (self.end - self.start))
-                  : null,
-              )
+              onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null)
             }
           >
             {t('Shift to {d}, keep duration', { d: formatDay(isoDay(target), 'dayMonth') })}
@@ -718,20 +749,13 @@ function BlockedBanner({
                         className="menu-item"
                         onClick={async () => {
                           setMoreOpen(false);
-                          const bProps = rawById.get(b.id)?.props;
                           const patch: Record<string, string> = {
-                            [startProp]: isoDayKeepTime(bProps, startProp, predTargetStart),
-                            ...(hasEndValue(bProps, dur)
-                              ? { [endProp]: isoDayKeepTime(bProps, endProp, predTargetEnd) }
-                              : {}),
+                            [startProp]: isoDay(predTargetStart),
+                            ...(endProp ? { [endProp]: isoDay(predTargetEnd) } : {}),
                           };
-                          try {
-                            await api.updatePage(b.id, { propsPatch: patch });
-                            loadRows();
-                            onPagesChanged?.();
-                          } catch {
-                            toast(t('Property not saved'));
-                          }
+                          await api.updatePage(b.id, { propsPatch: patch });
+                          loadRows();
+                          onPagesChanged?.();
                         }}
                       >
                         {blockers.length === 1
@@ -751,48 +775,32 @@ function BlockedBanner({
                       setMoreOpen(false);
                       const delta = target - self.start;
                       if (delta <= 0) return;
-                      onShift(
-                        startProp,
-                        endProp,
-                        isoDayKeepTime(liveProps, startProp, target),
-                        hasEndValue(liveProps, self.end - self.start)
-                          ? isoDayKeepTime(liveProps, endProp, target + (self.end - self.start))
-                          : null,
-                      );
-                      const visited = new Set<string>([pageId]);
-                      const chain: string[] = [];
+                      onShift(startProp, endProp, isoDay(target), endProp ? isoDay(target + (self.end - self.start)) : null);
+                      const chain = new Set<string>();
                       const queue = [pageId];
                       while (queue.length) {
                         const cur = queue.shift()!;
                         const it = byId.get(cur);
                         for (const next of it?.deps ?? []) {
-                          if (!visited.has(next)) {
-                            visited.add(next);
-                            chain.push(next);
+                          if (!chain.has(next)) {
+                            chain.add(next);
                             queue.push(next);
                           }
                         }
                       }
-                      try {
-                        for (const succId of chain) {
-                          const it = byId.get(succId);
-                          if (!it) continue;
-                          const itDur = it.end - it.start;
-                          const newStart = shiftDay(it.start + delta);
-                          const succProps = rawById.get(succId)?.props;
-                          const patch: Record<string, string> = {
-                            [startProp]: isoDayKeepTime(succProps, startProp, newStart),
-                            ...(hasEndValue(succProps, itDur)
-                              ? { [endProp]: isoDayKeepTime(succProps, endProp, newStart + itDur) }
-                              : {}),
-                          };
-                          await api.updatePage(succId, { propsPatch: patch });
-                        }
-                        loadRows();
-                        onPagesChanged?.();
-                      } catch {
-                        toast(t('Property not saved'));
+                      for (const succId of chain) {
+                        const it = byId.get(succId);
+                        if (!it) continue;
+                        const itDur = it.end - it.start;
+                        const newStart = it.start + delta;
+                        const patch: Record<string, string> = {
+                          [startProp]: isoDay(newStart),
+                          ...(endProp ? { [endProp]: isoDay(newStart + itDur) } : {}),
+                        };
+                        await api.updatePage(succId, { propsPatch: patch });
                       }
+                      loadRows();
+                      onPagesChanged?.();
                     }}
                   >
                     {t('Shift task and chain forward')}
@@ -804,16 +812,10 @@ function BlockedBanner({
                       className="menu-item danger"
                       onClick={async () => {
                         setMoreOpen(false);
-                        const rawProps = rawById.get(b.id)?.props;
-                        const rawDeps = rawProps ? idList(rawProps[effDep]) : b.deps;
-                        const cur = rawDeps.filter((id) => id !== pageId);
-                        try {
-                          await api.updatePage(b.id, { propsPatch: { [effDep]: cur } });
-                          loadRows();
-                          onPagesChanged?.();
-                        } catch {
-                          toast(t('Property not saved'));
-                        }
+                        const cur = b.deps.filter((id) => id !== pageId);
+                        await api.updatePage(b.id, { propsPatch: { [effDep]: cur } });
+                        loadRows();
+                        onPagesChanged?.();
                       }}
                     >
                       {blockers.length === 1
@@ -823,22 +825,18 @@ function BlockedBanner({
                           })}
                     </button>
                   ))}
-                  {tlView && (
-                    <>
-                      <div className="menu-sep" />
-                      <label className="tl-settings-row tl-checkbox-row">
-                        <span>{t('Skip weekends')}</span>
-                        <input
-                          type="checkbox"
-                          checked={!!skipWeekends}
-                          onChange={(e) => void onToggleSkipWeekends(e.target.checked)}
-                        />
-                      </label>
-                      <div className="tl-menu-hint">
-                        {t("Shifting a task out of its blockers' way lands on a working day.")}
-                      </div>
-                    </>
-                  )}
+                  <div className="menu-sep" />
+                  <label className="tl-settings-row tl-checkbox-row">
+                    <span>{t('Skip weekends')}</span>
+                    <input
+                      type="checkbox"
+                      checked={!!skipWeekends}
+                      onChange={(e) => void onToggleSkipWeekends(e.target.checked)}
+                    />
+                  </label>
+                  <div className="tl-menu-hint">
+                    {t("Shifting a task out of its blockers' way lands on a working day.")}
+                  </div>
                 </AnchoredMenu>
               </>
             )}
@@ -855,6 +853,7 @@ function RowProperties({
   pageId,
   parentId,
   initialProps,
+  initialLookup,
   canEdit,
   onOpen,
   openers,
@@ -863,6 +862,7 @@ function RowProperties({
   pageId: string;
   parentId: string;
   initialProps: Record<string, unknown>;
+  initialLookup?: Record<string, LookupCell>;
   canEdit: boolean;
   onOpen?: (id: string) => void;
   openers?: PageOpeners;
@@ -870,27 +870,21 @@ function RowProperties({
 }) {
   const [config, setConfig] = useState<CollectionConfig | null>(null);
   const [props, setProps] = useState<Record<string, unknown>>(initialProps ?? {});
+  const [lookup, setLookup] = useState<Record<string, LookupCell>>(initialLookup ?? {});
 
   useEffect(() => {
     setProps(initialProps ?? {});
-  }, [pageId, initialProps]);
+    setLookup(initialLookup ?? {});
+  }, [pageId, initialProps, initialLookup]);
 
   useEffect(() => {
     let alive = true;
-    const loadConfig = () => {
-      api
-        .getCollection(parentId)
-        .then((c) => alive && setConfig(c))
-        .catch(() => { });
-    };
-    loadConfig();
-    const onRows = (e: Event) => {
-      if ((e as CustomEvent<string>).detail === parentId) loadConfig();
-    };
-    window.addEventListener('salt:rows', onRows);
+    api
+      .getCollection(parentId)
+      .then((c) => alive && setConfig(c))
+      .catch(() => { });
     return () => {
       alive = false;
-      window.removeEventListener('salt:rows', onRows);
     };
   }, [parentId]);
 
@@ -925,6 +919,16 @@ function RowProperties({
       }
     }
   };
+  // A lookup writes through to the record that owns the value. The page has to
+  // be re-read afterwards, because its lookup cells are computed from that
+  // record and this component has no other way to see the new answer.
+  const writeLookup = async (targetPage: string, targetProp: string, value: unknown) => {
+    await api.updatePage(targetPage, { propsPatch: { [targetProp]: value } });
+    const fresh = await api.getPage(pageId);
+    setProps((fresh.props as Record<string, unknown>) ?? {});
+    setLookup(fresh.lookup ?? {});
+  };
+
   const setOptions = async (propId: string, options: PropOption[]) => {
     const next: CollectionConfig = {
       ...config,
@@ -940,6 +944,7 @@ function RowProperties({
   };
 
   return (
+    <StatusGateProvider value={{ workflow: config.workflow, schema: config.schema }}>
     <>
       <BlockedBanner
         pageId={pageId}
@@ -948,7 +953,6 @@ function RowProperties({
         config={config}
         canEdit={canEdit}
         onPagesChanged={onPagesChanged}
-        onConfigViewsChange={(views) => setConfig((c) => (c ? { ...c, views } : c))}
         onShift={(sp, ep, sIso, eIso) => {
           void setProp(sp, sIso);
           if (ep && eIso) void setProp(ep, eIso);
@@ -959,11 +963,19 @@ function RowProperties({
           <div key={p.id} className="row-prop">
             <div className="row-prop-label" title={p.name}>
               {p.name}
+              {(p.rollupAgg === 'first' || p.rollupAgg === 'all' || p.rollupAgg === 'unique') && (
+                <span className="th-link" title={t('The value comes from a linked note — edit it there')}>
+                  <Link2 size={11} />
+                </span>
+              )}
             </div>
             <div className="row-prop-value">
               <PropertyValue
                 def={p}
                 value={props[p.id]}
+                rowProps={props}
+                lookup={lookup[p.id]}
+                onLookupWrite={canEdit ? writeLookup : undefined}
                 onChange={canEdit ? (v) => setProp(p.id, v) : undefined}
                 onOptionsChange={canEdit ? (o) => setOptions(p.id, o) : undefined}
                 readOnly={!canEdit}
@@ -975,6 +987,7 @@ function RowProperties({
         ))}
       </div>
     </>
+    </StatusGateProvider>
   );
 }
 
@@ -1002,8 +1015,8 @@ interface PageTitleContextType {
   title: string;
   setTitleAndSave: (newTitle: string) => void;
   titleRef: React.RefObject<HTMLTextAreaElement | null>;
-  registerFocusBodyStart: (fn: (() => void) | null) => void;
-  registerSplitTitle: (fn: ((afterText: string) => void) | null) => void;
+  registerFocusBodyStart: (fn: () => void) => void;
+  registerSplitTitle: (fn: (afterText: string) => void) => void;
 }
 const PageTitleContext = createContext<PageTitleContextType | null>(null);
 
@@ -1055,12 +1068,20 @@ function PageHeader({
   children?: React.ReactNode;
 }) {
   const [title, setTitle] = useState(page.title);
+  // The browser tab follows the name being edited, not the name as saved:
+  // without this the tab kept showing whatever it had before. A peek keeps
+  // out of it — it is a preview, not the page you are on.
+  useEffect(() => {
+    if (onPeekClose) return;
+    const name = title.trim();
+    document.title = name ? `${name} · salt.md` : 'salt.md';
+  }, [title, onPeekClose]);
   const focusBodyStartRef = useRef<(() => void) | null>(null);
-  const registerFocusBodyStart = useCallback((fn: (() => void) | null) => {
+  const registerFocusBodyStart = useCallback((fn: () => void) => {
     focusBodyStartRef.current = fn;
   }, []);
   const splitTitleRef = useRef<((afterText: string) => void) | null>(null);
-  const registerSplitTitle = useCallback((fn: ((afterText: string) => void) | null) => {
+  const registerSplitTitle = useCallback((fn: (afterText: string) => void) => {
     splitTitleRef.current = fn;
   }, []);
   const focusBodyStart = () => {
@@ -1079,6 +1100,13 @@ function PageHeader({
   const [visibility, setVisibility] = useState(page.visibility);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  // On a phone the share dialog is a bottom sheet and needs a veil: its own
+  // outside-click listener would otherwise let the first tap through to the
+  // board underneath.
+  const phoneLayout = usePhoneLayout();
+  // The two entries — the lock and the globe — open one dialog on different
+  // tabs, so the access list and the public link stop being two menus.
+  const [shareTab, setShareTab] = useState<ShareTab>('share');
   // The server's shared flag survives navigation; the local states do not, so
   // both are reset here. shareOff masks a just-revoked link the list still
   // reports until it reloads.
@@ -1087,6 +1115,7 @@ function PageHeader({
     setShareUrl(null);
     setShareOff(false);
     setShareOpen(false);
+    setShareTab('share');
     setShareExpiry(0);
     setSharePassword('');
     setShareHasPassword(false);
@@ -1096,6 +1125,9 @@ function PageHeader({
   }, [pageId]);
   const isShared = shareUrl != null || (!!page.shared && !shareOff);
   const [shareExpiry, setShareExpiry] = useState(0); // days; 0 = never
+  // One mint at a time: a second click while the first request is in flight
+  // would replace the link the first one just made.
+  const [shareBusy, setShareBusy] = useState(false);
   const [sharePassword, setSharePassword] = useState('');
   const [shareHasPassword, setShareHasPassword] = useState(false);
   // Read-share and form-share are independent links; the dialog tracks them
@@ -1172,14 +1204,9 @@ function PageHeader({
   // Dropdowns must close on an outside click / Escape, not just mouse-leave.
   const shareWrapRef = useRef<HTMLDivElement>(null);
   const overflowWrapRef = useRef<HTMLDivElement>(null);
-  const accessWrapRef = useRef<HTMLDivElement>(null);
   useMenuDismiss(shareOpen, shareWrapRef, () => setShareOpen(false));
   useMenuDismiss(overflowOpen, overflowWrapRef, () => setOverflowOpen(false));
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [sharesOpen, setSharesOpen] = useState(false);
-  // The access panel hangs off its topbar button like the share menu — same
-  // outside-click/Escape dismissal, no modal overlay.
-  useMenuDismiss(sharesOpen, accessWrapRef, () => setSharesOpen(false));
   const [openComments, setOpenComments] = useState(0);
   // Same rule as in Editor, and it has to be asked here too: this is where the
   // button, the menu entries and the count live.
@@ -1415,8 +1442,10 @@ function PageHeader({
       lastGesture = Date.now();
     };
     const maySave = () => Date.now() - lastGesture < 2000;
+    let lastTop = el.scrollTop;
     const onScroll = () => {
       const s = el.scrollTop;
+      lastTop = s;
       if (!scrolled && s > 110) {
         scrolled = true;
         el.classList.add('scrolled');
@@ -1439,8 +1468,12 @@ function PageHeader({
     return () => {
       cancelAnimationFrame(saveRaf);
       // A switch made mid-glide keeps the last user position rather than the
-      // one before it — but never an anchoring shift (no gesture, no save).
-      if (maySave()) writePageScroll(pageId, el.scrollTop);
+      // one before it, but never an anchoring shift (no gesture, no save).
+      // The position is the last one a scroll event saw: by now React has
+      // taken the old page body out of the document, and its scrollTop reads
+      // 0, which wiped the good value whenever a tab was switched within two
+      // seconds of scrolling.
+      if (maySave()) writePageScroll(pageId, lastTop);
       el.removeEventListener('scroll', onScroll);
       el.removeEventListener('wheel', markGesture);
       el.removeEventListener('touchmove', markGesture);
@@ -1467,23 +1500,10 @@ function PageHeader({
     return () => cancelAnimationFrame(raf);
   }, [pageId]);
 
-  const togglePrivate = () => {
-    const next = visibility === 'private' || visibility === 'restricted' ? 'workspace' : 'private';
-    setVisibility(next);
-    onMetaChange(pageId, { visibility: next });
-    onLocalMeta({ visibility: next });
-    api.updatePage(pageId, { visibility: next }).catch((e) => {
-      if (isTempId(pageId) || isOfflineError(e)) {
-        void savePageUpdate(pageId, { visibility: next }, { label: t('Visibility') });
-        return;
-      }
-      toast(t('Visibility not saved'));
-    });
-  };
-
-  // The token itself is stored hashed server-side, so a minted URL cannot be
-  // recovered — only remembered. The owner who minted it keeps it in this
-  // browser; opening the menu must never mint silently, or every open would
+  // The link is the server's now: anyone who may edit the page can read it
+  // back and pass it on. localStorage stays as the fallback for a link minted
+  // before tokens were kept, where only the browser that created it knows the
+  // address. Opening the menu still never mints silently, or every open would
   // kill the link somebody already sent.
   const shareUrlKey = `salt:share-url:${pageId}`;
   const readStoredUrl = (): string | null => {
@@ -1510,6 +1530,8 @@ function PageHeader({
   const displayUrl = shareUrl ?? readStoredUrl();
 
   const mintShare = async (days: number, password: string, allowed?: string[] | null, allowDetail?: boolean, rotated = false) => {
+    if (shareBusy) return;
+    setShareBusy(true);
     try {
       const res = await api.sharePage(
         pageId,
@@ -1530,6 +1552,8 @@ function PageHeader({
       if (rotated) toast.warning(t('A new link was created — the old one no longer works'));
     } catch {
       toast(t('Sharing failed'));
+    } finally {
+      setShareBusy(false);
     }
   };
 
@@ -1548,6 +1572,14 @@ function PageHeader({
         setShareAllowDetail(out.detail);
         setShareHasPassword(!!st.hasPassword);
         setShareExpiry(expiryToDays(st.expiresAt));
+        if (st.url) {
+          setShareUrl(st.url);
+          rememberUrl(st.url);
+        } else {
+          // A link from before tokens were kept: only its creator's browser
+          // remembers the address.
+          setShareUrl(readStoredUrl());
+        }
       } else {
         setReadShared(false);
       }
@@ -1572,11 +1604,24 @@ function PageHeader({
     return out;
   };
 
-  const openShare = async () => {
-    setShareOpen((o) => !o);
+  const openShareDialog = async (tab: ShareTab) => {
+    // A second press on the open tab closes the dialog; pressing the other
+    // entry switches straight to its tab instead of closing first.
+    if (shareOpen && shareTab === tab) {
+      setShareOpen(false);
+      return;
+    }
+    setShareTab(tab);
+    setShareOpen(true);
     // Never mint here: minting replaces the token, so opening the menu must
     // only read. A fresh link is created by the explicit button below.
-    await loadShareSettings();
+    if (tab === 'publish') await loadShareSettings();
+  };
+
+  // Same read-only load when the tab is switched from inside the dialog.
+  const switchShareTab = (tab: ShareTab) => {
+    setShareTab(tab);
+    if (tab === 'publish') void loadShareSettings();
   };
 
   const toggleShareView = async (viewId: string) => {
@@ -1808,25 +1853,17 @@ function PageHeader({
     return chain;
   }, [pagesById, pageId, page]);
 
-  const serverInherited = (page as PageDetail).inheritedAccess;
+  const overflowSheetRef = useRef<HTMLDivElement>(null);
+
   const inheritedAccess = useMemo(() => {
-    if (serverInherited !== undefined) {
-      return serverInherited
-        ? { title: serverInherited.fromTitle, visibility: serverInherited.visibility }
-        : null;
-    }
-    let fallback: { title: string; visibility: 'private' | 'restricted' } | null = null;
     for (let i = 0; i < breadcrumbs.length - 1; i++) {
       const a = breadcrumbs[i];
-      if (a.visibility === 'private') {
-        return { title: a.title, visibility: 'private' as const };
-      }
-      if (a.visibility === 'restricted' && !fallback) {
-        fallback = { title: a.title, visibility: 'restricted' as const };
+      if (a.visibility === 'private' || a.visibility === 'restricted') {
+        return { title: a.title, visibility: a.visibility };
       }
     }
-    return fallback;
-  }, [serverInherited, breadcrumbs]);
+    return null;
+  }, [breadcrumbs]);
   const isAccessRestricted = visibility !== 'workspace' || !!inheritedAccess;
 
   return (
@@ -1960,14 +1997,14 @@ function PageHeader({
           {!onPeekClose && (
             <>
               <button
-                className={'icon-btn' + (structureOpen ? ' is-on' : '')}
+                className={'icon-btn topbar-wide-only' + (structureOpen ? ' is-on' : '')}
                 title={structureOpen ? t('Hide structure') : t('Show structure')}
                 onClick={onToggleStructure}
               >
                 <PanelRight size={17} />
               </button>
               <button
-                className={'icon-btn' + (favorite ? ' active-star' : '')}
+                className={'icon-btn topbar-wide-only' + (favorite ? ' active-star' : '')}
                 title={favorite ? t('Remove from favorites') : t('Add to favorites')}
                 onClick={() => onToggleFavorite(pageId)}
               >
@@ -1975,41 +2012,47 @@ function PageHeader({
               </button>
             </>
           )}
-          <div className="access-wrap" ref={accessWrapRef}>
+          {/* One dialog for both halves of sharing: the lock opens the Share
+              tab, the globe the Publish tab. The buttons stay separate so the
+              restricted and published markers keep their place in the topbar. */}
+          <div className="share-wrap" ref={shareWrapRef}>
             <button
               className={'icon-btn topbar-wide-only' + (isAccessRestricted ? ' active-star' : '')}
               title={inheritedAccess ? t('Page access… (inherited)') : t('Page access…')}
-              onClick={() => setSharesOpen((o) => !o)}
+              onClick={() => void openShareDialog('share')}
             >
               {isAccessRestricted ? <Lock size={17} /> : <LockOpen size={17} />}
             </button>
-            {sharesOpen && (
-              <PageShares
-                pageId={pageId}
-                workspaceId={page.workspaceId}
-                myUserId={user.id}
-                visibility={visibility}
-                inheritedFrom={inheritedAccess}
-                onClose={() => setSharesOpen(false)}
-                onVisibilityChange={(v) => {
-                  setVisibility(v);
-                  onMetaChange(pageId, { visibility: v });
-                  onLocalMeta({ visibility: v });
-                }}
-              />
-            )}
-          </div>
-          <div className="share-wrap" ref={shareWrapRef}>
-            <button className={'icon-btn topbar-wide-only' + (isShared ? ' shared-active' : '')} title={isShared ? t('Shared') : t('Share to web (read-only link)')} onClick={openShare}>
+            <button className={'icon-btn topbar-wide-only' + (isShared ? ' shared-active' : '')} title={isShared ? t('Shared') : t('Share to web (read-only link)')} onClick={() => void openShareDialog('publish')}>
               <Globe size={17} />
             </button>
+            {shareOpen && phoneLayout && (
+              <div className="fs-backdrop share-backdrop" onClick={() => setShareOpen(false)} />
+            )}
             {shareOpen && (
+              <ShareDialog
+                tab={shareTab}
+                onTabChange={switchShareTab}
+                onDismiss={phoneLayout ? () => setShareOpen(false) : undefined}
+                share={
+                  <PageShares
+                    pageId={pageId}
+                    workspaceId={page.workspaceId}
+                    myUserId={user.id}
+                    visibility={visibility}
+                    inheritedFrom={inheritedAccess}
+                    onClose={() => setShareOpen(false)}
+                    onVisibilityChange={setVisibility}
+                  />
+                }
+                publish={
               <div className="menu share-menu">
                 <div className="share-hint">{isCollection ? t('Anyone with this link sees this collection (read-only).') : t('Anyone with this link can view this page (read-only).')}</div>
                 {!readShared && !displayUrl ? (
                   <>
                     <button
                       className="btn-sm primary"
+                      disabled={shareBusy}
                       onClick={() => void mintShare(shareExpiry, sharePassword, shareAllowed, shareAllowDetail)}
                     >
                       {t('Share publicly')}
@@ -2041,6 +2084,7 @@ function PageHeader({
                     <div className="share-hint">{t('The link is active, but this browser does not have its URL.')}</div>
                     <button
                       className="btn-sm"
+                      disabled={shareBusy}
                       onClick={() => void mintShare(shareExpiry, sharePassword, shareAllowed, shareAllowDetail, true)}
                     >
                       {t('Create a new link')}
@@ -2077,7 +2121,7 @@ function PageHeader({
                 {(readShared || displayUrl) && (
                   <>
                     <label className="share-expiry">
-                      Expires:
+                      {t('Expires:')}
                       <select
                         className="prop-select"
                         value={shareExpiry}
@@ -2093,6 +2137,7 @@ function PageHeader({
                       <input
                         className="share-input"
                         type="password"
+                        autoComplete="new-password"
                         placeholder={shareHasPassword ? '••••••' : t('Password (optional)')}
                         value={sharePassword}
                         onChange={(e) => setSharePassword(e.target.value)}
@@ -2113,6 +2158,8 @@ function PageHeader({
                   </>
                 )}
               </div>
+                }
+              />
             )}
           </div>
           <div className="share-wrap" ref={overflowWrapRef}>
@@ -2132,7 +2179,10 @@ function PageHeader({
               onChange={(e) => void onImportFile(e)}
             />
             {overflowOpen && (
-              <div className="menu overflow-menu">
+              <>
+                <SheetBackdrop onDismiss={() => setOverflowOpen(false)} />
+                <div className="menu overflow-menu" ref={overflowSheetRef}>
+                  <SheetGrab sheet={overflowSheetRef} onDismiss={() => setOverflowOpen(false)} />
                 <>
                   <div className="menu-row" role="group" aria-label={t('Undo and redo')}>
                     <button className="menu-item" disabled={!undoCtl.canUndo} onClick={fireUndo}>
@@ -2233,19 +2283,29 @@ function PageHeader({
                   className="menu-item narrow-only"
                   onClick={() => {
                     setOverflowOpen(false);
-                    togglePrivate();
+                    onToggleFavorite(pageId);
                   }}
                 >
-                  {visibility === 'private' || visibility === 'restricted' ? <Lock size={15} /> : <LockOpen size={15} />}{' '}
-                  {visibility === 'private' || visibility === 'restricted'
-                    ? t('Make it visible to the workspace')
-                    : t('Make it private')}
+                  <Star size={15} fill={favorite ? 'currentColor' : 'none'} />{' '}
+                  {favorite ? t('Remove from favorites') : t('Add to favorites')}
                 </button>
+                <button
+                  className="menu-item narrow-only"
+                  onClick={() => {
+                    setOverflowOpen(false);
+                    onToggleStructure();
+                  }}
+                >
+                  <PanelRight size={15} /> {structureOpen ? t('Hide structure') : t('Show structure')}
+                </button>
+                {/* No separate "Make it private" row: Page access is the one
+                    place visibility lives, and a second switch beside it only
+                    invites the two to disagree. */}
                 <button
                   className="menu-item"
                   onClick={() => {
                     setOverflowOpen(false);
-                    setSharesOpen(true);
+                    void openShareDialog('share');
                   }}
                 >
                   <Lock size={15} /> {t('Page access…')}
@@ -2254,12 +2314,12 @@ function PageHeader({
                   className="menu-item narrow-only"
                   onClick={() => {
                     setOverflowOpen(false);
-                    openShare();
+                    void openShareDialog('publish');
                   }}
                 >
                   <Globe size={15} /> {t('Share to web (read-only link)')}
                 </button>
-                {canEdit && onDuplicate && (
+                {onDuplicate && (
                   <button
                     className="menu-item"
                     onClick={() => {
@@ -2278,7 +2338,7 @@ function PageHeader({
                       setOverflowOpen(false);
                     }}
                   >
-                    <Upload size={15} /> Import (.md / .zip)
+                    <Upload size={15} /> {t('Import (.md / .zip)')}
                   </button>
                 )}
                 <div className="menu-sep" />
@@ -2290,7 +2350,7 @@ function PageHeader({
                     setOverflowOpen(false);
                   }}
                 >
-                  <FileText size={15} /> Markdown (.md)
+                  <FileText size={15} /> {t('Markdown (.md)')}
                 </button>
                 <button
                   className="menu-item"
@@ -2336,7 +2396,8 @@ function PageHeader({
                     <Trash2 size={15} /> {t('Move to trash')}
                   </button>
                 )}
-              </div>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -2406,8 +2467,10 @@ function PageHeader({
             {historyOpen && (
               <HistoryModal
                 pageId={pageId}
+                collection={page?.type === 'collection'}
                 onClose={() => setHistoryOpen(false)}
                 onRestored={onPagesChanged}
+                onOpen={onOpenInNewTab}
               />
             )}
           </div>
@@ -2417,20 +2480,17 @@ function PageHeader({
               {...navItem('title', { keepTabOrder: true })}
               className="page-title"
               value={title}
-              readOnly={!canEdit}
               placeholder={t('Untitled')}
               rows={1}
               onChange={(e) => {
-                if (!canEdit) return;
                 setTitle(e.target.value);
                 saveMeta({ title: e.target.value });
               }}
               onKeyDown={(e) => {
                 // A title is a single line of text: Enter never inserts a newline.
                 // If cursor is in the title, part after cursor is split into the start of body.
-                if (e.key === 'Enter' && !e.altKey && !e.metaKey && !e.ctrlKey && !e.nativeEvent.isComposing) {
+                if (e.key === 'Enter' && !e.altKey && !e.metaKey && !e.ctrlKey) {
                   e.preventDefault();
-                  if (!canEdit) return;
                   const ta = titleRef.current;
                   if (!ta) {
                     focusBodyStart();
@@ -2439,16 +2499,19 @@ function PageHeader({
                   const selStart = ta.selectionStart;
                   const selEnd = ta.selectionEnd;
                   const fullVal = ta.value;
-                  const before = fullVal.slice(0, selStart);
-                  const after = fullVal.slice(selEnd);
+                  let before = fullVal.slice(0, selStart);
+                  let after = fullVal.slice(selEnd);
+
+                  if (!before.endsWith(' ') && after.startsWith(' ')) {
+                    before += ' ';
+                    after = after.slice(1);
+                  }
 
                   if (after.length > 0) {
-                    const splitFn = splitTitleRef.current;
-                    if (!splitFn) return;
                     setTitle(before);
                     saveMeta({ title: before });
                     ta.value = before;
-                    splitFn(after);
+                    splitTitleRef.current?.(after);
                     focusKey(regionId, 'body');
                   } else {
                     focusBodyStart();
@@ -2607,6 +2670,7 @@ function PageHeader({
                 pageId={pageId}
                 parentId={page.parentId}
                 initialProps={page.props}
+                initialLookup={page.lookup}
                 canEdit={canEdit}
                 onOpen={onOpenInNewTab ?? onNavigate}
                 openers={{ onNavigate, onOpenInNewTab }}
@@ -2696,9 +2760,14 @@ interface CollabProps {
   /** Keyboard-navigation region of the owning editor ('content', or 'peek' in
    *  the side panel). Flows through ...rest to BlockContent. */
   regionId: string;
+  comments: Comment[];
+  rescueRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onCommentSelection: (anchor: CommentAnchor, blockId: string) => void;
+  onCommentOpen: (id: string) => void;
+  onAnchorStatuses: (statuses: Record<string, boolean>) => void;
 }
 
-function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabProps) {
+function CollabEditor({ page, user, theme, canEdit, onReset, rescueRef, ...rest }: CollabProps) {
   const [ready, setReady] = useState(false);
   const [provider, setProvider] = useState<SaltProvider | null>(null);
   const seedRef = useRef<unknown[] | null>(null);
@@ -2714,46 +2783,65 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
     let p: SaltProvider | null = null;
     let saveTimer = 0;
     let onVisibility: (() => void) | null = null;
-    // Restore the offline snapshot first so edits typed before a reload are
-    // not lost; the provider merges it with the server replay on connect.
-    void getYDoc(page.id).then((initialUpdate) => {
+    let onPageHide: (() => void) | null = null;
+    // Restore the offline snapshot only if its docGen matches the server's
+    // current generation (never resurrect a replaced document).
+    void getYDocEntry(page.id).then((entry) => {
       if (cancelled) return;
+      const genMatches =
+        !entry ||
+        entry.gen === null ||
+        page.docGen == null ||
+        entry.gen === page.docGen;
+      const initialUpdate = genMatches ? (entry?.update ?? null) : null;
+      const initialDirty = genMatches ? (entry?.dirty ?? false) : false;
+      if (!genMatches && entry) {
+        void dropYDoc(page.id);
+        if (entry.dirty) {
+          toast.warning(t('Offline edits conflicted with a newer server version and were discarded.'));
+        }
+      }
+      const flushYDocNow = () => {
+        try {
+          if (p && !p.reset && !p.replacedDoc) {
+            const cur = Y.encodeStateAsUpdate(p.doc);
+            if (cur.length > 0) {
+              void putYDoc(page.id, cur, { gen: p.gen, dirty: p.dirty }).then(() => {
+                if (p?.dirty) void refreshCount();
+              });
+            }
+          }
+        } catch {
+          /* snapshot is best-effort */
+        }
+      };
       const scheduleSave = () => {
         window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(() => {
-          try {
-            if (p) {
-              const cur = Y.encodeStateAsUpdate(p.doc);
-              if (cur.length > 0) void putYDoc(page.id, cur);
-            }
-          } catch {
-            /* snapshot is best-effort */
-          }
-        }, 1000);
+        saveTimer = window.setTimeout(flushYDocNow, 1000);
       };
       p = new SaltProvider(
         page.id,
         page.docGen ?? null,
         (isNew) => {
-          // Seed a brand-new CRDT doc from the page's stored content once.
           if (isNew && Array.isArray(page.content) && page.content.length > 0) {
             seedRef.current = page.content;
           }
           setReady(true);
         },
         onReset,
-        { initialUpdate, onLocalUpdate: () => scheduleSave() },
+        {
+          initialUpdate,
+          initialDirty,
+          onLocalUpdate: () => scheduleSave(),
+          onRemoteUpdate: () => scheduleSave(),
+          onDirtyChange: () => void refreshCount(),
+        },
       );
-      // Presence means "is looking at this page right now": a tab in a hidden
-      // window must not show up as a peer for hours. Doc sync stays connected;
-      // only the awareness state is withdrawn. IMPORTANT: setLocalState, not
-      // setLocalStateField — after setLocalState(null) the latter is a silent
-      // no-op (y-protocols checks state !== null), and presence would never come
-      // back after switching tabs.
       const applyPresence = () => {
         if (!p) return;
         if (document.visibilityState === 'hidden') {
           p.awareness.setLocalState(null);
+          flushYDocNow();
         } else {
           p.awareness.setLocalState({
             user: { name: user.name, color: user.color, avatar: user.avatar },
@@ -2761,9 +2849,8 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
         }
       };
       onVisibility = applyPresence;
+      onPageHide = flushYDocNow;
       applyPresence();
-      // Awareness has long known about the others — you just never saw them.
-      // Here they are written into the presence store the header reads.
       const pushPeers = () => {
         if (!p) return;
         const mine = p.awareness.clientID;
@@ -2778,26 +2865,21 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
       p.awareness.on('change', pushPeers);
       pushPeers();
       document.addEventListener('visibilitychange', applyPresence);
+      window.addEventListener('pagehide', flushYDocNow);
       setProvider(p);
-      // A restored snapshot renders now, without waiting for a sync that may
-      // never come while offline: the body below reads the local doc, and the
-      // provider merges it with the server replay on connect. With no snapshot
-      // and no connection there is likewise nothing to wait for.
-      if ((initialUpdate && initialUpdate.length > 0) || !navigator.onLine) setReady(true);
+      if ((initialUpdate && initialUpdate.length > 0) || !navigator.onLine || isTempId(page.id)) setReady(true);
     });
     return () => {
       cancelled = true;
       window.clearTimeout(saveTimer);
       if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
+      if (onPageHide) window.removeEventListener('pagehide', onPageHide);
       clearPeers(page.id);
-      setReady(false); // the next provider (StrictMode) gates itself again
-      // Flush the latest state so a tab closed right now keeps its edits.
-      // Skipped after a server-side reset: the local doc is stale, and
-      // persisting it would resurrect exactly what was replaced.
+      setReady(false);
       try {
-        if (p && !p.reset) {
+        if (p && !p.reset && !p.replacedDoc) {
           const cur = Y.encodeStateAsUpdate(p.doc);
-          if (cur.length > 0) void putYDoc(page.id, cur);
+          if (cur.length > 0) void putYDoc(page.id, cur, { gen: p.gen, dirty: p.dirty });
         }
       } catch {
         /* best-effort */
@@ -2825,6 +2907,7 @@ function CollabEditor({ page, user, theme, canEdit, onReset, ...rest }: CollabPr
       user={user}
       theme={theme}
       canEdit={canEdit}
+      rescueRef={rescueRef}
       {...rest}
     />
   );
@@ -2844,60 +2927,11 @@ function inlineContentToText(content: unknown): string {
   return content
     .map((item: any) => {
       if (typeof item === 'string') return item;
-      if (item?.type === 'pageLink') return item.props?.label || '';
       if (typeof item?.text === 'string') return item.text;
       if (Array.isArray(item?.content)) return inlineContentToText(item.content);
       return '';
     })
     .join('');
-}
-
-function cloneValue<T>(v: T): T {
-  if (v === undefined || v === null || typeof v !== 'object') return v;
-  if (typeof structuredClone === 'function') {
-    try {
-      return structuredClone(v);
-    } catch {
-      /* fallback */
-    }
-  }
-  return JSON.parse(JSON.stringify(v));
-}
-
-function cloneBlockWithoutIds(b: any): any {
-  return {
-    type: b.type,
-    ...(b.props !== undefined ? { props: cloneValue(b.props) } : {}),
-    ...(b.content !== undefined ? { content: cloneValue(b.content) } : {}),
-    ...(Array.isArray(b.children) ? { children: b.children.map(cloneBlockWithoutIds) } : {}),
-  };
-}
-
-function plainLinesToMarkdown(normPlain: string): string {
-  if (normPlain.includes('\n\n')) return normPlain;
-  const rawLines = normPlain.split('\n').map((l) => l.trimEnd());
-  let out = '';
-  let inFence = false;
-  let prevWasTable = false;
-  for (const line of rawLines) {
-    if (!line.trim()) {
-      if (inFence) out += '\n';
-      prevWasTable = false;
-      continue;
-    }
-    const isFenceLine = /^\s*(?:```|~~~)/.test(line);
-    const isTableLine = !inFence && /^\s*\|/.test(line);
-    if (!out) {
-      out = line;
-    } else if (inFence || (prevWasTable && isTableLine)) {
-      out += '\n' + line;
-    } else {
-      out += '\n\n' + line;
-    }
-    if (isFenceLine) inFence = !inFence;
-    prevWasTable = isTableLine;
-  }
-  return out;
 }
 
 function BlockContent({
@@ -2916,6 +2950,11 @@ function BlockContent({
   onPagesChanged,
   structureOpen,
   regionId,
+  comments,
+  rescueRef,
+  onCommentSelection,
+  onCommentOpen,
+  onAnchorStatuses,
 }: {
   provider: SaltProvider;
   pageId: string;
@@ -2932,8 +2971,14 @@ function BlockContent({
   onOpenInNewTab: (id: string) => void;
   onCreatePage: (parentId: string | null, type?: 'doc' | 'collection') => void;
   onPagesChanged: () => void;
+  comments: Comment[];
+  rescueRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onCommentSelection: (anchor: CommentAnchor, blockId: string) => void;
+  onCommentOpen: (id: string) => void;
+  onAnchorStatuses: (statuses: Record<string, boolean>) => void;
 }) {
   const aiEnabled = useAiEnabled();
+  const blockNote = blockNoteDictionaries[getLocale()] ?? coreEn;
   const editor = useCreateBlockNote({
     schema: saltSchema,
     collaboration: {
@@ -2946,13 +2991,35 @@ function BlockContent({
     // file list. Without it a PDF added in the browser stayed invisible to
     // both, while the same PDF added by an agent did not — the MCP path has
     // always passed a page id.
-    uploadFile: (file: File) => api.upload(file, pageId),
-    // Column layout: edge-drop cursor + its dictionary entries.
+    uploadFile: async (file: File) => {
+      try {
+        return await api.upload(file, pageId);
+      } catch (e) {
+        if (!isOfflineError(e) && !isTempId(pageId)) throw e;
+        const uploadId = newTempId();
+        const tempUrl = URL.createObjectURL(file);
+        await putUploadBlob({ id: uploadId, blob: file, name: file.name, type: file.type, pageId });
+        const ok = await enqueue({
+          kind: 'upload-file',
+          pageId,
+          payload: { uploadId, tempUrl },
+          label: file.name || t('File'),
+        });
+        if (!ok) throw e;
+        toast.warning(t('Will sync when the connection is back'));
+        return tempUrl;
+      }
+    },
+    // BlockNote's own words in the interface's language: the hint on an empty
+    // line, its menus, the toolbar. It was always handed English, so a German
+    // interface said "Enter text or type '/' for commands" (#114). Changing the
+    // language remounts the editor, so reading it here is enough; a language
+    // BlockNote does not ship falls back to English, as t() does.
     dictionary: {
-      ...coreEn,
+      ...blockNote,
       // The empty line advertises the one-shot AI panel (AiEmptyLine).
       placeholders: {
-        ...coreEn.placeholders,
+        ...blockNote.placeholders,
         ...(aiEnabled
           ? {
               default: t("Press 'space' for AI or '/' for commands"),
@@ -2970,39 +3037,27 @@ function BlockContent({
         return defaultPasteHandler();
       }
 
-      const view = (ed as any)._tiptapEditor?.view;
-      if (ed.getSelection() || (view && !view.state.selection.empty)) {
-        return defaultPasteHandler();
-      }
-
-      let currentBlock: any;
-      try {
-        currentBlock = ed.getTextCursorPosition()?.block;
-      } catch {
-        // cursor outside or unknown
-      }
-      const currentType = currentBlock?.type;
-      if (currentType === 'codeBlock' || currentType === 'table') {
-        return defaultPasteHandler();
-      }
-
       const plain = event.clipboardData?.getData('text/plain') ?? '';
-      const normPlain = plain.replace(/\r\n?/g, '\n');
       const html = event.clipboardData?.getData('text/html') ?? '';
 
-      // Rich formatting, links, headings, lists, tables, code blocks, quotes belong to HTML parser
-      const hasComplexHtml =
-        /<(?:table|thead|tbody|tr|td|th|pre|code|blockquote|a|h[1-6]|strong|b|em|i|u|s|ul|ol|li)\b/i.test(
-          html,
-        );
+      // Complex structural elements (tables, code blocks, quotes) belong to HTML parser
+      const hasComplexHtml = /<(?:table|thead|tbody|tr|td|th|pre|code|blockquote)\b/i.test(html);
       if (hasComplexHtml) {
         return defaultPasteHandler();
       }
 
-      const lines = normPlain.split('\n').map((l) => l.trimEnd());
+      const lines = plain.split(/\r?\n/).map((l) => l.trimEnd());
       const nonEmptyLines = lines.filter((l) => l.trim().length > 0);
 
       if (nonEmptyLines.length > 1) {
+        let currentBlock: any;
+        try {
+          currentBlock = ed.getTextCursorPosition()?.block;
+        } catch {
+          // cursor outside or unknown
+        }
+
+        const currentType = currentBlock?.type;
         let blocksToInsert: any[] = [];
 
         if (currentType === 'checkListItem') {
@@ -3015,12 +3070,9 @@ function BlockContent({
           const md = nonEmptyLines.map((l, i) => `${i + 1}. ${l.replace(/^\d+[.)]\s*/, '')}`).join('\n');
           blocksToInsert = ed.tryParseMarkdownToBlocks(md);
         } else {
-          const md = plainLinesToMarkdown(normPlain);
+          const md = plain.includes('\n\n') ? plain : nonEmptyLines.join('\n\n');
           blocksToInsert = ed.tryParseMarkdownToBlocks(md);
-          if (
-            blocksToInsert.length === 0 ||
-            (blocksToInsert.length === 1 && blocksToInsert[0]?.type === 'paragraph')
-          ) {
+          if (blocksToInsert.length <= 1) {
             blocksToInsert = nonEmptyLines.map((l) => ({
               type: 'paragraph',
               content: [l],
@@ -3038,16 +3090,6 @@ function BlockContent({
                 !currentBlock.content[0].text);
 
             if (isCurrentEmpty) {
-              if (Array.isArray(currentBlock.children) && currentBlock.children.length > 0) {
-                const first = blocksToInsert[0];
-                blocksToInsert = [
-                  {
-                    ...first,
-                    children: [...(first.children ?? []), ...currentBlock.children],
-                  },
-                  ...blocksToInsert.slice(1),
-                ];
-              }
               const res = ed.replaceBlocks([currentBlock.id], blocksToInsert);
               const last = res.insertedBlocks[res.insertedBlocks.length - 1];
               if (last) ed.setTextCursorPosition(last, 'end');
@@ -3075,8 +3117,8 @@ function BlockContent({
       // Fall back to plain text so the paste is never silently dropped.
       if (html) {
         const parsedHtmlBlocks = ed.tryParseHTMLToBlocks(html);
-        if (parsedHtmlBlocks.length === 0 && normPlain) {
-          ed.pasteText(normPlain);
+        if (parsedHtmlBlocks.length === 0 && plain) {
+          ed.pasteText(plain);
           return true;
         }
       }
@@ -3084,6 +3126,7 @@ function BlockContent({
       return defaultPasteHandler();
     },
   });
+  useInlineComments(editor, provider, comments, onCommentOpen, onAnchorStatuses);
 
   // Doc undo for the ⋯ menu: BlockNote's own history, announced so the
   // topbar (outside this tree) can offer the buttons beside the collection
@@ -3180,24 +3223,19 @@ function BlockContent({
 
   // Mod+Shift+↑/↓: extend text selection to start/end of document (macOS standard).
   // Overrides BlockNote's default moveBlocksUp/Down hijacking.
-  const isNativeInputFocused = () => {
-    const tag = document.activeElement?.tagName;
-    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-  };
   useShortcut({
     id: 'block.selectToStart',
     keys: ['mod+shift+arrowup'],
     scope: 'editor',
     whileTyping: true,
-    when: () => focusedKey(regionId) === 'body' && !isNativeInputFocused(),
+    when: () => focusedKey(regionId) === 'body',
     run: () => {
       const tiptap = (editor as any)._tiptapEditor;
       if (!tiptap) return false;
       const { state, view } = tiptap;
       const { selection, doc } = state;
       try {
-        const startSel = Selection.atStart(doc);
-        const sel = TextSelection.between(selection.$anchor, startSel.$head, -1);
+        const sel = TextSelection.create(doc, selection.anchor, 0);
         view.dispatch(state.tr.setSelection(sel).scrollIntoView());
         return true;
       } catch {
@@ -3210,15 +3248,14 @@ function BlockContent({
     keys: ['mod+shift+arrowdown'],
     scope: 'editor',
     whileTyping: true,
-    when: () => focusedKey(regionId) === 'body' && !isNativeInputFocused(),
+    when: () => focusedKey(regionId) === 'body',
     run: () => {
       const tiptap = (editor as any)._tiptapEditor;
       if (!tiptap) return false;
       const { state, view } = tiptap;
       const { selection, doc } = state;
       try {
-        const endSel = Selection.atEnd(doc);
-        const sel = TextSelection.between(selection.$anchor, endSel.$head, 1);
+        const sel = TextSelection.create(doc, selection.anchor, doc.content.size);
         view.dispatch(state.tr.setSelection(sel).scrollIntoView());
         return true;
       } catch {
@@ -3242,7 +3279,16 @@ function BlockContent({
       if (!blocks || blocks.length === 0) return false;
       const last = blocks[blocks.length - 1];
       if (!last) return false;
-      editor.insertBlocks(blocks.map(cloneBlockWithoutIds) as any, last.id, 'after');
+      editor.insertBlocks(
+        blocks.map((b) => ({
+          type: b.type,
+          props: { ...b.props },
+          content: b.content,
+          children: b.children,
+        })) as any,
+        last.id,
+        'after',
+      );
     },
   });
 
@@ -3348,7 +3394,6 @@ function BlockContent({
   // Insert generated markdown below the cursor (AI Block / chat "Insert").
   useEffect(() => {
     const onInsert = (e: Event) => {
-      if (!canEdit) return;
       const d = (e as CustomEvent<{ pageId?: string; markdown?: string }>).detail;
       if (!d || (d.pageId && d.pageId !== pageId) || !d.markdown) return;
       void (async () => {
@@ -3375,7 +3420,7 @@ function BlockContent({
     window.addEventListener('salt:ai-insert', onInsert);
     return () => window.removeEventListener('salt:ai-insert', onInsert);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, pageId, canEdit]);
+  }, [editor, pageId]);
 
   const getSlashItems = async (query: string) => {
     const aiItems = aiEnabled
@@ -3408,13 +3453,16 @@ function BlockContent({
           },
         ]
       : [];
+    // Groups by the dictionary's own names, so an item of ours joins
+    // BlockNote's section of the same kind in any language instead of opening
+    // a second, English one.
     const custom = [
       ...aiItems,
       {
         title: t('Diagram'),
         subtext: t('A flow chart written as text'),
         aliases: ['diagram', 'diagramm', 'mermaid', 'flow', 'flussdiagramm', 'graph', 'диаграмма', 'схема', 'граф', 'блок-схема'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
-        group: 'Advanced',
+        group: editor.dictionary.slash_menu.table.group,
         icon: <Workflow size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, {
@@ -3426,7 +3474,7 @@ function BlockContent({
         title: t('Columns'),
         subtext: t('Two blocks side by side'),
         aliases: ['columns', 'column', 'spalten', 'nebeneinander', 'колонки', 'столбцы', 'рядом', 'колонка'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)
-        group: 'Basic blocks',
+        group: editor.dictionary.slash_menu.paragraph.group,
         icon: <Columns2 size={18} />,
         // Inserted WITH its two children, because an empty columns block is a
         // control strip and nothing else — there would be no column to type in
@@ -3441,44 +3489,44 @@ function BlockContent({
       {
         title: t('Callout'),
         subtext: t('A highlighted note with an emoji'),
-        aliases: ['callout', 'hinweis', 'info', 'warnung', 'выноска', 'заметка', 'подсказка', 'важно'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
-        icon: <span>💡</span>,
+        aliases: ['callout', 'hinweis', 'info', 'warnung', 'выноска', 'заметка', 'подсказка', 'важно'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
+        icon: <Lightbulb size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'callout' } as never),
       },
       {
         title: t('Bookmark / Embed'),
         subtext: t('A link card, or a YouTube/Vimeo player'),
-        aliases: ['bookmark', 'embed', 'link', 'video', 'youtube', 'закладка', 'встроить', 'ссылка', 'видео'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Media',
-        icon: <span>🔖</span>,
+        aliases: ['bookmark', 'embed', 'link', 'video', 'youtube', 'закладка', 'встроить', 'ссылка', 'видео'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.image.group,
+        icon: <Bookmark size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'bookmark' } as never),
       },
       {
         title: t('Embed a collection'),
         subtext: t('Show an existing collection inside the document'),
-        aliases: ['datenbank', 'database', 'db', 'tabelle', 'board', 'kanban', 'база', 'коллекция', 'таблица', 'доска', 'встроить коллекцию'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
-        icon: <span>▦</span>,
+        aliases: ['datenbank', 'database', 'db', 'tabelle', 'board', 'kanban', 'база', 'коллекция', 'таблица', 'доска', 'встроить коллекцию'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
+        icon: <Table2 size={18} />,
         onItemClick: () =>
           insertOrUpdateBlockForSlashMenu(editor, { type: 'database' } as never),
       },
       {
         title: t('Table of contents'),
         subtext: t('Auto-generated list of every heading'),
-        aliases: ['toc', 'inhalt', 'inhaltsverzeichnis', 'outline', 'оглавление', 'содержание'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
-        icon: <span>📑</span>,
+        aliases: ['toc', 'inhalt', 'inhaltsverzeichnis', 'outline', 'оглавление', 'содержание'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
+        icon: <List size={18} />,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'toc' } as never),
       },
       {
         title: t('Sub-pages'),
         subtext: t('List of pages below this one'),
-        aliases: ['subpages', 'unterseiten', 'children', 'sub-pages', 'подстраницы', 'дочерние', 'страницы', 'вложенные'], // i18n-ok: search aliases, deliberately trilingual (en/de/ru)lingual so a German user can type it
-        group: 'Basic blocks',
-        icon: <span>📄</span>,
+        aliases: ['subpages', 'unterseiten', 'children', 'sub-pages', 'подстраницы', 'дочерние', 'страницы', 'вложенные'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
+        icon: <Files size={18} />,
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'subpages' } as never),
       },
     ];
@@ -3491,7 +3539,23 @@ function BlockContent({
       ...it,
       aliases: [...(it.aliases ?? []), ...slashAliases(it.title)],
     }));
-    return filterSuggestionItems([...defaults, ...custom], query);
+    const matches = filterSuggestionItems(
+      [
+        ...getDefaultReactSlashMenuItems(editor),
+        ...custom,
+      ],
+      query,
+    );
+    // The menu keys headings by group. Repeated, non-adjacent groups create
+    // duplicate React keys and leave stale headings behind when filtering.
+    // Keep each group contiguous, with the first occurrence defining its order.
+    const groups = new Map<string | undefined, typeof matches>();
+    for (const item of matches) {
+      const group = groups.get(item.group);
+      if (group) group.push(item);
+      else groups.set(item.group, [item]);
+    }
+    return [...groups.values()].flat();
   };
 
   // Page-link menu (shared by the "@" mention trigger and the "[[" wiki-link
@@ -3504,13 +3568,13 @@ function BlockContent({
     const q = query.toLowerCase();
     const matches = [...pagesById.values()]
       .filter((p) => !p.trashed && p.id !== provider.pageId)
-      .filter((p) => (p.title || 'Untitled').toLowerCase().includes(q))
+      .filter((p) => (p.title || t('Untitled')).toLowerCase().includes(q))
       .slice(0, 12);
     const seen = new Set(matches.map((p) => p.id));
     seen.add(provider.pageId);
     const items = matches.map((p) => ({
-      title: p.title || 'Untitled',
-      subtext: p.type === 'collection' ? 'Database' : 'Page',
+      title: p.title || t('Untitled'),
+      subtext: p.type === 'collection' ? t('Collection') : t('Page'),
       onItemClick: () =>
         editor.insertInlineContent([
           { type: 'pageLink', props: { pageId: p.id, label: p.title || 'Untitled' } },
@@ -3552,8 +3616,8 @@ function BlockContent({
     }
     if (query.trim()) {
       items.push({
-        title: `Create "${query.trim()}"`,
-        subtext: 'New page',
+        title: t('Create “{name}”', { name: query.trim() }),
+        subtext: t('New page'),
         onItemClick: async () => {
           try {
             const created = await api.createPage(null, query.trim());
@@ -3591,15 +3655,21 @@ function BlockContent({
                 content: [],
                 createdAt: now,
               });
-              await enqueue({
+              const ok = await enqueue({
                 kind: 'create-page',
                 pageId: tempId,
                 parentId: null,
                 payload: { title: query.trim(), type: 'doc', props: {} },
                 label: query.trim(),
               });
-              onPagesChanged();
-              toast.warning(t('Will sync when the connection is back'));
+              if (ok) {
+                editor.insertInlineContent([
+                  { type: 'pageLink', props: { pageId: tempId, label: query.trim() } },
+                  ' ',
+                ]);
+                onPagesChanged();
+                toast.warning(t('Will sync when the connection is back'));
+              }
               return;
             }
             console.error('salt.md: failed to create page from mention', e);
@@ -3708,7 +3778,7 @@ function BlockContent({
             void savePageUpdate(
               provider.pageId,
               { content: doc } as Record<string, unknown>,
-              { materialize: true, label: t('Page content') },
+              { materialize: true, gen: provider.gen, label: t('Page content') },
             );
             return;
           }
@@ -3733,8 +3803,50 @@ function BlockContent({
       matTimer.current = window.setTimeout(() => flush(false), 1500);
     };
     const unsub = editor.onChange?.(persist);
+    if (rescueRef) {
+      rescueRef.current = async () => {
+        if (!provider.dirty || seedFailed.current) return;
+        const doc = editor.document;
+        if (isEffectivelyEmpty(doc)) return;
+        await fetch(`/api/pages/${provider.pageId}?materialize=1&replaced=1`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: doc }),
+        }).catch(() => {});
+      };
+    }
+    const onRemap = (ev: Event) => {
+      const { tempId, realId } = (ev as CustomEvent<{ tempId: string; realId: string }>).detail;
+      for (const b of editor.document as any[]) {
+        if (Array.isArray(b.content)) {
+          let changed = false;
+          const next = b.content.map((c: any) => {
+            if (c?.type === 'pageLink' && c?.props?.pageId === tempId) {
+              changed = true;
+              return { ...c, props: { ...c.props, pageId: realId } };
+            }
+            return c;
+          });
+          if (changed) editor.updateBlock(b, { content: next } as never);
+        }
+      }
+    };
+    const onFileMapped = (ev: Event) => {
+      const { tempUrl, realUrl, pageId: mappedPage } = (ev as CustomEvent<{ tempUrl: string; realUrl: string; pageId: string }>).detail;
+      if (mappedPage !== provider.pageId) return;
+      for (const b of editor.document as any[]) {
+        if (b?.props?.url === tempUrl) {
+          editor.updateBlock(b, { props: { ...b.props, url: realUrl } } as never);
+        }
+      }
+    };
+    window.addEventListener(REMAP_EVENT, onRemap);
+    window.addEventListener(FILE_MAPPED_EVENT, onFileMapped);
     return () => {
       window.clearTimeout(matTimer.current);
+      if (rescueRef) rescueRef.current = null;
+      window.removeEventListener(REMAP_EVENT, onRemap);
+      window.removeEventListener(FILE_MAPPED_EVENT, onFileMapped);
       flush(true); // flush any pending edit before this editor unmounts
       if (typeof unsub === 'function') unsub();
     };
@@ -3780,9 +3892,6 @@ function BlockContent({
         // ignore
       }
     });
-    return () => {
-      titleCtx?.registerFocusBodyStart(null);
-    };
   }, [editor, titleCtx]);
 
   useEffect(() => {
@@ -3819,9 +3928,6 @@ function BlockContent({
         console.error('Failed to split title into body', e);
       }
     });
-    return () => {
-      titleCtx?.registerSplitTitle(null);
-    };
   }, [editor, titleCtx]);
 
   const onDragEnter = (e: React.DragEvent) => {
@@ -3913,6 +4019,156 @@ function BlockContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A text drag that leaves the text column must not keep growing: the
+  // browser maps points outside the text to distant block boundaries, so one
+  // overshoot left swallows whole paragraphs up to the document start. And a
+  // mostly-sideways drag with a slight upward drift grabs the blocks above
+  // without ever leaving the column. While a drag that started inside the
+  // text is in flight, a selection change is reverted when either happens:
+  // the pointer is outside the column, or the drag reads as horizontal and
+  // its focus left the block it started in. Deliberate vertical drags (down
+  // to the end, up to the start) are untouched — only the sideways overshoot
+  // is frozen, and the title field never arms this at all.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    let armed = false; // the drag started inside the editable text
+    let pressing = false; // the button/finger is still down
+    let px = 0;
+    let py = 0;
+    let sx = 0;
+    let sy = 0;
+    let havePoint = false;
+    let outOfDoc = false;
+    let startBlock: Element | null = null;
+    let saved: {
+      anchorNode: Node;
+      anchorOffset: number;
+      focusNode: Node;
+      focusOffset: number;
+    } | null = null;
+    let restoring = false;
+
+    const snapshot = (s: Selection) =>
+      s.anchorNode && s.focusNode
+        ? {
+            anchorNode: s.anchorNode,
+            anchorOffset: s.anchorOffset,
+            focusNode: s.focusNode,
+            focusOffset: s.focusOffset,
+          }
+        : null;
+
+    const blockOf = (n: Node | null): Element | null => {
+      if (!n) return null;
+      const el = n instanceof Element ? n : n.parentElement;
+      return el?.closest?.('[data-id]') ?? null;
+    };
+
+    // The pointer is over text when the element under it lives inside
+    // .editor-inner. elementFromPoint (rather than a cached rect) is used so
+    // autoscroll drags, which move the column under a pinned pointer, still
+    // read correctly. No point yet means the click itself, which is inside
+    // by construction — only a move can take the pointer out.
+    const overText = () => {
+      if (outOfDoc || !havePoint) return !outOfDoc;
+      const el = document.elementFromPoint(px, py);
+      return el instanceof Element && !!el.closest('.editor-inner');
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      armed = !!t?.closest?.('[contenteditable="true"]');
+      pressing = armed;
+      havePoint = false;
+      outOfDoc = false;
+      sx = e.clientX;
+      sy = e.clientY;
+      startBlock = null;
+      const s = document.getSelection();
+      saved = s ? snapshot(s) : null;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      px = e.clientX;
+      py = e.clientY;
+      havePoint = true;
+      // Touch/pen moves only fire mid-touch; a mouse move without buttons is
+      // a hover, not a drag.
+      pressing = armed && (e.pointerType !== 'mouse' || e.buttons !== 0);
+    };
+    const end = () => {
+      armed = false;
+      pressing = false;
+    };
+    const onLeaveDoc = () => {
+      outOfDoc = true;
+    };
+    const onEnterDoc = () => {
+      outOfDoc = false;
+    };
+    const onSelectionChange = () => {
+      if (restoring) return;
+      const s = document.getSelection();
+      if (!s || s.rangeCount === 0) return;
+      const col = root.querySelector('.editor-inner');
+      // Someone else's selection (sidebar search, chat input): not ours.
+      if (!col || !s.anchorNode || !col.contains(s.anchorNode)) return;
+      // The caret is the drag's origin — but on a fast fling the caret may
+      // never surface as its own event: the first selectionchange already
+      // shows the jump. So the starting block is taken from the anchor of
+      // the first selection the gesture shows (a flip always passes through
+      // a collapse, which corrects it back to the true origin below).
+      if (s.anchorNode && (s.isCollapsed || !startBlock)) {
+        startBlock = blockOf(s.anchorNode) ?? startBlock;
+      }
+      if (armed && pressing) {
+        // Outside the column: the browser is mapping the point to distant
+        // block boundaries — freeze.
+        // Sideways but still inside: a horizontal drag whose focus left the
+        // starting block is an overshoot, not a multi-block select (those go
+        // up or down, decisively).
+        const dx = px - sx;
+        const dy = py - sy;
+        const sideways = havePoint && !outOfDoc && Math.abs(dx) > 2 * Math.abs(dy);
+        const leftBlock = sideways && !!startBlock && !startBlock.contains(s.focusNode);
+        if (!overText() || leftBlock) {
+          if (saved && saved.anchorNode.isConnected && saved.focusNode.isConnected) {
+            restoring = true;
+            try {
+              s.setBaseAndExtent(saved.anchorNode, saved.anchorOffset, saved.focusNode, saved.focusOffset);
+            } catch {
+              saved = snapshot(s); // nodes detached mid-edit — take the browser's
+            }
+            restoring = false;
+          }
+          return;
+        }
+      }
+      saved = snapshot(s);
+    };
+
+    root.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    window.addEventListener('blur', end);
+    window.addEventListener('keydown', end);
+    document.documentElement.addEventListener('mouseleave', onLeaveDoc);
+    document.documentElement.addEventListener('mouseenter', onEnterDoc);
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => {
+      root.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('blur', end);
+      window.removeEventListener('keydown', end);
+      document.documentElement.removeEventListener('mouseleave', onLeaveDoc);
+      document.documentElement.removeEventListener('mouseenter', onEnterDoc);
+      document.removeEventListener('selectionchange', onSelectionChange);
+    };
+  }, [pageId]);
+
   // The outline sits on an element this component does not render, so it is set
   // rather than expressed in JSX.
   useEffect(() => {
@@ -3931,22 +4187,8 @@ function BlockContent({
       if (!view || view.state.selection.empty || !e.clipboardData) return;
       if (!view.dom.contains(e.target as Node)) return;
 
-      const activeEl = document.activeElement;
-      if (
-        activeEl &&
-        (activeEl.tagName === 'INPUT' ||
-          activeEl.tagName === 'TEXTAREA' ||
-          activeEl.tagName === 'SELECT')
-      ) {
-        return;
-      }
-      const targetEl = e.target instanceof Element ? e.target : (e.target as Node | null)?.parentElement;
-      if (targetEl?.closest?.('input, textarea, select')) return;
-      const ceFalse = targetEl?.closest?.('[contenteditable="false"]');
-      if (ceFalse && ceFalse !== view.dom && !ceFalse.contains(view.dom)) return;
-
       const sel = view.state.selection;
-      if ('$anchorCell' in sel) return;
+      if (sel.constructor.name === 'CellSelection') return;
 
       const { from, to } = sel;
       const fragment = view.state.doc.slice(from, to, false).content;
@@ -3969,11 +4211,7 @@ function BlockContent({
         e.clipboardData.clearData();
 
         const { clipboardHTML, externalHTML } = selectedFragmentToHTML(view, editor as any);
-        const plainText = view.state.doc.textBetween(from, to, '\n', (node: any) => {
-          if (node.type.name === 'hardBreak') return '\n';
-          if (node.type.name === 'pageLink') return node.attrs?.label || '';
-          return '';
-        });
+        const plainText = view.state.doc.textBetween(from, to, '\n', (node: any) => (node.type.name === 'hardBreak' ? '\n' : ''));
 
         e.clipboardData.setData('blocknote/html', clipboardHTML);
         e.clipboardData.setData('text/html', externalHTML);
@@ -4005,34 +4243,24 @@ function BlockContent({
         className="editor-inner"
         onClickCapture={onFileClick}
         onKeyDownCapture={(e) => {
-          if (e.nativeEvent.isComposing) return;
-          const targetEl = e.target instanceof Element ? e.target : (e.target as Node | null)?.parentElement;
-          if (!targetEl) return;
-          if (targetEl.tagName === 'INPUT' || targetEl.tagName === 'TEXTAREA' || targetEl.tagName === 'SELECT') return;
-          const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
-          if (!surface || !surface.contains(e.target as Node)) return;
-
           if (e.key === 'Backspace' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-            if (!canEdit) return;
-            if (targetEl.closest?.('[data-content-type="columns"]')) return;
-            if (nothingBefore(surface)) {
+            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+            if (surface && nothingBefore(surface)) {
               let curBlock: any = null;
               try {
                 curBlock = editor.getTextCursorPosition()?.block;
               } catch {
                 // ignore
               }
-              if (!curBlock || curBlock.id !== editor.document?.[0]?.id) return;
-              if (Array.isArray(curBlock.children) && curBlock.children.length > 0) return;
-
-              const curType = curBlock.type ?? '';
+              const curType = curBlock?.type ?? '';
               // If it's a list item, heading, etc., let BlockNote revert it to paragraph first
               if (curType && curType !== 'paragraph') {
                 return;
               }
 
-              const content = curBlock.content;
+              const content = curBlock?.content;
               const isEmpty =
+                !curBlock ||
                 !content ||
                 (Array.isArray(content) &&
                   (content.length === 0 ||
@@ -4101,7 +4329,8 @@ function BlockContent({
               }
             }
           } else if (e.key === 'ArrowLeft' && e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-            if (nothingBefore(surface)) {
+            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+            if (surface && nothingBefore(surface)) {
               e.preventDefault();
               e.stopPropagation();
               if (regionId === 'content') {
@@ -4109,7 +4338,8 @@ function BlockContent({
               }
             }
           } else if (e.key === 'ArrowLeft' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-            if (nothingBefore(surface)) {
+            const surface = scrollRef.current?.querySelector('[contenteditable="true"]');
+            if (surface && nothingBefore(surface)) {
               e.preventDefault();
               e.stopPropagation();
               focusKey(regionId, 'title');
@@ -4150,13 +4380,6 @@ function BlockContent({
                 <FormattingToolbar>
                   <BlockTypeSelect key="blockTypeSelect" />
                   <AiFormattingDropdown key="aiDropdown" editor={editor} pageId={provider.pageId} />
-                  <TableCellMergeButton key="tableCellMergeButton" />
-                  <FileCaptionButton key="fileCaptionButton" />
-                  <FileReplaceButton key="replaceFileButton" />
-                  <FileRenameButton key="fileRenameButton" />
-                  <FileDeleteButton key="fileDeleteButton" />
-                  <FileDownloadButton key="fileDownloadButton" />
-                  <FilePreviewButton key="filePreviewButton" />
                   <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
                   <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
                   <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
@@ -4169,12 +4392,17 @@ function BlockContent({
                   <NestBlockButton key="nestBlockButton" />
                   <UnnestBlockButton key="unnestBlockButton" />
                   <CreateLinkButton key="createLinkButton" />
+                  <InlineCommentButton editor={editor} provider={provider} onSelect={onCommentSelection} />
                 </FormattingToolbar>
               )}
             />
           </BlockNoteView>
         </BlockContext.Provider>
+        {/* The keyboard bar: inline styles and AI while the caret is in the
+            text, in the one strip a phone keyboard leaves free. */}
+        <MobileEditorBar editor={editor} aiEnabled={aiEnabled} onAskAi={askAi} />
         <AiEmptyLine editor={editor} pageId={pageId} canEdit={canEdit} />
+        <OutlineMinimap editor={editor} />
         {!structureOpen && (
           <Backlinks pageId={provider.pageId} pagesById={pagesById} tagColors={tagColors} onNavigate={onNavigate} onOpenInNewTab={onOpenInNewTab} />
         )}

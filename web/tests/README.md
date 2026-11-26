@@ -21,6 +21,10 @@ of downloading Chromium, skip the browser installation and set
 The browser dependency is isolated in this test package; the application has no
 additional runtime dependencies. Tests do not upload fixtures or screenshots.
 
+Inline comments cover selection creation, saved anchors after reload,
+resolve/reopen, narrow light/dark navigation, localized stale-anchor errors in
+German, Spanish and Chinese, draft retention, detachment and deletion.
+
 Callout coverage: all seven preset icons, immediate background changes when
 cycling icons, existing saved blocks, light/dark appearance, dark-mode text
 contrast, and persistence after reload without changing the callout text.
@@ -36,6 +40,12 @@ whole and on top (#21), ↑ from the second block stops in an empty first block
 instead of jumping to the title (#25), and the library's shelves scroll inside
 a narrow pane (#19).
 
+Language covers which catalog a browser gets (Traditional and Simplified tags
+reach their own scripts, a regional tag still reaches its language), both Chinese
+choices surviving a reload, the editor's separate Traditional dictionary and
+slash-menu groups, lists that used to be constants, and Enter leaving a word
+alone while an input method is composing it (#124).
+
 Shortcuts covers the single letters (#23): each acts only while nothing is
 being typed, stays a plain letter while something is, and appears in the sheet.
 
@@ -48,3 +58,13 @@ People covers a person property with several people and a list of who can be
 picked (#11): only those are offered, nobody else can be typed in, the list
 stays open for several picks, the setting is in the Properties dialog, and a
 row holding several keeps them until somebody picks one after a switch back.
+
+Filtered creation covers persisted filter defaults, keeping the collection open,
+creation from an embedded collection, and leaving ambiguous alternatives empty
+with an explanation when the new row falls outside the view.
+
+Signed-in connections covers ending an agent's sign-in from the interface
+(#115): the consent screen names the place, the row under API tokens →
+Signed-in connections shows the client, its scope, its workspace and the
+address it was last used from, and ending it there (after a confirmation)
+leaves its access token and its refresh token useless.

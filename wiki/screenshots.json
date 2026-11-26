@@ -26,7 +26,7 @@
       ],
       "takenAt": {
         "web/src/components/Setup.tsx": "9de35b8f5040",
-        "web/src/theme.css": "64652164d156"
+        "web/src/theme.css": "c2c13168ee88"
       },
       "instance": "fresh",
       "element": ".login-card"
@@ -52,7 +52,7 @@
       ],
       "takenAt": {
         "web/src/components/Login.tsx": "eda3fd6cb63b",
-        "web/src/theme.css": "64652164d156"
+        "web/src/theme.css": "c2c13168ee88"
       },
       "instance": "anon",
       "element": ".login-card"
@@ -79,10 +79,10 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Sidebar.tsx": "6a09de99705e",
-        "web/src/components/Editor.tsx": "5515656357a3",
-        "web/src/App.tsx": "f8bc4f7f68c6",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/Sidebar.tsx": "d6e72af4e032",
+        "web/src/components/Editor.tsx": "65857dbf4179",
+        "web/src/App.tsx": "87d72ca09257",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -106,9 +106,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Sidebar.tsx": "6a09de99705e",
+        "web/src/components/Sidebar.tsx": "d6e72af4e032",
         "web/src/treeMode.ts": "413de5b84cd9",
-        "web/src/theme.css": "64652164d156"
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".sidebar"
     },
@@ -141,8 +141,8 @@
         }
       ],
       "takenAt": {
-        "web/src/components/Editor.tsx": "5515656357a3",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/Editor.tsx": "65857dbf4179",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -171,8 +171,8 @@
         }
       ],
       "takenAt": {
-        "web/src/components/StructurePanel.tsx": "2064a26e874a",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/StructurePanel.tsx": "a2e0d591e874",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -201,8 +201,54 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CommentsPanel.tsx": "22723dc7e30c",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/CommentsPanel.tsx": "140cf002228c",
+        "web/src/theme.css": "c2c13168ee88"
+      }
+    },
+    {
+      "id": "inline-comment-selection",
+      "page": "comments-and-notes.md",
+      "caption": "Selecting text opens a comment draft with the original quote.",
+      "shows": [
+        "web/src/components/Editor.tsx",
+        "web/src/components/CommentsPanel.tsx",
+        "web/src/components/InlineComments.tsx",
+        "web/src/theme.css"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "waitFor": ".bn-editor"
+        },
+        {
+          "wait": 800
+        },
+        {
+          "tripleclick": ".bn-editor [data-content-type=\"paragraph\"]"
+        },
+        {
+          "wait": 400
+        },
+        {
+          "click": "[aria-label=\"Comment on selected text\"]"
+        },
+        {
+          "fill": [
+            ".cp-compose textarea",
+            "Can we make this description more specific?"
+          ]
+        },
+        {
+          "wait": 600
+        }
+      ],
+      "takenAt": {
+        "web/src/components/Editor.tsx": "65857dbf4179",
+        "web/src/components/CommentsPanel.tsx": "140cf002228c",
+        "web/src/components/InlineComments.tsx": "7ef57b31c337",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -226,9 +272,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/NoteTrail.tsx": "f69a959651eb",
-        "server/notelog.go": "3f695c839dbd",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/NoteTrail.tsx": "4f73188cfdff",
+        "server/notelog.go": "59b5e74a04ad",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".trail-wrap"
     },
@@ -265,9 +311,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/SearchModal.tsx": "456f9106321e",
-        "server/searchindex.go": "6a53bf830dc4",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/SearchModal.tsx": "a1049397482a",
+        "server/searchindex.go": "55e15088d236",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -299,8 +345,8 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "1c87163de4cb",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/CollectionView.tsx": "1a654c89a42e",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -333,9 +379,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "1c87163de4cb",
+        "web/src/components/CollectionView.tsx": "1a654c89a42e",
         "web/src/cardLayout.ts": "eb7f92584275",
-        "web/src/theme.css": "64652164d156"
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -367,8 +413,8 @@
         }
       ],
       "takenAt": {
-        "web/src/components/CollectionView.tsx": "1c87163de4cb",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/CollectionView.tsx": "1a654c89a42e",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -394,8 +440,8 @@
         }
       ],
       "takenAt": {
-        "web/src/components/IndexView.tsx": "35a748a8a5a8",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/IndexView.tsx": "155b95067e0a",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -428,7 +474,7 @@
       ],
       "takenAt": {
         "web/src/components/GraphView.tsx": "31bba0536156",
-        "web/src/theme.css": "64652164d156"
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -455,15 +501,15 @@
         }
       ],
       "takenAt": {
-        "server/public.go": "4443a5311527",
-        "web/src/components/Editor.tsx": "5515656357a3",
-        "web/src/theme.css": "64652164d156"
+        "server/public.go": "604cb66f0c75",
+        "web/src/components/Editor.tsx": "65857dbf4179",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
       "id": "account-profile",
       "page": "account.md",
-      "caption": "Your own account: name, colour and picture, and changing the password.",
+      "caption": "Your own profile: name, nickname, about, colour and picture, and changing the password.",
       "shows": [
         "web/src/components/UserMenu.tsx",
         "web/src/theme.css"
@@ -486,10 +532,43 @@
         }
       ],
       "takenAt": {
-        "web/src/components/UserMenu.tsx": "5b0b9262f3a9",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/UserMenu.tsx": "a43b09956dbb",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
+    },
+    {
+      "id": "account-page",
+      "page": "account.md",
+      "caption": "The account page: cover, face, both names, recent activity and the pages a person owns.",
+      "shows": [
+        "web/src/components/PersonPage.tsx",
+        "web/src/components/UserMenu.tsx",
+        "web/src/styles.css"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": ".user-menu-btn"
+        },
+        {
+          "click": ".menu >> text=Account page"
+        },
+        {
+          "waitFor": ".person-page"
+        },
+        {
+          "wait": 700
+        }
+      ],
+      "element": ".person-page",
+      "takenAt": {
+        "web/src/components/PersonPage.tsx": "f37146ac78ac",
+        "web/src/components/UserMenu.tsx": "a43b09956dbb",
+        "web/src/styles.css": "d5424973d058"
+      }
     },
     {
       "id": "api-tokens",
@@ -518,9 +597,9 @@
         }
       ],
       "takenAt": {
-        "server/users.go": "705879caa0c9",
-        "web/src/components/UserMenu.tsx": "5b0b9262f3a9",
-        "web/src/theme.css": "64652164d156"
+        "server/users.go": "4b13596a1144",
+        "web/src/components/UserMenu.tsx": "a43b09956dbb",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -551,9 +630,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/LanguageTime.tsx": "09ce243294b4",
-        "server/prefs.go": "b8cdac760108",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/LanguageTime.tsx": "8f554fadec8c",
+        "server/prefs.go": "7786372f2c02",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -584,9 +663,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AgentConnect.tsx": "e9f21eada0c2",
-        "server/mcp.go": "e284334b7687",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/AgentConnect.tsx": "3bf35e4fd74a",
+        "server/mcp.go": "37f87dee00e3",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -616,8 +695,8 @@
         }
       ],
       "takenAt": {
-        "server/users.go": "705879caa0c9",
-        "web/src/theme.css": "64652164d156"
+        "server/users.go": "4b13596a1144",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -654,9 +733,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "e04da2e5a348",
-        "server/instance.go": "01c9c75cf304",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
+        "server/instance.go": "c35df9908986",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -693,9 +772,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "e04da2e5a348",
-        "server/oauth.go": "147dd4ccb577",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
+        "server/oauth.go": "dc9daa5f27ea",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -733,10 +812,10 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "e04da2e5a348",
-        "server/mail_oauth.go": "d58b546dbcb4",
-        "server/admin.go": "96a180b94ced",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
+        "server/mail_oauth.go": "0f9335f373b5",
+        "server/admin.go": "2f89e64844a2",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -772,8 +851,8 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "e04da2e5a348",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -810,9 +889,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "e04da2e5a348",
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
         "server/webhooks.go": "49e796d4fa6b",
-        "web/src/theme.css": "64652164d156"
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -850,9 +929,9 @@
       ],
       "element": ".dialog",
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "e04da2e5a348",
-        "server/export_html.go": "372f318a033d",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
+        "server/export_html.go": "70ed73962b07",
+        "web/src/theme.css": "c2c13168ee88"
       }
     },
     {
@@ -888,9 +967,9 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "e04da2e5a348",
-        "server/backup.go": "7b11cc725a0a",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
+        "server/backup.go": "7a2fc9954d76",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -922,10 +1001,10 @@
         }
       ],
       "takenAt": {
-        "web/src/components/AdminSettings.tsx": "e04da2e5a348",
-        "server/admin.go": "96a180b94ced",
-        "server/lifecycle_account.go": "2f5f063e736e",
-        "web/src/theme.css": "64652164d156"
+        "web/src/components/AdminSettings.tsx": "f9f2e373f426",
+        "server/admin.go": "2f89e64844a2",
+        "server/lifecycle_account.go": "4fa7fc024b15",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     },
@@ -955,8 +1034,8 @@
         }
       ],
       "takenAt": {
-        "server/audit.go": "68880b74e771",
-        "web/src/theme.css": "64652164d156"
+        "server/audit.go": "c132cab066f2",
+        "web/src/theme.css": "c2c13168ee88"
       },
       "element": ".dialog"
     }

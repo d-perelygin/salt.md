@@ -63,8 +63,9 @@ password on.
 | Item | What it opens |
 | --- | --- |
 | **Agents & MCP** | connecting an agent to this instance (see [Agents](agents.md)) |
-| **Profile** | name, email, picture, colour, password |
-| **API tokens** | the keys agents and scripts sign in with |
+| **Account page** | the page other people see behind your name: about, activity, pages, workspaces |
+| **Profile** | name, nickname, about, email, picture, colour, password |
+| **API tokens** | the keys agents and scripts sign in with, and below them the agents that signed in through the browser |
 | **Activity log** | the most recent changes, noting whether a human or an agent made them (see [History and audit](history-and-audit.md)) |
 | **Subscribe to calendar** | a private feed of every date property you can read |
 | **Two-factor (2FA)** | the second factor for signing in |
@@ -87,10 +88,43 @@ contrast, lives on the account and follows you everywhere.
 
 ## Name, picture and colour
 
-**Profile** holds five things: **Name**, **Email**, **Colour**, a picture, and
-your password.
+**Profile** holds your **Name**, a **Nickname**, an **About** line, **Email**,
+**Colour**, a picture, and your password.
 
 ![Your own account: name, colour and picture, and changing the password.](img/account-profile.png)
+
+### Two names, and which one is shown
+
+The **Name** is the formal one: it is what the account list, the audit log and
+process code use. The **Nickname** is the informal one people recognise in a
+task's **Owner** column. When a nickname is set, person fields print it by
+default; an account without one shows its name instead, so nothing changes for
+existing people until they add one.
+
+**Show people as** in the profile chooses what *you* see: **Server default**,
+**Nickname** or **Name**. It is a preference of the reader, not of the person
+being shown — two colleagues may see the same Owner cell differently. The
+instance sets the default for everyone in **Instance settings** → *Access* →
+**In person fields, show**; an account's own choice wins over it. The formal
+name is still what a person cell shows on hover, and the account page always
+prints both.
+
+### The account page
+
+**Account page** in the account menu opens the page behind your name — and
+clicking a name in a workspace's **Members** list opens the same page for that
+person. It shows the cover in the account colour, the picture, both names,
+**About**, **Email**, the instance **Membership type**, the **Workspaces** you
+share with the reader, the versions that person wrote (**Recent activity**) and
+the top-level pages they own. A page in either list opens on click.
+
+![The account page: cover, face, both names, recent activity and pages.](img/account-page.png)
+
+An account page is visible to the people who share a workspace with that
+account; somebody outside every shared workspace gets the same "not found" as a
+page they cannot read. Instance admins can open any account. The page itself
+discloses nothing new: the fields are the ones the profile and the roster
+already show.
 
 Your circle shows the picture if you uploaded one, otherwise a letter on your
 colour. Which letter depends on where you are looking: the account button and
@@ -110,6 +144,10 @@ text rather than an account colour.
   `#rgb` or `#rrggbb` value as well. A new account is given one of the ten
   automatically.
 - An empty **Name** is ignored rather than saved.
+- **Nickname** is one line of at most 40 characters and may be left empty;
+  **About** is up to 500 characters.
+- **Show people as** picks between **Server default**, **Nickname** and
+  **Name** for what person fields print on your screen.
 
 Press **Save** to apply, **Cancel** to drop the changes. The sidebar and your
 account button show the new name at once, without a reload. What other people
@@ -329,17 +367,27 @@ the ones I pick**. **Allow** or **Deny** ends it. Approving needs a browser
 session: a token cannot approve one, because a key that mints better keys is
 not a key any more.
 
-Each connection is recorded against your account: which client, the scope, the
-workspaces, when it was created, when it was last used and from which address.
-Ending one ends it completely: the connection and every access token minted
-from it go at once.
+### Signed-in connections
 
-**There is no dialog for this yet.** The list and the disconnect exist only over
-the API (`GET /api/oauth/grants`, `DELETE /api/oauth/grants/{id}`), so the
-consent screen's closing line about ending the connection in your account
-settings promises a screen that is not there. Two consequences follow. A
-connection survives a password change, unlike an API token. And it stops the
-moment the account is deactivated, like everything else.
+The connections live in the same **API tokens** dialog, under **Signed-in
+connections** below the tokens, and the approval page closes by naming that
+path: *your name at the bottom of the sidebar → API tokens → Signed-in
+connections*. Each row shows the client's name, **read-only** or
+**read-write**, the workspaces it reaches ("all workspaces" or their names),
+*connected since* the day you allowed it, when it was last used or "never
+used", and the address it was last used from. With none, the section says *No
+agent is signed in to your account.*
+
+The ✕ at the end of a row (**End connection**) asks first, then ends the
+connection completely: it and every access token minted from it go at once,
+and to come back the agent has to ask for your approval again. Renewing in the
+background changes none of what the row shows: a connection keeps its place,
+its date and its last use however often its short-lived token is replaced.
+
+Two more things to know. A connection survives a password change, unlike an
+API token, so if you change the password because something leaked, end the
+connections too. And it stops the moment the account is deactivated, like
+everything else.
 
 See [Agent access](agent-access.md).
 

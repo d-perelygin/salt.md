@@ -28,8 +28,9 @@ interface Props {
  *  says so), and where is the thing I am looking for (a search across every
  *  entry and everything inside it). Newest first: what went a minute ago is the
  *  likeliest thing to want back. */
-export default function TrashSection({ roots, pages, onRestore, onDeleteForever }: Props) {
-  const [open, setOpen] = useState(false);
+/** The list every trash surface shows: the search, the entries, the preview.
+ *  The sidebar section and the phone's dialog differ only in their frame. */
+function TrashList({ roots, pages, onRestore, onDeleteForever }: Props) {
   const [query, setQuery] = useState('');
   const [previewId, setPreviewId] = useState<string | null>(null);
 
@@ -80,41 +81,41 @@ export default function TrashSection({ roots, pages, onRestore, onDeleteForever 
   const previewPage = previewId ? (roots.find((r) => r.id === previewId) ?? null) : null;
 
   return (
-    <div className={open ? 'trash-section open' : 'trash-section'}>
-      <button className="trash-toggle" onClick={() => setOpen(!open)}>
-        <span className="sidebar-item-label"><Trash2 size={15} /> {t('Trash')}</span> <span className="trash-count">{roots.length}</span>
-      </button>
-      {open && (
-        <>
-          <label className="trash-search">
-            <Search size={13} />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('Search the trash')}
-              aria-label={t('Search the trash')}
-            />
-          </label>
-          {shown.map((p) => (
-            <div key={p.id} className="trash-item">
-              <button className="trash-peek" title={t('Preview')} onClick={() => setPreviewId(p.id)}>
-                <span className="tree-icon"><PageIcon icon={p.icon} size={15} fallback={<FileText size={15} />} /></span>
-                <span className="trash-text">
-                  <span className="tree-title">{p.title || t('Untitled')}</span>
-                  <TrashedWhen page={p} />
-                </span>
-              </button>
-              <button title={t('Restore')} onClick={() => onRestore(p.id)}>
-                <Undo2 size={14} />
-              </button>
-              <button title={t('Delete forever')} className="danger" onClick={() => onDeleteForever(p.id)}>
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-          {q && shown.length === 0 && <div className="trash-empty">{t('Nothing in the trash matches.')}</div>}
-        </>
+    <>
+      {/* Nothing to search when nothing is in there; the dialog already looks
+          empty enough without a field that can only find nothing. */}
+      {roots.length > 0 && (
+        <label className="trash-search">
+          <Search size={13} />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('Search the trash')}
+            aria-label={t('Search the trash')}
+          />
+        </label>
+      )}
+      {shown.map((p) => (
+        <div key={p.id} className="trash-item">
+          <button className="trash-peek" title={t('Preview')} onClick={() => setPreviewId(p.id)}>
+            <span className="tree-icon"><PageIcon icon={p.icon} size={15} fallback={<FileText size={15} />} /></span>
+            <span className="trash-text">
+              <span className="tree-title">{p.title || t('Untitled')}</span>
+              <TrashedWhen page={p} />
+            </span>
+          </button>
+          <button title={t('Restore')} onClick={() => onRestore(p.id)}>
+            <Undo2 size={14} />
+          </button>
+          <button title={t('Delete forever')} className="danger" onClick={() => onDeleteForever(p.id)}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+      {roots.length === 0 && <div className="trash-empty">{t('The trash is empty.')}</div>}
+      {roots.length > 0 && q && shown.length === 0 && (
+        <div className="trash-empty">{t('Nothing in the trash matches.')}</div>
       )}
       {previewPage && (
         <TrashPreview
@@ -125,7 +126,61 @@ export default function TrashSection({ roots, pages, onRestore, onDeleteForever 
           onDeleteForever={onDeleteForever}
         />
       )}
+    </>
+  );
+}
+
+export default function TrashSection(props: Props) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={open ? 'trash-section open' : 'trash-section'}>
+      <button className="trash-toggle" onClick={() => setOpen(!open)}>
+        <span className="sidebar-item-label"><Trash2 size={15} /> {t('Trash')}</span>{' '}
+        <span className="trash-count">{props.roots.length}</span>
+      </button>
+      {open && <TrashList {...props} />}
     </div>
+  );
+}
+
+/** The same list as a dialog. The phone's footer button has no room for a tree
+ *  section, and a dialog is the shape every other menu takes there. */
+export function TrashDialog({
+  open,
+  onClose,
+  ...rest
+}: Props & { open: boolean; onClose: () => void }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <Portal>
+      <div
+        className="modal-overlay"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        <div className="dialog wide trash-dialog" role="dialog" aria-modal="true" aria-label={t('Trash')}>
+          <div className="trash-dialog-head">
+            <h2>
+              {t('Trash')}
+              {rest.roots.length > 0 && <span className="trash-count">{rest.roots.length}</span>}
+            </h2>
+            <button className="icon-btn" title={t('Close')} aria-label={t('Close')} onClick={onClose}>
+              <X size={16} />
+            </button>
+          </div>
+          <TrashList {...rest} />
+        </div>
+      </div>
+    </Portal>
   );
 }
 

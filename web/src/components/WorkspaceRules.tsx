@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api';
 import Portal from './Portal';
 import { useExclusiveModal } from '../modal';
@@ -36,6 +36,9 @@ export default function WorkspaceRules({
   const [proposal, setProposal] = useState(initialProposal);
   const [saving, setSaving] = useState(false);
   useExclusiveModal(onClose);
+  useEffect(() => {
+    setProposal(initialProposal);
+  }, [initialProposal]);
 
   const save = async () => {
     setSaving(true);
@@ -73,7 +76,7 @@ export default function WorkspaceRules({
           {proposal && canEdit && (
             <div className="ws-rules-proposal">
               <div className="ws-rules-proposal-head">
-                {t('Proposed by {name} — {when}', { name: proposalBy, when: formatMoment(proposalAt, 'datetime') })}
+                {t('Proposed by {name} ({when})', { name: proposalBy, when: formatMoment(proposalAt, 'datetime') })}
               </div>
               <div className="ws-rules-view">{proposal}</div>
               <div className="dialog-buttons">
@@ -108,7 +111,7 @@ export default function WorkspaceRules({
               {initial.trim() ? (
                 <div className="ws-rules-view">{initial}</div>
               ) : (
-                <div className="dialog-hint">{t('No rules yet — a workspace admin can add them.')}</div>
+                <div className="dialog-hint">{t('No rules yet. A workspace admin can add them.')}</div>
               )}
               <button className="btn dialog-close" onClick={onClose}>{t('Close')}</button>
             </>

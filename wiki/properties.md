@@ -69,9 +69,114 @@ Select options work the same way: each has an id, a name and a colour, and the
 id is what a row stores. An option shown as "In progress" is very likely stored
 as `in-progress`.
 
+Two properties may not share a name, and two options of one select may not
+either — the save is refused until one is renamed. Name-based lookups (filters,
+process code) cannot tell same-named columns apart, so the ambiguity is
+stopped at the door instead of misfiring later. Databases saved before this
+rule keep working; their next save renames one side first.
+
+**A rename propagates into process code.** Rename "In progress" to "Doing and
+a code block that says `when "To do" becomes "In progress"` is rewritten to
+say `"Doing"` on the same save — at the exact places the name occurs, never by
+blind search-and-replace, and announced with a toast saying how many
+references moved. A block that no longer parses is left alone and flagged red
+instead of being rewritten.
+
+**People are the exception**, and deliberately so: code names a person by their
+stable handle rather than their display name, which is why renaming an account
+rewrites no process at all. See [Process code](#process-code) below.
+
 This is the single most common source of confusion when writing values from
 outside the interface. Call `get_collection` first; it returns every property
 id, every type and every option id.
+
+## Process code
+
+The schema dialog's Process tab has three views: List, Scheme and Code. List
+edits rules by clicking, Scheme draws where cards can go, and Code edits the
+whole process as one text. Typing valid text applies it at once: known
+headers update visual rules, new headers create some, missing ones delete
+them. Broken text reports the line with a jump, and visual editing pauses
+until it is fixed.
+
+```python
+# A comment. Names go in quotes; people are handles, bare names refer to
+# constants above.
+reviewers = ["@lena", "@max"]
+hook = "https://hooks.example.com/notify"
+
+rule "To review":
+  when "In progress" becomes "To review"
+  only from "To do", "In progress"
+  needs checklist "Ready"
+  if "Type" is "Reel", "Clip"
+  do:
+    assign me to "Owner"
+    set "Watchers" = reviewers
+    ask "Due" if empty
+    webhook hook
+```
+
+One `when` line per rule (created for new rows, any for every source),
+optional gates (`only from`, `needs checklist`, `needs filled`, `if` — several
+values after `is` mean *or*), then actions under `do:`.
+
+**A person is written by their handle**, `@` and the name they already use,
+not by their display name: `set "Owner" = @ada-lovelace`, or a list
+`[@ada-lovelace, @grace-hopper]`. A handle is assigned once, from the account's
+email, and never changes — so renaming an account, or somebody changing their
+own name, leaves every process alone. A display name in quotes still reads,
+which is what older code and anything an agent wrote by hand does; the next save
+of that block turns it into the handle. The completions offer handles too. Over
+MCP, `get_workflow` returns a `members` list that maps each handle in the code
+to the person's current name.
+
+Two things exist only in code: OR value lists and named constants have no
+List editor. Writing one moves the rule out of List automatically — the tab
+asks first, and a checkbox makes it move silently from then on. Code blocks
+appear in the List as locked rows that jump to their source.
+
+The status select reads the process back. Options this row cannot move to are
+dimmed and carry a lock, with the reason on hover — "«On review» only takes
+cards from «In progress»", "the «Shooting» checklist isn't finished",
+"«Deadline» is empty". Nothing is hidden: the option stays pickable and says
+the same thing in a toast if it is. A status no rule mentions stays open, so
+moving one takes no rule at all. While a card is in the air on a board grouped
+by its status, the same mark moves to the column headings: a column the card
+cannot enter is dimmed and locked, with the reason on hover. The card's own
+⋯ menu is tighter: it lists only the moves that will work, because a menu item
+that can only answer "no" is not an action.
+
+**Ask AI** in the same header hands the document and its errors to the chat
+beside the page, with the task already typed ("fix these errors" or "describe
+what should change"). The answer never lands in the editor by itself: the
+agent leaves a proposal (`propose_workflow_code`), the tab shows what it
+suggests with **Apply** and **Dismiss**, and applying is one click plus a
+one-step **Undo**. An agent that
+works over MCP instead calls `set_workflow_code`, which replaces the process
+and saves it without asking — there is no open draft there to disagree with.
+
+While typing, the editor offers what fits the caret: guard and action words,
+statuses, properties, their options, people and the document's own constants.
+Tab or Enter takes the highlighted entry, the arrow keys move, Escape closes
+the list. **+ Rule** appends a skeleton, **Format** lays the document out, and
+Cmd/Ctrl+S saves without reaching for the dialog's button.
+
+The expand button turns the whole process into a fullscreen workspace. The
+same three tabs stay available there, and the Code tab stays editable with a
+wider editor, its own Save and Cancel, and Ask AI above the map instead of
+behind it. List beside the Scheme gains the same room; a draft survives every
+switch between the dialog and fullscreen.
+
+A reload of the page does not throw the work away either: the dialog comes
+back on the same tab, the List/Scheme/Code view and the fullscreen mode
+return, and an unsaved code draft is still in the editor. Closing the dialog
+on purpose still discards the draft as before.
+
+While typing, the server checks the draft and underlines problems with the
+block name and line number. Saving compiles the text into the same rules the
+click-built ones produce — one engine runs both. Renaming a property, an
+option or a person rewrites the affected lines automatically.
 
 ## The thirteen types
 
@@ -122,9 +227,8 @@ defaults to 100. A bar or a ring shows the figure beside it and turns back into
 a plain input when you click it. Its tooltip reads the value and the maximum,
 which is the only place the configured Max can be seen while reading.
 
-**Filters** with is, is not, >, <, is empty, is not empty, but use > and <
-rather than an exact is, which matches nothing (see
-[Filtering](#filtering-sorting-and-hiding)). **Sorts** numerically. In a table
+**Filters** with is, is not, >, <, is empty, is not empty. "Is" compares as a
+number, so 5 and 5.0 are the same value. **Sorts** numerically. In a table
 the column footer shows the sum of the column, marked with a Σ.
 
 **On a board card** it is a labelled fact: the property name, then the value. A
@@ -198,6 +302,15 @@ pinned by tests: converting it moves it, and a contract then expires a day
 early. It is also why the date is shown in the reader's regional format but not
 in their zone. See [Language and time](language-and-time.md).
 
+**A relative day is an input, not a stored value.** The workflow's date field
+offers *Exact* and *Relative* so a person can answer *Today* or *In a week*
+without opening a calendar; the row stores the calendar day that word named at
+that moment, the same way a row created in a filtered view stores the day its
+filter named. Filters and calendar subscriptions keep their words on purpose —
+a saved *after today-1M* really does mean a month back tomorrow — but a property
+is a fact about one row, and *today* there would mean a different day every
+morning. Writing a relative word through the API resolves it the same way.
+
 **Dates carry urgency where they are read rather than edited**, on a board
 card, on a gallery card, and anywhere the row is read-only: a date in the past
 is drawn in bold orange, today and tomorrow in bold amber, everything else
@@ -221,9 +334,8 @@ dropped as noise. The same goes for a lone number called "Number" or `Zahl`.
 True or false. The cell is a checkbox; click it.
 
 **Filters** with is, is not, is empty, is not empty, and the value is offered as
-**Checked** or **Unchecked**, though "is" matches nothing either way (see
-[Filtering](#filtering-sorting-and-hiding)), so narrow with "is not" instead:
-"is not Checked" gives you the unfinished rows.
+**Checked** or **Unchecked**. A box nobody ever touched counts as unchecked, so
+"is Unchecked" gives you the unfinished rows.
 
 **In a view, "is not empty" returns only the ticked boxes.** A box that was
 explicitly unticked counts as empty there. Over `query_rows` the same condition
@@ -432,7 +544,7 @@ at. Four answers configure it:
 | --- | --- |
 | **Via relation** | which relation (or backrelation) to follow |
 | **Of property** | which property of the related rows to take |
-| **Calculate** | Sum, Count, Average, Min, Max or Percent |
+| **Calculate** | Sum, Count, Average, Min, Max, Percent, or the lookups First value, All values, Unique values |
 | **Only rows where** | an optional condition; the default is **All rows** |
 
 What each calculation does:
@@ -444,9 +556,12 @@ What each calculation does:
 | Average | the mean of the values that are numbers |
 | Min / Max | the smallest / largest number |
 | Percent | the share of the related rows that meet the condition |
+| First value / All values / Unique values | a value of the chosen property, as text — one, all of them, or all without repeats |
 
 Sum, Average, Min and Max ignore anything that is not a number. With no related
-rows at all they are 0 rather than blank.
+rows at all they are 0 rather than blank. The three lookups are the exception:
+an empty result is an empty cell, and they name select options, people and
+checklist progress instead of printing stored ids.
 
 **The condition is what turns a count into progress.** Pick a property of the
 related rows, then is, is not, contains, is empty or is not empty, then a value.
@@ -471,7 +586,8 @@ column of every newly created row, because zero of zero related rows is a
 perfectly ordinary state.
 
 A rollup can be shown as a plain number, a progress bar or a ring, the same
-three options a number property has.
+three options a number property has. The lookups have no such choice: they
+return text.
 
 **On a board card** it is a labelled fact.
 
@@ -526,12 +642,6 @@ columns.
   a dropdown of options for a select, a dropdown of row titles for a relation or
   a backrelation, Checked/Unchecked for a checkbox, a text box for everything
   else.
-
-  **One operator has a blind spot.** Rows are selected in the database, where an
-  "is" compares the stored value against text. That is exactly right for a
-  select, a date, a relation or a text property, and it matches nothing at all
-  for a number or a checkbox, whose values are stored as a number and a boolean.
-  Use ">" and "<" on a number, and "is not" on a checkbox; both work.
 - **Sort** takes one property and a direction, **Ascending** or **Descending**.
   **No sort** at the top of the property list clears it again. Numbers compare
   as numbers; everything else compares the way the active language sorts,

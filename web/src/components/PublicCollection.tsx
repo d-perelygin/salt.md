@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Columns3, LayoutGrid, List, Lock, Table2 } from 'lucide-react';
+import { CalendarDays, Columns3, LayoutGrid, List, Lock, Pencil, Table2, X, SquareCheck, Square } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { plural, t } from '../i18n';
 import { firstWeekday, formatDay, formatMonth, formatMonthYear, toDayString, weekdayNames } from '../format';
@@ -35,6 +35,10 @@ export default function PublicCollection({ token }: { token: string }) {
   const [total, setTotal] = useState(0);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [detail, setDetail] = useState<{ id: string; title: string; icon: string; content: string; props: Record<string, unknown> } | null>(null);
+  // Where the internal page lives, when the reader may write it: a signed-in
+  // colleague opening a public link should not have to hunt for the page in the
+  // sidebar. Empty for an anonymous reader — the normal case.
+  const [editHref, setEditHref] = useState('');
 
   const load = useCallback(
     async (pw?: string) => {
@@ -73,6 +77,20 @@ export default function PublicCollection({ token }: { token: string }) {
     },
     [token],
   );
+
+  useEffect(() => {
+    if (state !== 'ready') return;
+    let alive = true;
+    void api
+      .publicEditAccess(token)
+      .then((a) => {
+        if (alive && a.edit && a.href) setEditHref(a.href);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [state, token]);
 
   useEffect(() => {
     // A ?pw= query opens a password link directly (the API accepts it too);
@@ -206,6 +224,11 @@ export default function PublicCollection({ token }: { token: string }) {
 
   return (
     <div className="public-collection-page">
+      {editHref && (
+        <a className="public-edit-link" href={editHref} target="_blank" rel="noopener">
+          <Pencil size={14} /> {t('Edit')}
+        </a>
+      )}
       <div className="public-collection">
         {cfg.cover && <div className="public-collection-cover" style={coverStyle(cfg.cover)} />}
         <div className="public-collection-head">
@@ -308,7 +331,7 @@ export default function PublicCollection({ token }: { token: string }) {
               {detail.icon && <PageIcon icon={detail.icon} size={22} />}
               <h2>{detail.title || t('Untitled')}</h2>
               <button className="btn-sm" onClick={() => setDetail(null)}>
-                ✕
+                <X size={14} />
               </button>
             </div>
             <PublicDetailProps schema={schema} values={detail.props} related={related} onOpen={openRow} />
@@ -1191,7 +1214,7 @@ function PublicDetailContent({ content }: { content: string }) {
         if (type === 'checkListItem')
           return (
             <li key={i} className="public-check">
-              {(block.props as { checked?: boolean } | undefined)?.checked ? '☑ ' : '☐ '}
+              {(block.props as { checked?: boolean } | undefined)?.checked ? <SquareCheck size={14} /> : <Square size={14} />}
               {text}
             </li>
           );

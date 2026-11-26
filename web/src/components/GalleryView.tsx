@@ -1,8 +1,10 @@
-import type { PropDef, PropOption } from '../types';
+import type { LookupCell, PropDef, PropOption } from '../types';
 import PropertyValue from './PropertyValue';
 import { tagColorClass } from '../tags';
 import { PageIcon } from '../pageIcon';
+import { FileText } from 'lucide-react';
 import { openCollectionRow, openPageAux } from '../pageOpen';
+import { t } from '../i18n';
 
 interface Row {
   id: string;
@@ -11,6 +13,7 @@ interface Row {
   cover: string;
   props: Record<string, unknown>;
   tags?: string[];
+  lookup?: Record<string, LookupCell>;
 }
 
 // A Gallery view renders rows as a responsive grid of cards, each showing the
@@ -50,18 +53,18 @@ export default function GalleryView({
           onAuxClick={(e) => openPageAux(e, r.id, { onNavigate, onOpenInNewTab })}
         >
           <div className="gallery-cover" style={coverStyle(r.cover)}>
-            {!r.cover && <span className="gallery-cover-icon"><PageIcon icon={r.icon} size={40} fallback="📄" /></span>}
+            {!r.cover && <span className="gallery-cover-icon"><PageIcon icon={r.icon} size={40} fallback={<FileText size={40} />} /></span>}
           </div>
           <div className="gallery-body">
             <div className="gallery-title">
               {r.icon && r.cover ? <span className="inline-icon"><PageIcon icon={r.icon} size={14} /> </span> : null}
-              {r.title || 'Untitled'}
+              {r.title || t('Untitled')}
             </div>
             {!!r.tags?.length && (
               <div className="db-row-tags card-tags">
-                {r.tags.map((t) => (
-                  <span key={t} className={'row-tag ' + tagColorClass(t, tagColors)}>
-                    #{t}
+                {r.tags.map((tag) => (
+                  <span key={tag} className={'row-tag ' + tagColorClass(tag, tagColors)}>
+                    #{tag}
                   </span>
                 ))}
               </div>
@@ -78,6 +81,8 @@ export default function GalleryView({
                       <PropertyValue
                         def={p}
                         value={v}
+                        rowProps={r.props}
+                        lookup={r.lookup?.[p.id]}
                         onChange={(nv) => onSetProp(r.id, p.id, nv)}
                         onOptionsChange={(opts) => onSetOptions(p.id, opts)}
                         onOpen={onOpenInNewTab ?? onNavigate}
@@ -86,7 +91,7 @@ export default function GalleryView({
                     </div>
                   );
                 }
-                return <PropertyValue key={p.id} def={p} value={v} readOnly compact onOpen={onOpenInNewTab ?? onNavigate} openers={{ onNavigate, onOpenInNewTab }} />;
+                return <PropertyValue key={p.id} def={p} value={v} rowProps={r.props} lookup={r.lookup?.[p.id]} readOnly compact onOpen={onOpenInNewTab ?? onNavigate} openers={{ onNavigate, onOpenInNewTab }} />;
               })}
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { setFormatLocale, setFormatPrefs } from './format';
+import { setPersonalNameDisplay } from './personName';
 
 // Translation. The English source text IS the key:
 //
@@ -19,7 +20,12 @@ import { setFormatLocale, setFormatPrefs } from './format';
 export const LOCALES: Record<string, string> = {
   en: 'English',
   de: 'Deutsch',
+  es: 'Español',
   ru: 'Русский',
+  // Keyed by script, not by country: one Simplified catalog serves zh-CN and
+  // zh-SG alike, and dates still follow each reader's own regional variant.
+  'zh-Hans': '简体中文',
+  'zh-Hant': '繁體中文',
 };
 
 /** Plural categories as Intl names them. Which ones a language actually uses
@@ -34,7 +40,12 @@ type Catalog = Record<string, Entry>;
 // Every file under locales/ is picked up automatically, so adding a language
 // means dropping in one JSON file — no code change, which is the point of the
 // translation tool.
-const files = import.meta.glob<{ default: Catalog }>('./locales/*.json');
+// The <locale>.machine.json lists beside them say which entries nobody has
+// reviewed yet; they are for translators, not for the app.
+const files = import.meta.glob<{ default: Catalog }>([
+  './locales/*.json',
+  '!./locales/*.machine.json',
+]);
 
 let locale = 'en';
 let catalog: Catalog = {};
@@ -102,6 +113,12 @@ export type Prefs = {
   timeZone?: string;
   clock?: string;
   weekStart?: string;
+  // Collection rows open in a new tab on a plain click only when the
+  // account opted in: 'on'. '' is automatic, which is off.
+  openRowsNewTab?: '' | 'on';
+  // Which of a person's two names a person field prints. '' follows the
+  // instance default (nameDisplayDefault on /api/me).
+  nameDisplay?: '' | 'name' | 'nickname';
 };
 
 let prefs: Prefs = {};
@@ -135,11 +152,41 @@ function cached(): Prefs {
 function preferred(p: Prefs): string {
   if (p.language && p.language in LOCALES) return p.language;
   for (const tag of navigator.languages ?? [navigator.language]) {
-    const base = tag.split('-')[0];
-    if (base in LOCALES) return base;
+    const hit = catalogFor(tag);
+    if (hit) return hit;
   }
   return 'en';
 }
+
+/** The catalog a browser tag asks for: the exact tag first, then language plus
+ *  script.
+ *
+ *  The primary subtag alone is not enough once a catalog is keyed by script.
+ *  'zh-CN' and a bare 'zh' are written in Simplified characters and 'zh-TW' in
+ *  Traditional; maximize() says so ('zh-Hans-CN', 'zh-Hant-TW'), so each
+ *  reader gets the catalog for their script. For a language with one script
+ *  nothing changes: 'de-AT' and 'de' both maximize to Latin German. */
+function catalogFor(tag: string): string | null {
+  if (tag in LOCALES) return tag;
+  const want = maximized(tag);
+  if (!want) return null;
+  for (const code of Object.keys(LOCALES)) {
+    const have = maximized(code);
+    if (have && have.language === want.language && have.script === want.script) return code;
+  }
+  return null;
+}
+
+function maximized(tag: string): Intl.Locale | null {
+  try {
+    return new Intl.Locale(tag).maximize();
+  } catch {
+    return null; // a malformed tag in navigator.languages asks for nothing
+  }
+}
+
+/** The primary language subtag: 'zh' for 'zh-Hans', 'de' for 'de-AT'. */
+const baseOf = (tag: string) => tag.split('-')[0].toLowerCase();
 
 /** Show a set of settings WITHOUT changing the language.
  *
@@ -177,6 +224,9 @@ export function automaticFormatTag(p: Prefs = prefs): string {
  *  and the change survives a reload even before /api/me returns. */
 export async function applyPrefs(next: Prefs): Promise<void> {
   prefs = next ?? {};
+  // Person fields read from this on their next render; a saved choice shows
+  // up without a reload.
+  setPersonalNameDisplay(prefs.nameDisplay);
   try {
     localStorage.setItem(CACHE, JSON.stringify(prefs));
     localStorage.removeItem('salt-locale');
@@ -198,10 +248,15 @@ export async function applyPrefs(next: Prefs): Promise<void> {
  *
  *  So: translate by language, format by whichever regional variant of that
  *  language the browser already asked for. Their operating system settled this
- *  question long ago and got it right. */
+ *  question long ago and got it right.
+ *
+ *  Matched on the primary subtag, not on the catalog key: a reader in Taipei
+ *  who picks the Simplified catalog ('zh-Hans') still writes dates the way
+ *  'zh-TW' does, and the script of the interface is no reason to change that. */
 function formattingTag(lang: string): string {
+  const base = baseOf(lang);
   for (const tag of navigator.languages ?? [navigator.language]) {
-    if (tag.split('-')[0] === lang) return tag;
+    if (baseOf(tag) === base) return tag;
   }
   return lang;
 }
@@ -259,6 +314,7 @@ function applyDocumentLanguage(next: string) {
  *  later if they differ. */
 export function initLocale(): Promise<void> {
   prefs = cached();
+  setPersonalNameDisplay(prefs.nameDisplay);
   return setLocale(preferred(prefs));
 }
 

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -43,11 +44,77 @@ var oauthProviders = map[string]oauthProvider{
 		extraAuth:   url.Values{"access_type": {"online"}, "prompt": {"select_account"}},
 	},
 	"microsoft": {
-		key:         "microsoft",
-		authURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-		tokenURL:    "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+		key: "microsoft",
+		// No authURL or tokenURL: both name the tenant, which is a setting of
+		// the instance. oauthEndpoints fills them in.
 		userinfoURL: "https://graph.microsoft.com/oidc/userinfo",
 	},
+}
+
+// settingMSTenant holds the Microsoft tenant: a directory ID or a verified
+// domain, "" for none.
+const settingMSTenant = "oauth_ms_tenant"
+
+// oauthEndpoints returns a provider with the addresses THIS instance talks to.
+// Every flow asks here instead of reading oauthProviders, so the sign-in, the
+// mailbox connection and its token refresh follow one tenant together. A copy
+// that kept "common" would fail exactly where a tenant is needed: a
+// single-tenant app registration refuses common outright (AADSTS50194).
+func (s *Server) oauthEndpoints(pname string) (oauthProvider, bool) {
+	prov, ok := oauthProviders[pname]
+	if ok && pname == "microsoft" {
+		tenant := s.setting(settingMSTenant, "")
+		prov.authURL = microsoftEndpoint(tenant, "authorize")
+		prov.tokenURL = microsoftEndpoint(tenant, "token")
+	}
+	return prov, ok
+}
+
+// microsoftEndpoint is the address of one of Microsoft's OAuth endpoints. With
+// no tenant configured that is "common", which takes work, school and personal
+// accounts from anywhere: what every instance did before the setting existed.
+// A tenant in its place lets only that directory's accounts through, on the
+// sign-in page and again at the token exchange.
+func microsoftEndpoint(tenant, endpoint string) string {
+	if tenant == "" {
+		tenant = "common"
+	}
+	return "https://login.microsoftonline.com/" + url.PathEscape(tenant) + "/oauth2/v2.0/" + endpoint
+}
+
+// msTenantGUID is a directory (tenant) ID, the form Microsoft writes into tid.
+var msTenantGUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// msTenantDomain is a domain name such as contoso.onmicrosoft.com: labels of
+// letters, digits and inner hyphens, at least two of them, the last starting
+// with a letter so that an IP address is not one.
+var msTenantDomain = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// normalizeMSTenant checks what an admin typed as the tenant and returns it the
+// way it is stored: trimmed, lower-cased, "" for none. The value becomes part
+// of the PATH of Microsoft's endpoints, so its shape is the whole defence: a
+// slash, a question mark or another host must never get that far, and a
+// directory ID or a domain name cannot carry one.
+func normalizeMSTenant(v string) (string, bool) {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" || msTenantGUID.MatchString(v) || (len(v) <= 253 && msTenantDomain.MatchString(v)) {
+		return v, true
+	}
+	return "", false
+}
+
+// msTenantAdmits is our own check of what the tenant in the endpoint already
+// promises: that a Microsoft account comes from the configured directory. tid
+// is always the directory's ID, so only an ID can be compared with it. A
+// domain would have to be looked up at Microsoft first, and for a second line
+// of defence that is a round trip too many: the endpoint holds the line there
+// on its own, and with no tenant there is nothing to hold.
+func (s *Server) msTenantAdmits(tid string) bool {
+	want := s.setting(settingMSTenant, "")
+	if !msTenantGUID.MatchString(want) {
+		return true
+	}
+	return strings.EqualFold(tid, want)
 }
 
 func (s *Server) oauthClient(p string) (id, secret string) {
@@ -67,7 +134,10 @@ func (s *Server) oauthClient(p string) (id, secret string) {
 // provider resolved through OIDC discovery (see oidc.go). generic is true for
 // the latter, whose ID token must be signature-checked rather than parsed.
 func (s *Server) resolveLoginProvider(pname string) (prov oauthProvider, generic bool, err error) {
-	if p, ok := oauthProviders[pname]; ok {
+	if _, ok := oauthProviders[pname]; ok {
+		// Not the table entry itself: the addresses depend on this instance
+		// (the Microsoft tenant in the admin settings).
+		p, _ := s.oauthEndpoints(pname)
 		return p, false, nil
 	}
 	if pname == "oidc" {
@@ -251,14 +321,14 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	c, err := r.Cookie(oauthCookie)
 	if err != nil {
-		loginErrorRedirect(w, r, "oauth_expired", "Sign-in expired — please try again.")
+		loginErrorRedirect(w, r, "oauth_expired", "Sign-in expired. Please try again.")
 		return
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(c.Value)
 	var tx oauthTx
 	if err != nil || json.Unmarshal(raw, &tx) != nil || tx.Provider != pname ||
 		tx.Exp < time.Now().Unix() || tx.State == "" || tx.State != r.URL.Query().Get("state") {
-		loginErrorRedirect(w, r, "oauth_bad_state", "Sign-in could not be verified — please try again.")
+		loginErrorRedirect(w, r, "oauth_bad_state", "Sign-in could not be verified. Please try again.")
 		return
 	}
 
@@ -319,9 +389,14 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var verified bool
-		email, name, verified = parseIDToken(tok.IDToken)
+		var tid string
+		email, name, verified, tid = parseIDToken(tok.IDToken)
 		if pname == "google" && !verified {
 			loginErrorRedirect(w, r, "oauth_email_unverified", "This Google address is not verified.")
+			return
+		}
+		if pname == "microsoft" && !s.msTenantAdmits(tid) {
+			loginErrorRedirect(w, r, "oauth_wrong_tenant", "This Microsoft account belongs to a different organisation than the one this instance is set up for.")
 			return
 		}
 	}
@@ -375,24 +450,26 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseIDToken extracts the claims we need from a JWT delivered directly by
-// the token endpoint (no signature check needed on this trust path).
-func parseIDToken(jwt string) (email, name string, verified bool) {
+// the token endpoint (no signature check needed on this trust path). tid is
+// Microsoft's: the directory the account signed in through. Google sends none.
+func parseIDToken(jwt string) (email, name string, verified bool, tid string) {
 	parts := strings.Split(jwt, ".")
 	if len(parts) < 2 {
-		return "", "", false
+		return "", "", false, ""
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", "", false
+		return "", "", false, ""
 	}
 	var claims struct {
 		Email             string `json:"email"`
-		EmailVerified     any    `json:"email_verified"` // bool bei Google, string bei manchen IdPs
+		EmailVerified     any    `json:"email_verified"` // a bool from Google, a string from some IdPs
 		Name              string `json:"name"`
 		PreferredUsername string `json:"preferred_username"`
+		Tid               string `json:"tid"`
 	}
 	if json.Unmarshal(payload, &claims) != nil {
-		return "", "", false
+		return "", "", false, ""
 	}
 	email = claims.Email
 	if email == "" && strings.Contains(claims.PreferredUsername, "@") {
@@ -405,7 +482,7 @@ func parseIDToken(jwt string) (email, name string, verified bool) {
 	case string:
 		verified = v != "false"
 	}
-	return email, claims.Name, verified
+	return email, claims.Name, verified, claims.Tid
 }
 
 func (s *Server) fetchUserinfo(uiURL, accessToken, fallbackName string) (email, name string) {
@@ -433,13 +510,13 @@ func (s *Server) fetchUserinfo(uiURL, accessToken, fallbackName string) (email, 
 func (s *Server) oauthCreateUser(email, name string) (string, error) {
 	switch s.setting("signup_mode", "invite") {
 	case "open":
-		// erlaubt
+		// allowed
 	case "domain":
 		if !s.domainAllowsSelfSignup(email) {
-			return "", fmt.Errorf("this email address may not register here — ask an admin for an invitation")
+			return "", fmt.Errorf("this email address may not register here. Ask an admin for an invitation")
 		}
 	default:
-		return "", fmt.Errorf("no account for %s — registration here is by invitation", email)
+		return "", fmt.Errorf("no account for %s: registration here is by invitation", email)
 	}
 	if name = strings.TrimSpace(name); name == "" {
 		name = strings.SplitN(email, "@", 2)[0]
@@ -454,6 +531,7 @@ func (s *Server) oauthCreateUser(email, name string) (string, error) {
 		uid, email, name, s.nextColor(), hashPassword(hex.EncodeToString(randPw)), now()); err != nil {
 		return "", fmt.Errorf("the account could not be created")
 	}
+	s.assignUserHandle(uid, email)
 	s.addOrgMember(uid, false)
 	s.onboardUser(uid, name)
 	return uid, nil

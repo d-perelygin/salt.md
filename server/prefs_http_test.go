@@ -163,6 +163,68 @@ func TestPutPrefsAnswersWithTheCleanedSet(t *testing.T) {
 	}
 }
 
+// The row-opening choice round-trips through the API as "on" or "", like
+// every other preference: "" is automatic, which means navigation, and an
+// account that never chose needs no backfill.
+func TestPutPrefsRowOpeningRoundTrip(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "a@example.com")
+
+	if p := s.loadPrefs(uid); p.OpenRowsNewTab != "" {
+		t.Fatalf("fresh account chose nothing, got %q", p.OpenRowsNewTab)
+	}
+	for _, c := range []struct{ body, want string }{
+		{`{"openRowsNewTab":"on"}`, "on"},
+		{`{"openRowsNewTab":""}`, ""},
+		{`{"openRowsNewTab":"on"}`, "on"},
+		{`{"openRowsNewTab":"off"}`, ""},
+	} {
+		rec := putPrefs(t, s, c.body, map[string]string{"Cookie": cookie})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: got %d, want 200", c.body, rec.Code)
+		}
+		var got userPrefs
+		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if stored := s.loadPrefs(uid).OpenRowsNewTab; got.OpenRowsNewTab != c.want || stored != c.want {
+			t.Errorf("%s: answered %q, stored %q, want %q", c.body, got.OpenRowsNewTab, stored, c.want)
+		}
+	}
+}
+
+// A language keyed by script comes back exactly as it went in. Before, the
+// whole tag was lowered and a stored 'zh-hans' matched no catalog, so the next
+// reload quietly switched the reader back to English.
+func TestPutPrefsLanguageWithScriptRoundTrip(t *testing.T) {
+	s := testServer(t)
+	uid, cookie := signedIn(t, s, "a@example.com")
+
+	rec := putPrefs(t, s, `{"language":"zh-Hans","region":"zh-TW"}`, map[string]string{"Cookie": cookie})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", rec.Code)
+	}
+	var got userPrefs
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := userPrefs{Language: "zh-Hans", Region: "zh-TW"}
+	if got != want {
+		t.Errorf("answer\n got  %+v\n want %+v", got, want)
+	}
+	if stored := s.loadPrefs(uid); stored != want {
+		t.Errorf("stored\n got  %+v\n want %+v", stored, want)
+	}
+
+	me := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/me", nil)
+	req.Header.Set("Cookie", cookie)
+	s.ServeHTTP(me, req)
+	if !strings.Contains(me.Body.String(), `"language":"zh-Hans"`) {
+		t.Errorf("/api/me does not carry the language as stored:\n%s", me.Body.String())
+	}
+}
+
 // /api/me carries the preferences, and must not carry anybody else's.
 func TestMeCarriesOwnPrefsOnly(t *testing.T) {
 	s := testServer(t)
@@ -183,5 +245,33 @@ func TestMeCarriesOwnPrefsOnly(t *testing.T) {
 	}
 	if strings.Contains(body, "Pacific/Auckland") {
 		t.Errorf("/api/me leaked somebody else's zone:\n%s", body)
+	}
+}
+
+// Which of a person's two names a field prints is an account preference, with
+// the instance default as the fallback. The browser cannot read the admin-only
+// settings route, so /api/me carries the default it needs to resolve that.
+func TestNameDisplayPreference(t *testing.T) {
+	s := testServer(t)
+	_, cookie := signedIn(t, s, "a@example.com")
+
+	if rec := putPrefs(t, s, `{"nameDisplay":"nickname"}`, map[string]string{"Cookie": cookie}); rec.Code != http.StatusOK {
+		t.Fatalf("saving the choice: %d %s", rec.Code, rec.Body)
+	}
+	rec := requestAs(t, s, cookie, "GET", "/api/me", "")
+	if !strings.Contains(rec.Body.String(), `"nameDisplay":"nickname"`) {
+		t.Errorf("/api/me does not carry the choice:\n%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"nameDisplayDefault":"nickname"`) {
+		t.Errorf("/api/me does not carry the instance default:\n%s", rec.Body.String())
+	}
+
+	// A value that is not one of the two names is not a third mode: it falls
+	// back to the instance default like an untouched account.
+	if rec := putPrefs(t, s, `{"nameDisplay":"formal"}`, map[string]string{"Cookie": cookie}); rec.Code != http.StatusOK {
+		t.Fatalf("saving junk: %d %s", rec.Code, rec.Body)
+	}
+	if got := s.loadPrefs(""); got.NameDisplay != "" {
+		t.Errorf("empty id resolved to %q", got.NameDisplay)
 	}
 }

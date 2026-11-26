@@ -76,9 +76,32 @@ export interface AuditEntry {
   pageTitle?: string;
 }
 
+/** One record behind a lookup cell: which record, what it is called, and the
+ *  raw value its field holds (an option id, a day) — the cell shows rendered
+ *  text that cannot be parsed back reliably. Only records the caller may write
+ *  arrive here, so every source is editable. */
+export interface LookupSource {
+  page: string;
+  title: string;
+  value: unknown;
+}
+
+/** The server's reading of a lookup cell for one row (server/lookup_write.go):
+ *  the target field, and the records behind the shown value. Absent for every
+ *  property that is not a lookup, and for a lookup nothing can be written
+ *  through. */
+export interface LookupCell {
+  prop?: string;
+  collection?: string;
+  type?: PropType;
+  sources?: LookupSource[];
+}
+
 export interface Page extends PageMeta {
   content: unknown[];
   createdAt: string;
+  /** Lookup cells, keyed by property id: the same ones the table row carries. */
+  lookup?: Record<string, LookupCell>;
   /** The generation of this body (server/docgen.go); absent from a server
    *  that predates it. */
   docGen?: number;
@@ -106,10 +129,14 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  /** The informal name a person field prints by default; empty = use `name`. */
+  nickname?: string;
+  /** A line or two for the account page. */
+  about?: string;
   color: string;
   avatar: string;
   isAdmin: boolean;
-  /** Instanzrolle: owner betreibt die Instanz, admin verwaltet Menschen. */
+  /** Instance role: the owner runs the instance, an admin manages people. */
   orgRole?: 'owner' | 'admin' | 'member';
   /** Deactivated: no sign-in, but everything stays attributable. */
   disabled?: boolean;
@@ -126,9 +153,33 @@ export interface Me {
   allowUserWorkspaces?: boolean;
   /** Whether AI features are active for the current session (instance + user). */
   aiEnabled?: boolean;
+  /** The instance default for person fields: "nickname" (a nickname when the
+   *  account has one) or "name". A browser may override it per account
+   *  (prefs.nameDisplay). */
+  nameDisplayDefault?: 'name' | 'nickname';
   /** Language and time preferences of this account (W112). Empty fields mean
    *  automatic — see server/prefs.go. */
   prefs?: Prefs;
+}
+
+/** One person's account page (see server/people.go). Visible to the people who
+ *  share a workspace with them. */
+export interface PersonProfile {
+  user: {
+    id: string;
+    name: string;
+    nickname?: string;
+    about?: string;
+    email: string;
+    color: string;
+    avatar: string;
+    orgRole?: string;
+    handle?: string;
+  };
+  isYou: boolean;
+  workspaces: { id: string; name: string; role: string }[];
+  recent: { id: string; title: string; icon: string; at: string }[];
+  pages: { id: string; title: string; icon: string; type: string }[];
 }
 
 /** An outbound webhook: salt.md calls this URL when something happens, so
@@ -145,11 +196,82 @@ export interface Webhook {
   secret?: string;
 }
 
+/** One thing a version changed, as the server read it when the snapshot was
+ *  written: the difference from the version above it. */
+export interface RevisionChange {
+  kind:
+    | 'title'
+    | 'content'
+    | 'prop'
+    | 'column_added'
+    | 'column_removed'
+    | 'column_moved'
+    | 'column_changed'
+    | 'option_added'
+    | 'option_removed'
+    | 'option_changed'
+    | 'view_added'
+    | 'view_removed'
+    | 'view_moved'
+    | 'view_changed'
+    | 'workflow_changed'
+    | 'workflow_rule_added'
+    | 'workflow_rule_removed'
+    | 'workflow_rule_changed'
+    | 'workflow_code_added'
+    | 'workflow_code_removed'
+    | 'workflow_code_changed'
+    | 'template_changed';
+  /** Which half of a database the change belongs to. Absent on documents. */
+  scope?: 'property' | 'view' | 'workflow' | 'template';
+  /** The column or view id, so the change itself can offer "restore this". */
+  id?: string;
+  /** An option inside the column named by `id`. */
+  item?: string;
+  /** For a property: its id, name and stored type, so a date can be formatted
+   *  the way every other date in the app is. */
+  prop?: string;
+  name?: string;
+  type?: string;
+  /** Which part changed: type, options, filters, status, rules… */
+  field?: string;
+  from?: string;
+  to?: string;
+}
+
 export interface Revision {
   id: string;
   createdAt: string;
   authorName: string;
-  title: string;
+  /** Absent on a database's structure version, which has no page title. */
+  title?: string;
+  /** `collection` marks a version of a database's STRUCTURE (columns, views,
+   *  process). Absent means a page's document revision. */
+  kind?: 'page' | 'collection';
+  /** What this version changed, against the one above it. A version written
+   *  before that was recorded has it worked out on read, from the two states. */
+  changes?: RevisionChange[];
+  /** The first stretch of the document's text: enough to recognise the state. */
+  excerpt?: string;
+}
+
+/** One version of a database's structure, as `getRevision` returns it. */
+export interface CollectionRevisionState {
+  kind: 'collection';
+  schema: PropDef[];
+  views: ViewDef[];
+  workflow?: WorkflowConfig;
+  newFromTemplate?: string;
+  createdAt: string;
+  authorName: string;
+  changes?: RevisionChange[];
+}
+
+export interface CommentAnchor {
+  gen: number;
+  quote: string;
+  from: Record<string, unknown>;
+  to: Record<string, unknown>;
 }
 
 export interface Comment {
@@ -162,6 +284,11 @@ export interface Comment {
   authorColor?: string;
   authorAvatar?: string;
   resolvedAt: string | null;
+  anchor?: CommentAnchor;
+  /** The agent that wrote it, when one did: a claim, shown beside the account
+      that vouches for it (server/history.go). */
+  agent?: string;
+  agentLabel?: string;
 }
 
 // One entry of a page's raw trail. No resolvedAt, no editedAt and no author id
@@ -226,7 +353,9 @@ export interface PropDef {
   // rollup: aggregate a target property over a relation
   rollupRelation?: string;
   rollupTarget?: string;
-  rollupAgg?: 'sum' | 'count' | 'avg' | 'min' | 'max' | 'percent';
+  // first/all/unique carry a VALUE across the relation instead of a number:
+  // "the status of the linked reel", "the scales of the linked companies".
+  rollupAgg?: 'sum' | 'count' | 'avg' | 'min' | 'max' | 'percent' | 'first' | 'all' | 'unique';
   // rollup: count/sum only the related rows meeting this condition — the
   // difference between "how many tasks" and "how many are done".
   rollupWhereProp?: string;
@@ -257,6 +386,10 @@ export type FilterOp =
   | 'is'
   | 'is_not'
   | 'contains'
+  | 'not_contains'
+  /** A regular expression, applied to the TITLE (and offered nowhere else —
+   *  a regex over a select's ids would be a puzzle, not a filter). */
+  | 'matches'
   | 'gt'
   | 'lt'
   | 'between'
@@ -273,6 +406,10 @@ export interface Filter {
   values?: string[];
   /** Upper bound of `between`, inclusive. A range is value…value2. */
   value2?: string;
+  /** Compare the row's title with the exact case typed. Off is the default,
+   *  because "contains" is a search and searches ignore case — in every
+   *  alphabet, which the database does not do on its own. */
+  caseSensitive?: boolean;
 }
 
 export interface Sort {
@@ -292,15 +429,21 @@ export const TEMPLATE_FILTER = '@template';
 export const SORT_CREATED = '@created';
 export const SORT_UPDATED = '@updated';
 
+/** The row's own title as a filterable column. A pseudo-property like the
+ *  ones above: the title is not in the schema, but "title contains …" and
+ *  "title matches /…/" are the two questions people ask of a long table. */
+export const TITLE_FILTER = '@title';
+
 /** A reference to a column or to one of the system pseudo-properties above:
  *  anything a saved view can point at that no schema edit can remove. */
 export const isSystemRef = (id: string) =>
-  id === TEMPLATE_FILTER || id === SORT_CREATED || id === SORT_UPDATED;
+  id === TEMPLATE_FILTER || id === TITLE_FILTER || id === SORT_CREATED || id === SORT_UPDATED;
 
 /** Visible span of calendar and timeline views. */
 export type SpanMode = 'day' | 'week' | 'month' | '2months' | 'year';
 
-export interface ViewDef {  id: string;
+export interface ViewDef {
+  id: string;
   name: string;
   type: 'table' | 'board' | 'list' | 'gallery' | 'calendar' | 'form' | 'timeline';
   groupBy?: string;
@@ -308,8 +451,14 @@ export interface ViewDef {  id: string;
   /** Calendar view: which span the grid shows. Older views carry calRange
    *  instead (1 = month, 2 = two months); calMode wins when both are set. */
   calMode?: SpanMode;
+  /** Calendar view: how many of the mode's units the grid shows at once
+   *  (3 weeks, 2 months). 1 when absent; clamped to 1–12 when read. */
+  calCount?: number;
   /** Timeline view: which window it shows. Defaults to a month. */
   tlMode?: SpanMode;
+  /** Timeline view: how many of the mode's units the axis shows at once.
+   *  1 when absent; clamped to 1–12 when read. */
+  tlCount?: number;
   /** Timeline view: the sticky title column is collapsed, leaving the axis. */
   tlHideLabels?: boolean;
   /** Timeline view: shifting a row out of its blockers' way lands on a working
@@ -335,6 +484,11 @@ export interface ViewDef {  id: string;
   trayFilters?: Filter[];
   trayFilterGroups?: Filter[][];
   sort?: Sort | null;
+  /** Extra sort keys after the first, in priority order: the SQL ORDER BY of
+   *  the view. When present and non-empty it wins over `sort`; the flat `sort`
+   *  then mirrors `sorts[0]` for older readers. Absent means `sort` alone is
+   *  the whole order. */
+  sorts?: Sort[];
   formTitle?: string; // form view: heading above the form
   formDesc?: string; // form view: description under the heading
   formSubmit?: string; // form view: submit-button label
@@ -356,6 +510,10 @@ export interface CollectionConfig {
   /** Lightweight business process: which select property is the status and
    *  which rules run on transitions. Absent = no process, everything allowed. */
   workflow?: WorkflowConfig;
+  /** A save that renamed properties or options through stored process code
+   *  answers how many references moved, so the dialog can toast it. Never
+   *  stored, only on the PUT answer. */
+  codeRenames?: { refs: number; blocks: number };
 }
 
 /** One automation rule in Apple Shortcuts style: When → Then, with an
@@ -390,6 +548,9 @@ export interface WorkflowPropCond {
   prop: string;
   op: 'is' | 'is_not';
   value: string;
+  /** Several values, for is / is_not: "is A, B" means A or B. Empty falls
+   *  back to `value`, so conditions written before this keep working. */
+  values?: string[];
 }
 
 export type WorkflowAction =
@@ -409,6 +570,19 @@ export type WorkflowAction =
 export interface WorkflowConfig {
   /** Select property id driving the process. */
   statusPropId: string;
+  rules: WorkflowRule[];
+  /** Process code blocks: source text the user edits, plus the rules it
+   *  compiled to on the last save. Runs through the same matcher as the
+   *  visual rules above. */
+  code?: WorkflowCodeBlock[];
+}
+
+/** One named block of process code: the source of truth is `source`,
+ *  `rules` is what it compiled to (recomputed server-side on every save). */
+export interface WorkflowCodeBlock {
+  id: string;
+  name: string;
+  source: string;
   rules: WorkflowRule[];
 }
 
@@ -437,9 +611,25 @@ export function normalizeCollectionConfig(cfg: CollectionConfig): CollectionConf
     // stays, with do defaulted for the editor.
     const hasGate = (r: WorkflowRule) =>
       (r.allowFrom ?? []).length > 0 || !!r.precondition || (r.whenProps ?? []).length > 0;
+    const solid = (r: WorkflowRule): WorkflowRule => ({
+      ...r,
+      do: Array.isArray(r.do) ? r.do : [],
+      allowFrom: Array.isArray(r.allowFrom) ? r.allowFrom : [],
+      whenProps: Array.isArray(r.whenProps) ? r.whenProps : [],
+    });
     cfg.workflow.rules = cfg.workflow.rules
       .filter((r) => r && r.when && (Array.isArray(r.do) || hasGate(r)))
-      .map((r) => ({ ...r, do: Array.isArray(r.do) ? r.do : [] }));
+      .map(solid);
+    // Code blocks ride along untouched: the server recompiles them on save.
+    if (!Array.isArray(cfg.workflow.code)) cfg.workflow.code = [];
+    cfg.workflow.code = cfg.workflow.code
+      .filter((b) => b && typeof b === 'object')
+      .map((b) => ({
+        id: typeof b.id === 'string' ? b.id : '',
+        name: typeof b.name === 'string' ? b.name : '',
+        source: typeof b.source === 'string' ? b.source : '',
+        rules: (Array.isArray(b.rules) ? b.rules : []).filter((r) => r && r.when).map(solid),
+      }));
   }
   return cfg;
 }

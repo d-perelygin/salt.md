@@ -31,7 +31,12 @@ import (
 // ran with it. Being derived is exactly what makes that repair safe — the
 // blocks and the files directory still hold the truth, so the index can simply
 // be thrown away and built again.
-const filesVersion = "2"
+//
+// 3: moving a page to another workspace left its files indexed under the old
+// one, and the file list filters on that column. The move carries the index
+// along now; this rebuild puts the files of pages moved before that where
+// their pages are.
+const filesVersion = "3"
 
 // fileRef is one `/files/…` reference found in a page's content.
 type fileRef struct {
@@ -240,12 +245,17 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 
 	// Second stage, after the cursor is closed: canRead issues queries of its
 	// own, and on one connection those must not run inside an open cursor.
+	//
+	// canReadReq, not canRead: the first stage filters on the workspace the
+	// index RECORDED, and that is the one the file was uploaded in. A page moved
+	// since then left its files listed there, so asking the person alone let a
+	// credential kept out of the page's workspace list its files anyway.
 	out := []fileJSON{}
 	for _, f := range all {
 		if subtree != nil && !subtree[f.PageID] {
 			continue
 		}
-		if f.PageID != "" && !s.canRead(u.ID, f.PageID) {
+		if f.PageID != "" && !s.canReadReq(r, f.PageID) {
 			continue
 		}
 		if f.DisplayName == "" {
@@ -300,9 +310,15 @@ func (s *Server) mcpListFiles(u *user, wsID, under string) (string, error) {
 	if wsID != "" && (!s.isMember(u.ID, wsID) || !s.credentialMayEnter(u, wsID)) {
 		return "", fmt.Errorf("workspace %q not found", wsID)
 	}
+	// Both stages ask the credential as well as the person, the same as the
+	// REST list: see handleListFiles for why the recorded workspace alone is
+	// not enough.
+	mayRead := func(pageID string) bool {
+		return s.canRead(u.ID, pageID) && s.credentialMayEnter(u, s.pageWorkspace(pageID))
+	}
 	var subtree map[string]bool
 	if under != "" {
-		if !s.canRead(u.ID, under) {
+		if !mayRead(under) {
 			return "", fmt.Errorf("page %q not found", under)
 		}
 		subtree = s.subtreeIDs(under)
@@ -363,7 +379,7 @@ func (s *Server) mcpListFiles(u *user, wsID, under string) (string, error) {
 		if subtree != nil && !subtree[e.PageID] {
 			continue
 		}
-		if e.PageID != "" && !s.canRead(u.ID, e.PageID) {
+		if e.PageID != "" && !mayRead(e.PageID) {
 			continue
 		}
 		out = append(out, e)

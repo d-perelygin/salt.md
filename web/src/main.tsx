@@ -15,14 +15,29 @@ import './styles.css';
 import './theme.css';
 // Notion-style AI chat look, layered above both.
 import './aiChat.css';
+// The phone shell, and nothing else — see the head of mobile.css. Last, so its
+// one media query wins over the rules it is replacing.
+import './mobile.css';
 import App from './App';
 import { installRingHover } from './ring';
+import { installViewportVars } from './viewport';
+import { installTouchGuards, installTypingState } from './touch';
+import { installNavIndex } from './navStack';
 import { initLocale, useLocale } from './i18n';
 import ErrorBoundary from './components/ErrorBoundary';
 import UpdateBanner from './components/UpdateBanner';
 import ActivityLogHost from './components/ActivityLogHost';
 
 installRingHover();
+// The keyboard's height, for the phone sheets that have to sit above it.
+installViewportVars();
+// A long press on a draggable card is a drag, not the browser's menu.
+installTouchGuards();
+// While a field has the keyboard, the phone's dock steps out of its way.
+installTypingState();
+// The position in the history stack, for the back and forward arrows in the
+// tabs sheet — the ones a browser would otherwise provide.
+installNavIndex();
 
 /** Remount the whole tree when the language changes.
  *

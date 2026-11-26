@@ -38,6 +38,13 @@ const TOUCH_HOLD_MS = 320;
 // a swipe, and the drag is never armed in the first place.
 const TOUCH_HOLD_SLOP = 10;
 
+// Dragging a card into a column three screens away needs the board to keep
+// moving while the pointer rests at its edge. The zone is generous on purpose:
+// on a phone the last column is often half off-screen, and reaching it means
+// holding the card against the very edge of the glass.
+const EDGE_ZONE = 64;
+const EDGE_SPEED = 18;
+
 export function useBoardDrag(
   onMove: (rowId: string, fromCol: string, toCol: string, beforeId: string | null, before: boolean, overSelf: boolean) => void,
 ) {
@@ -69,6 +76,13 @@ export function useBoardDrag(
     // movement belongs to scrolling.
     armed: boolean;
     holdTimer: number | null;
+    // The horizontal scroller the board lives in, and where the pointer was
+    // last seen. The board has to keep scrolling while the finger HOLDS at its
+    // edge — and a finger that does not move produces no pointermove at all.
+    board: HTMLElement | null;
+    lastX: number;
+    lastY: number;
+    frame: number | null;
   } | null>(null);
   // Whether a drag really happened — this tells a click (navigate) from a drag
   // (move). A ref, because the pointerup handler needs it straight away.
@@ -83,33 +97,17 @@ export function useBoardDrag(
   };
 
   useEffect(() => {
-    const onPointerMove = (e: PointerEvent) => {
+    /** What the pointer is over: the column, the card under it, and which half. */
+    const hitTest = (x: number, y: number) => {
       const l = live.current;
-      if (!l) return;
-      const moved = Math.hypot(e.clientX - l.startX, e.clientY - l.startY);
-      if (!l.started) {
-        if (l.touch && !l.armed) {
-          // Still inside the hold window: whoever swipes wants to scroll. Give
-          // the drag up entirely, or the card snaps shut mid-scroll later.
-          if (moved > TOUCH_HOLD_SLOP) {
-            if (l.holdTimer) clearTimeout(l.holdTimer);
-            live.current = null;
-            setArmedRow(null);
-          }
-          return;
-        }
-        if (moved < START_THRESHOLD) return;
-        l.started = true;
-        draggedRef.current = true;
-      }
-      l.over = colUnder(e.clientX, e.clientY);
+      if (!l) return null;
       // The card under the pointer, for dropping between cards rather than
       // just into a column. The dragged card's own spot counts as itself, so
       // dropping it back where it was reads as the no-op it is.
       let overRow: string | null = null;
       let before = false;
       let overSelf = false;
-      for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+      for (const el of document.elementsFromPoint(x, y)) {
         const card = (el as HTMLElement).closest?.('.board-card[data-row]');
         if (!card) continue;
         const id = card.getAttribute('data-row');
@@ -120,19 +118,29 @@ export function useBoardDrag(
         }
         overRow = id;
         const r = (card as HTMLElement).getBoundingClientRect();
-        before = e.clientY < r.top + r.height / 2;
+        before = y < r.top + r.height / 2;
         break;
       }
-      l.overRow = overRow;
-      l.before = before;
-      l.overSelf = overSelf;
+      return { over: colUnder(x, y), overRow, before, overSelf };
+    };
+
+    const publish = (x: number, y: number) => {
+      const l = live.current;
+      const hit = hitTest(x, y);
+      if (!l || !hit) return;
+      l.lastX = x;
+      l.lastY = y;
+      l.over = hit.over;
+      l.overRow = hit.overRow;
+      l.before = hit.before;
+      l.overSelf = hit.overSelf;
       setDrag({
         rowId: l.rowId,
         fromCol: l.fromCol,
         title: l.title,
         width: l.width,
-        x: e.clientX,
-        y: e.clientY,
+        x,
+        y,
         dx: l.dx,
         dy: l.dy,
         over: l.over,
@@ -140,22 +148,86 @@ export function useBoardDrag(
         before: l.before,
         overSelf: l.overSelf,
       });
+    };
 
-      // Scroll along at the top and bottom edge of a column, so cards can be
-      // dragged into long lists without letting go.
-      const cards = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement)?.closest?.(
-        '.board-cards',
-      ) as HTMLElement | null;
-      if (cards) {
-        const r = cards.getBoundingClientRect();
-        if (e.clientY - r.top < 40) cards.scrollTop -= 12;
-        else if (r.bottom - e.clientY < 40) cards.scrollTop += 12;
+    /** Keeps both scrollers moving while the pointer rests at an edge, and
+     *  re-reads what is under it as the board slides beneath the card. */
+    const tick = () => {
+      const l = live.current;
+      if (!l || !l.started) {
+        if (l) l.frame = requestAnimationFrame(tick);
+        return;
       }
+      let scrolled = false;
+      const board = l.board;
+      if (board) {
+        const r = board.getBoundingClientRect();
+        if (l.lastY >= r.top && l.lastY <= r.bottom) {
+          const fromLeft = l.lastX - r.left;
+          const fromRight = r.right - l.lastX;
+          // Up to EDGE_SPEED at the very edge, easing off towards the zone's
+          // inner boundary: a constant speed at 1px inside feels like a jump.
+          if (fromLeft < EDGE_ZONE) {
+            board.scrollLeft -= Math.ceil(EDGE_SPEED * (1 - Math.max(0, fromLeft) / EDGE_ZONE));
+            scrolled = true;
+          } else if (fromRight < EDGE_ZONE) {
+            board.scrollLeft += Math.ceil(EDGE_SPEED * (1 - Math.max(0, fromRight) / EDGE_ZONE));
+            scrolled = true;
+          }
+        }
+      }
+      // The column's own list, so a long column can be crossed without letting
+      // go either.
+      for (const el of document.elementsFromPoint(l.lastX, l.lastY)) {
+        const cards = (el as HTMLElement).closest?.('.board-cards') as HTMLElement | null;
+        if (!cards) continue;
+        const r = cards.getBoundingClientRect();
+        if (l.lastY - r.top < 40) {
+          cards.scrollTop -= 12;
+          scrolled = true;
+        } else if (r.bottom - l.lastY < 40) {
+          cards.scrollTop += 12;
+          scrolled = true;
+        }
+        break;
+      }
+      if (scrolled) publish(l.lastX, l.lastY);
+      l.frame = requestAnimationFrame(tick);
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      const l = live.current;
+      if (!l) return;
+      const moved = Math.hypot(e.clientX - l.startX, e.clientY - l.startY);
+      if (!l.started) {
+        if (l.touch && !l.armed) {
+          // Still inside the hold window: whoever swipes wants to scroll. Give
+          // the drag up entirely, or the card snaps shut mid-scroll later.
+          if (moved > TOUCH_HOLD_SLOP) {
+            if (l.holdTimer) clearTimeout(l.holdTimer);
+            if (l.frame) cancelAnimationFrame(l.frame);
+            live.current = null;
+            setArmedRow(null);
+          }
+          return;
+        }
+        if (moved < START_THRESHOLD) return;
+        l.started = true;
+        draggedRef.current = true;
+        // Armed for real: the edge scroll only belongs to a drag in progress.
+        l.frame = requestAnimationFrame(tick);
+      }
+      publish(e.clientX, e.clientY);
     };
 
     const onPointerUp = () => {
       const l = live.current;
       if (l?.holdTimer) clearTimeout(l.holdTimer);
+      if (l?.frame) cancelAnimationFrame(l.frame);
+      if (l?.board) {
+        l.board.style.scrollSnapType = l.board.dataset.prevSnap ?? '';
+        delete l.board.dataset.prevSnap;
+      }
       live.current = null;
       setDrag(null);
       setArmedRow(null);
@@ -214,7 +286,20 @@ export function useBoardDrag(
         touch,
         armed: !touch, // mouse: armed at once. Finger: only after the hold.
         holdTimer: null,
+        board: (e.currentTarget as HTMLElement).closest('.board') as HTMLElement | null,
+        lastX: e.clientX,
+        lastY: e.clientY,
+        frame: null,
       };
+      // Columns snap into place on a phone (`scroll-snap-type`), and a snapped
+      // scroller undoes a 15px programmatic step by snapping straight back:
+      // the edge scroll looked like it did nothing. An inline style, not a
+      // class — the board's className belongs to React and is rewritten on
+      // every drag render, which removed the marker a frame later.
+      if (live.current.board) {
+        live.current.board.dataset.prevSnap = live.current.board.style.scrollSnapType;
+        live.current.board.style.scrollSnapType = 'none';
+      }
       if (touch) {
         const l = live.current;
         l.holdTimer = window.setTimeout(() => {
@@ -232,7 +317,7 @@ export function useBoardDrag(
   const consumeClick = useCallback(() => {
     if (draggedRef.current) {
       draggedRef.current = false;
-      return true; // Klick gehoerte zu einem Ziehen — schlucken
+      return true; // the click belonged to a drag: swallow it
     }
     return false;
   }, []);

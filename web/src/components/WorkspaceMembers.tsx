@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import { api, ApiError } from '../api';
 import Portal from './Portal';
 import { confirm } from '../dialog';
 import { useExclusiveModal } from '../modal';
 import { toast } from '../toast';
 import { t } from '../i18n';
+import PersonPage from './PersonPage';
 
 type Role = 'admin' | 'member' | 'viewer';
 interface Member {
@@ -35,6 +37,7 @@ export default function WorkspaceMembers({
   onChanged: () => void;
 }) {
   const [members, setMembers] = useState<Member[]>([]);
+  const [personFor, setPersonFor] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [newRole, setNewRole] = useState<Role>('member');
   const isAdmin = myRole === 'admin';
@@ -118,7 +121,10 @@ export default function WorkspaceMembers({
           {members.map((m) => (
             <div key={m.userId} className="user-row">
               <span className="user-row-name">
-                {m.name} {m.userId === myUserId && <span className="prop-empty">{t('(you)')}</span>}
+                <button className="user-row-name-btn" onClick={() => setPersonFor(m.userId)}>
+                  {m.name}
+                </button>{' '}
+                {m.userId === myUserId && <span className="prop-empty">{t('(you)')}</span>}
               </span>
               <span className="user-row-email">{m.email}</span>
               {isAdmin && m.userId !== myUserId ? (
@@ -140,7 +146,7 @@ export default function WorkspaceMembers({
                   title={m.userId === myUserId ? t('Leave') : t('Remove')}
                   onClick={() => void remove(m)}
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               )}
             </div>
@@ -172,6 +178,7 @@ export default function WorkspaceMembers({
         )}
         <button className="btn dialog-close" onClick={onClose}>{t('Close')}</button>
       </div>
+      {personFor && <PersonPage userId={personFor} onClose={() => setPersonFor(null)} />}
     </div>
     </Portal>
   );

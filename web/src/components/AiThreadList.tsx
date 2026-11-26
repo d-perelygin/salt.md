@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { MessageCircle, MoreHorizontal, Plus, Pin } from 'lucide-react';
+import { MessageCircle, MoreHorizontal, Plus, Pin, FileText, Link2, SquareCheck, Pencil, Trash2, ArrowUpRight, RefreshCw, Archive, ArchiveRestore, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { confirm, promptText } from '../dialog';
 import { formatMoment } from '../format';
@@ -98,6 +98,34 @@ export default function AiThreadList(props: {
     } catch { /* keep old title */ }
   }
 
+  const [archived, setArchived] = useState<AiThread[] | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+
+  async function loadArchived() {
+    try {
+      setArchived(((await api.listAIThreads(undefined, true)) as AiThread[]) ?? []);
+    } catch {
+      setArchived([]);
+    }
+  }
+
+  async function setArchivedState(th: AiThread, to: boolean) {
+    setMenuFor(null);
+    try {
+      await api.archiveAIThread(th.id, to);
+      props.onRefresh();
+      void loadArchived();
+    } catch { /* keep where it is */ }
+  }
+
+  async function regenTitle(th: AiThread) {
+    setMenuFor(null);
+    try {
+      await api.autoThreadTitle(th.id);
+      props.onRefresh();
+    } catch { /* keep old title */ }
+  }
+
   async function markRead(th: AiThread) {
     setMenuFor(null);
     try {
@@ -118,7 +146,7 @@ export default function AiThreadList(props: {
   const pinned = list.filter((th) => pinnedIds.includes(th.id));
   const unpinned = list.filter((th) => !pinnedIds.includes(th.id));
 
-  const renderRow = (th: AiThread, isPinned: boolean) => {
+  const renderRow = (th: AiThread, isPinned: boolean, isArchived = false) => {
     const pageTitle = th.pageTitle || props.pagesById.get(th.pageId)?.title || '';
     const unread = isThreadUnread(th);
     return (
@@ -132,11 +160,11 @@ export default function AiThreadList(props: {
         <span className="ai-row-title">
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <span>{th.title || t('New chat')}</span>
-            {isPinned && <span className="ai-pin-badge" title={t('Pinned')}>📌</span>}
+            {isPinned && <span className="ai-pin-badge" title={t('Pinned')}><Pin size={11} /></span>}
           </span>
           {(pageTitle || th.lastPreview) && (
             <span className="ai-row-sub">
-              {[pageTitle && `📄 ${pageTitle}`, th.lastPreview].filter(Boolean).join(' · ').slice(0, 80)}
+              {[pageTitle, th.lastPreview].filter(Boolean).join(' · ').slice(0, 80)}
             </span>
           )}
         </span>
@@ -153,24 +181,36 @@ export default function AiThreadList(props: {
           {menuFor === th.id && (
             <AnchoredMenu>
               <button onClick={() => { setMenuFor(null); togglePin(th.id); }}>
-                📌 {isPinned ? t('Unpin chat') : t('Pin chat')}
+                <Pin size={14} /> {isPinned ? t('Unpin chat') : t('Pin chat')}
               </button>
               <button onClick={() => void copyLink(th.id)}>
-                🔗 {t('Copy link')}
+                <Link2 size={14} /> {t('Copy link')}
               </button>
               {unread && (
                 <button onClick={() => void markRead(th)}>
-                  ☑ {t('Mark as read')}
+                  <SquareCheck size={14} /> {t('Mark as read')}
                 </button>
               )}
               <button onClick={() => void rename(th)}>
-                ✎ {t('Rename')}
+                <Pencil size={14} /> {t('Rename')}
               </button>
+              <button onClick={() => void regenTitle(th)}>
+                <RefreshCw size={14} /> {t('Regenerate title')}
+              </button>
+              {!isArchived ? (
+                <button onClick={() => void setArchivedState(th, true)}>
+                  <Archive size={14} /> {t('Archive')}
+                </button>
+              ) : (
+                <button onClick={() => void setArchivedState(th, false)}>
+                  <ArchiveRestore size={14} /> {t('Unarchive')}
+                </button>
+              )}
               <button className="danger" onClick={() => void remove(th)}>
-                🗑 {t('Delete')}
+                <Trash2 size={14} /> {t('Delete')}
               </button>
               <button onClick={() => { setMenuFor(null); window.open(threadLink(th.id), '_blank', 'noopener'); }}>
-                ↗ {t('Open in new tab')}
+                <ArrowUpRight size={14} /> {t('Open in new tab')}
               </button>
               {th.updatedAt && (
                 <div className="menu-label">
@@ -208,6 +248,29 @@ export default function AiThreadList(props: {
         </div>
       )}
       {unpinned.map((th) => renderRow(th, false))}
+      {archived === null ? (
+        <button
+          className="ai-section-toggle"
+          onClick={() => {
+            setArchivedOpen((v) => !v);
+            if (!archivedOpen) void loadArchived();
+          }}
+          type="button"
+        >
+          <span style={{ display: 'inline-flex' }}>{archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+          <span>{t('Archived')}</span>
+        </button>
+      ) : (
+        <>
+          <button className="ai-section-toggle" onClick={() => setArchivedOpen((v) => !v)} type="button">
+            <span style={{ display: 'inline-flex' }}>{archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+            <span>
+              {t('Archived')} ({archived.length})
+            </span>
+          </button>
+          {archivedOpen && archived.map((th) => renderRow(th, false, true))}
+        </>
+      )}
     </div>
   );
 }

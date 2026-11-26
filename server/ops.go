@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Operational hardening (Welle 14): login brute-force throttling, a background
+// Operational hardening (W14): login brute-force throttling, a background
 // cleanup loop (expired sessions / idempotency keys / stale rate buckets /
 // trash auto-purge), readiness health, and per-field input caps.
 
@@ -118,8 +118,9 @@ func (s *Server) startCleanup() {
 
 func (s *Server) runCleanup() {
 	s.deleteExpiredSessions()
-	// Idempotency keys are only useful for a short retry window.
-	s.db.Exec(`DELETE FROM idempotency WHERE created_at < ?`, time.Now().UTC().Add(-24*time.Hour).Format(time.RFC3339Nano))
+	// Idempotency keys match the 30-day offline outbox window so a weekend or
+	// long trip offline does not replay a create/comment as a duplicate.
+	s.db.Exec(`DELETE FROM idempotency WHERE created_at < ?`, time.Now().UTC().Add(-30*24*time.Hour).Format(time.RFC3339Nano))
 	s.mcpRate.evict()
 	s.loginRate.evict()
 	s.tokenRate.evict()
@@ -131,7 +132,19 @@ func (s *Server) runCleanup() {
 	s.checkForUpdate()
 	if days := s.trashRetentionDays(); days > 0 {
 		cutoff := time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339Nano)
-		s.db.Exec(`DELETE FROM pages WHERE trashed_at IS NOT NULL AND trashed_at < ?`, cutoff)
+		// Read the ids first: a permanent delete also has to clear the relation
+		// ids in OTHER rows that will never be able to name these pages again.
+		var expired []string
+		if rows, err := s.db.Query(`SELECT id FROM pages WHERE trashed_at IS NOT NULL AND trashed_at < ?`, cutoff); err == nil {
+			for rows.Next() {
+				var id string
+				if rows.Scan(&id) == nil {
+					expired = append(expired, id)
+				}
+			}
+			rows.Close()
+		}
+		s.purgeTrashed(expired)
 	}
 	// The activity log is the only table here that nothing ever bounded. It grows
 	// with every change forever, which is right by default (see

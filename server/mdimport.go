@@ -320,6 +320,19 @@ func mdToBlocks(md string) []*mBlock {
 			prevWasParagraph = false
 			continue
 		}
+		// Export writes an embedded database as `[Collection](/p/<id>)` on its
+		// own line (see export.go). Turning that back into a database block
+		// keeps an embedded collection from becoming an inline link when a page
+		// is read with get_page and written back with write_content, and lets an
+		// agent place an embedded collection between sections in Markdown.
+		if rtrimmed := strings.TrimSpace(trimmed); strings.HasPrefix(rtrimmed, "[Collection](") {
+			if m := linkRe.FindStringSubmatch(rtrimmed); m != nil && m[0] == rtrimmed && m[1] == "Collection" {
+				if pm := pageHrefRe.FindStringSubmatch(strings.TrimSpace(m[2])); pm != nil {
+					appendBlock(&mBlock{Type: "database", Props: map[string]any{"collectionId": pm[1]}}, 0)
+					continue
+				}
+			}
+		}
 		// A rule is a block of its own, not the three hyphens an agent typed.
 		// Without this it fell through to the paragraph case and the page showed
 		// a literal "---" — the one block in the set the export already wrote

@@ -43,15 +43,29 @@ covered by page history instead, and the two are separate.
 
 ## Version history
 
-A revision is a whole copy of the page's **title and body** at one moment, not a
-diff. salt.md writes one whenever a page's body is written: your own editing
-saved from the browser, a write over the API, or an agent writing over MCP.
+A revision is a whole copy of the page at one moment — its **title, body,
+properties, icon and cover** — not a diff. salt.md writes one whenever a page's
+body or its properties are written, and once when a page is created.
+
+**A version says what changed.** The list is not a column of timestamps: each
+entry is compared with the version above it, and the difference is stored with
+it, in the words the collection itself uses — an option's name, a person's name,
+a checklist's progress (`2/5`), a date, a number. A relation is a count rather
+than titles, because a history dialog is readable by anyone who can read the
+row, and the linked rows are a separate permission.
+
+**Versions written before that was recorded still answer the question.** Their
+difference from the version above is not stored — but both states are, so it is
+worked out when the list is read. The row says "Text changed" rather than
+"Changes were not recorded", and the preview marks the changed words.
 
 **Which moment gets recorded differs by route**, and it decides what *Restore*
 hands you back:
 
 - A save **from the browser or over the API** records the state as saved. The
   newest entry is what the page says now.
+- A property write — a status moved on a board, a cell edited, a change taken
+  back — records the state as saved, straight away.
 - A **replace** or a **prepend** over MCP records the state as it was just
   *before* the agent wrote. So after an agent replaces a page, the newest entry
   in the list is the text it replaced, not the text it wrote.
@@ -59,16 +73,17 @@ hands you back:
 
 Three rules decide what ends up in the list:
 
-- **At most one snapshot per page every two minutes.** A save inside that window
-  adds nothing: twenty minutes of typing leaves ten revisions, not hundreds.
+- **At most one body snapshot per page every two minutes.** A save inside that
+  window adds nothing: twenty minutes of typing leaves ten revisions, not
+  hundreds. Property changes are not held back — that is the one thing people
+  come here to find.
+- **A write that changes nothing stores nothing.** Saving a page you did not
+  touch, or setting a property to the value it already has, adds no version.
 - **The newest 50 per page are kept.** When a fifty-first snapshot arrives, the
   oldest goes. (A restore made over MCP writes its pre-restore copy past that
   ceiling; the next ordinary snapshot on the page prunes back to 50.)
-- **An empty body is never snapshotted**, so a page you have just created does
-  not start its history with a blank.
-
-The dialog says the same thing in one line: *Snapshots are taken on save (at
-most every 2 minutes, the latest 50).*
+- **An empty page is never snapshotted** until it has something to remember: a
+  body, or at least one property.
 
 **A save that comes too late is kept here too.** When a page is replaced (an
 agent's rewrite, a restore, an import) while an editor still holds the old text,
@@ -78,22 +93,36 @@ rule; the same copy arriving twice, from two tabs, is filed once. So what
 somebody typed into a page in the moment it was replaced is one **Restore**
 away rather than gone.
 
-**Properties are not part of a revision.** Changing a row's status or its due
-date writes no snapshot, because the body did not change. Version history is for
-the text of a page; see [Collections](collections.md) for what a row's
-properties are.
-
 ### Reading and restoring
 
 1. Open the page and click the ⋯ button in the topbar (*More*).
-2. Choose **Version history**.
-3. The dialog lists every kept revision, newest first: the time it was taken,
-   who wrote it, and a **Restore** button.
-4. Click **Restore**. salt.md asks first: *Restore the version from …? The
-   current state is saved as a version first.*
-5. On success a *Version restored* message appears, the dialog closes, and the
-   live document is reset: anybody with that page open in an editor gets the
-   restored text rather than carrying on from the old one.
+2. Choose **Version history**. The dialog is two panes: the versions on the
+   left, the page as it looked on the right.
+3. The list groups versions by time, and **Group by** sets how wide a group is:
+   15 minutes, 1 hour, 1 day, 1 week or 1 month. A page saved twenty times in
+   one morning is one entry to read by the hour and twenty by the minute; a day
+   is the default because it is the unit people remember work by. Groups fold
+   and unfold; each version shows its time, who wrote it and one line of what
+   changed ("Status: In progress → Done").
+4. Click a version and the right pane shows **that page as it was**, rendered:
+   headings, lists, checkboxes, quotes, code, tables, images. What changed is
+   marked in place — a reworded paragraph has its changed words highlighted, a
+   block that was added is shaded green, a block that was deleted is shown
+   struck through where it stood, and the title is marked when it changed.
+   Changed properties appear as chips above the document ("Status: To do →
+   Done").
+5. The footer steps through the changes: **3 / 7 changes** with the two arrows,
+   or click a version and the first change is scrolled to. Added, changed and
+   deleted blocks each count once.
+6. **Restore** puts that version back; salt.md asks first: *Restore the version
+   from …? The current state is saved as a version first.* On success a
+   *Version restored* message appears, the dialog closes, and the live document
+   is reset: anybody with that page open in an editor gets the restored text
+   rather than carrying on from the old one.
+7. **Duplicate** writes that version into a **new page** beside the original,
+   with its title, text and properties. Inside a database the duplicate is a new
+   row. It changes nothing about the page you are on, so it is the safe way to
+   keep an old version while the current one moves on.
 
 If a page has no revisions yet the dialog says *No versions yet.*
 
@@ -106,18 +135,19 @@ name at all.
 Two things about restoring that are easy to be surprised by:
 
 - **Restoring is itself undoable.** The state you are leaving is written as a
-  new revision before the old one is put back, so a restore can be restored. The
-  two-minute rule qualifies that in the browser: if a snapshot of this page was
-  already taken less than two minutes ago, no new one is written and the state
-  you are leaving is the one already in the list. A restore over MCP always
-  writes the pre-restore state as its own revision, throttle or not.
-- **Restoring from the browser puts back the body, not the title.** The page
-  keeps whatever title it has now. Restoring over MCP puts back both.
+  new revision before the old one is put back, so a restore can be restored.
+  That copy is taken unconditionally — a two-minute rule in front of it could
+  swallow the very state an overwrite throws away.
+- **A version restores what it captured.** Revisions written before properties
+  were recorded hold a body and a title and nothing else; restoring one of
+  those puts back the body and the title and leaves the row's columns alone,
+  rather than emptying them from a state that never knew about them.
 
-**Who may do what.** Anyone who can read the page can open its history. Restoring
-needs write access, the same permission as editing. The Restore button is shown
-to viewers as well, and the server refuses it, so the click ends in an error
-rather than a change. See [Permissions](permissions.md).
+**Who may do what.** Anyone who can read the page can open its history.
+Restoring and duplicating need write access, the same permission as editing; a
+duplicate of a row also needs the right to add rows to its database. The buttons
+are shown to viewers as well, and the server refuses, so the click ends in an
+error rather than a change. See [Permissions](permissions.md).
 
 **How long it survives.** As long as the page does. A page in the trash keeps its
 full history and gets it back on restore; when the trash empties itself the page
@@ -129,15 +159,48 @@ Self-hosters can set the same number with `SALT_TRASH_DAYS`, and the admin
 setting wins over it. See [Trash and recovery](trash-and-recovery.md) and
 [Administration](administration.md).
 
+### A database's structure
+
+A collection's page has no body to version: its shape is the columns, the views
+and the process, stored beside the page. Those keep **their own history**, under
+the same rules — a version is the whole structure at one moment, what changed is
+recorded with it, the newest 50 are kept, and restoring files the current state
+first.
+
+The dialog says **Structure history** on such a page, and it lists the changes
+in the database's own words: "Column “Status” added", "View “Calendar” removed",
+"Option “Done” renamed". Types, options, filters, grouping, sorting, the process
+and the order of columns and views are all part of it. **Column widths are not**
+— those are the reader's layout, so changing only widths writes no version and a
+restore leaves today's widths alone. Typing a column name is held to the same
+two-minute window as a document; adding or removing a column, a view or a rule
+is recorded at once.
+
+**Restoring is reversible and can be partial.** Beside the whole version, each
+changed column and view carries its own **Restore** — a column that was deleted
+comes back at its old place, and its values were never removed from the rows, so
+they reappear with it. The process has a restore of its own. A restore that
+would leave the process naming a column or option that no longer exists is
+refused with a structure conflict rather than applied, because a broken process
+is worse than an old one.
+
+**Row values are not in this history.** Each row is a page and has its own
+version history, properties included; a structure restore never writes one. The
+dialog says so, because "history of the database" is easy to read as "history of
+the data".
+
+A database created before this feature starts with one version, filed when the
+instance was updated, so the first edit has something to be compared with.
+
 ### Over MCP
 
 The `revisions` tool covers all three moves on one page:
 
 | Action | What it does |
 | --- | --- |
-| list (the default) | the newest revisions (20 unless a limit is given) with author, time, size, and whether a **human** or an **agent** caused it |
+| list (the default) | the newest revisions (20 unless a limit is given) with author, time, size, what each one changed, and whether a **human** or an **agent** caused it |
 | get | one older state, rendered as Markdown, without changing anything |
-| restore | put the page back to it |
+| restore | put the page back to it, properties included when the version captured them |
 
 The **get** action is the non-destructive way to use history: it returns the old
 title and body as Markdown, so an agent can lift one paragraph out of last

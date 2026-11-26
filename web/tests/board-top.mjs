@@ -39,4 +39,22 @@ await withFixture(async ({ page, api, path }) => {
   await eventually(async () => (await titles('third')).length === 1);
   assert.match((await titles('third'))[0], /Untitled/);
   assert.match((await titles('todo'))[0], /Untitled/);
+
+  // The move button fades in over the card's corner; the marks (faces) slide
+  // aside so the two never sit on top of each other. At rest they stay put.
+  const card = page.locator('.board-card').first();
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(250);
+  assert.equal(
+    await card.locator('.card-marks').evaluate((el) => getComputedStyle(el).transform),
+    'none',
+    'the marks rest in the corner',
+  );
+  await card.hover();
+  await page.waitForTimeout(250);
+  assert.notEqual(
+    await card.locator('.card-marks').evaluate((el) => getComputedStyle(el).transform),
+    'none',
+    'the marks make room for the move button',
+  );
 });

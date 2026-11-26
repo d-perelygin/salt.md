@@ -5,7 +5,7 @@ import {
   encodeAwarenessUpdate,
   removeAwarenessStates,
 } from 'y-protocols/awareness';
-import { appendJournal, clearJournal, readJournal } from './offlineCache';
+import { markYDocClean } from './offlineCache';
 
 // Thin realtime provider for salt.md's relay protocol (see server/collab.go).
 // The server replays the persisted doc, then relays updates. It never
@@ -15,63 +15,61 @@ const FRAME_UPDATE = 0;
 const FRAME_AWARENESS = 1;
 const FRAME_SNAPSHOT = 2;
 
+export const COLLAB_SYNCED_EVENT = 'salt:collab-synced';
+
 export class SaltProvider {
   doc: Y.Doc;
   awareness: Awareness;
   synced = false;
   isNew = false;
-  // The generation of the document this doc descends from (server/docgen.go):
-  // that of the body the page was loaded with, which a new live document is
-  // seeded from. It goes with every connect and every autosave, so the server
-  // can turn both away once a write from outside the editor has replaced the
-  // document: a tab that slept through the 4001 must not push its old copy
-  // back in, and one that loaded the body just before a rewrite must not seed
-  // the live document from it.
+  dirty = false;
+  // The generation of the document this doc descends from (server/docgen.go).
   gen: number | null;
   // Set once the server has replaced the document under us. This doc is stale
   // from that moment on, and nothing derived from it may reach the server.
   replacedDoc = false;
+  reset = false;
 
   readonly pageId: string;
-
-  // Set when the server replaced the document under us (close code 4001:
-  // API/MCP rewrite, restore, import). The local doc is stale from that
-  // moment on: nothing derived from it may reach the server again, or the
-  // rewrite is silently reverted to the old copy.
-  reset = false;
 
   private ws: WebSocket | null = null;
   private closed = false;
   private everSynced = false;
   private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private cleanTimer: ReturnType<typeof setTimeout> | null = null;
   private onSynced: (isNew: boolean) => void;
   private onReset: () => void;
-  // Dead-socket watchdog. Proxies kill idle WebSockets without telling the
-  // browser (half-open TCP): the socket looks OPEN but nothing ever arrives
-  // again — the exact "I only see his edits after a reload" bug. The server
-  // sends {"ping":true} every 20s, so a healthy socket is never silent for
-  // long; if it is, we force-close and let the reconnect logic take over.
+  private onDirtyChange?: (dirty: boolean) => void;
   private lastMsg = 0;
   private connectStarted = 0;
-  private watchdog: ReturnType<typeof setInterval>;
+  private watchdog: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     pageId: string,
     gen: number | null,
     onSynced: (isNew: boolean) => void,
     onReset: () => void,
-    opts?: { initialUpdate?: Uint8Array | null; onLocalUpdate?: (update: Uint8Array) => void },
+    opts?: {
+      initialUpdate?: Uint8Array | null;
+      initialDirty?: boolean;
+      onLocalUpdate?: (update: Uint8Array, dirty: boolean) => void;
+      onRemoteUpdate?: () => void;
+      onDirtyChange?: (dirty: boolean) => void;
+    },
   ) {
     this.pageId = pageId;
     this.gen = gen;
+    this.dirty = opts?.initialDirty === true;
     this.onSynced = onSynced;
     this.onReset = onReset;
+    this.onDirtyChange = opts?.onDirtyChange;
     this.doc = new Y.Doc();
     this.awareness = new Awareness(this.doc);
+
     // Offline snapshot taken while disconnected: apply before connecting so
-    // the local edits survive a reload. The snapshot itself is never pushed
-    // back: only the journal below travels, so a server-side rewrite
-    // (restore, agent edit, import) is never reverted by a stale copy.
+    // the local edits survive a reload. Only pushed when `dirty` is true AND
+    // `gen` matches the server's current generation.
     if (opts?.initialUpdate && opts.initialUpdate.length > 0) {
       try {
         Y.applyUpdate(this.doc, opts.initialUpdate, 'offline');
@@ -81,61 +79,76 @@ export class SaltProvider {
     }
 
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
-      if (origin === 'remote') return;
-      // Fenced after a server-side reset: this doc is stale, and sending,
-      // journaling or snapshotting its updates would resurrect exactly what
-      // the server replaced.
-      if (this.reset) return;
-      this.send(FRAME_UPDATE, update);
-      // While the channel is down the send above vanishes: journal the update
-      // so the first sync can replay exactly what was typed, no more. (When
-      // synced over a live socket, updates already reached the server.)
-      // The socket check matters too: a half-dead socket still reads OPEN
-      // until the watchdog kills it, and synced flips only afterwards.
-      if (!this.synced || this.ws?.readyState !== WebSocket.OPEN) {
-        const copy = new Uint8Array(update.length);
-        copy.set(update);
-        void appendJournal(this.pageId, copy);
+      if (origin === 'remote') {
+        try {
+          opts?.onRemoteUpdate?.();
+        } catch {
+          /* best-effort */
+        }
+        return;
       }
-      // Persist every local change (origin 'offline' included): the tab may be
-      // closed while disconnected, and the server replay is the only other copy.
+      if (this.reset || this.replacedDoc) return;
+      this.send(FRAME_UPDATE, update);
+      // While the channel is down (or for a temp page), mark dirty so the next
+      // clean `synced` pushes the full merged state idempotently.
+      if (!this.synced || this.ws?.readyState !== WebSocket.OPEN) {
+        if (!this.dirty) {
+          this.dirty = true;
+          this.onDirtyChange?.(true);
+        }
+        if (this.cleanTimer) {
+          clearTimeout(this.cleanTimer);
+          this.cleanTimer = null;
+        }
+      }
       try {
-        opts?.onLocalUpdate?.(update);
+        opts?.onLocalUpdate?.(update, this.dirty);
       } catch {
         /* persistence is best-effort */
       }
     });
+
     this.awareness.on(
       'update',
       ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }) => {
-        // Announce only our OWN client. 'update' also fires for applied
-        // REMOTE entries (the other peers' ~15s renewals, for one); without
-        // this filter, foreign clientIDs would be echoed back to the server,
-        // which would attribute them to this connection — and on disconnect
-        // would clear away the presence of LIVE users.
         const me = this.doc.clientID;
         const ids = added.concat(updated, removed).filter((id) => id === me);
         if (ids.length === 0) return;
         this.send(FRAME_AWARENESS, encodeAwarenessUpdate(this.awareness, ids));
       },
     );
+
+    // Temp pages only exist in IndexedDB until `outbox.flush()` creates them
+    // on the server and remaps the id. Do not hammer `/collab/temp-...`.
+    if (pageId.startsWith('temp-')) {
+      return;
+    }
+
     this.watchdog = setInterval(() => {
       const ws = this.ws;
       if (!ws) return;
       const now = Date.now();
       if (ws.readyState === WebSocket.OPEN && now - this.lastMsg > 55_000) {
-        this.dropConnection(ws); // silent for >2 missed server pings: presumed dead
+        this.dropConnection(ws);
       } else if (ws.readyState === WebSocket.CONNECTING && now - this.connectStarted > 15_000) {
-        this.dropConnection(ws); // stuck handshake (broken proxy); aborts and retries
+        this.dropConnection(ws);
       }
     }, 10_000);
     this.connect();
   }
 
-  // Gives up on a socket judged dead, immediately. ws.close() alone is not
-  // enough: against a half-dead peer the close handshake runs 20–60s depending
-  // on the browser before onclose fires — and the user would stay offline that
-  // whole time. So: detach the handlers, close, reconnect straight away.
+  private markCleanConfirmed() {
+    if (!this.dirty) return;
+    if (!this.synced || this.ws?.readyState !== WebSocket.OPEN || this.reset || this.replacedDoc) return;
+    this.dirty = false;
+    if (this.cleanTimer) {
+      clearTimeout(this.cleanTimer);
+      this.cleanTimer = null;
+    }
+    void markYDocClean(this.pageId);
+    this.onDirtyChange?.(false);
+  }
+
   private dropConnection(ws: WebSocket) {
     ws.onclose = null;
     ws.onmessage = null;
@@ -149,6 +162,7 @@ export class SaltProvider {
   }
 
   private connect() {
+    if (this.closed) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const gen = this.gen === null ? '' : `?gen=${this.gen}`;
     const ws = new WebSocket(`${proto}://${location.host}/collab/${this.pageId}${gen}`);
@@ -166,32 +180,32 @@ export class SaltProvider {
       if (typeof e.data === 'string') {
         const msg = JSON.parse(e.data) as Record<string, unknown>;
         if ('ping' in msg) {
-          return; // keepalive traffic; receiving it is all the watchdog needs
+          // A server ping after synced proves the socket is genuinely alive
+          // and previous sends were not dropped into a half-open pipe.
+          this.markCleanConfirmed();
+          return;
         }
         if ('isNew' in msg) {
-          // isNew only counts for the very first sync; after a reconnect the
-          // local doc already has state and must not be re-seeded.
           if (!this.everSynced) this.isNew = msg.isNew === true;
         } else if ('synced' in msg) {
           this.synced = true;
-          this.reconnectAttempt = 0; // a clean sync resets the backoff
-          // Replay the offline journal, if any: exactly the edits typed while
-          // disconnected, merged into the server's current state. Never the
-          // whole local doc: pushing that would resurrect whatever the
-          // server rewrote meanwhile (a restore, an agent edit, an import).
-          void readJournal(this.pageId).then((journal) => {
-            for (const u of journal) this.send(FRAME_UPDATE, u);
-            if (journal.length > 0) void clearJournal(this.pageId);
-          });
+          this.reconnectAttempt = 0;
+          // Push full merged Yjs state when we have offline edits. Yjs merges
+          // full state idempotently, avoiding incremental journal races and
+          // causality truncation, while `?gen=` fences off replaced docs.
+          if (this.dirty && !this.reset && !this.replacedDoc) {
+            const state = Y.encodeStateAsUpdate(this.doc);
+            if (state.length > 0) {
+              this.send(FRAME_UPDATE, state);
+            }
+            if (this.cleanTimer) clearTimeout(this.cleanTimer);
+            this.cleanTimer = setTimeout(() => this.markCleanConfirmed(), 1500);
+          }
           const first = !this.everSynced;
           this.everSynced = true;
           if (first) this.onSynced(this.isNew);
-          // Re-announce presence after (re)connects. When the old connection
-          // died the server broadcast our removal with clock+1 — a plain
-          // re-announce (same clock) would be discarded as stale by every peer
-          // and we would stay invisible for up to 30s. Calling setLocalState
-          // twice bumps the clock safely past the removal; each set fires the
-          // update listener, which sends the announce.
+          window.dispatchEvent(new Event(COLLAB_SYNCED_EVENT));
+
           const st = this.awareness.getLocalState();
           if (st !== null) {
             this.awareness.setLocalState(st);
@@ -203,6 +217,7 @@ export class SaltProvider {
             );
           }
         } else if ('snapshotRequest' in msg) {
+          this.markCleanConfirmed();
           const seq = BigInt(msg.snapshotRequest as number);
           const snap = Y.encodeStateAsUpdate(this.doc);
           const buf = new Uint8Array(9 + snap.length);
@@ -225,12 +240,12 @@ export class SaltProvider {
     ws.onclose = (e: CloseEvent) => this.handleClosed(e);
   }
 
-  // Shared exit for onclose and for the watchdog kill (which has no event).
   private handleClosed(e: CloseEvent | null) {
     this.synced = false;
-    // Peers from the dead connection are unknowable now; drop them locally
-    // instead of showing stale avatars. The server replays live presence
-    // on reconnect, so real peers reappear immediately.
+    if (this.cleanTimer) {
+      clearTimeout(this.cleanTimer);
+      this.cleanTimer = null;
+    }
     removeAwarenessStates(
       this.awareness,
       [...this.awareness.getStates().keys()].filter((id) => id !== this.doc.clientID),
@@ -238,20 +253,14 @@ export class SaltProvider {
     );
     if (this.closed) return;
     if (e?.code === 4001) {
-      // Server-side doc was reset (API write): local state is stale.
-      // Fence it before notifying: the tab remounts onto the new document,
-      // and nothing stale may be written in between (both fences: the
-      // reset flag the page reads, and the replaced flag the channel reads).
       this.reset = true;
       this.replaced();
       return;
     }
-    // Exponential backoff with full jitter, capped at 30s, so a flapping or
-    // downed server isn't hammered by every open tab every 1.5s.
     const base = Math.min(30000, 1000 * 2 ** this.reconnectAttempt);
     this.reconnectAttempt++;
     const delay = Math.round(base / 2 + Math.random() * (base / 2));
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
       if (!this.closed) this.connect();
     }, delay);
   }
@@ -270,14 +279,17 @@ export class SaltProvider {
    *  the page remount onto the new one. */
   replaced() {
     if (this.replacedDoc || this.closed) return;
+    this.reset = true;
     this.replacedDoc = true;
     this.onReset();
   }
 
   destroy() {
-    if (this.closed) return; // StrictMode double-mount / repeated cleanup
+    if (this.closed) return;
     this.closed = true;
-    clearInterval(this.watchdog);
+    if (this.watchdog) clearInterval(this.watchdog);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.cleanTimer) clearTimeout(this.cleanTimer);
     removeAwarenessStates(this.awareness, [this.doc.clientID], 'destroy');
     this.ws?.close();
     this.doc.destroy();

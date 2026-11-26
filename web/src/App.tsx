@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from './api';
 import { serverMessage } from './serverErrors';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, Menu, Sparkles, CloudOff } from 'lucide-react';
 import type { Me, PageMeta, User, Workspace } from './types';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
@@ -10,6 +10,8 @@ import AiChatView from './components/AiChatView';
 import type { AiThread } from './components/AiThreadList';
 import PeekPanel from './components/PeekPanel';
 import TabBar from './components/TabBar';
+import TabsSheet from './components/TabsSheet';
+import MobileDock from './components/MobileDock';
 import SearchModal from './components/SearchModal';
 import IndexView from './components/IndexView';
 import NotesList from './components/NotesList';
@@ -25,7 +27,8 @@ import { DialogHost, confirm, promptText } from './dialog';
 import { announceModal, modalOpen } from './modal';
 import { toast } from './toast';
 import { onRefresh } from './pwa';
-import { clearOfflineData, putPage as putCachedPage, setOfflineAccount } from './offlineCache';
+import { archiveTabs, loadArchive, loadUsage, saveArchive, saveUsage, staleTabs, type ArchivedTab, type TabUsage } from './tabAging';
+import { clearOfflineData, dropPage, dropYDoc, listOps, putPage as putCachedPage, setOfflineAccount } from './offlineCache';
 import {
   REMAP_EVENT,
   enqueue,
@@ -34,11 +37,13 @@ import {
   isOfflineError,
   isTempId,
   newTempId,
+  pendingCount,
 } from './outbox';
 import PullToRefresh from './components/PullToRefresh';
 import Logo from './Logo';
 import ThemeSwitch, { type ThemePref } from './ThemeSwitch';
 import { applyPrefs, plural, t } from './i18n';
+import { setServerNameDisplay } from './personName';
 import { isTypingTarget, useShortcut } from './keys';
 import { focusKey, useNavEntry } from './nav';
 import {
@@ -55,12 +60,13 @@ import { pageIdFromPathname, pagePath, pageSlugTitle } from './pageUrl';
 import ShortcutSheet from './components/ShortcutSheet';
 import { guardDrops } from './dropFiles';
 import { setAiEnabledState } from './aiState';
+import { UserContext } from './userContext';
 
 /** Injected by the build; false everywhere except the website's framed demo. */
 declare const __SALT_DEMO__: boolean;
 
-/** Schriftwahl: 'system' laesst alles wie bisher, 'brand' schaltet die
- *  mitgelieferten Inter- und JetBrains-Mono-Schriften ein. */
+/** Font choice: 'system' leaves everything as it was, 'brand' switches on
+ *  the bundled Inter and JetBrains Mono fonts. */
 export type FontPref = 'system' | 'brand';
 
 // Feedback from the mail OAuth consent redirect (/?mailOauth=ok|<code>).
@@ -134,11 +140,7 @@ type Theme = 'light' | 'dark';
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const aiEnabled = me?.aiEnabled !== false && !me?.user?.aiDisabled;
-  const aiEnabledRef = useRef(aiEnabled);
-  aiEnabledRef.current = aiEnabled;
-  useLayoutEffect(() => {
-    setAiEnabledState(aiEnabled);
-  }, [aiEnabled]);
+  setAiEnabledState(aiEnabled);
   const [pages, setPages] = useState<PageMeta[] | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -193,6 +195,9 @@ export default function App() {
   // Refs mirror the latest values so the stable useCallback handlers below can
   // read them without being re-created on every navigation.
   const activeRef = useRef<string | null>(currentId);
+  // Tabs that were closed, newest first. Shift+Option+T brings the last one
+  // back — a closed tab is a keystroke away, not a memory.
+  const closedTabsRef = useRef<string[]>([]);
   const [pageNonce, setPageNonce] = useState(0);
   const tabsRef = useRef<string[]>(openTabs);
   useEffect(() => {
@@ -235,6 +240,12 @@ export default function App() {
       return next.length === prev.length ? prev : next;
     });
   }, [openTabs]);
+  // Tabs that left the strip by hand or by the unused-tabs pass, newest first.
+  // Reopening one is a tap in the same sheet; the entry then goes away.
+  const [tabArchive, setTabArchive] = useState<ArchivedTab[]>(loadArchive);
+  useEffect(() => {
+    saveArchive(tabArchive);
+  }, [tabArchive]);
   // The last active page of each workspace, so switching workspaces returns to
   // where you were instead of the workspace's first page. Written on every
   // navigation (see the effect by pagesById below); read by switchWorkspace.
@@ -269,6 +280,10 @@ export default function App() {
   const [extraPages, setExtraPages] = useState<Map<string, PageMeta>>(() => new Map());
   const resolvingRef = useRef<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
+  // Open documents as a sheet of cards — the phone's replacement for the tab
+  // strip. Kept in App rather than in the dock, because selecting a card has to
+  // navigate the same way a tab click does.
+  const [tabsSheetOpen, setTabsSheetOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [indexOpen, setIndexOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -281,13 +296,12 @@ export default function App() {
     }
   });
   useEffect(() => {
-    if (!me?.authenticated) return;
     try {
       localStorage.setItem('salt-ai-panel-open', aiChatOpen ? '1' : '0');
     } catch {
       /* best-effort */
     }
-  }, [me?.authenticated, aiChatOpen]);
+  }, [aiChatOpen]);
   // Last non-empty document selection, so opening the panel from the floating
   // button can hand it over as a quote right away.
   const lastSelRef = useRef('');
@@ -301,12 +315,20 @@ export default function App() {
   // Quote handed to the side panel by in-document Ask AI (selection as a
   // quote — the document itself is never modified).
   const [aiQuote, setAiQuote] = useState<string | null>(null);
+  // A question the caller already phrased (the Code tab's AI button): the
+  // composer opens with it instead of an empty box.
+  const [aiDraft, setAiDraft] = useState<string | null>(null);
+  // A panel summoned from inside a modal must be painted above it. Normal
+  // openings keep the panel below modals, which is deliberate.
+  const [aiRaised, setAiRaised] = useState(false);
   useEffect(() => {
     const onAsk = (e: Event) => {
       if (!aiEnabled) return;
-      const d = (e as CustomEvent<{ selection?: string }>).detail;
+      const d = (e as CustomEvent<{ selection?: string; draft?: string; raised?: boolean }>).detail;
       if (d?.selection) setAiQuote(d.selection);
       else setAiQuote(null);
+      setAiDraft(d?.draft ?? null);
+      setAiRaised(!!d?.raised);
       setAiChatOpen(true);
     };
     window.addEventListener('salt:ai-ask', onAsk);
@@ -328,13 +350,19 @@ export default function App() {
     }
   });
   useEffect(() => {
-    if (!me?.authenticated) return;
     try {
       localStorage.setItem('salt-sidebar-mode', sidebarMode);
     } catch {
       /* best-effort */
     }
-  }, [me?.authenticated, sidebarMode]);
+  }, [sidebarMode]);
+  // The fullscreen process workspace narrows its code column while the chat
+  // panel is open, so the panel floats beside the text instead of over it.
+  useEffect(() => {
+    const open = aiEnabled && sidebarMode === 'docs' && aiChatOpen;
+    document.body.classList.toggle('ai-panel-open', open);
+    return () => document.body.classList.remove('ai-panel-open');
+  }, [aiEnabled, sidebarMode, aiChatOpen]);
   const [aiThreads, setAiThreads] = useState<AiThread[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(() => {
     try {
@@ -350,14 +378,13 @@ export default function App() {
     }
   });
   useEffect(() => {
-    if (!me?.authenticated) return;
     try {
       if (activeChatId) localStorage.setItem('salt-ai-active-chat', activeChatId);
       else localStorage.removeItem('salt-ai-active-chat');
     } catch {
       /* best-effort */
     }
-  }, [me?.authenticated, activeChatId]);
+  }, [activeChatId]);
   const sidebarModeRef = useRef<'docs' | 'chats'>(sidebarMode);
   const activeChatRef = useRef<string | null>(activeChatId);
   useEffect(() => {
@@ -365,21 +392,15 @@ export default function App() {
     activeChatRef.current = activeChatId;
   }, [sidebarMode, activeChatId]);
   useEffect(() => {
-    if (!me?.authenticated) return;
     if (!aiEnabled) {
       if (sidebarMode === 'chats') setSidebarMode('docs');
       if (aiChatOpen) setAiChatOpen(false);
     }
-  }, [me?.authenticated, aiEnabled, sidebarMode, aiChatOpen]);
-  const threadsReqSeqRef = useRef(0);
+  }, [aiEnabled, sidebarMode, aiChatOpen]);
   const loadAiThreads = useCallback(async () => {
     if (!aiEnabled) return;
-    const seq = ++threadsReqSeqRef.current;
     try {
-      const threads = (await api.listAIThreads()) as AiThread[];
-      if (seq !== threadsReqSeqRef.current) return;
-      setAiThreads(threads);
-      setActiveChatId((cur) => (cur && !threads.some((th) => th.id === cur) ? null : cur));
+      setAiThreads((await api.listAIThreads()) as AiThread[]);
     } catch {
       /* keep current */
     }
@@ -390,7 +411,7 @@ export default function App() {
   // Deep links to a chat (?chat=<id>, from "Copy link" / "Open in new tab"):
   // land straight in the Chats view with that thread selected.
   useEffect(() => {
-    if (!me?.authenticated || !aiEnabled) return;
+    if (!me?.authenticated) return;
     try {
       const id = new URLSearchParams(window.location.search).get('chat');
       if (id) {
@@ -400,7 +421,7 @@ export default function App() {
     } catch {
       /* no deep link */
     }
-  }, [me?.authenticated, aiEnabled]);
+  }, [me?.authenticated]);
   // The list must notice work that finished elsewhere (a background run in
   // another tab, or the agent answering while you read a document): refresh
   // when the window regains focus and every 20s while chats are visible.
@@ -525,7 +546,61 @@ export default function App() {
   // optimistic favorite toggle.
   const loadPages = useCallback(async () => {
     try {
-      setPages(await api.listPages());
+      const [list, ops] = await Promise.all([api.listPages(), listOps()]);
+      if (ops.length === 0) {
+        setPages(list);
+      } else {
+        const byId = new Map(list.map((p) => [p.id, { ...p }]));
+        for (const op of ops) {
+          if (op.kind === 'create-page' && !byId.has(op.pageId)) {
+            const p = op.payload as {
+              title?: string;
+              type?: 'doc' | 'collection';
+              props?: Record<string, unknown>;
+              workspaceId?: string;
+            };
+            const parentWs = op.parentId ? byId.get(op.parentId)?.workspaceId : undefined;
+            const now = new Date(op.createdAt).toISOString();
+            byId.set(op.pageId, {
+              id: op.pageId,
+              parentId: op.parentId ?? null,
+              title: p.title ?? '',
+              icon: '',
+              cover: '',
+              position: op.createdAt,
+              updatedAt: now,
+              trashed: false,
+              type: p.type ?? 'doc',
+              props: p.props ?? {},
+              workspaceId: p.workspaceId ?? parentWs ?? '',
+              ownerId: '',
+              visibility: 'workspace',
+              isTemplate: false,
+              tags: [],
+              description: '',
+              snippet: '',
+              thumb: '',
+            });
+          } else if (op.kind === 'update-page' && op.payload?.patch) {
+            const cur = byId.get(op.pageId);
+            if (cur) {
+              const patch = op.payload.patch as Record<string, unknown>;
+              if (typeof patch.title === 'string') cur.title = patch.title;
+              if (typeof patch.icon === 'string') cur.icon = patch.icon;
+              if (typeof patch.cover === 'string') cur.cover = patch.cover;
+              if (typeof patch.position === 'number') cur.position = patch.position;
+              if (typeof patch.workspaceId === 'string') cur.workspaceId = patch.workspaceId;
+            }
+          } else if (op.kind === 'trash-page') {
+            const cur = byId.get(op.pageId);
+            if (cur) cur.trashed = true;
+          } else if (op.kind === 'restore-page') {
+            const cur = byId.get(op.pageId);
+            if (cur) cur.trashed = false;
+          }
+        }
+        setPages([...byId.values()]);
+      }
       setLoadError(false);
     } catch (e) {
       if ((e as Error).message !== 'unauthorized') setLoadError(true);
@@ -570,7 +645,11 @@ export default function App() {
       });
       try {
         await api.setTagColor(currentWs, tag, color);
-      } catch {
+      } catch (e) {
+        if (isOfflineError(e)) {
+          await enqueue({ kind: 'tag-color', pageId: currentWs, payload: { workspaceId: currentWs, tag, color }, label: tag });
+          return;
+        }
         void api.tagColors(currentWs).then(setTagColors).catch(() => {});
       }
     },
@@ -581,6 +660,24 @@ export default function App() {
     await Promise.all([loadPages(), loadFavorites(), loadWorkspaces()]);
   }, [loadPages, loadFavorites, loadWorkspaces]);
 
+  // Quietly prefetch favorite and open-tab pages when idle so they are
+  // available offline even before being clicked in this session.
+  const prefetchedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!me?.authenticated || navigator.onLine === false) return;
+    const ids = [...new Set([...favorites, ...openTabs])].filter(
+      (id) => !isTempId(id) && !prefetchedRef.current.has(id),
+    ).slice(0, 20);
+    if (ids.length === 0) return;
+    const timer = window.setTimeout(() => {
+      for (const id of ids) {
+        prefetchedRef.current.add(id);
+        void api.getPage(id).then((p) => void putCachedPage(p)).catch(() => {});
+      }
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [me?.authenticated, favorites, openTabs]);
+
   const toggleFavorite = useCallback(
     async (id: string) => {
       const willAdd = !favorites.includes(id);
@@ -590,7 +687,11 @@ export default function App() {
       try {
         if (willAdd) await api.addFavorite(id);
         else await api.removeFavorite(id);
-      } catch {
+      } catch (e) {
+        if (isOfflineError(e)) {
+          await enqueue({ kind: 'favorite', pageId: id, payload: { add: willAdd }, label: t('Favorite') });
+          return;
+        }
         void loadFavorites(); // reconcile on failure
       }
     },
@@ -613,12 +714,10 @@ export default function App() {
         // had the localStorage cache to go on, which is a copy and may be
         // stale — somebody who changed the language on their phone gets it
         // here too, one frame later (W112).
+        setServerNameDisplay(m.nameDisplayDefault);
         if (m.authenticated && m.prefs) void applyPrefs(m.prefs);
         if (m.version && m.version !== BUILD_VERSION) {
-          toast.info(t('A new version is available — reload the page'), {
-            sticky: true,
-            action: { label: t('Reload'), run: hardReload },
-          });
+          toast(t('A new version is available: reload the page'));
         }
         if (m.authenticated) void loadAll();
       })
@@ -635,6 +734,7 @@ export default function App() {
 
   useEffect(() => {
     const onUnauthorized = () => {
+      setOfflineAccount(null);
       setUiAccount(null);
       setMe((prev) => ({
         setupRequired: prev?.setupRequired ?? false,
@@ -651,7 +751,7 @@ export default function App() {
       const qChat = qs.get('chat');
       const chatMatch = window.location.pathname.match(/^\/chat(?:\/([^/]+))?\/?$/);
       const st = e.state as { tabs?: string[]; active?: string | null; mode?: 'docs' | 'chats'; chatId?: string | null } | null;
-      if ((st?.mode === 'chats' || qChat !== null || chatMatch) && aiEnabledRef.current) {
+      if (st?.mode === 'chats' || qChat !== null || chatMatch) {
         setSidebarMode('chats');
         const cid = st?.chatId !== undefined ? st.chatId : (qChat || (chatMatch?.[1] ? decodeURIComponent(chatMatch[1]) : null));
         setActiveChatId(cid || null);
@@ -682,36 +782,37 @@ export default function App() {
       const id = typeof detail === 'string' ? detail : detail?.id;
       const newTab = typeof detail === 'object' && !!detail?.newTab;
       if (!id) return;
+      history.pushState({ tabs: tabsRef.current, active: id, mode: 'docs' }, '', pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))));
+      setSidebarMode('docs');
+      setCurrentId(id);
+      setSidebarOpen(false);
       // Computed from refs, not in a setOpenTabs updater: updater functions
       // must stay pure (React may run them twice), and reading activeRef in
       // one gave a stale second run that appended after a pinned tab instead
       // of beside it. navigate/openInNewTab compute the same way.
       const prev = tabsRef.current;
-      let next = prev;
-      if (!prev.includes(id)) {
-        // A new tab slides in right after the active one (see openInNewTab).
-        if (newTab) {
-          const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
-          next = i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+      // Open in a tab already: land on it, the way a browser focuses the
+      // tab a link is already open in.
+      if (prev.includes(id)) return;
+      let next: string[];
+      // A new tab slides in right after the active one (see openInNewTab).
+      if (newTab) {
+        const i = activeRef.current ? prev.indexOf(activeRef.current) : -1;
+        next = i < 0 ? [...prev, id] : [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
+      } else {
+        const active = activeRef.current;
+        if (active && prev.includes(active) && !pinnedRef.current.includes(active)) {
+          next = prev.map((t) => (t === active ? id : t));
+        } else if (active && prev.includes(active)) {
+          // A pinned active tab is never navigated in place (see navigate):
+          // the page opens right after it instead.
+          const i = prev.indexOf(active);
+          next = [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
         } else {
-          const active = activeRef.current;
-          if (active && prev.includes(active) && !pinnedRef.current.includes(active)) {
-            next = prev.map((t) => (t === active ? id : t));
-          } else if (active && prev.includes(active)) {
-            // A pinned active tab is never navigated in place (see navigate):
-            // the page opens right after it instead.
-            const i = prev.indexOf(active);
-            next = [...prev.slice(0, i + 1), id, ...prev.slice(i + 1)];
-          } else {
-            next = [...prev, id];
-          }
+          next = [...prev, id];
         }
       }
-      history.pushState({ tabs: next, active: id, mode: 'docs' }, '', pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))));
-      setSidebarMode('docs');
-      setCurrentId(id);
-      setSidebarOpen(false);
-      if (next !== prev) setOpenTabs(next);
+      setOpenTabs(next);
     };
     window.addEventListener('salt:unauthorized', onUnauthorized);
     window.addEventListener('popstate', onPop);
@@ -810,9 +911,7 @@ export default function App() {
     label: () => t('New note'),
     group: () => t('General'),
     run: (e) => {
-      if (isTypingTarget(document.activeElement) && !e.metaKey && !e.ctrlKey) {
-        if (e.key === 'Dead' || (e.key.length === 1 && e.key.toLowerCase() !== 'n')) return false;
-      }
+      if (e.key === 'Dead' || (e.key.length === 1 && e.key.toLowerCase() !== 'n')) return false;
       void createPageRef.current?.(null);
     },
   });
@@ -992,19 +1091,20 @@ export default function App() {
           type: string;
           version?: string;
           collection?: string;
+          page?: string;
           id?: string;
         };
         if (msg.type === 'hello' && msg.version && msg.version !== BUILD_VERSION && !warnedVersion) {
           warnedVersion = true;
-          toast.info(t('A new version is available — reload the page'), {
-            sticky: true,
-            action: { label: t('Reload'), run: hardReload },
-          });
+          toast(t('A new version is available: reload the page'));
         }
         if (msg.type === 'pages') {
           window.clearTimeout(reloadTimer.current);
           reloadTimer.current = window.setTimeout(() => void loadPages(), 250);
         }
+        // A workspace's settings moved (a rules proposal, say): the list holds
+        // them, and an open settings dialog reads from it.
+        if (msg.type === 'workspaces') void loadWorkspaces();
         // A database's rows moved. Passed on as a DOM event rather than through
         // props: only the open CollectionView cares, and only when it is the
         // database named here. Reloading every open view on every event is what
@@ -1012,6 +1112,11 @@ export default function App() {
         // whenever anybody renamed anything.
         if (msg.type === 'rows' && msg.collection) {
           window.dispatchEvent(new CustomEvent('salt:rows', { detail: msg.collection }));
+        }
+        // A process-code proposal is waiting. Names only the page: the text
+        // is fetched through a route that checks read access.
+        if (msg.type === 'workflow-code' && msg.page) {
+          window.dispatchEvent(new CustomEvent('salt:workflow-code', { detail: msg.page }));
         }
         // An agent checked in or out. Content-free on purpose: the list is
         // fetched through a route that checks permissions per page.
@@ -1211,8 +1316,10 @@ export default function App() {
   );
 
   // closeTab removes a tab; if it was active, the neighbour that slides into its
-  // slot (else the previous one, else nothing) becomes active.
-  const closeTab = useCallback((id: string) => {
+  // slot (else the previous one, else nothing) becomes active. `archive: false`
+  // is for the tabs sheet's unused group: throwing away a tab nobody wanted is
+  // not a close worth remembering.
+  const closeTab = useCallback((id: string, opts?: { archive?: boolean }) => {
     const prev = tabsRef.current;
     const i = prev.indexOf(id);
     if (i < 0) return;
@@ -1229,6 +1336,13 @@ export default function App() {
       n.delete(id);
       return n;
     });
+    // Remember what was just closed, so Shift+Option+T can bring it back.
+    closedTabsRef.current = [id, ...closedTabsRef.current.filter((x) => x !== id)].slice(0, 20);
+    // The phone's tabs sheet keeps the same thing as a visible row: closing a
+    // tab by hand is not deleting the page, and one tap brings it back.
+    if (opts?.archive !== false) {
+      setTabArchive((prev) => archiveTabs(prev, [id], pagesByIdRef.current));
+    }
     // The remembered scroll positions die with the tab. The chosen VIEW stays:
     // that is a choice about the collection, not about the tab.
     forgetPageScroll(id);
@@ -1327,6 +1441,33 @@ export default function App() {
     run: () => cycleTab(-1),
   });
 
+  // ⇧⌥T reopens the tab that was closed last. Pages that are gone for good —
+  // deleted, no longer readable — are skipped rather than opening an error.
+  useShortcut({
+    id: 'tabs.reopen',
+    keys: ['alt+shift+t'],
+    // The chord types nothing — it is Option+Shift+T, whose "character" is a
+    // caron — so it is safe to answer it while the caret is in the page.
+    whileTyping: true,
+    label: () => t('Reopen closed tab'),
+    group: () => t('Tabs'),
+    run: () => {
+      const stack = closedTabsRef.current;
+      while (stack.length) {
+        const id = stack.shift()!;
+        if (tabsRef.current.includes(id)) continue;
+        // No meta check. A row opened from a collection is not in the page
+        // tree and its meta is dropped with its tab, so "is it a page we know"
+        // answered no for exactly the tabs people close most — and the entry
+        // was thrown away silently. The app resolves a tab's row meta on open,
+        // and a page that is really gone closes its own tab on the 404.
+        openInNewTab(id);
+        return;
+      }
+      return false;
+    },
+  });
+
   // Alt+1 .. Alt+9 (or ⌥⌘1..9) jumps directly to tab 1 through 9.
   useShortcut({
     id: 'tabs.jump',
@@ -1337,9 +1478,8 @@ export default function App() {
     group: () => t('Tabs'),
     run: (e) => {
       if (modalOpen()) return false;
-      const m = /^Digit([1-9])$/.exec(e.code);
-      if (!m) return false;
-      const num = Number(m[1]);
+      const num = parseInt(e.key, 10);
+      if (isNaN(num)) return false;
       const tabs = tabsRef.current;
       if (tabs[num - 1]) {
         navigate(tabs[num - 1]);
@@ -1503,9 +1643,12 @@ export default function App() {
 
   useEffect(() => {
     if (!pages) return;
-    // Don't hijack the /invite/<token> route: an authenticated invitee must stay
-    // on the invite screen long enough to accept, not get replaced with a page.
-    if (/^\/invite\/[a-f0-9]+$/.test(window.location.pathname)) return;
+    // Don't hijack the public routes: an authenticated invitee must stay on
+    // the invite screen long enough to accept, and a signed-in colleague who
+    // opens a public link (a collection renders in this same app) must see the
+    // share, not be thrown into the page they had open. A public link used to
+    // bounce a logged-in reader straight into the workspace.
+    if (/^\/(invite|form|public)\/[a-f0-9]+$/.test(window.location.pathname)) return;
     // Nor the consent screen. It renders only once `me` has loaded, and by then
     // this effect had already moved the browser to the last page you had open —
     // the agent's sign-in vanished into the app before anyone could answer it.
@@ -1535,7 +1678,14 @@ export default function App() {
   }, [pages, currentId, navigate]);
 
   const createPage = useCallback(
-    async (parentId: string | null, type: 'doc' | 'collection' = 'doc') => {
+    async (
+      parentId: string | null,
+      type: 'doc' | 'collection' = 'doc',
+      // `newTab` is for the place where a new page is asked for FROM the list of
+      // open documents: asking there means "and show me it", not "and replace
+      // what I am looking at". Everywhere else a create is a navigation.
+      opts: { newTab?: boolean } = {},
+    ) => {
       // Shortcuts are global: without this an Alt+N on the sign-in screen
       // would journal a temp page nobody can open yet.
       if (!me?.authenticated) {
@@ -1579,19 +1729,24 @@ export default function App() {
           thumb: '',
         };
         await putCachedPage({ ...p, content: [], createdAt: now });
-        await enqueue({
+        const ok = await enqueue({
           kind: 'create-page',
           pageId: tempId,
           parentId,
           payload: { title: '', type, props: {}, workspaceId: parentId ? undefined : wsId },
           label: t('New page'),
         });
+        if (!ok) {
+          await dropPage(tempId);
+          return;
+        }
         toast.warning(t('Will sync when the connection is back'));
         // A transient blip rather than a dead network: try at once.
         void flushOutbox();
       }
       setPages((prev) => (prev ? [...prev, p] : [p]));
-      navigate(p.id);
+      if (opts.newTab) openInNewTab(p.id);
+      else navigate(p.id);
       // Land in the title: a new page is created to be named, and from ⌥N there
       // was no pointer involved to leave anywhere useful. Across frames rather
       // than immediately — the editor mounts on a later render (see focusKey).
@@ -1609,12 +1764,21 @@ export default function App() {
       // immediately against the wrong page's title and never waits for `p`'s.
       focusKey('content', 'title', 180, (root) => root.dataset.pageId === p.id);
     },
-    [navigate, currentWs, me?.authenticated],
+    [navigate, openInNewTab, currentWs, me?.authenticated],
   );
   createPageRef.current = createPage;
 
   const updateMeta = useCallback((id: string, patch: Partial<PageMeta>) => {
     setPages((prev) => prev?.map((p) => (p.id === id ? { ...p, ...patch } : p)) ?? prev);
+    // A row opened in its own tab is not in the page list, so its tab title
+    // would keep the old name after a rename.
+    setExtraPages((prev) => {
+      const p = prev.get(id);
+      if (!p) return prev;
+      const next = new Map(prev);
+      next.set(id, { ...p, ...patch });
+      return next;
+    });
   }, []);
 
   // Import for the empty-state (no pages yet). The primary import entry point is
@@ -1650,14 +1814,20 @@ export default function App() {
 
   const trashPage = useCallback(
     async (id: string) => {
-      // Collection rows are excluded from the tree list. Resolve their parent
-      // before trashing them, while the server can still return the page.
-      const deleted = activeRef.current === id ? await api.getPage(id) : null;
-      await api.trashPage(id);
-      // Check the current selection after the request: the user may have
-      // navigated elsewhere while deletion was pending.
-      if (activeRef.current === id) navigate(deleted?.parentId ?? null, true);
-      // Rows absent from /api/pages cannot be pruned by the tree refresh.
+      try {
+        const deleted = activeRef.current === id ? await api.getPage(id) : null;
+        await api.trashPage(id);
+        if (activeRef.current === id) navigate(deleted?.parentId ?? null, true);
+      } catch (e) {
+        if (!isTempId(id) && !isOfflineError(e)) {
+          toast((e as Error).message || t('Could not be moved to the trash'));
+          return;
+        }
+        const ok = await enqueue({ kind: 'trash-page', pageId: id, payload: {}, label: t('Move to trash') });
+        if (!ok) return;
+        if (activeRef.current === id) navigate(null, true);
+        toast.warning(t('Will sync when the connection is back'));
+      }
       setOpenTabs((prev) => prev.filter((tab) => tab !== id));
       setExtraPages((prev) => {
         if (!prev.has(id)) return prev;
@@ -1673,19 +1843,30 @@ export default function App() {
   const duplicatePage = useCallback(
     async (id: string) => {
       try {
-        const r = await api.duplicatePage(id);
+        const title = pages?.find((p) => p.id === id)?.title ?? '';
+        const r = await api.duplicatePage(id, false, false, title ? t('Copy of {title}', { title }) : '');
         await loadPages();
         navigate(r.id);
       } catch {
         toast(t('Could not be duplicated'));
       }
     },
-    [loadPages, navigate],
+    [pages, loadPages, navigate],
   );
 
   const restorePage = useCallback(
     async (id: string) => {
-      await api.restorePage(id);
+      try {
+        await api.restorePage(id);
+      } catch (e) {
+        if (!isOfflineError(e)) {
+          toast((e as Error).message || t('Could not restore'));
+          return;
+        }
+        const ok = await enqueue({ kind: 'restore-page', pageId: id, payload: {}, label: t('Restore') });
+        if (!ok) return;
+        toast.warning(t('Will sync when the connection is back'));
+      }
       await loadPages();
     },
     [loadPages],
@@ -1693,8 +1874,23 @@ export default function App() {
 
   const deleteForever = useCallback(
     async (id: string) => {
+      // What loses a link, before the question is asked. The cleanup clears
+      // those relations for good, so saying how many is the difference between
+      // a confirmation and a surprise.
+      let note = '';
+      try {
+        const refs = await api.pageReferences(id);
+        if (refs.rows > 0) {
+          note =
+            '\n\n' +
+            plural(refs.rows, 'One row links to it and will lose the link.', '{n} rows link to it and will lose the links.');
+          if (refs.links > refs.rows) note += ' ' + t('{n} links in total.', { n: refs.links });
+        }
+      } catch {
+        // The count is a courtesy; a failed read must not block the delete.
+      }
       if (
-        !(await confirm(t('Delete this page and all its sub-pages forever?'), {
+        !(await confirm(t('Delete this page and all its sub-pages forever?') + note, {
           danger: true,
           confirmText: t('Delete'),
         }))
@@ -1748,6 +1944,50 @@ export default function App() {
   useEffect(() => {
     pagesByIdRef.current = pagesById;
   }, [pagesById]);
+
+  // --- tab ageing ---------------------------------------------------------
+  //
+  // A phone collects documents the way Chrome collects tabs, and the sheet
+  // hides nothing: after a fortnight it is a wall of pages nobody will open
+  // again. The sheet gathers anything untouched for three days into "Unused tabs"
+  // instead of closing it on load, and its "Close all" moves that group into
+  // the archive below — both visible where the tabs are.
+  const [tabUsage, setTabUsage] = useState<TabUsage>(loadUsage);
+  const usageRef = useRef<TabUsage>(tabUsage);
+  useEffect(() => {
+    usageRef.current = tabUsage;
+    saveUsage(tabUsage);
+  }, [tabUsage]);
+  // Stamp the document being read. Throttled by a minute: every navigation
+  // would otherwise write to localStorage, and this is a "last seen", not an
+  // audit log.
+  useEffect(() => {
+    if (!currentId) return;
+    setTabUsage((prev) => {
+      const at = prev[currentId];
+      if (at && Date.now() - at < 60_000) return prev;
+      return { ...prev, [currentId]: Date.now() };
+    });
+  }, [currentId]);
+  const closeAgedTabs = useCallback(() => {
+    const stale = staleTabs(tabsRef.current, usageRef.current, {
+      active: activeRef.current,
+      pinned: pinnedRef.current,
+    });
+    if (stale.length === 0) return;
+    // Unused tabs are thrown away, not filed: they were already the ones
+    // nobody wanted, and offering them back under "Recently closed" is the
+    // sheet arguing with the person who just cleared it.
+    replaceTabs(tabsRef.current.filter((id) => !stale.includes(id)));
+  }, [replaceTabs]);
+  // The tabs nobody has opened for three days. They are not closed: the sheet
+  // gathers them into their own section, which one tap reverses. That pass is
+  // a visible group rather than a silent close, and pinning is the way a tab
+  // opts out of it entirely (see staleTabs).
+  const unusedTabs = useMemo(
+    () => staleTabs(openTabs, tabUsage, { active: currentId, pinned: pinnedTabs }),
+    [openTabs, tabUsage, currentId, pinnedTabs],
+  );
   // Remember the active page under its OWN workspace (not the current one —
   // the two disagree for a frame when switching). Runs again once pages load,
   // so a page active before its meta arrived is still recorded.
@@ -1777,36 +2017,48 @@ export default function App() {
   // Keep the address bar in sync with the AI Chats tab (?chat=<id> or ?chat=
   // for a new chat), and restore the active document's /p/<slug>-<id> URL when
   // switching back to the Home tab.
-  const urlSyncInitRef = useRef(false);
   useEffect(() => {
-    if (!me?.authenticated) {
-      urlSyncInitRef.current = false;
-      return;
-    }
+    if (!me?.authenticated) return;
     if (/^\/(invite|form|public)\/[a-f0-9]+$/.test(window.location.pathname)) return;
     if (window.location.pathname === '/oauth/consent') return;
-    const isInitialSync = !urlSyncInitRef.current;
-    urlSyncInitRef.current = true;
-    const isChatAlias = window.location.pathname === '/chat' || window.location.pathname.startsWith('/chat/');
-    if (sidebarMode === 'chats' && aiEnabled) {
+    if (sidebarMode === 'chats') {
       const want = activeChatId ? `/?chat=${encodeURIComponent(activeChatId)}` : '/?chat=';
       const cur = window.location.pathname + window.location.search;
       if (cur !== want) {
-        const state = { tabs: tabsRef.current, active: activeRef.current, mode: 'chats' as const, chatId: activeChatId };
-        if (isInitialSync || isChatAlias) history.replaceState(state, '', want);
-        else history.pushState(state, '', want);
+        history.pushState(
+          { tabs: tabsRef.current, active: activeRef.current, mode: 'chats', chatId: activeChatId },
+          '',
+          want,
+        );
       }
     } else {
       const curSearch = new URLSearchParams(window.location.search);
-      if (curSearch.has('chat') || isChatAlias) {
+      if (curSearch.has('chat') || window.location.pathname === '/chat' || window.location.pathname.startsWith('/chat/')) {
         const id = activeRef.current;
         const want = id ? pagePath(id, pageSlugTitle(pagesByIdRef.current.get(id))) : '/';
-        const state = { tabs: tabsRef.current, active: id, mode: 'docs' as const };
-        if (isInitialSync || isChatAlias) history.replaceState(state, '', want);
-        else history.pushState(state, '', want);
+        history.pushState({ tabs: tabsRef.current, active: id, mode: 'docs' }, '', want);
       }
     }
-  }, [me?.authenticated, aiEnabled, sidebarMode, activeChatId]);
+  }, [me?.authenticated, sidebarMode, activeChatId]);
+
+  // The open editor owns the tab title while it lives (see PageHeader); this
+  // covers everything else — library, graph, search, a fresh chat — and the
+  // gap before the editor mounts.
+  useEffect(() => {
+    if (!me?.authenticated) return;
+    if (sidebarMode === 'chats') {
+      const th = aiThreads.find((t) => t.id === activeChatId);
+      const name = (th?.title || '').trim();
+      document.title = name ? `${name} · salt.md` : 'salt.md';
+      return;
+    }
+    if (!currentId) {
+      document.title = 'salt.md';
+      return;
+    }
+    const p = pagesById.get(currentId);
+    if (p) document.title = p.title ? `${p.title} · salt.md` : 'salt.md';
+  }, [me?.authenticated, sidebarMode, activeChatId, currentId, pagesById, aiThreads]);
 
   // A viewer (read-only workspace role) may not edit; the doc editor renders
   // read-only so a viewer isn't teased with an editable-looking page whose
@@ -1876,7 +2128,13 @@ export default function App() {
   // dismiss the peek. Same detached-node reason as downInsideRef above.
   const downKeepsOpenRef = useRef(false);
   const OUTSIDE_OK =
-    '.peek-panel, .ai-panel, .menu, .fs-popover, [role="dialog"], [role="listbox"], .dialog, .modal-overlay';
+    // The peek's own surface, and every layer that can float above it. The
+    // select menu is portalled to the body (a table cell clips it), so its
+    // menu and backdrop are NOT inside .peek-panel — without them a click on
+    // the menu's padding, or on its backdrop, read as a click outside the peek
+    // and closed what the select was opened over.
+    '.peek-panel, .menu, .select-menu, .select-backdrop, .fs-popover, .fs-backdrop, ' +
+    '[role="dialog"], [role="listbox"], .dialog, .modal-overlay';
   // Content the peek stays open over: text being read or edited, controls, and
   // every row, card, chip and bar of the collection views. Anything else — the
   // padding of the page and of the views, an empty day cell, the gaps between
@@ -1958,23 +2216,8 @@ export default function App() {
 
   const onAuthed = useCallback(
     (user: User) => {
-      setMe((prev) => ({
-        setupRequired: false,
-        authenticated: true,
-        user,
-        version: BUILD_VERSION,
-        aiEnabled: prev?.aiEnabled,
-      }));
+      setMe({ setupRequired: false, authenticated: true, user, version: BUILD_VERSION });
       setSearchOpen(false);
-      void api
-        .me()
-        .then((m) => {
-          setMe(m);
-          setOfflineAccount(m.authenticated && m.user ? m.user.id : null);
-          setUiAccount(m.authenticated && m.user ? m.user.id : null);
-          if (m.authenticated && m.prefs) void applyPrefs(m.prefs);
-        })
-        .catch(() => {});
       void loadAll();
     },
     [loadAll],
@@ -1983,7 +2226,7 @@ export default function App() {
   if (loadError && !pages) {
     return (
       <div className="empty-state">
-        <div className="empty-emoji">🍂</div>
+        <div className="empty-emoji"><CloudOff size={44} /></div>
         <h2>{t('Cannot reach the server')}</h2>
         <p>{t('salt.md could not load your workspace.')}</p>
         <button className="btn primary" onClick={() => window.location.reload()}>
@@ -2069,7 +2312,8 @@ export default function App() {
   const toaster = <Toaster />;
 
   return (
-    <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '') + (hoverLock ? ' hover-lock' : '')}>
+    <UserContext.Provider value={me?.user ?? null}>
+      <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '') + (hoverLock ? ' hover-lock' : '')}>
       {/* Collapsed-sidebar hover zone (desktop): hovering the left edge slides
           the sidebar in as an overlay without permanently un-collapsing it. */}
       {sidebarCollapsed && <div className="sidebar-hotzone" />}
@@ -2110,30 +2354,30 @@ export default function App() {
         themePref={themePref}
         onSetTheme={setThemePref}
         onLogout={async () => {
-          // Sign-out wipes the offline stores (snapshots, outbox, cached API
-          // responses): they belong to this account, and the next person on
-          // this browser must not inherit them. Best-effort, before leaving.
-          await clearOfflineData().catch(() => {});
-          try {
-            const aiKeys: string[] = [];
-            for (let i = 0; i < localStorage.length; i++) {
-              const k = localStorage.key(i);
-              if (k && k.startsWith('salt-ai-')) aiKeys.push(k);
-            }
-            for (const k of aiKeys) localStorage.removeItem(k);
-            localStorage.removeItem('salt-ai-active-chat');
-            localStorage.removeItem('salt-ai-open');
-            localStorage.removeItem('salt-ai-panel-open');
-            localStorage.removeItem('salt-sidebar-mode');
-            localStorage.removeItem('salt-pinned-chats');
-          } catch {
-            /* best-effort */
+          if (navigator.onLine !== false) {
+            await flushOutbox().catch(() => {});
           }
-          await api.logout();
-          // Inside the marketing site's demo frame, '/' is the marketing home
-          // page — loaded into the frame, with no way back to the application.
-          // There the session IS the in-memory store, so a reload is the
-          // sign-out: everything resets and the demo starts over.
+          const pending = await pendingCount();
+          if (pending > 0) {
+            const ok = await confirm(
+              plural(
+                pending,
+                '{n} offline change has not synced yet and will be lost on sign out.',
+                '{n} offline changes have not synced yet and will be lost on sign out.',
+              ),
+              { confirmText: t('Sign out'), danger: true },
+            );
+            if (!ok) return;
+          }
+          try {
+            await api.logout();
+          } catch (e) {
+            if (isOfflineError(e)) {
+              toast.warning(t('Connect to the internet before signing out so your offline changes are not lost.'));
+              return;
+            }
+          }
+          await clearOfflineData().catch(() => {});
           if (__SALT_DEMO__) window.location.reload();
           else window.location.href = '/';
         }}
@@ -2161,6 +2405,9 @@ export default function App() {
         sidebarMode={sidebarMode}
         onSidebarModeChange={(m) => {
           setSidebarMode(m);
+          // The drawer exists to make the choice; once it is made, it steps
+          // out of the way — the chats view or the tree is the destination.
+          setSidebarOpen(false);
           if (m === 'chats') void loadAiThreads();
         }}
         aiThreads={aiThreads}
@@ -2198,12 +2445,14 @@ export default function App() {
           <AiChatView
             threadId={activeChatId}
             pagesById={pagesById}
+            onOpenSidebar={openSidebar}
             onOpenPage={(id) => navigate(id)}
             onThreadCreated={(id) => {
               setActiveChatId(id);
               void loadAiThreads();
             }}
             onThreadsChanged={() => void loadAiThreads()}
+            onNewChat={() => setActiveChatId(null)}
           />
         ) : indexOpen ? (
           <IndexView
@@ -2269,14 +2518,14 @@ export default function App() {
           // if someone is left without one anyway (assignment revoked, creation
           // failed), at least say what is going on.
           <div className="empty-state">
-            <button className="menu-btn empty-menu-btn" onClick={openSidebar}>
-              ☰
+            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label={t('Menu')}>
+              <Menu size={18} />
             </button>
             <div className="empty-emoji"><Logo size={52} /></div>
             <h2>{t('No workspace')}</h2>
             <p>
               {t(
-                'Your account currently belongs to no workspace. Ask an admin for access — or create one of your own, if this instance allows it.',
+                'Your account currently belongs to no workspace. Ask an admin for access, or create one of your own, if this instance allows it.',
               )}
             </p>
             {me?.allowUserWorkspaces && (
@@ -2306,12 +2555,12 @@ export default function App() {
           </div>
         ) : (
           <div className="empty-state">
-            <button className="menu-btn empty-menu-btn" onClick={openSidebar}>
-              ☰
+            <button className="menu-btn empty-menu-btn" onClick={openSidebar} aria-label={t('Menu')}>
+              <Menu size={18} />
             </button>
             <div className="empty-emoji"><Logo size={52} /></div>
             <h2>{t('No pages yet')}</h2>
-            <p>{t('Create your first page — or import from Notion (.zip) / Markdown (.md).')}</p>
+            <p>{t('Create your first page, or import from Notion (.zip) / Markdown (.md).')}</p>
             <div className="empty-actions">
               <button className="btn primary" onClick={() => void createPage(null)}>
                 {t('New page')}
@@ -2374,17 +2623,78 @@ export default function App() {
         />
       )}
       {helpOpen && <ShortcutSheet onClose={() => setHelpOpen(false)} />}
-      {aiEnabled && sidebarMode !== 'chats' && (
-        <button onMouseDown={(e) => e.preventDefault()} onClick={() => {
+      {/* The phone's navigation bar. It is rendered unconditionally and hidden
+          by mobile.css above the breakpoint, so nothing here has to know how
+          wide the window is. */}
+      <MobileDock
+        aiEnabled={aiEnabled && sidebarMode === 'docs'}
+        chats={sidebarMode === 'chats'}
+        tabCount={openTabs.length}
+        onOpenSidebar={openSidebar}
+        onOpenTabs={() => setTabsSheetOpen(true)}
+        onSearch={() => setSearchOpen(true)}
+        onNewChat={() => setActiveChatId(null)}
+        onAi={() => {
           const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
           if (sel) setAiQuote(sel);
           setAiChatOpen(true);
-        }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 90, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}>✨</button>
+        }}
+      />
+      <TabsSheet
+        open={tabsSheetOpen}
+        tabs={openTabs}
+        pinned={pinnedTabs}
+        activeId={currentId}
+        pagesById={pagesById}
+        archive={tabArchive}
+        unused={unusedTabs}
+        onSelect={(id) => {
+          setTabsSheetOpen(false);
+          navigate(id);
+        }}
+        onClose={(id) => {
+          closeTab(id);
+          // The sheet is a list of what is open, so it stays current: closing
+          // the last document leaves nothing to show.
+          if (openTabs.length <= 1) setTabsSheetOpen(false);
+        }}
+        onDiscard={(id) => {
+          closeTab(id, { archive: false });
+          if (openTabs.length <= 1) setTabsSheetOpen(false);
+        }}
+        onCreate={() => {
+          setTabsSheetOpen(false);
+          // A page asked for from the tabs sheet opens as its own tab, the way
+          // "+" does in every other tab switcher.
+          void createPage(null, 'doc', { newTab: true });
+        }}
+        onCloseUnused={() => {
+          closeAgedTabs();
+          // The whole point of the button is what happened to the sheet, so it
+          // stays open: the group is gone and the tabs with it — unused tabs
+          // are not filed under "Recently closed".
+        }}
+        onTogglePin={togglePinTab}
+        onMove={moveTabTo}
+        onReopen={(id) => {
+          setTabArchive((prev) => prev.filter((entry) => entry.id !== id));
+          if (!pagesById.has(id)) return;
+          setTabsSheetOpen(false);
+          openInNewTab(id);
+        }}
+        onDismiss={() => setTabsSheetOpen(false)}
+      />
+      {aiEnabled && sidebarMode !== 'chats' && (
+        <button className="ai-fab" onMouseDown={(e) => e.preventDefault()} onClick={() => {
+          const sel = lastSelRef.current || (window.getSelection()?.toString() ?? '').trim();
+          if (sel) setAiQuote(sel);
+          setAiRaised(false);
+          setAiChatOpen(true);
+        }} style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 90, width: 44, height: 44, borderRadius: '50%', background: 'var(--accent, #2f7d4f)', color: 'var(--accent-fg, #fff)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }} title={t('AI')}><Sparkles size={20} /></button>
       )}
       {aiEnabled && sidebarMode === 'docs' && (
         <AiChatPanel
           pageId={currentId ?? undefined}
-          canEdit={canEditCurrent}
           threadId={activeChatId}
           threads={aiThreads}
           pagesById={pagesById}
@@ -2393,12 +2703,17 @@ export default function App() {
             setActiveChatId(id);
             void loadAiThreads();
           }}
+          onThreadsChanged={() => void loadAiThreads()}
           quote={aiQuote}
+          draft={aiDraft}
+          raised={aiRaised}
+          onDraftConsumed={() => setAiDraft(null)}
           onQuoteConsumed={() => setAiQuote(null)}
           onOpenSidebar={openSidebar}
           onClose={() => {
             setAiChatOpen(false);
             setAiQuote(null);
+            setAiRaised(false);
             void loadAiThreads();
           }}
         />
@@ -2433,6 +2748,10 @@ export default function App() {
           onMissing={handleMissing}
           onSwitchWorkspace={switchWorkspace}
           onClose={() => setSearchOpen(false)}
+          openTabs={openTabs}
+          pinnedTabs={pinnedTabs}
+          onCloseTab={closeTab}
+          onTogglePinTab={togglePinTab}
           onNavigate={(id) => {
             setSearchOpen(false);
             navigate(id);
@@ -2458,7 +2777,7 @@ export default function App() {
           }}
         >
           <WifiOff size={13} />
-          {t('Not receiving live updates — reconnect')}
+          {t('Not receiving live updates: reconnect')}
         </button>
       )}
       {toaster}
@@ -2467,5 +2786,6 @@ export default function App() {
       <ImageLightbox />
       <PullToRefresh />
     </div>
+    </UserContext.Provider>
   );
 }

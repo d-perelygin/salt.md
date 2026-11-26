@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import type { Backlink, PageMeta, SaltFile } from '../types';
 import { PageIcon } from '../pageIcon';
 import { FilePreview, isPreviewable } from './FilePreview';
+import SheetGrab from './SheetGrab';
 import { formatBytes } from '../format';
 import { t } from '../i18n';
 import { openPage, openPageAux } from '../pageOpen';
@@ -116,6 +117,7 @@ export default function StructurePanel({
   const [files, setFiles] = useState<SaltFile[]>([]);
   const [links, setLinks] = useState<Backlink[]>([]);
   const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   const pages = useMemo(() => subtree(pageId, pagesById), [pageId, pagesById]);
   const above = useMemo(() => ancestors(pageId, pagesById), [pageId, pagesById]);
@@ -142,8 +144,13 @@ export default function StructurePanel({
   };
 
   return (
-    <aside className="structure-panel" aria-label={t('Structure')}>
-      <div className="structure-head">
+    <>
+      {/* A veil only exists on a phone, where this panel is a sheet: tapping
+          it closes the panel, the same way it closes every other sheet. */}
+      <div className="structure-backdrop" onClick={onClose} />
+      <aside className="structure-panel" aria-label={t('Structure')} ref={panelRef}>
+        <SheetGrab sheet={panelRef} onDismiss={onClose} />
+        <div className="structure-head">
         <span>{t('Structure')}</span>
         <button className="icon-btn" title={t('Hide structure')} onClick={onClose}>
           <PanelRightClose size={17} />
@@ -238,7 +245,7 @@ export default function StructurePanel({
                 key={f.name}
                 className="structure-item structure-file"
                 onClick={() => openFile(f)}
-                title={f.pageId === pageId ? f.displayName : `${f.displayName} — ${f.pageTitle}`}
+                title={f.pageId === pageId ? f.displayName : `${f.displayName} (${f.pageTitle})`}
               >
                 <span className={'structure-icon structure-ext ' + (EXT_CLASS[ext] ?? '')}>
                   {ext.slice(0, 4) || '?'}
@@ -279,9 +286,10 @@ export default function StructurePanel({
 
       </div>
 
-      {preview && (
-        <FilePreview name={preview.name} url={preview.url} onClose={() => setPreview(null)} />
-      )}
-    </aside>
+        {preview && (
+          <FilePreview name={preview.name} url={preview.url} onClose={() => setPreview(null)} />
+        )}
+      </aside>
+    </>
   );
 }

@@ -547,8 +547,7 @@ func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
-	defer rows.Close()
-	list := []workspaceJSON{}
+	all := []workspaceJSON{}
 	for rows.Next() {
 		var x workspaceJSON
 		var personal, autoJoin int
@@ -562,7 +561,18 @@ func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		if x.Role != "admin" {
 			x.RulesProposal, x.RulesProposalBy, x.RulesProposalAt = "", "", ""
 		}
-		list = append(list, x)
+		all = append(all, x)
+	}
+	rows.Close() // drain before the reach check below, which queries (one connection)
+	// Only what the credential may enter, the same answer list kind=workspaces
+	// gives. This route handed any token the name, the rules and the pending
+	// proposal of every workspace on the account. A browser session passes
+	// everything, as before.
+	list := []workspaceJSON{}
+	for _, x := range all {
+		if s.credentialMayEnter(requestUser(r), x.ID) {
+			list = append(list, x)
+		}
 	}
 	writeJSON(w, list)
 }
@@ -606,6 +616,15 @@ func (s *Server) handleUpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		args = append(args, n)
 	}
 	if body.AgentAccess != nil {
+		// The rule is what a PERSON decides about agents, so no credential may
+		// change it: a signed-in agent, which a strict workspace admits, opened
+		// that workspace to every permanent key with one call. Same line as the
+		// rules (handleWorkspaceRules is sessionOnly).
+		if requestUser(r).TokenScope != "" {
+			httpErrorCode(w, http.StatusForbidden, "session_required",
+				"This action requires signing in through a browser. An API token is not enough.")
+			return
+		}
 		v := strings.TrimSpace(*body.AgentAccess)
 		if v != "" && !validAgentAccess(v) {
 			httpErrorCode(w, 400, "bad_agent_access", "agentAccess must be open, strict or closed")
@@ -724,6 +743,7 @@ func (s *Server) handleWorkspaceRules(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
+	s.workspaceChanged(wsID)
 	detail := ""
 	if hadProposal != "" {
 		detail = "settled a pending proposal"
@@ -749,6 +769,7 @@ func (s *Server) handleDismissRulesProposal(w http.ResponseWriter, r *http.Reque
 		httpError(w, 500, err.Error())
 		return
 	}
+	s.workspaceChanged(wsID)
 	s.audit("human", requestUser(r).ID, requestUser(r).Name, "workspace_rules_proposal_dismissed", "", wsID, "")
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -791,7 +812,7 @@ func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	var mine int
 	s.db.QueryRow(`SELECT COUNT(*) FROM workspace_members WHERE user_id = ?`, uid).Scan(&mine)
 	if mine <= 1 {
-		httpError(w, 409, "this is your last workspace — create another one first")
+		httpError(w, 409, "this is your last workspace. Create another one first")
 		return
 	}
 
@@ -825,7 +846,7 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	if narrowedToWorkspaces(requestUser(r)) {
 		httpErrorCode(w, http.StatusForbidden, "workspace_scoped",
-			"This connection is limited to particular workspaces, so it cannot create new ones — it would not be able to open them.")
+			"This connection is limited to particular workspaces, so it cannot create new ones. It would not be able to open them.")
 		return
 	}
 	if strings.TrimSpace(body.Name) == "" {
@@ -834,7 +855,7 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	// W97: non-admins only when the instance permits it.
 	if !requestUser(r).IsAdmin && !s.loadSettings().AllowUserWorkspaces {
-		httpError(w, 403, "creating workspaces is disabled on this instance — ask an admin")
+		httpError(w, 403, "creating workspaces is disabled on this instance. Ask an admin")
 		return
 	}
 	if body.FromWorkspace != "" {
@@ -909,13 +930,19 @@ func normalizeRole(r string) string {
 type memberJSON struct {
 	UserID string `json:"userId"`
 	Name   string `json:"name"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
+	// The informal name a person field prints by default (see display_name_mode).
+	Nickname string `json:"nickname,omitempty"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
 	// Colour and picture travel too, so a person property can show the same
 	// face the presence dots and the comments already show. Nothing new is
 	// disclosed: both are visible to fellow members wherever a person appears.
 	Color  string `json:"color"`
 	Avatar string `json:"avatar"`
+	// Handle is the stable, readable name process code uses (@ada-lovelace).
+	// It is what an agent writes in `set "Owner" = @...`; the display name is
+	// only what people read.
+	Handle string `json:"handle"`
 }
 
 // handleListMembers lists a workspace's members. Any member may view the roster.
@@ -926,7 +953,7 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.db.Query(`
-		SELECT u.id, u.name, u.email, m.role, COALESCE(u.color, ''), COALESCE(u.avatar, '')
+		SELECT u.id, u.name, COALESCE(u.nickname, ''), u.email, m.role, COALESCE(u.color, ''), COALESCE(u.avatar, ''), COALESCE(u.handle, '')
 		FROM workspace_members m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.workspace_id = ? ORDER BY m.role, u.name`, wsID)
@@ -938,7 +965,7 @@ func (s *Server) handleListMembers(w http.ResponseWriter, r *http.Request) {
 	list := []memberJSON{}
 	for rows.Next() {
 		var m memberJSON
-		rows.Scan(&m.UserID, &m.Name, &m.Email, &m.Role, &m.Color, &m.Avatar)
+		rows.Scan(&m.UserID, &m.Name, &m.Nickname, &m.Email, &m.Role, &m.Color, &m.Avatar, &m.Handle)
 		list = append(list, m)
 	}
 	writeJSON(w, list)
@@ -1007,7 +1034,7 @@ func (s *Server) handleUpdateMember(w http.ResponseWriter, r *http.Request) {
 	}
 	role := normalizeRole(body.Role)
 	if role != "admin" && target == s.personalOwner(wsID) {
-		httpErrorCode(w, 403, "personal_role_fixed", "That is this person's personal space — their role in it stays as it is.")
+		httpErrorCode(w, 403, "personal_role_fixed", "That is this person's personal space. Their role in it stays as it is.")
 		return
 	}
 	if role != "admin" && s.workspaceRole(target, wsID) == "admin" && s.otherActiveAdmins(wsID, target) == 0 {
@@ -1047,14 +1074,14 @@ func (s *Server) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if target == s.personalOwner(wsID) {
-		httpErrorCode(w, 403, "personal_no_remove", "That is this person's personal space — they cannot be removed from it.")
+		httpErrorCode(w, 403, "personal_no_remove", "That is this person's personal space. They cannot be removed from it.")
 		return
 	}
 	if s.workspaceRole(target, wsID) == "admin" && s.otherActiveAdmins(wsID, target) == 0 {
 		// The old message only said it was not possible — not what to do. Both
 		// are workable routes, and without saying so people go hunting for them.
 		if target == me {
-			httpErrorCode(w, 400, "last_admin", "You are the last admin of this workspace. Make somebody else an admin first — or delete the workspace if it should go.")
+			httpErrorCode(w, 400, "last_admin", "You are the last admin of this workspace. Make somebody else an admin first, or delete the workspace if it should go.")
 		} else {
 			httpErrorCode(w, 400, "last_admin_other", "That is the last admin of this workspace. Make somebody else an admin first.")
 		}
@@ -1128,7 +1155,7 @@ func (s *Server) handleSharePage(w http.ResponseWriter, r *http.Request) {
 	// with a new expiry/password doesn't leave the old token valid. Form-shares
 	// (mode='form') are independent and left untouched.
 	s.db.Exec(`DELETE FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID)
-	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, page_id, created_at, expires_at, password_hash, options, file_key) VALUES (?, ?, ?, ?, ?, ?, ?)`, tokenHash(token), pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail), newID()+newID()); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO share_links (token_hash, token, page_id, created_at, expires_at, password_hash, options, file_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, tokenHash(token), token, pageID, now(), expiresAt, pwHash, encodeShareOptions(body.AllowedViews, body.AllowDetail), newID()+newID()); err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}
@@ -1164,9 +1191,12 @@ func decodeShareOptions(raw string) shareOptions {
 	return o
 }
 
-// handleShareStatus reports the live read-share settings (no token/URL: the
-// token itself is stored hashed and cannot be recovered). The panel mints once
-// to get the URL, then PATCHes settings in place without rotating the link.
+// handleShareStatus reports the live read-share settings and, to anyone who
+// may edit the page, the link itself. The token used to be stored only as a
+// hash, so only the browser that minted a link could show it; a colleague with
+// write access had to ask for the URL. The plaintext now rides beside the hash
+// (public lookups still use the hash), and this endpoint — already restricted
+// to writers — hands the current address back.
 func (s *Server) handleShareStatus(w http.ResponseWriter, r *http.Request) {
 	pageID := r.PathValue("id")
 	if !s.canWriteReq(r, pageID) {
@@ -1176,7 +1206,8 @@ func (s *Server) handleShareStatus(w http.ResponseWriter, r *http.Request) {
 	var raw sql.NullString
 	var expiresAt sql.NullString
 	var pwHash sql.NullString
-	err := s.db.QueryRow(`SELECT options, expires_at, password_hash FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID).Scan(&raw, &expiresAt, &pwHash)
+	var token sql.NullString
+	err := s.db.QueryRow(`SELECT options, expires_at, password_hash, token FROM share_links WHERE page_id = ? AND mode != 'form'`, pageID).Scan(&raw, &expiresAt, &pwHash, &token)
 	if err != nil {
 		writeJSON(w, map[string]any{"shared": false})
 		return
@@ -1186,13 +1217,19 @@ func (s *Server) handleShareStatus(w http.ResponseWriter, r *http.Request) {
 		opts = raw.String
 	}
 	o := decodeShareOptions(opts)
-	writeJSON(w, map[string]any{
+	out := map[string]any{
 		"shared":       true,
 		"allowedViews": o.AllowedViews,
 		"allowDetail":  o.AllowDetail,
 		"hasPassword":  pwHash.Valid && pwHash.String != "",
 		"expiresAt":    expiresAt.String,
-	})
+	}
+	// A link minted before tokens were kept has no plaintext to give; the
+	// panel falls back to "this browser does not have its URL" until re-minted.
+	if token.Valid && token.String != "" {
+		out["url"] = s.publicShareBase(r) + "/public/" + token.String
+	}
+	writeJSON(w, out)
 }
 
 // handlePatchShare updates share options, password and expiry in place — the
@@ -1343,6 +1380,7 @@ func (s *Server) handlePublicPage(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "not found")
 		return
 	}
+	p = publicPageCopy(p, r.PathValue("token"))
 	writeJSON(w, map[string]any{
 		"title":   p.Title,
 		"icon":    p.Icon,
@@ -1453,7 +1491,7 @@ func (s *Server) handleAdminMembership(w http.ResponseWriter, r *http.Request) {
 	//     else's workspace.
 	me := requestUser(r)
 	if body.UserID == me.ID {
-		httpErrorCode(w, 403, "no_self_grant", "You cannot grant yourself access here — use emergency access, which is logged.")
+		httpErrorCode(w, 403, "no_self_grant", "You cannot grant yourself access here. Use emergency access, which is logged.")
 		return
 	}
 	if !s.isOwner(me.ID) && !s.isWorkspaceAdmin(me.ID, body.WorkspaceID) {
@@ -1469,7 +1507,7 @@ func (s *Server) handleAdminMembership(w http.ResponseWriter, r *http.Request) {
 	var personalWS int
 	s.db.QueryRow(`SELECT is_personal FROM workspaces WHERE id = ?`, body.WorkspaceID).Scan(&personalWS)
 	if personalWS != 0 && !s.isWorkspaceAdmin(me.ID, body.WorkspaceID) {
-		httpErrorCode(w, 403, "personal_invite_owner_only", "A personal space is not handed out from outside — only its owner invites anyone there.")
+		httpErrorCode(w, 403, "personal_invite_owner_only", "A personal space is not handed out from outside. Only its owner invites anyone there.")
 		return
 	}
 	// Never remove or demote a workspace's last admin — the workspace would be

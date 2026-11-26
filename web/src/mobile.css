@@ -1,0 +1,1590 @@
+/* =============================================================================
+   salt.md on a phone — the thumb shell
+
+   A phone is not a narrow desktop: the pointer is a thumb, the screen is one
+   hand high, and everything worth pressing has to live in the lower third of
+   it. Three corners of the desktop layout break that — the document tabs eat a
+   row under the topbar, search hides behind a keyboard shortcut nobody has on
+   glass, and the page's actions sit in the corner the thumb reaches last.
+
+   So below 769px the tab strip becomes a sheet of cards, the actions that were
+   icons in the topbar become a sheet at the bottom, and four permanent
+   destinations move to a dock on the bottom edge. The desktop layout is not
+   touched: every rule here is inside one media query, and the components
+   render the same DOM in both worlds.
+
+   A file of its own for the same reason theme.css has one: styles.css is
+   13k lines and five open pull requests touch it, so a phone-only look that
+   can be deleted by removing one import is worth more than a tidy single file.
+   ========================================================================== */
+
+/* --- the dock ------------------------------------------------------------- */
+
+/* Hidden until the media query below says otherwise, so the component can be
+   rendered unconditionally: no JavaScript decides which shell the reader is
+   in, and a window resized across the breakpoint needs no re-render. */
+.mobile-dock {
+  display: none;
+  flex: none;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  /* Above the document, below every modal (the overlay is 100). */
+  z-index: 60;
+}
+
+.dock-btn {
+  flex: 1 1 0;
+  /* A longer word in another language must not widen its own button and push
+     the row past the screen; the label ellipsises instead. */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  /* 48px is the floor where a thumb hits without aiming. */
+  min-height: 48px;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  -webkit-tap-highlight-color: transparent;
+  /* A press on glass has no hover to wait for: the colour has to land on the
+     touch itself, or the button feels dead for the 80ms before the panel
+     opens. */
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.dock-btn:active {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.dock-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dock-label {
+  line-height: 1.1;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* How many documents are open — the same information the tab strip carried, in
+   the one place a thumb can see it. A count on its own backing, tucked into
+   the corner of the grid icon; the label under it still says what the slot
+   is, so the number never has to stand alone. */
+.dock-badge {
+  position: absolute;
+  top: -8px;
+  right: -13px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  /* A dock-coloured ring cuts the chip out of the icon it overlaps. It is
+     wider than a hairline on purpose: the number sits on a busy corner of a
+     19px glyph, and the ring is what keeps the shape legible. */
+  border: 2px solid var(--bg);
+  border-radius: 10px;
+  background: var(--muted);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+/* The dock's one action, marked as one. */
+.dock-btn.dock-primary {
+  color: var(--accent);
+}
+
+.dock-btn.dock-primary:active {
+  background: var(--accent-soft);
+}
+
+/* --- the tabs sheet ------------------------------------------------------- */
+
+.tabs-sheet-backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+/* The dim layer the three page sheets share. Hidden above the breakpoint: a
+   popover hanging off an icon covers a corner, and a corner needs no veil. */
+.sheet-backdrop {
+  display: none;
+}
+
+.tabs-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 320;
+  display: flex;
+  flex-direction: column;
+  max-height: 76dvh;
+  padding: 4px 12px calc(12px + env(safe-area-inset-bottom));
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border-top: 1px solid var(--border-strong);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+  animation: sheet-rise 0.22s var(--ease-out);
+}
+
+@keyframes sheet-rise {
+  from {
+    transform: translateY(16px);
+    opacity: 0.6;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs-sheet {
+    animation: none;
+  }
+}
+
+/* The bar every phone sheet has, and the handle the drag starts from: a 26px
+   strip with the bar drawn inside it, `touch-action: none` so the browser
+   gives the gesture to us instead of rubber-banding the page. */
+.sheet-grab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  flex: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sheet-grab > span {
+  width: 34px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  pointer-events: none;
+}
+
+/* A sheet being dragged must not animate its own transition. */
+.sheet-drag:active {
+  cursor: grabbing;
+}
+
+.tabs-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px 8px;
+  flex: none;
+}
+
+.tabs-sheet-title {
+  flex: 1;
+  /* The same title a dialog carries: every bottom sheet is the same kind of
+     surface, and a 14px caption above cards read as a label, not a place. */
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* The browser's own toolbar, at the bottom edge where the thumb is. */
+.tabs-sheet-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding-top: 8px;
+}
+
+.tabs-sheet-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--fg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-arrow:active:not(:disabled) {
+  background: var(--hover);
+}
+
+.tabs-sheet-arrow:disabled {
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+.tabs-sheet-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.tabs-sheet-dismiss:active {
+  background: var(--hover);
+}
+
+.tabs-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 2px;
+}
+
+.tabs-sheet-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.tabs-sheet-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  /* Taller than a row and shorter than a page: the card is a thumbnail of a
+     document, so it needs room for two lines of title under its icon and the
+     space between them to read as a card rather than a list item. */
+  min-height: 104px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--fg);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-card:active {
+  background: var(--hover);
+}
+
+/* The open document, marked the way the tab strip marked it: a ring, not a
+   fill, because a filled card loses the border that says "this is a page". */
+.tabs-sheet-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* A card being moved and the one it would land on. The drag changes the order
+   on release, not live: a grid that reflows under the finger swaps the card
+   with its own reflection and the two fight for the same frame. */
+.tabs-sheet-card.is-dragging {
+  opacity: 0.55;
+}
+
+.tabs-sheet-card.is-drop {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+body.tabs-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body.tabs-dragging .tabs-sheet-card {
+  touch-action: none;
+}
+
+.tabs-sheet-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.tabs-sheet-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--muted);
+}
+
+.tabs-sheet-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: -4px -4px 0 0;
+}
+
+.tabs-sheet-card-close,
+.tabs-sheet-card-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Smaller than the 44px rule on purpose: they sit beside the card's own tap
+     area, and a 44px × would be half the card. The card itself is the target
+     that matters, and it is 84px tall. */
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.tabs-sheet-card-close:active {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+/* A pin that is on stays lit: it is the one state a glance has to read from
+   across the sheet, since a pinned tab never joins the unused group. */
+.tabs-sheet-card-pin.on {
+  color: var(--accent);
+}
+
+.tabs-sheet-card-pin.on svg {
+  fill: currentColor;
+}
+
+.tabs-sheet-card-pin:active {
+  background: var(--hover);
+}
+
+.tabs-sheet-card-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.tabs-sheet-new {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.tabs-sheet-new .tabs-sheet-card-icon {
+  background: none;
+}
+
+.tabs-sheet-archive {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+}
+
+.tabs-sheet-archive-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 4px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The unused group above the grid: a plaque of its own, closed until asked.
+   It has to read as one control and not as a section heading, so it gets a
+   fill and a border like a card edge, and the count sits where the eye
+   already looks for numbers in this sheet. */
+.tabs-sheet-unused {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+}
+
+.tabs-sheet-unused-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 2px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--hover);
+}
+
+.tabs-sheet-unused-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 10px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 550;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-unused-toggle:active {
+  background: var(--active);
+}
+
+.tabs-sheet-unused-toggle svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.tabs-sheet-unused-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabs-sheet-unused-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabs-sheet-unused-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0 0;
+  /* A long group scrolls inside its own shelf: the grid below it — the tabs
+     that are open, which is what the sheet is for — must not be pushed out of
+     the sheet by a month of unvisited pages. */
+  max-height: 38dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The group-wide action lives inside the plaque it applies to. Sentence case,
+   because it is a command beside a label and not a heading. */
+.tabs-sheet-group-close {
+  flex: none;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 550;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-group-close:active {
+  background: var(--active);
+}
+
+.tabs-sheet-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 6px;
+  border-radius: 10px;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabs-sheet-archive-row:active {
+  background: var(--hover);
+}
+
+.tabs-sheet-archive-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+
+.tabs-sheet-archive-action {
+  flex: none;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+/* The search sheet's own way out. Hidden on a desktop, where Escape and a
+   click outside already do it and a visible button would be a second one. */
+.search-cancel {
+  display: none;
+}
+
+/* --- the phone shell ------------------------------------------------------ */
+
+@media (max-width: 768px) {
+  /* The dock is a bar under the document, not an overlay: content ends above
+     it, so nothing is ever hidden behind a floating layer and no scroll
+     container needs to know about it. The app turns into a column and the
+     document takes what is left. */
+  .app {
+    flex-direction: column;
+  }
+
+  .main {
+    /* In a column, a flex child scrolls its own content only if it is allowed
+       to be shorter than its content. Without this the editor grows past the
+       dock and the bottom of the page is unreachable. */
+    min-height: 0;
+  }
+
+  /* --- the drawer: what the thumb needs, at the bottom ---------------------
+     Switching workspaces is a reach, opening the account (and every setting
+     behind it) is not, so the two trade places on a phone. The account row is
+     also taller than the workspace name it replaces, and that is the extra
+     distance at the top: the first note used to sit at the edge of the screen,
+     where a thumb does not bend comfortably. */
+  .sidebar-header {
+    padding: calc(20px + env(safe-area-inset-top)) 14px 8px;
+    gap: 6px;
+  }
+
+  .sidebar-account {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sidebar-account .user-menu {
+    margin-top: 0;
+  }
+
+  .sidebar-account .user-menu-btn {
+    min-height: 46px;
+    padding: 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  /* The settings menu hung upward because its button lived at the bottom of
+     the drawer. From the header it opens downward, over the tree. */
+  .sidebar-account .user-menu-popup {
+    top: calc(100% + 6px);
+    bottom: auto;
+    left: 0;
+    right: auto;
+    min-width: 250px;
+  }
+
+  /* The footer row the account used to own now belongs to the workspace. */
+  .sidebar-footer-row {
+    gap: 8px;
+  }
+
+  .sidebar-footer .ws-switcher {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sidebar-footer .ws-btn {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 8px;
+    border-radius: 10px;
+    background: var(--hover);
+    font-size: 14px;
+  }
+
+  /* No room below the footer, so this menu opens upward, over the tree. */
+  .sidebar-footer .ws-menu {
+    top: auto;
+    bottom: calc(100% + 6px);
+    left: 0;
+    right: auto;
+    min-width: 250px;
+    max-height: calc(100dvh - 160px);
+  }
+
+  /* The trash took the theme switch's corner: the appearance choice moved
+     behind the account, and the one footer item that is a destination rather
+     than a setting got the thumb-sized square. */
+  .trash-fab {
+    position: relative;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: var(--hover);
+    color: var(--muted);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .trash-fab:active {
+    background: var(--active);
+    color: var(--fg);
+  }
+
+  .trash-fab-count {
+    position: absolute;
+    top: 1px;
+    right: 2px;
+    min-width: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--active);
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+  }
+
+  /* Rows in the trash dialog are the same list as the desktop section, at
+     arm's length: 52px rows and 36px actions instead of 20px squares. */
+  .trash-dialog {
+    padding: 16px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .trash-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-bottom: 10px;
+  }
+
+  .trash-dialog-head h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .trash-dialog .trash-search {
+    min-height: 40px;
+    margin: 0 0 6px;
+  }
+
+  .trash-dialog .trash-item {
+    gap: 8px;
+    min-height: 52px;
+    padding: 2px 4px;
+    font-size: 14px;
+  }
+
+  .trash-dialog .trash-item > button {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  .trash-dialog .trash-item .trash-peek {
+    width: auto;
+    height: auto;
+  }
+
+  /* The appearance row inside the account menu. */
+  .user-menu-theme {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 44px;
+    padding: 0 10px;
+    border-radius: 6px;
+    color: var(--fg);
+    font-size: 13.5px;
+  }
+
+  /* A three-way switch sitting in a menu row reads far wider than the same
+     control in a footer corner. It keeps all three choices, at menu scale. */
+  .user-menu-theme .theme-switch {
+    flex: none;
+    gap: 1px;
+    margin-left: auto;
+    padding: 2px;
+  }
+
+  .user-menu-theme .theme-switch-opt {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+  }
+
+  /* More air between the search field and the first note: the top rows were
+     the hardest thing to hit on a tall phone. */
+  .sidebar .tree {
+    padding-top: 8px;
+  }
+
+  .mobile-dock {
+    display: flex;
+  }
+
+  /* Every menu on a phone, once. The popover is sized for a mouse at a desk —
+     13px rows, 180px wide — and it is the one component that appears in a
+     dozen places (tree rows, workspace, sort, tags, views). Scaling it here is
+     the difference between a menu and a guessing game; the three page menus
+     that become bottom sheets below override what they need. */
+  .menu {
+    min-width: 236px;
+    max-width: calc(100vw - 24px);
+    padding: 6px;
+    border-radius: 12px;
+  }
+
+  /* Menus inside the drawer sit directly on the tree they came from. The
+     glass material blurs the rows behind the panel, which reads as a smudge
+     that follows the cursor from row to row — depth is not worth that. */
+  .sidebar .menu {
+    background: var(--card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* The share dialog is a .menu hanging off the topbar's globe. On a phone
+     those buttons live behind the ⋯ sheet, so its anchor is a zero-width box
+     at the right edge and the desktop's right-aligned 400px panel hung off the
+     screen — half the form was unreachable. It is a bottom sheet here: opaque,
+     full width, with its own veil. */
+  .share-dialog {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: var(--kb-inset, 0px);
+    width: auto;
+    max-width: none;
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
+    z-index: 320;
+    padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    background: var(--card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+  }
+
+  .share-dialog .share-tabs {
+    gap: 6px;
+    padding-bottom: 12px;
+  }
+
+  .share-dialog .share-tab {
+    min-height: 36px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+
+  .menu button,
+  .menu .menu-item {
+    min-height: 44px;
+    padding: 10px 12px;
+    gap: 10px;
+    font-size: 15px;
+    border-radius: 9px;
+  }
+
+  .menu-sep {
+    flex: 0 0 1px;
+    height: 1px;
+    margin: 6px 4px;
+    background: var(--border-strong);
+  }
+
+  .menu-label {
+    padding: 8px 12px 4px;
+    font-size: 12px;
+  }
+
+  /* The AI panel's own list, at the same size as every other list on the
+     phone. It was written for a 400px desktop card and read as fine print on
+     a full-width sheet. */
+  .ai-panel-zero .ai-zero-item {
+    min-height: 46px;
+    padding: 9px 10px;
+    gap: 12px;
+    font-size: 15.5px;
+  }
+
+  .ai-panel-zero .ai-zero-badge {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    font-size: 17px;
+  }
+
+  .ai-panel-zero .ai-zero-section {
+    font-size: 12.5px;
+    padding: 10px 6px 4px;
+  }
+
+  .ai-panel-zero .ai-zero-context {
+    font-size: 14.5px;
+    padding: 10px 12px;
+  }
+
+  .ai-panel-zero .ai-zero-context-badge {
+    font-size: 12px;
+  }
+
+  /* A second drawer button in the panel head: the dock's Menu is right there
+     under the sheet, so this one only ever gets pressed by accident. */
+  .ai-panel-sidebarbtn {
+    display: none;
+  }
+
+  /* The strip's job is done by the dock's badge and the sheet behind it. The
+     strip is still rendered (and still handles its own menu on a wide window),
+     just never on a phone. */
+  .tab-bar {
+    display: none;
+  }
+
+  /* The floating AI button is a second bottom-right corner and the dock
+     already has AI in the middle. Two ways to the same panel, one of them
+     under the thumb. `!important` because the button carries its position as
+     an inline style, and an inline style beats a stylesheet — which is also
+     why this one line is honest about what it is doing. */
+  .ai-fab {
+    display: none !important;
+  }
+
+  /* The topbar says where you are, not what you can do: one title, the menu
+     that opens the drawer, and ⋯. The crumbs before the last one are the
+     hierarchy, and the hierarchy is one tap away in the drawer. */
+  /* The trail is a scrollable run the thumb can spin through, so the start
+     and the end of a deep page are both reachable. It starts at the first
+     crumb (not the last): a full trail should read from its beginning. */
+  .breadcrumbs {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .breadcrumbs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .breadcrumbs .crumb {
+    max-width: min(56vw, 240px);
+  }
+
+  /* Menus that hang off a topbar icon become sheets. The trigger stays where
+     it was — that is the phone grammar everybody already knows from Notion and
+     Obsidian — but the choices land in the thumb's half of the screen instead
+     of hanging from a corner it cannot reach.
+
+     Only these three are page-level: the collection toolbar's menus are
+     anchored to the row they act on and belong there. */
+  .sheet-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 319;
+    background: rgba(0, 0, 0, 0.34);
+  }
+
+  .overflow-menu,
+  .share-menu,
+  .access-menu {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    /* The dialogs' sizing above is for a popover; a sheet is the width of the
+       screen, so its cap has to be lifted or it stops 12px short on each side. */
+    max-width: none;
+    min-width: 0;
+    max-height: 74dvh;
+    overflow-y: auto;
+    padding: 2px 12px calc(12px + env(safe-area-inset-bottom));
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+    z-index: 320;
+  }
+
+  .overflow-menu button,
+  .share-menu button,
+  .access-menu button {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  /* Wider rows need a visible divider: the hairline that groups a dense
+     desktop menu at 8% white disappears between rows this tall, and the sheet
+     reads as one undifferentiated list.
+     `flex: 0 0 1px` is the part that matters: the sheet scrolls, so its menu
+     is a flex container taller than its box, and the separators are the first
+     items flexbox shrinks — to exactly zero. They were invisible until the
+     growth was forbidden. */
+  .overflow-menu .menu-sep,
+  .share-menu .menu-sep,
+  .access-menu .menu-sep {
+    flex: 0 0 1px;
+    height: 1px;
+    margin: 8px 4px;
+    background: var(--border-strong);
+  }
+
+  /* Search is a sheet that rises from the bottom, not a screen of its own.
+     Full height put the field at the very top of the phone — the one place a
+     thumb cannot reach, and the place where typing it is least comfortable.
+     Anchored below, the field lands about a quarter of the way down, results
+     fill the rest, and the whole thing lifts above the keyboard (`--kb-inset`)
+     instead of hiding under it. The preview switch and the keyboard footer go:
+     there is no second column and no keyboard. */
+  /* Dialogs are sheets too: full width, bottom edge, no side margins. The
+     overlay lifts by the keyboard's height and the dialog's height comes from
+     the VISUAL viewport — on iOS the layout viewport does not shrink, so a
+     dialog sized in dvh kept its height and pushed its own top rows (the
+     checklist somebody was typing in) off the screen. */
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 8px 0 calc(8px + var(--kb-inset, 0px));
+    /* Above the drawer (200) and every sheet (320/330): a dialog opened from
+       the drawer — the trash, the profile — used to sit behind it. */
+    z-index: 400;
+  }
+
+  .search-modal,
+  .search-modal.has-preview {
+    width: 100vw;
+    max-width: none;
+    height: auto;
+    max-height: min(76dvh, calc(var(--vvh, 100dvh) - 24px));
+    border: none;
+    border-radius: 18px 18px 0 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .search-modal .search-body {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .search-modal .search-preview,
+  .search-modal .search-footer {
+    display: none;
+  }
+
+  /* The preview switch is a desktop affordance (there is no second column to
+     open it in) and the cancel button is the phone's only way out — so the
+     switch goes and the × arrives. */
+  .search-modal .search-icon-btn {
+    display: none;
+  }
+
+  .search-modal .search-icon-btn.search-cancel {
+    display: inline-flex;
+    flex: none;
+  }
+
+  /* ⌘⇧N and T are printed next to every command. On glass they are a promise
+     the device cannot keep. */
+  .search-modal .result-keys {
+    display: none;
+  }
+
+  .search-topbar {
+    padding-top: 2px;
+  }
+
+  /* A list read at arm's length, not at desk distance: the desktop sizes are
+     for a 14px interface under a mouse. Row height also grows, which is what
+     makes a result look tappable. The search field itself is already 17px, so
+     it needs nothing. */
+  .search-modal .search-results {
+    max-height: none;
+    padding: 8px 8px calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .search-modal .search-result {
+    padding: 13px 14px;
+    border-radius: 10px;
+  }
+
+  .search-modal .result-title {
+    font-size: 16px;
+  }
+
+  .search-modal .result-context,
+  .search-modal .result-snippet {
+    font-size: 13px;
+  }
+
+  .search-modal .search-section-label {
+    padding: 12px 14px 6px;
+    font-size: 12px;
+  }
+
+  .search-modal .search-scope {
+    font-size: 13.5px;
+    padding: 6px 12px;
+  }
+
+  .search-results {
+    overflow-y: auto;
+  }
+
+  /* Dialog actions ride on a bar pinned to the bottom of the dialog's own
+     scroll: always under the thumb instead of parked at the end of a long
+     scroll, in a row like the desktop, and no longer two full-width rows that
+     ate a third of the screen. */
+  .dialog-buttons,
+  .dialog-actions {
+    position: sticky;
+    /* Negative: the dialog's scrollport ends at its content box, 18px above
+       the bottom edge. Pinning at 0 left that padding as a strip where the
+       content showed through under the bar. */
+    bottom: -18px;
+    z-index: 1;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    /* The bar covers the dialog's own bottom padding (18px) instead of
+       floating above it — the strip under it used to show the content
+       scrolling behind. And every action takes an equal share of the width:
+       a row of two right-aligned buttons left half the bar empty. */
+    margin: 14px -18px -18px;
+    padding: 10px 18px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--card);
+  }
+
+  .dialog-buttons > button,
+  .dialog-actions > button {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    min-height: 40px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
+  /* A sheet, not a takeover: the page stays visible above it and the content
+     scrolls inside, so a dialog no longer reads as a new screen. */
+  .modal-overlay > .dialog {
+    width: 100%;
+    max-width: none;
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* Version history and Structure history are their own dialog class, so the
+     sheet rules above never reached them: on a phone it opened as a floating
+     96vw card with a side rail. Same sheet as every other dialog here. */
+  .rev-dialog {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
+    flex-direction: column;
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+  }
+
+  /* The list is the sheet's first page, not a side rail. */
+  .rev-list-pane {
+    flex: 0 0 auto;
+    width: auto;
+    max-height: 34dvh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .rev-list-head {
+    padding: 14px 14px 8px;
+  }
+
+  .rev-list-head h2 {
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  /* Date and author on one line, actions on their own row: at 412px the
+     narrow column wrapped "26 November 2026 at 03:38" onto four lines. */
+  .rev-doc-head {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 14px;
+  }
+
+  .rev-doc-when {
+    flex: 1 1 100%;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .rev-doc-actions {
+    flex: 1 1 100%;
+  }
+
+  .rev-doc-actions .btn {
+    flex: 1 1 0;
+    min-height: 40px;
+  }
+
+  .rev-doc-actions .rev-close {
+    flex: 0 0 auto;
+  }
+
+  .rev-doc-body {
+    padding: 12px 14px 20px;
+  }
+
+  .rev-doc-foot {
+    padding-bottom: calc(9px + env(safe-area-inset-bottom));
+  }
+
+  /* Floating popovers (columns, filters, sort) are sheets as well — the
+     measured position is ignored, because half of them opened with a gap on
+     one side and half without, and the sheet is the shape that fits a thumb. */
+  .fs-popover {
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: var(--kb-inset, 0px) !important;
+    width: auto;
+    min-width: 0;
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    /* The sheet stays attached to the bottom edge; the room is inside it, so
+       the last row is not level with the home indicator. */
+    padding: 14px 14px calc(32px + env(safe-area-inset-bottom));
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+    font-size: 15px;
+  }
+
+  /* The sheet says which menu rose. The title is drawn from the attribute, so
+     every filter/sort/group/columns sheet gets one without its own markup. */
+  .fs-popover[data-title]::before {
+    content: attr(data-title);
+    display: block;
+    flex: none;
+    padding: 2px 2px 6px;
+    color: var(--fg);
+    font-size: 22px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .fs-popover .col-row {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  .fs-popover .col-section-head {
+    font-size: 12px;
+  }
+
+  /* The AI panel is a sheet that stops above the keyboard. Anchored to the
+     layout viewport it would open under the keys the moment somebody types —
+     which is the only moment the panel matters. */
+  .ai-panel {
+    left: 0;
+    right: 0;
+    bottom: var(--kb-inset, 0px);
+    width: auto;
+    max-width: none;
+    height: min(88dvh, calc(var(--vvh, 100dvh) - 8px));
+    max-height: none;
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+    z-index: 330;
+  }
+
+  .ai-panel-foot {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+
+  /* The side peek becomes a sheet on a phone: the same document, presented
+     the way a phone presents a modal. The page behind is veiled, the panel
+     slides from the bottom with a handle, and the two actions it needs sit
+     within a thumb's reach instead of in the topbar's corners. */
+  .peek-panel {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: min(92dvh, calc(var(--vvh, 100dvh) - 8px));
+    border-left: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+    /* Above the drawer and the dock, below menus (320) and dialogs (400):
+       the peek's own dropdowns still open over it. */
+    z-index: 260;
+  }
+
+  .peek-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    background: rgba(0, 0, 0, 0.42);
+  }
+
+  .peek-actions {
+    display: flex;
+    flex: none;
+    gap: 8px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .peek-action {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    border-radius: 10px;
+    background: var(--hover);
+    color: var(--fg);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .peek-action:active {
+    background: var(--active);
+  }
+
+  /* Typing takes the strip: the keyboard bar replaces the sheet's actions, so
+     there is never a formatting bar above a close button above the keys. The
+     same goes for a panel opened over the peek — its own close is the one that
+     belongs on screen, and the peek's pair underneath reads as a duplicate. */
+  body.mobile-editing .peek-actions,
+  body:has(.comments-panel) .peek-actions,
+  body:has(.structure-panel) .peek-actions {
+    display: none;
+  }
+
+  /* The topbar pair (expand, pin, their menu) is gone on a phone: the footer
+     carries the same expand action at the thumb, and one icon per action
+     beats two sets of corners. */
+  .peek-panel .peek-pair {
+    display: none;
+  }
+
+  /* The structure panel is a desktop side rail. Here it is a sheet, like the
+     peek: veil, grab handle, rounded top, and its own header to close it. */
+  .structure-panel {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: min(84dvh, calc(var(--vvh, 100dvh) - 24px));
+    border-left: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -24px 48px -28px rgba(0, 0, 0, 0.5);
+    z-index: 300;
+  }
+
+  .structure-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 290;
+    background: rgba(0, 0, 0, 0.42);
+  }
+
+  /* The sheet closes by its veil or its handle; a third, tiny way out in the
+     header is clutter on a phone. */
+  .structure-panel .structure-head .icon-btn {
+    display: none;
+  }
+
+  /* A phone does not animate a panel into place: it appears, like the drawer
+     and the other sheets here. */
+  .comments-panel,
+  .structure-panel {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* --- the keyboard bar ----------------------------------------------------- */
+
+/* Hidden everywhere until the phone block below turns it on, like the dock. */
+.editor-keys {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* While the caret is in the text the dock has no job: the keyboard covers
+     the bottom of the screen and the strip above it is where the typing
+     actions belong. They swap places, so nothing is ever two bars high. */
+  body.mobile-editing .mobile-dock,
+  body.mobile-typing .mobile-dock {
+    display: none;
+  }
+
+  .editor-keys {
+    position: fixed;
+    left: 0;
+    right: 0;
+    /* On the keyboard, or where the dock was when it is closed. */
+    bottom: var(--kb-inset, 0px);
+    /* Above the peek and structure sheets (260/300): the caret can be in a
+       sheet's editor, and the bar has to ride on the keyboard there too. */
+    z-index: 310;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 48px;
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid var(--border);
+  }
+
+  /* `display: flex` above would otherwise beat the attribute. */
+  .editor-keys[hidden] {
+    display: none;
+  }
+
+  .editor-key {
+    flex: 1 1 0;
+    max-width: 60px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    color: var(--fg);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .editor-key:active {
+    background: var(--hover);
+  }
+
+  /* The style under the caret, the way the desktop toolbar shows it. */
+  .editor-key.is-on {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .editor-key.editor-key-ai {
+    color: var(--accent);
+  }
+
+  .editor-key.editor-key-hide {
+    margin-left: auto;
+    color: var(--muted);
+  }
+
+  /* Room at the end of the document, so the line being typed can scroll above
+     the bar instead of hiding under the thumb. */
+  body.mobile-editing .page-body {
+    padding-bottom: 64px;
+  }
+}
+
+/* --- holding is a drag, not a selection ----------------------------------- */
+
+@media (max-width: 768px) {
+  /* These are all moved by holding them. A long press on the label used to
+     start a text selection instead — and the selection cancels the pointer
+     sequence the drag runs on, so the browser's callout appeared and the card
+     stayed put. Their text is a label on a thing you move, not copy. */
+  .board-card,
+  .calendar-event,
+  .cal-span,
+  .tl-bar,
+  .unsched-card,
+  .tabs-sheet-card,
+  .tab,
+  .tree-item,
+  [draggable='true'] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* The row a finger is carrying, and the card that follows it. The row dims
+     so the caret between rows reads as the destination rather than a second
+     copy of what is already in hand. */
+  .tree-item.is-touch-carry {
+    opacity: 0.45;
+  }
+
+  /* No native drag anywhere in a row: Chrome Android starts its own drag on a
+     long press and cancels the pointer stream the carry runs on. */
+  .tree-item,
+  .tree-item * {
+    -webkit-user-drag: none;
+  }
+
+  .tree-drag-ghost {
+    position: fixed;
+    z-index: 340;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 220px;
+    padding: 7px 12px;
+    border-radius: 10px;
+    background: var(--card);
+    border: 1px solid var(--accent);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color: var(--fg);
+    font-size: 13.5px;
+    pointer-events: none;
+    transform: translate(12px, -46px);
+  }
+
+  .tree-drag-ghost-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* --- an account page on a phone -------------------------------------------- */
+
+@media (max-width: 768px) {
+  /* A page, not a dialog: it takes the screen, scrolls as one, and closes by
+     the button in its corner. */
+  .person-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .person-page {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: none;
+    border-radius: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .person-cover {
+    height: 108px;
+    border-radius: 0;
+  }
+
+  .person-head {
+    gap: 12px;
+    margin-top: -38px;
+    padding: 0 16px 4px;
+    flex-wrap: wrap;
+  }
+
+  .person-avatar {
+    width: 78px;
+    height: 78px;
+    font-size: 30px;
+    border-width: 3px;
+  }
+
+  .person-name {
+    font-size: 24px;
+  }
+
+  .person-body {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 16px 16px 24px;
+  }
+
+  /* Contacts and memberships answer "who is this" and come first; what the
+     person has been writing is the second question. */
+  .person-side {
+    order: -1;
+    border-left: none;
+    padding-left: 0;
+    border-top: none;
+    padding-top: 0;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+  }
+
+  .person-actions {
+    top: 10px;
+    right: 10px;
+  }
+
+  /* The label has no room beside a name on a phone: the pencil alone, the same
+     square as the close beside it. */
+  .person-edit-label {
+    display: none;
+  }
+
+  .person-actions .btn {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+/* --- handles are a phone thing -------------------------------------------- */
+
+/* The page menus, the AI panel, the peek and the structure panel are
+   popovers/panels on a desktop: they have no bottom edge to drag, no actions
+   bar of their own and nothing to veil. */
+@media (min-width: 769px) {
+  .menu .sheet-grab,
+  .ai-panel .sheet-grab,
+  .peek-panel .sheet-grab,
+  .structure-panel .sheet-grab,
+  .peek-actions,
+  .peek-backdrop,
+  .structure-backdrop {
+    display: none;
+  }
+}

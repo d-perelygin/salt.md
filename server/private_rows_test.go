@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A row set to private in a shared collection was hidden from the row list
@@ -33,10 +34,6 @@ func newPrivateRowsFixture(t *testing.T) privateRowsFixture {
 
 	col := s.makeCollection(t, ws, member, "Salaries",
 		`[{"id":"amount","name":"Amount","type":"number"},{"id":"due","name":"Due","type":"date"}]`)
-	if _, err := s.db.Exec(`UPDATE collections SET views = ? WHERE page_id = ?`,
-		`[{"id":"v1","name":"Table","type":"table"}]`, col); err != nil {
-		t.Fatalf("add view: %v", err)
-	}
 	s.makeRow(t, ws, member, col, "Shared row", `{"amount":10,"due":"2026-10-20"}`)
 	mine := s.makeRow(t, ws, member, col, "Member secret", `{"amount":20,"due":"2026-10-21"}`)
 	theirs := s.makeRow(t, ws, admin, col, "Admin secret", `{"amount":95000,"due":"2026-10-22"}`)
@@ -99,7 +96,7 @@ func TestPrivateRowsStayOutOfTheExport(t *testing.T) {
 func TestPrivateRowsStayOutOfAPublicCollection(t *testing.T) {
 	f := newPrivateRowsFixture(t)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/pages/"+f.col+"/share", strings.NewReader(`{"allowedViews":["v1"]}`))
+	req := httptest.NewRequest("POST", "/api/pages/"+f.col+"/share", strings.NewReader(`{}`))
 	req.Header.Set("Cookie", f.memberCookie)
 	req.Header.Set("Content-Type", "application/json")
 	f.s.ServeHTTP(rec, req)
@@ -111,9 +108,15 @@ func TestPrivateRowsStayOutOfAPublicCollection(t *testing.T) {
 	}
 
 	// Nobody signed in: not even the member's own private row belongs on a
-	// page anybody with the link can read. Deploy renders collections in
-	// the app shell, so the rows are asserted through the public rows API
-	// the shell itself reads.
+	// page anybody with the link can read. The document itself is the app's
+	// shell — the rows arrive from the collection reader, which is what this
+	// asserts on.
+	rec = httptest.NewRecorder()
+	f.s.ServeHTTP(rec, httptest.NewRequest("GET", "/public/"+share.Token, nil))
+	if rec.Code != 200 {
+		t.Fatalf("public view: %d", rec.Code)
+	}
+	assertRows(t, "public shell", rec.Body.String(), nil, []string{"Member secret", "Admin secret"})
 	rec = httptest.NewRecorder()
 	f.s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/public/c/"+share.Token+"/rows", nil))
 	if rec.Code != 200 {
@@ -124,27 +127,8 @@ func TestPrivateRowsStayOutOfAPublicCollection(t *testing.T) {
 
 func TestPrivateRowsStayOutOfTheCalendarFeed(t *testing.T) {
 	f := newPrivateRowsFixture(t)
-	// Deploy serves feeds through named subscriptions, not per-user URLs.
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/ics/feeds", strings.NewReader(`{"kind":"collection","refId":"`+f.col+`","name":"Salaries"}`))
-	req.Header.Set("Cookie", f.memberCookie)
-	req.Header.Set("Content-Type", "application/json")
-	f.s.ServeHTTP(rec, req)
-	if rec.Code != 200 {
-		t.Fatalf("create feed: %d %s", rec.Code, rec.Body.String())
-	}
-	var feed struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &feed); err != nil || feed.URL == "" {
-		t.Fatalf("feed has no link: %v", err)
-	}
-	path := feed.URL
-	if i := strings.Index(path, "/ics/"); i >= 0 {
-		path = path[i:]
-	}
-	rec = httptest.NewRecorder()
-	f.s.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+	f.s.ServeHTTP(rec, httptest.NewRequest("GET", "/ics/"+icsMintFeed(t, f.s, f.member, "all", "", "", 0)+".ics", nil))
 	if rec.Code != 200 {
 		t.Fatalf("feed: %d %s", rec.Code, rec.Body.String())
 	}
@@ -168,4 +152,23 @@ func TestPrivateRowsStayOutOfGetPageOverMCP(t *testing.T) {
 		t.Fatalf("get_page: %d %s", rec.Code, rec.Body.String())
 	}
 	assertRows(t, "get_page", rec.Body.String(), []string{"Shared row", "Member secret"}, []string{"Admin secret"})
+}
+
+// Filter groups OR their conditions together. The private-row condition must
+// stay outside that OR: another member's private row that matches a group is
+// still nobody else's business.
+func TestPrivateRowsStayOutOfFilterGroups(t *testing.T) {
+	f := newPrivateRowsFixture(t)
+	list, _, err := f.s.collectionRowsQuery(&user{ID: f.member}, f.col, nil, [][]rowFilter{
+		{{Prop: "amount", Op: "gt", Value: "50000"}},
+		{{Prop: "amount", Op: "lt", Value: "15"}},
+	}, "", 100, 0, time.Time{})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	var titles []string
+	for _, row := range list {
+		titles = append(titles, row["title"].(string))
+	}
+	assertRows(t, "filter groups", strings.Join(titles, ", "), []string{"Shared row"}, []string{"Admin secret"})
 }

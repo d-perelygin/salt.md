@@ -99,6 +99,12 @@ func (s *Server) handlePublicCollection(w http.ResponseWriter, r *http.Request) 
 			visible = append(visible, v)
 		}
 	}
+	if len(visible) == 0 {
+		// A collection can exist without a saved view (an agent made it, or
+		// every view is a form). The app shows its columns as a plain table;
+		// the reader does the same instead of answering "not a collection".
+		visible = []map[string]any{defaultPublicView()}
+	}
 	var schema any
 	if json.Unmarshal([]byte(schemaJSON), &schema) != nil {
 		schema = []any{}
@@ -114,6 +120,12 @@ func (s *Server) handlePublicCollection(w http.ResponseWriter, r *http.Request) 
 		"allowDetail":  opts.AllowDetail,
 		"needPassword": false,
 	})
+}
+
+// defaultPublicView stands in for a collection that has no saved view: the
+// same plain table the app falls back to.
+func defaultPublicView() map[string]any {
+	return map[string]any{"id": "", "name": "", "type": "table"}
 }
 
 // publicCollectionView loads the stored views and returns the one the reader
@@ -145,7 +157,7 @@ func (s *Server) publicCollectionView(colID string, opts shareOptions, viewID st
 		visible = append(visible, v)
 	}
 	if len(visible) == 0 {
-		return nil, false
+		return defaultPublicView(), viewID == ""
 	}
 	if viewID == "" {
 		return visible[0], true
@@ -201,20 +213,35 @@ func (s *Server) handlePublicCollectionRows(w http.ResponseWriter, r *http.Reque
 			}
 		}
 	}
-	sortParam := ""
-	if sraw, _ := json.Marshal(view["sort"]); len(sraw) > 2 {
-		var so struct {
-			Property string `json:"property"`
-			Dir      string `json:"dir"`
+	// sorts wins when present; the legacy sort is its first key.
+	var sortViews []map[string]any
+	if sraw, _ := json.Marshal(view["sorts"]); len(sraw) > 2 {
+		_ = json.Unmarshal(sraw, &sortViews)
+	}
+	if len(sortViews) == 0 {
+		if sraw, _ := json.Marshal(view["sort"]); len(sraw) > 2 {
+			var so map[string]any
+			if json.Unmarshal(sraw, &so) == nil {
+				sortViews = []map[string]any{so}
+			}
 		}
-		if json.Unmarshal(sraw, &so) == nil && so.Property != "" &&
-			(safePropID(so.Property) || so.Property == sortCreatedProp || so.Property == sortUpdatedProp) {
+	}
+	sortParam := ""
+	{
+		parts := []string{}
+		for _, v := range sortViews {
+			prop, _ := v["property"].(string)
+			dir, _ := v["dir"].(string)
+			if prop == "" || !(safePropID(prop) || prop == sortCreatedProp || prop == sortUpdatedProp) {
+				continue
+			}
 			d := "asc"
-			if strings.EqualFold(so.Dir, "desc") {
+			if strings.EqualFold(dir, "desc") {
 				d = "desc"
 			}
-			sortParam = so.Property + ":" + d
+			parts = append(parts, prop+":"+d)
 		}
+		sortParam = strings.Join(parts, ",")
 	}
 	where := []string{"parent_id = ?", "trashed_at IS NULL", "(visibility IS NULL OR visibility NOT IN ('private', 'restricted'))"}
 	args := []any{colID}

@@ -30,21 +30,37 @@ export async function withFixture(test) {
       cwd: root, encoding: 'utf8',
     });
     assert.equal(build.status, 0, build.stderr || String(build.error || 'Build failed'));
-    const listener = createServer();
-    listener.listen(0, '127.0.0.1');
-    await once(listener, 'listening');
-    const port = listener.address().port;
-    await new Promise(resolve => listener.close(resolve));
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SALT_')));
-    server = spawn(binary, [], {
-      env: { ...env, SALT_DATA: join(temp, 'data'), SALT_ADDR: `127.0.0.1:${port}` },
-      stdio: 'ignore',
-    });
-    const base = `http://127.0.0.1:${port}`;
-    await eventually(async () => {
-      if (server.exitCode !== null) throw new Error('Test server exited before becoming ready');
-      try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; }
-    });
+    // Two workers can pick the same free port in the gap between closing the
+    // probe listener and the server binding it, and a run.mjs worker pool makes
+    // that gap matter. Retry with a fresh port and data directory instead of
+    // failing a test over the race.
+    let base = '';
+    for (let attempt = 1; ; attempt++) {
+      const listener = createServer();
+      listener.listen(0, '127.0.0.1');
+      await once(listener, 'listening');
+      const port = listener.address().port;
+      await new Promise(resolve => listener.close(resolve));
+      server = spawn(binary, [], {
+        env: { ...env, SALT_DATA: join(temp, `data-${attempt}`), SALT_ADDR: `127.0.0.1:${port}` },
+        stdio: 'ignore',
+      });
+      base = `http://127.0.0.1:${port}`;
+      try {
+        await eventually(async () => {
+          if (server.exitCode !== null) throw new Error('Test server exited before becoming ready');
+          try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; }
+        });
+        break;
+      } catch (err) {
+        if (attempt >= 4) throw err;
+        if (server.exitCode === null) {
+          server.kill('SIGKILL');
+          await new Promise(resolve => server.once('exit', resolve));
+        }
+      }
+    }
     browser = await chromium.launch({
       headless: true,
       ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
@@ -85,7 +101,18 @@ export async function withFixture(test) {
     ]) rows.push(await api('POST', '/api/pages', { parentId: collection.id, title, props }));
     const page = await context.newPage();
     await page.goto(`${base}/p/${collection.id}`);
-    const open = () => page.getByRole('button', { name: 'Properties', exact: true }).click();
+    // The schema dialog carries its own "Properties" TAB, so the phrase matches
+    // two buttons the moment the dialog is open — and it stays mounted for the
+    // closing frame after Cancel. The toolbar button is the only one with
+    // `.btn-sm`, so the click cannot land on the tab.
+    //
+    // A schema edit that was not saved also asks "Close without saving?" when
+    // the next step moves on; these tests always mean the edit is gone.
+    const open = async () => {
+      const discard = page.getByRole('button', { name: 'Discard', exact: true });
+      if (await discard.count()) await discard.click();
+      await page.locator('button.btn-sm').filter({ hasText: /^\s*Properties\s*$/ }).click();
+    };
     const chip = (index, name) => page.locator('.schema-options').nth(index)
       .getByRole('button', { name, exact: true });
     const field = page.getByRole('textbox', { name: 'Option name' });
@@ -95,7 +122,7 @@ export async function withFixture(test) {
     };
     // One fixture for every test here: the collection ones use its helpers,
     // the callout one only needs the API and a workspace to write into.
-    await test({ page, context, api, base, workspace, path, open, chip, field, read, assertRows, schema });
+    await test({ page, context, api, base, workspace, collection, path, open, chip, field, read, assertRows, schema });
   } finally {
     await browser?.close();
     if (server && server.exitCode === null) {

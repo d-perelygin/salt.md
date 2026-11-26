@@ -26,12 +26,14 @@ func sessionCookieValue(r *http.Request) (string, bool) {
 }
 
 type user struct {
-	ID      string `json:"id"`
-	Email   string `json:"email"`
-	Name    string `json:"name"`
-	Color   string `json:"color"`
-	Avatar  string `json:"avatar"`
-	IsAdmin bool   `json:"isAdmin"`
+	ID       string `json:"id"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Nickname string `json:"nickname,omitempty"`
+	About    string `json:"about,omitempty"`
+	Color    string `json:"color"`
+	Avatar   string `json:"avatar"`
+	IsAdmin  bool   `json:"isAdmin"`
 	// Disabled: deactivated — no sign-in, no session, but everything stays
 	// attributable. The normal case when somebody leaves (see
 	// lifecycle_account.go).
@@ -142,9 +144,9 @@ func (s *Server) createSession(userID string) (string, error) {
 func (s *Server) userByID(id string) *user {
 	var u user
 	var isAdmin, disabled, aiDisabled int
-	err := s.db.QueryRow(`SELECT u.id, u.email, u.name, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
+	err := s.db.QueryRow(`SELECT u.id, u.email, u.name, u.nickname, u.about, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
 		FROM users u LEFT JOIN org_members m ON m.user_id = u.id WHERE u.id = ?`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole)
+		Scan(&u.ID, &u.Email, &u.Name, &u.Nickname, &u.About, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole)
 	if err != nil {
 		return nil
 	}
@@ -327,6 +329,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"prefs":               prefs,
 		"version":             Version,
 		"allowUserWorkspaces": s.loadSettings().AllowUserWorkspaces,
+		// The instance default for person fields, so a browser can resolve its
+		// own preference without the admin-only settings route.
+		"nameDisplayDefault": s.displayNameMode(),
 		"aiEnabled":           s.aiEnabledForUser(u),
 	})
 }
@@ -400,6 +405,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
+	s.assignUserHandle(id, strings.ToLower(strings.TrimSpace(body.Email)))
 	// The first admin gets a workspace and is its admin member. Reuse an
 	// existing (upgrade-migrated) workspace if one is already present.
 	var wsID string
@@ -485,7 +491,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Deactivated account: refuse only AFTER the password check, or the response
 	// would give away that this address exists at all.
 	if disabled != 0 {
-		httpErrorCode(w, http.StatusForbidden, "account_disabled", "This account has been deactivated — talk to an admin.")
+		httpErrorCode(w, http.StatusForbidden, "account_disabled", "This account has been deactivated. Talk to an admin.")
 		return
 	}
 	// Second factor: password was correct, now require a valid TOTP code. The
@@ -497,7 +503,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !verifyTOTP(totpSecret, body.Code) {
-			httpErrorCode(w, http.StatusUnauthorized, "2fa_invalid", "Wrong code — try again.")
+			httpErrorCode(w, http.StatusUnauthorized, "2fa_invalid", "Wrong code. Try again.")
 			return
 		}
 	}
@@ -519,7 +525,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.Query(`SELECT u.id, u.email, u.name, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
+	rows, err := s.db.Query(`SELECT u.id, u.email, u.name, u.nickname, u.about, u.color, u.avatar, u.is_admin, u.disabled, u.ai_disabled, COALESCE(m.role, '')
 		FROM users u LEFT JOIN org_members m ON m.user_id = u.id ORDER BY u.created_at`)
 	if err != nil {
 		httpError(w, 500, err.Error())
@@ -530,7 +536,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u user
 		var isAdmin, disabled, aiDisabled int
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Nickname, &u.About, &u.Color, &u.Avatar, &isAdmin, &disabled, &aiDisabled, &u.OrgRole); err != nil {
 			httpError(w, 500, err.Error())
 			return
 		}
@@ -578,6 +584,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "email already in use")
 		return
 	}
+	s.assignUserHandle(id, strings.ToLower(strings.TrimSpace(body.Email)))
 	s.addOrgMember(id, body.IsAdmin)
 	me := requestUser(r)
 	if len(body.Workspaces) > 0 {
@@ -620,6 +627,8 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Name            *string `json:"name"`
+		Nickname        *string `json:"nickname"`
+		About           *string `json:"about"`
 		Email           *string `json:"email"`
 		Color           *string `json:"color"`
 		Avatar          *string `json:"avatar"`
@@ -658,7 +667,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		// dialog you have open (every further action falls to 403) — and you
 		// cannot promote yourself back. So: forbidden.
 		if me.ID == id {
-			httpError(w, 400, "you cannot remove your own admin rights — ask another admin")
+			httpError(w, 400, "you cannot remove your own admin rights. Ask another admin")
 			return
 		}
 		var others int
@@ -670,7 +679,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		// Taking is_admin from the owner would leave them half locked out: they
 		// would keep the owner role, but every adminOnly route would be shut.
 		if s.isOwner(id) {
-			httpErrorCode(w, 400, "owner_rights_locked", "The owner's rights cannot be revoked — hand the owner role on first.")
+			httpErrorCode(w, 400, "owner_rights_locked", "The owner's rights cannot be revoked. Hand the owner role on first.")
 			return
 		}
 	}
@@ -714,6 +723,21 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var newNickname, newAbout string
+	if body.Nickname != nil {
+		newNickname = strings.TrimSpace(*body.Nickname)
+		if len([]rune(newNickname)) > 40 || strings.ContainsAny(newNickname, "\n\r") {
+			httpError(w, 400, "a nickname is one line of at most 40 characters")
+			return
+		}
+	}
+	if body.About != nil {
+		newAbout = strings.TrimSpace(*body.About)
+		if len([]rune(newAbout)) > 500 {
+			httpError(w, 400, "the about line is at most 500 characters")
+			return
+		}
+	}
 	if body.Password != nil && len(*body.Password) < 8 {
 		httpError(w, 400, "password must be at least 8 characters")
 		return
@@ -752,7 +776,20 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		s.db.Exec(`UPDATE users SET avatar = ? WHERE id = ?`, newAvatar, id)
 	}
 	if body.Name != nil && strings.TrimSpace(*body.Name) != "" {
+		var oldName string
+		_ = s.db.QueryRow(`SELECT name FROM users WHERE id = ?`, id).Scan(&oldName)
 		s.db.Exec(`UPDATE users SET name = ? WHERE id = ?`, strings.TrimSpace(*body.Name), id)
+		// A renamed member keeps their code references: every process that
+		// names them is rewritten at exact token positions.
+		if nn := strings.TrimSpace(*body.Name); nn != oldName {
+			s.rewriteMemberInCode(id, oldName, nn, me.ID, me.Name)
+		}
+	}
+	if body.Nickname != nil {
+		s.db.Exec(`UPDATE users SET nickname = ? WHERE id = ?`, newNickname, id)
+	}
+	if body.About != nil {
+		s.db.Exec(`UPDATE users SET about = ? WHERE id = ?`, newAbout, id)
 	}
 	if body.Color != nil {
 		s.db.Exec(`UPDATE users SET color = ? WHERE id = ?`, *body.Color, id)
@@ -789,7 +826,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	// no password reset, no instance backup. Repairable only by hand in the
 	// database. Hand it over first, then delete.
 	if s.isOwner(id) {
-		httpErrorCode(w, 400, "owner_cannot_be_deleted", "The owner cannot be deleted — hand the owner role to another account first.")
+		httpErrorCode(w, 400, "owner_cannot_be_deleted", "The owner cannot be deleted. Hand the owner role to another account first.")
 		return
 	}
 	// Order: first RECORD what hangs off the account (after this the memberships
@@ -802,7 +839,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if plan.Err != nil {
 		// An empty plan would look like "nothing hangs off this" and leave every
 		// one of the account's workspaces orphaned. Better not to delete at all.
-		httpErrorCode(w, 500, "impact_unavailable", "The consequences of this deletion could not be determined — please try again.")
+		httpErrorCode(w, 500, "impact_unavailable", "The consequences of this deletion could not be determined. Please try again.")
 		return
 	}
 	target := s.userByID(id)

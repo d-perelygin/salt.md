@@ -3,9 +3,49 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node callout-colors.mjs && node property-order.mjs && node select-options.mjs && node menus-and-arrows.mjs && node shortcuts.mjs && node embeds.mjs && node people.mjs && node tabs.mjs && node tab-strip.mjs && node sidebar-drop.mjs && node peek-sidebar.mjs && node board-top.mjs && node table-scroll.mjs && node view-undo.mjs && node doc-undo.mjs && node timeline-undo.mjs && node rows-race.mjs && node relation-chips.mjs && node page-url.mjs && node smart-dates.mjs && node timeline.mjs && node offline.mjs && node api-rewrite.mjs && node collection-config.mjs && node trash-navigation.mjs"
+    "test": "node run.mjs",
+    "test:serial": "node run.mjs --serial"
   },
   "devDependencies": {
     "playwright": "1.63.0"
-  }
+  },
+  "testFiles": [
+    "callout-colors.mjs",
+    "property-order.mjs",
+    "select-options.mjs",
+    "menus-and-arrows.mjs",
+    "shortcuts.mjs",
+    "embeds.mjs",
+    "people.mjs",
+    "tabs.mjs",
+    "tab-strip.mjs",
+    "sidebar-drop.mjs",
+    "peek-sidebar.mjs",
+    "board-top.mjs",
+    "table-scroll.mjs",
+    "view-undo.mjs",
+    "doc-undo.mjs",
+    "timeline-undo.mjs",
+    "rows-race.mjs",
+    "relation-chips.mjs",
+    "page-url.mjs",
+    "smart-dates.mjs",
+    "timeline.mjs",
+    "offline.mjs",
+    "api-rewrite.mjs",
+    "collection-config.mjs",
+    "trash-navigation.mjs",
+    "mobile-shell.mjs",
+    "board-edge-scroll.mjs",
+    "collection-defaults.mjs",
+    "share-menu.mjs",
+    "slash-menu.mjs",
+    "scroll-memory.mjs",
+    "board-tick.mjs",
+    "oauth-consent.mjs",
+    "oauth-grants.mjs",
+    "toolbar-menus.mjs",
+    "inline-comments.mjs",
+    "language.mjs"
+  ]
 }

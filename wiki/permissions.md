@@ -307,7 +307,7 @@ question is then **Leave anyway?** or **Remove anyway?**.
 ## Restricted pages
 
 A page can be narrowed to chosen members instead of the whole workspace. The
-lock button in the topbar always opens the **Page access** panel under itself
+lock button in the topbar always opens the share dialog on its **Share** tab
 (⋯ menu → **Page access…** holds the same): **Everyone in the workspace**,
 **Only me**, or **Chosen members** with the member list underneath.
 
@@ -368,7 +368,7 @@ only two ways, both of which act on pages:
 | Narrowing | Interface | Effect |
 | --- | --- | --- |
 | scope | **Read-write** / **Read-only** | a read-only token is refused any POST, PUT, PATCH or DELETE, and any writing MCP tool |
-| reach | **All workspaces** / **Specific workspaces…** | the token acts only in the workspaces ticked. Over MCP the others are not even named to it; it is told a number and nothing more. The REST workspace list is not narrowed this way: `/api/workspaces` still answers with every workspace the account belongs to |
+| reach | **All workspaces** / **Specific workspaces…** | the token acts only in the workspaces ticked. Over MCP the others are not even named to it; it is told a number and nothing more. The REST workspace list, `/api/workspaces`, leaves them out too |
 
 Create tokens under your avatar → **API tokens**. The value is shown once
 (*"Copy this token now. It will not be shown again"*), and each row records when
@@ -459,8 +459,9 @@ started this yourself."*
 
 This is the credential **Only signed-in connections** is about: it is
 short-lived, it was chosen on a screen rather than in a settings dialog, and it
-can be taken back. The grants an account has given are listed and revoked
-through `/api/oauth/grants`. See [Agent access](agent-access.md).
+can be taken back. The grants an account has given are listed under **Signed-in
+connections** in its **API tokens** dialog and ended there, through
+`/api/oauth/grants`. See [Agent access](agent-access.md).
 
 ### Asking before acting
 

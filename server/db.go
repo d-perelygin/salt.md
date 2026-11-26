@@ -229,9 +229,20 @@ CREATE TABLE IF NOT EXISTS ai_threads (
 	title TEXT NOT NULL DEFAULT '',
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
-	last_read_at TEXT NOT NULL DEFAULT ''
+	last_read_at TEXT NOT NULL DEFAULT '',
+	archived INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_ai_threads_user ON ai_threads(user_id, updated_at);
+-- Agent memory: durable notes the agent keeps about the user.
+CREATE TABLE IF NOT EXISTS ai_memory (
+	id TEXT PRIMARY KEY,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	workspace_id TEXT NOT NULL DEFAULT '',
+	content TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_memory_user ON ai_memory(user_id, updated_at);
 -- AI chat messages.
 CREATE TABLE IF NOT EXISTS ai_messages (
 	id TEXT PRIMARY KEY,
@@ -242,7 +253,8 @@ CREATE TABLE IF NOT EXISTS ai_messages (
 	tokens_in INTEGER NOT NULL DEFAULT 0,
 	tokens_out INTEGER NOT NULL DEFAULT 0,
 	attachments TEXT NOT NULL DEFAULT '[]',
-	created_at TEXT NOT NULL
+	created_at TEXT NOT NULL,
+	run_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_ai_messages_thread ON ai_messages(thread_id, created_at);
 -- AI background runs.
@@ -413,6 +425,23 @@ CREATE TABLE IF NOT EXISTS page_revisions (
 	content TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rev_page ON page_revisions(page_id, created_at);
+-- A database's shape has its own history (collection_history.go): schema,
+-- views and process live in the collections table, not in a page's body, so
+-- page revisions can never answer "what did this column look like before".
+CREATE TABLE IF NOT EXISTS collection_revisions (
+	id TEXT PRIMARY KEY,
+	page_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+	seq INTEGER NOT NULL,
+	created_at TEXT NOT NULL,
+	author_id TEXT NOT NULL DEFAULT '',
+	author_name TEXT NOT NULL DEFAULT '',
+	schema TEXT NOT NULL DEFAULT '[]',
+	views TEXT NOT NULL DEFAULT '[]',
+	workflow TEXT NOT NULL DEFAULT '',
+	new_from_template TEXT NOT NULL DEFAULT '',
+	changes TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_colrev_page ON collection_revisions(page_id, seq);
 CREATE TABLE IF NOT EXISTS comments (
 	id TEXT PRIMARY KEY,
 	page_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
@@ -462,6 +491,9 @@ func openDB(path string) (*sql.DB, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := ensureColumn(db, "comments", "anchor", `anchor TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate comments.anchor: %w", err)
+	}
 	if err := ensureColumn(db, "pages", "type", `type TEXT NOT NULL DEFAULT 'doc'`); err != nil {
 		return nil, fmt.Errorf("migrate pages.type: %w", err)
 	}
@@ -504,6 +536,14 @@ func openDB(path string) (*sql.DB, error) {
 	// newFromTemplate): empty means plain blank rows, as before.
 	if err := ensureColumn(db, "collections", "new_from_template", `new_from_template TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate collections.new_from_template: %w", err)
+	}
+	// Which agent wrote a comment, like a note's agent and label: a claim beside
+	// the verified account. Empty for a comment written in the browser (#116).
+	if err := ensureColumn(db, "comments", "agent", `agent TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate comments.agent: %w", err)
+	}
+	if err := ensureColumn(db, "comments", "agent_label", `agent_label TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate comments.agent_label: %w", err)
 	}
 	// Page tags: a JSON array of short labels (Obsidian-style, workspace-scoped).
 	if err := ensureColumn(db, "pages", "tags", `tags TEXT NOT NULL DEFAULT '[]'`); err != nil {
@@ -604,6 +644,17 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "users", "avatar", `avatar TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate users.avatar: %w", err)
 	}
+	// The second half of a name. `name` stays the legal/known name used in
+	// code and audit lines; a nickname is the informal one people actually
+	// recognise in a person field, and it is what the instance shows by default
+	// (see display_name_mode). Empty means "use the name".
+	if err := ensureColumn(db, "users", "nickname", `nickname TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate users.nickname: %w", err)
+	}
+	// A line or two about the person, shown on their account page.
+	if err := ensureColumn(db, "users", "about", `about TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate users.about: %w", err)
+	}
 	// W96: is this account's email confirmed? Existing accounts (created by
 	// setup, invitation or OAuth) count as confirmed (DEFAULT 1). An email
 	// changed BY THE ACCOUNT ITSELF sets this to 0 — and OAuth only signs in
@@ -637,6 +688,22 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "users", "disabled", `disabled INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return nil, fmt.Errorf("migrate users.disabled: %w", err)
 	}
+	// A version used to hold a document (title + content). A row's properties
+	// and appearance are part of its state too — restoring a version that
+	// ignored a column invented a page nobody had. `full` marks snapshots
+	// written since, so a legacy revision can still be restored without
+	// wiping properties it never saw.
+	for _, c := range [][2]string{
+		{"props", `props TEXT NOT NULL DEFAULT '{}'`},
+		{"icon", `icon TEXT NOT NULL DEFAULT ''`},
+		{"cover", `cover TEXT NOT NULL DEFAULT ''`},
+		{"changes", `changes TEXT NOT NULL DEFAULT ''`},
+		{"full", `full INTEGER NOT NULL DEFAULT 0`},
+	} {
+		if err := ensureColumn(db, "page_revisions", c[0], c[1]); err != nil {
+			return nil, fmt.Errorf("migrate page_revisions.%s: %w", c[0], err)
+		}
+	}
 	// W114: outbound webhooks. Instance-wide and admin-managed: a hook is a
 	// standing arrangement to call a foreign host, which is instance
 	// configuration rather than content.
@@ -662,6 +729,13 @@ func openDB(path string) (*sql.DB, error) {
 		{"pref_timezone", `pref_timezone TEXT NOT NULL DEFAULT ''`},
 		{"pref_clock", `pref_clock TEXT NOT NULL DEFAULT ''`},
 		{"pref_week_start", `pref_week_start TEXT NOT NULL DEFAULT ''`},
+		// "" is automatic (off); "on" opens rows in a new tab. Like every
+		// other preference here, a TEXT column where "" means "never decided".
+		{"pref_open_rows_new_tab", `pref_open_rows_new_tab TEXT NOT NULL DEFAULT ''`},
+		// Which of a colleague's two names a person field prints: "" follows
+		// the instance default (display_name_mode), "name" or "nickname" is
+		// this reader's own choice. It changes only the viewer's screen.
+		{"pref_name_display", `pref_name_display TEXT NOT NULL DEFAULT ''`},
 	} {
 		if err := ensureColumn(db, "users", c[0], c[1]); err != nil {
 			return nil, fmt.Errorf("migrate users.%s: %w", c[0], err)
@@ -716,6 +790,12 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "share_links", "options", `options TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate share_links.options: %w", err)
 	}
+	// The token itself, so every writer can read the live link to pass it on.
+	// Public lookups still go through token_hash; a row minted before this
+	// column existed has no plaintext and cannot be shown until re-created.
+	if err := ensureColumn(db, "share_links", "token", `token TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate share_links.token: %w", err)
+	}
 	// Named calendar subscriptions carry their own history window, so one
 	// link can stay quiet while another keeps the archive.
 	if err := ensureColumn(db, "ics_feeds", "past_days", `past_days INTEGER NOT NULL DEFAULT 90`); err != nil {
@@ -759,11 +839,52 @@ func openDB(path string) (*sql.DB, error) {
 	if err := ensureColumn(db, "ai_runs", "pending_answer", `pending_answer TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate ai_runs.pending_answer: %w", err)
 	}
+	// Link each assistant answer to the run that produced it, so the
+	// per-message "Worked for …" row sits above its own answer even when the
+	// row and the message land milliseconds apart.
+	if err := ensureColumn(db, "ai_messages", "run_id", `run_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate ai_messages.run_id: %w", err)
+	}
 	if err := ensureColumn(db, "ai_threads", "last_read_at", `last_read_at TEXT NOT NULL DEFAULT ''`); err != nil {
 		return nil, fmt.Errorf("migrate ai_threads.last_read_at: %w", err)
 	}
+	// Archived chats leave the list but stay readable, restorable and
+	// searchable by their owner.
+	if err := ensureColumn(db, "ai_threads", "archived", `archived INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return nil, fmt.Errorf("migrate ai_threads.archived: %w", err)
+	}
+	// Archived chats leave the list but stay readable, restorable and
+	// searchable by their owner.
+	if err := ensureColumn(db, "ai_threads", "archived", `archived INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return nil, fmt.Errorf("migrate ai_threads.archived: %w", err)
+	}
 	if err := ensureColumn(db, "users", "ai_disabled", `ai_disabled INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return nil, fmt.Errorf("migrate users.ai_disabled: %w", err)
+	}
+	// Date properties written by the workflow's relative picker hold the word
+	// ("today") instead of the day it named; nothing could display it. Repaired
+	// once, before the version stamp claims the database is current.
+	if err := migrateRelativeDates(db); err != nil {
+		return nil, fmt.Errorf("migrate relative dates: %w", err)
+	}
+	// Every database that existed before structure history gets one baseline
+	// version, so its first real edit has a state to compare with.
+	if err := backfillCollectionRevisions(db); err != nil {
+		return nil, fmt.Errorf("migrate collection revisions: %w", err)
+	}
+	// Process code names people by a stable handle; accounts that predate that
+	// get one here, and stored code that still spells a name is rewritten once.
+	if err := ensureColumn(db, "users", "handle", `handle TEXT NOT NULL DEFAULT ''`); err != nil {
+		return nil, fmt.Errorf("migrate users.handle: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_handle ON users(handle) WHERE handle <> ''`); err != nil {
+		return nil, fmt.Errorf("index users.handle: %w", err)
+	}
+	if err := assignUserHandles(db); err != nil {
+		return nil, fmt.Errorf("assign user handles: %w", err)
+	}
+	if err := migrateProcessHandles(db); err != nil {
+		return nil, fmt.Errorf("migrate process handles: %w", err)
 	}
 	db.Exec(`INSERT INTO schema_meta (key, value) VALUES ('version', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, Version)
@@ -773,16 +894,16 @@ func openDB(path string) (*sql.DB, error) {
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 const welcomeContent = `[
- {"type":"paragraph","content":[{"type":"text","text":"Welcome to ","styles":{}},{"type":"text","text":"salt.md","styles":{"bold":true}},{"type":"text","text":" — a fast, lightweight, open-source workspace for your notes, docs and ideas. 🧂","styles":{}}]},
+ {"type":"paragraph","content":[{"type":"text","text":"Welcome to ","styles":{}},{"type":"text","text":"salt.md","styles":{"bold":true}},{"type":"text","text":": a fast, lightweight, open-source workspace for your notes, docs and ideas. 🧂","styles":{}}]},
  {"type":"heading","props":{"level":2},"content":[{"type":"text","text":"Everything is a block","styles":{}}]},
  {"type":"paragraph","content":[{"type":"text","text":"Type ","styles":{}},{"type":"text","text":"/","styles":{"code":true}},{"type":"text","text":" anywhere to insert headings, lists, quotes, code blocks, images, tables and more. Drag blocks by their handle to rearrange them.","styles":{}}]},
  {"type":"checkListItem","props":{"checked":true},"content":[{"type":"text","text":"Install salt.md","styles":{}}]},
  {"type":"checkListItem","props":{"checked":false},"content":[{"type":"text","text":"Create your first page (button in the sidebar)","styles":{}}]},
  {"type":"checkListItem","props":{"checked":false},"content":[{"type":"text","text":"Press Ctrl/Cmd + K to search everything","styles":{}}]},
  {"type":"heading","props":{"level":2},"content":[{"type":"text","text":"Your data stays yours","styles":{}}]},
- {"type":"bulletListItem","content":[{"type":"text","text":"Single binary, single SQLite file — trivial to back up","styles":{}}]},
- {"type":"bulletListItem","content":[{"type":"text","text":"Export any page — or your whole workspace — as Markdown","styles":{}}]},
- {"type":"bulletListItem","content":[{"type":"text","text":"Clean REST API — build your own clients on top","styles":{}}]}
+ {"type":"bulletListItem","content":[{"type":"text","text":"Single binary, single SQLite file: trivial to back up","styles":{}}]},
+ {"type":"bulletListItem","content":[{"type":"text","text":"Export any page, or your whole workspace, as Markdown","styles":{}}]},
+ {"type":"bulletListItem","content":[{"type":"text","text":"Clean REST API: build your own clients on top","styles":{}}]}
 ]`
 
 func (s *Server) seed() error {

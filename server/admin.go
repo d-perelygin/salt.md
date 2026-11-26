@@ -15,7 +15,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
-// Instance administration (Welle 21): SMTP config, signup policy (open /
+// Instance administration (W21): SMTP config, signup policy (open /
 // invite-only / domain-allowlist), deployment info — plus the invite flow and
 // domain auto-join that build on them. All settings live in app_settings as
 // individual key/value rows so adding one needs no migration.
@@ -146,12 +146,18 @@ type appSettings struct {
 	OIDCClientID  string `json:"oidcClientId"`
 	OIDCSecretSet bool   `json:"oidcSecretSet"`
 	OIDCName      string `json:"oidcName"`
+	MSTenant      string `json:"msTenant"` // "" = common, see oauthEndpoints
 	MailProvider  string `json:"mailProvider"`
 	MailAddress   string `json:"mailAddress"`
 	MailFrom      string `json:"mailFrom"`
 	// W97: may non-admins create workspaces of their own (and become their
 	// admin)? Default yes — that is how it was; the switch gives control.
 	AllowUserWorkspaces bool `json:"allowUserWorkspaces"`
+	// Which of a person's names person fields print by default: "nickname" or
+	// "name". Each account may override it for their own screen (prefs.go).
+	DisplayNameMode string `json:"displayNameMode"`
+	// Create personal workspace for new users upon onboarding? Default yes.
+	CreatePersonalWorkspaces bool `json:"createPersonalWorkspaces"`
 	// Agent keys from listed addresses only (agent_addresses.go). The
 	// Anthropic range travels with it so the dialog's button has one source.
 	AgentAddressesOn   bool   `json:"agentAddressesOn"`
@@ -165,49 +171,64 @@ type appSettings struct {
 	AIInstanceKeySet   bool   `json:"aiInstanceKeySet"`
 }
 
+const settingDisplayNameMode = "display_name_mode"
+
+// displayNameMode is the instance default for person fields: the nickname when
+// an account has one, unless the instance asks for the formal name. Each
+// account may override it for its own screen (prefs.go).
+func (s *Server) displayNameMode() string {
+	if s.setting(settingDisplayNameMode, "nickname") == "name" {
+		return "name"
+	}
+	return "nickname"
+}
+
 func (s *Server) loadSettings() appSettings {
 	res := appSettings{
-		InstanceName:        s.setting("instance_name", ""),
-		SignupMode:          s.setting("signup_mode", "invite"),
-		AllowedDomains:      s.setting("allowed_domains", ""),
-		AllowUserWorkspaces: s.setting("allow_user_workspaces", "1") != "0",
-		AIEnabled:           s.setting("ai_enabled", "1") == "1",
-		AIDefaultBaseURL:    s.setting("ai_default_base_url", "https://api.openai.com/v1"),
-		AIDefaultModel:      s.setting("ai_default_model", "gpt-4o-mini"),
-		AIAllowInstanceKey:  s.setting("ai_allow_instance_key", "0") == "1",
-		AIInstanceKeySet:    s.setting("ai_instance_key_enc", "") != "",
-		SMTPHost:            s.setting("smtp_host", ""),
-		SMTPPort:            s.setting("smtp_port", "587"),
-		SMTPUser:            s.setting("smtp_user", ""),
-		SMTPFrom:            s.setting("smtp_from", ""),
-		SMTPPassSet:         s.setting("smtp_pass", "") != "",
-		PublicBaseURL:       s.setting("public_base_url", ""),
-		TrustProxy:          s.boolSetting("trust_proxy"),
-		MaxUploadMB:         s.intSetting("max_upload_mb", 50, 1, 2048),
-		TrashDays:           s.trashRetentionDays(),
-		AuditDays:           s.auditRetentionDays(),
-		PdfCover:            s.boolSetting("pdf_cover"),
-		PdfIcon:             s.setting("pdf_icon", "1") == "1",
-		PdfFooter:           s.setting("pdf_footer", "1") == "1",
-		PdfWorkspace:        s.setting("pdf_workspace", "1") == "1",
-		PdfPageNums:         s.setting("pdf_pagenums", "1") == "1",
-		PdfComments:         s.boolSetting("pdf_comments"),
-		PdfLinks:            s.setting("pdf_links", "1") == "1",
-		PdfLandscape:        s.boolSetting("pdf_landscape"),
-		SessionDays:         s.sessionDays(),
-		HTTPSDomain:         s.setting("https_domain", ""),
-		HTTPSEnabled:        s.boolSetting("https_enabled"),
-		GoogleClientID:      s.setting("oauth_google_id", ""),
-		GoogleSecretSet:     s.setting("oauth_google_secret", "") != "",
-		MSClientID:          s.setting("oauth_ms_id", ""),
-		MSSecretSet:         s.setting("oauth_ms_secret", "") != "",
-		OIDCIssuer:          s.oidcIssuer(),
-		OIDCClientID:        strings.TrimSpace(s.setting("oauth_oidc_id", "")),
-		OIDCSecretSet:       s.setting("oauth_oidc_secret", "") != "",
-		OIDCName:            s.oidcDisplayName(),
-		AgentAddressesOn:    s.boolSetting(settingAgentAddressesOn),
-		AgentAddresses:      s.setting(settingAgentAddresses, ""),
-		AnthropicAddresses:  anthropicOutbound,
+		InstanceName:             s.setting("instance_name", ""),
+		SignupMode:               s.setting("signup_mode", "invite"),
+		AllowedDomains:           s.setting("allowed_domains", ""),
+		AllowUserWorkspaces:      s.setting("allow_user_workspaces", "1") != "0",
+		DisplayNameMode:          s.displayNameMode(),
+		CreatePersonalWorkspaces: s.setting("create_personal_workspaces", "1") != "0",
+		AIEnabled:                s.setting("ai_enabled", "1") == "1",
+		AIDefaultBaseURL:         s.setting("ai_default_base_url", "https://api.openai.com/v1"),
+		AIDefaultModel:           s.setting("ai_default_model", "gpt-4o-mini"),
+		AIAllowInstanceKey:       s.setting("ai_allow_instance_key", "0") == "1",
+		AIInstanceKeySet:         s.setting("ai_instance_key_enc", "") != "",
+		SMTPHost:                 s.setting("smtp_host", ""),
+		SMTPPort:                 s.setting("smtp_port", "587"),
+		SMTPUser:                 s.setting("smtp_user", ""),
+		SMTPFrom:                 s.setting("smtp_from", ""),
+		SMTPPassSet:              s.setting("smtp_pass", "") != "",
+		PublicBaseURL:            s.setting("public_base_url", ""),
+		TrustProxy:               s.boolSetting("trust_proxy"),
+		MaxUploadMB:              s.intSetting("max_upload_mb", 50, 1, 2048),
+		TrashDays:                s.trashRetentionDays(),
+		AuditDays:                s.auditRetentionDays(),
+		PdfCover:                 s.boolSetting("pdf_cover"),
+		PdfIcon:                  s.setting("pdf_icon", "1") == "1",
+		PdfFooter:                s.setting("pdf_footer", "1") == "1",
+		PdfWorkspace:             s.setting("pdf_workspace", "1") == "1",
+		PdfPageNums:              s.setting("pdf_pagenums", "1") == "1",
+		PdfComments:              s.boolSetting("pdf_comments"),
+		PdfLinks:                 s.setting("pdf_links", "1") == "1",
+		PdfLandscape:             s.boolSetting("pdf_landscape"),
+		SessionDays:              s.sessionDays(),
+		HTTPSDomain:              s.setting("https_domain", ""),
+		HTTPSEnabled:             s.boolSetting("https_enabled"),
+		GoogleClientID:           s.setting("oauth_google_id", ""),
+		GoogleSecretSet:          s.setting("oauth_google_secret", "") != "",
+		MSClientID:               s.setting("oauth_ms_id", ""),
+		MSSecretSet:              s.setting("oauth_ms_secret", "") != "",
+		MSTenant:                 s.setting(settingMSTenant, ""),
+		OIDCIssuer:               s.oidcIssuer(),
+		OIDCClientID:             strings.TrimSpace(s.setting("oauth_oidc_id", "")),
+		OIDCSecretSet:            s.setting("oauth_oidc_secret", "") != "",
+		OIDCName:                 s.oidcDisplayName(),
+		AgentAddressesOn:         s.boolSetting(settingAgentAddressesOn),
+		AgentAddresses:           s.setting(settingAgentAddresses, ""),
+		AnthropicAddresses:       anthropicOutbound,
 	}
 	res.MailProvider, res.MailAddress = s.mailProviderConfigured()
 	res.MailFrom = s.setting("mail_from_override", "")
@@ -228,47 +249,50 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		InstanceName        *string `json:"instanceName"`
-		SignupMode          *string `json:"signupMode"`
-		AllowedDomains      *string `json:"allowedDomains"`
-		SMTPHost            *string `json:"smtpHost"`
-		SMTPPort            *string `json:"smtpPort"`
-		SMTPUser            *string `json:"smtpUser"`
-		SMTPFrom            *string `json:"smtpFrom"`
-		SMTPPass            *string `json:"smtpPass"` // "" leaves unchanged; sentinel clears
-		PublicBaseURL       *string `json:"publicBaseUrl"`
-		TrustProxy          *bool   `json:"trustProxy"`
-		MaxUploadMB         *int    `json:"maxUploadMb"`
-		TrashDays           *int    `json:"trashDays"`
-		AuditDays           *int    `json:"auditDays"`
-		PdfCover            *bool   `json:"pdfCover"`
-		PdfIcon             *bool   `json:"pdfIcon"`
-		PdfFooter           *bool   `json:"pdfFooter"`
-		PdfWorkspace        *bool   `json:"pdfWorkspace"`
-		PdfPageNums         *bool   `json:"pdfPageNums"`
-		PdfComments         *bool   `json:"pdfComments"`
-		PdfLinks            *bool   `json:"pdfLinks"`
-		PdfLandscape        *bool   `json:"pdfLandscape"`
-		SessionDays         *int    `json:"sessionDays"`
-		HTTPSDomain         *string `json:"httpsDomain"`
-		HTTPSEnabled        *bool   `json:"httpsEnabled"`
-		MailFrom            *string `json:"mailFrom"`
-		GoogleClientID      *string `json:"googleClientId"`
-		GoogleSecret        *string `json:"googleClientSecret"`
-		MSClientID          *string `json:"msClientId"`
-		MSSecret            *string `json:"msClientSecret"`
-		OIDCIssuer          *string `json:"oidcIssuer"`
-		OIDCClientID        *string `json:"oidcClientId"`
-		OIDCSecret          *string `json:"oidcClientSecret"`
-		OIDCName            *string `json:"oidcName"`
-		AllowUserWorkspaces *bool   `json:"allowUserWorkspaces"`
-		AgentAddressesOn    *bool   `json:"agentAddressesOn"`
-		AgentAddresses      *string `json:"agentAddresses"`
-		AIEnabled           *bool   `json:"aiEnabled"`
-		AIDefaultBaseURL    *string `json:"aiDefaultBaseUrl"`
-		AIDefaultModel      *string `json:"aiDefaultModel"`
-		AIAllowInstanceKey  *bool   `json:"aiAllowInstanceKey"`
-		AIInstanceKey       *string `json:"aiInstanceKey"` // "" leaves unchanged
+		InstanceName             *string `json:"instanceName"`
+		SignupMode               *string `json:"signupMode"`
+		AllowedDomains           *string `json:"allowedDomains"`
+		SMTPHost                 *string `json:"smtpHost"`
+		SMTPPort                 *string `json:"smtpPort"`
+		SMTPUser                 *string `json:"smtpUser"`
+		SMTPFrom                 *string `json:"smtpFrom"`
+		SMTPPass                 *string `json:"smtpPass"` // "" leaves unchanged; sentinel clears
+		PublicBaseURL            *string `json:"publicBaseUrl"`
+		TrustProxy               *bool   `json:"trustProxy"`
+		MaxUploadMB              *int    `json:"maxUploadMb"`
+		TrashDays                *int    `json:"trashDays"`
+		AuditDays                *int    `json:"auditDays"`
+		PdfCover                 *bool   `json:"pdfCover"`
+		PdfIcon                  *bool   `json:"pdfIcon"`
+		PdfFooter                *bool   `json:"pdfFooter"`
+		PdfWorkspace             *bool   `json:"pdfWorkspace"`
+		PdfPageNums              *bool   `json:"pdfPageNums"`
+		PdfComments              *bool   `json:"pdfComments"`
+		PdfLinks                 *bool   `json:"pdfLinks"`
+		PdfLandscape             *bool   `json:"pdfLandscape"`
+		SessionDays              *int    `json:"sessionDays"`
+		HTTPSDomain              *string `json:"httpsDomain"`
+		HTTPSEnabled             *bool   `json:"httpsEnabled"`
+		MailFrom                 *string `json:"mailFrom"`
+		GoogleClientID           *string `json:"googleClientId"`
+		GoogleSecret             *string `json:"googleClientSecret"`
+		MSClientID               *string `json:"msClientId"`
+		MSSecret                 *string `json:"msClientSecret"`
+		MSTenant                 *string `json:"msTenant"`
+		OIDCIssuer               *string `json:"oidcIssuer"`
+		OIDCClientID             *string `json:"oidcClientId"`
+		OIDCSecret               *string `json:"oidcClientSecret"`
+		OIDCName                 *string `json:"oidcName"`
+		AllowUserWorkspaces      *bool   `json:"allowUserWorkspaces"`
+		DisplayNameMode          *string `json:"displayNameMode"`
+		CreatePersonalWorkspaces *bool   `json:"createPersonalWorkspaces"`
+		AgentAddressesOn         *bool   `json:"agentAddressesOn"`
+		AgentAddresses           *string `json:"agentAddresses"`
+		AIEnabled                *bool   `json:"aiEnabled"`
+		AIDefaultBaseURL         *string `json:"aiDefaultBaseUrl"`
+		AIDefaultModel           *string `json:"aiDefaultModel"`
+		AIAllowInstanceKey       *bool   `json:"aiAllowInstanceKey"`
+		AIInstanceKey            *string `json:"aiInstanceKey"` // "" leaves unchanged
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		httpError(w, 400, "invalid JSON")
@@ -286,6 +310,18 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		body.AIDefaultBaseURL = &norm
+	}
+	// The tenant is checked up front for the same reason, and for one more: it
+	// becomes part of the path of Microsoft's endpoints (normalizeMSTenant).
+	var msTenant string
+	if body.MSTenant != nil {
+		v, ok := normalizeMSTenant(*body.MSTenant)
+		if !ok {
+			httpErrorCode(w, 400, "oauth_tenant_invalid",
+				"The Microsoft tenant must be a directory (tenant) ID or a verified domain name, such as contoso.onmicrosoft.com.")
+			return
+		}
+		msTenant = v
 	}
 	if body.AgentAddresses != nil {
 		s.setSetting(settingAgentAddresses, strings.TrimSpace(*body.AgentAddresses))
@@ -330,6 +366,19 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		s.setSetting("allow_user_workspaces", v)
 	}
+	if body.DisplayNameMode != nil {
+		switch *body.DisplayNameMode {
+		case "name", "nickname":
+			s.setSetting(settingDisplayNameMode, *body.DisplayNameMode)
+		}
+	}
+	if body.CreatePersonalWorkspaces != nil {
+		v := "1"
+		if !*body.CreatePersonalWorkspaces {
+			v = "0"
+		}
+		s.setSetting("create_personal_workspaces", v)
+	}
 	if body.AIEnabled != nil {
 		v := "0"
 		if *body.AIEnabled {
@@ -367,6 +416,9 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	set("mail_from_override", body.MailFrom)
 	set("oauth_google_id", body.GoogleClientID)
 	set("oauth_ms_id", body.MSClientID)
+	if body.MSTenant != nil {
+		s.setSetting(settingMSTenant, msTenant)
+	}
 	set("oauth_oidc_id", body.OIDCClientID)
 	set("oauth_oidc_name", body.OIDCName)
 	if body.OIDCIssuer != nil {
@@ -499,7 +551,7 @@ func (s *Server) publicShareBase(r *http.Request) string {
 // an error if SMTP isn't configured or delivery fails; callers surface the
 // invite link regardless so email is a convenience, not a hard dependency.
 func (s *Server) sendMail(to, subject, body string) error {
-	// Verbundener Google-/Microsoft-Account hat Vorrang vor SMTP.
+	// A connected Google or Microsoft account takes precedence over SMTP.
 	if provider, _ := s.mailProviderConfigured(); provider == "google" {
 		return s.sendViaGoogle(to, subject, body)
 	} else if provider == "microsoft" {
@@ -507,7 +559,7 @@ func (s *Server) sendMail(to, subject, body string) error {
 	}
 	host := s.setting("smtp_host", "")
 	if host == "" {
-		return coded("mail_not_configured", "No mail delivery is configured — set up SMTP, or connect Google or Microsoft.")
+		return coded("mail_not_configured", "No mail delivery is configured. Set up SMTP, or connect Google or Microsoft.")
 	}
 	port := s.setting("smtp_port", "587")
 	user := s.setting("smtp_user", "")
@@ -659,11 +711,11 @@ func (s *Server) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 		// (deactivating clears the sessions), but this is the one mutating
 		// currentUser site without that check.
 		if cur.Disabled {
-			httpErrorCode(w, http.StatusForbidden, "account_disabled", "This account has been deactivated — talk to an admin.")
+			httpErrorCode(w, http.StatusForbidden, "account_disabled", "This account has been deactivated. Talk to an admin.")
 			return
 		}
 		if email != "" && !strings.EqualFold(email, cur.Email) {
-			httpError(w, 403, "this invite is for a different account — sign out to accept it")
+			httpError(w, 403, "this invite is for a different account. Sign out to accept it")
 			return
 		}
 		s.joinWorkspace(ws, cur.ID, role)
@@ -701,7 +753,7 @@ func (s *Server) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 		// not give away whether the address exists. Without this a deactivated account
 		// could get itself a fresh session through an open invitation link.
 		if disabled != 0 {
-			httpErrorCode(w, http.StatusForbidden, "account_disabled", "This account has been deactivated — talk to an admin.")
+			httpErrorCode(w, http.StatusForbidden, "account_disabled", "This account has been deactivated. Talk to an admin.")
 			return
 		}
 		if totpEnabled != 0 {
@@ -710,7 +762,7 @@ func (s *Server) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if !verifyTOTP(totpSecret, body.Code) {
-				httpErrorCode(w, http.StatusUnauthorized, "2fa_invalid", "Wrong code — try again.")
+				httpErrorCode(w, http.StatusUnauthorized, "2fa_invalid", "Wrong code. Try again.")
 				return
 			}
 		}
@@ -726,6 +778,7 @@ func (s *Server) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 			httpError(w, 500, err.Error())
 			return
 		}
+		s.assignUserHandle(uid, useEmail)
 		s.addOrgMember(uid, false)
 		// Somebody who was invited gets their own area too — otherwise their account
 		// hangs entirely on the goodwill of the inviting team. Only for a NEW account:
@@ -802,7 +855,7 @@ func (s *Server) handleSelfSignup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	default:
-		httpError(w, 403, "self-registration is disabled — ask an admin for an invite")
+		httpError(w, 403, "self-registration is disabled. Ask an admin for an invite")
 		return
 	}
 	if msg := validateAccount(body.Name, email, body.Password); msg != "" {
@@ -820,6 +873,7 @@ func (s *Server) handleSelfSignup(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 500, err.Error())
 		return
 	}
+	s.assignUserHandle(uid, email)
 	s.addOrgMember(uid, false)
 	s.onboardUser(uid, body.Name)
 	sessTok, err := s.createSession(uid)
@@ -864,7 +918,7 @@ func (s *Server) handle2FASetup(w http.ResponseWriter, r *http.Request) {
 	var enabled int
 	s.db.QueryRow(`SELECT totp_enabled FROM users WHERE id = ?`, u.ID).Scan(&enabled)
 	if enabled != 0 {
-		httpError(w, 409, "2FA is already enabled — disable it first to set up a new device")
+		httpError(w, 409, "2FA is already enabled. Disable it first to set up a new device")
 		return
 	}
 	secret := newTOTPSecret()

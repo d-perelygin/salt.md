@@ -430,14 +430,18 @@ func (s *Server) handleListAIThreads(w http.ResponseWriter, r *http.Request) {
 	}
 	pageID := r.URL.Query().Get("page_id")
 	wsID := r.URL.Query().Get("workspace_id")
+	arch := r.URL.Query().Get("archived")
 	q := `SELECT t.id, t.user_id, t.workspace_id, t.page_id, t.title, t.created_at, t.updated_at, t.last_read_at,
 		COALESCE(p.title, '') AS page_title,
 		(SELECT COUNT(*) FROM ai_messages m WHERE m.thread_id = t.id) AS msg_count,
 		(SELECT m2.content FROM ai_messages m2 WHERE m2.thread_id = t.id ORDER BY m2.created_at DESC LIMIT 1) AS last_preview,
 		(SELECT m3.role FROM ai_messages m3 WHERE m3.thread_id = t.id ORDER BY m3.created_at DESC LIMIT 1) AS last_role,
 		EXISTS (SELECT 1 FROM ai_runs r WHERE r.thread_id = t.id) AS has_runs
-		FROM ai_threads t LEFT JOIN pages p ON p.id = t.page_id WHERE t.user_id = ?`
-	args := []any{u.ID}
+		FROM ai_threads t LEFT JOIN pages p ON p.id = t.page_id WHERE t.user_id = ? AND t.archived = ?`
+	args := []any{u.ID, 0}
+	if arch == "1" {
+		args[1] = 1
+	}
 	if pageID != "" {
 		q += ` AND t.page_id = ?`
 		args = append(args, pageID)
@@ -500,7 +504,7 @@ func (s *Server) handleListAIThreadRuns(w http.ResponseWriter, r *http.Request) 
 		httpError(w, 404, "not found")
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, status, task, progress, error, started_at, finished_at, artifacts FROM ai_runs WHERE thread_id = ? ORDER BY started_at ASC`, threadID)
+	rows, err := s.db.Query(`SELECT r.id, r.status, r.task, r.progress, r.error, r.started_at, r.finished_at, r.artifacts, (SELECT COUNT(*) FROM ai_steps s WHERE s.run_id = r.id) AS step_count FROM ai_runs r WHERE r.thread_id = ? ORDER BY r.started_at ASC`, threadID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -515,11 +519,12 @@ func (s *Server) handleListAIThreadRuns(w http.ResponseWriter, r *http.Request) 
 		StartedAt string `json:"startedAt"`
 		Finished  string `json:"finishedAt"`
 		Artifacts string `json:"artifacts"`
+		StepCount int    `json:"stepCount"`
 	}
 	out := []run{}
 	for rows.Next() {
 		var x run
-		rows.Scan(&x.ID, &x.Status, &x.Task, &x.Progress, &x.Error, &x.StartedAt, &x.Finished, &x.Artifacts)
+		rows.Scan(&x.ID, &x.Status, &x.Task, &x.Progress, &x.Error, &x.StartedAt, &x.Finished, &x.Artifacts, &x.StepCount)
 		out = append(out, x)
 	}
 	writeJSON(w, out)
@@ -565,7 +570,7 @@ func (s *Server) handleGetAIThreadMessages(w http.ResponseWriter, r *http.Reques
 		httpError(w, 404, "not found")
 		return
 	}
-	rows, err := s.db.Query(`SELECT id, thread_id, role, content, model, tokens_in, tokens_out, attachments, created_at FROM ai_messages WHERE thread_id = ? ORDER BY created_at ASC`, threadID)
+	rows, err := s.db.Query(`SELECT id, thread_id, role, content, model, tokens_in, tokens_out, attachments, created_at, COALESCE(run_id,'') FROM ai_messages WHERE thread_id = ? ORDER BY created_at ASC`, threadID)
 	if err != nil {
 		httpError(w, 500, err.Error())
 		return
@@ -581,11 +586,12 @@ func (s *Server) handleGetAIThreadMessages(w http.ResponseWriter, r *http.Reques
 		TokensOut   int    `json:"tokensOut"`
 		Attachments string `json:"attachments"`
 		CreatedAt   string `json:"createdAt"`
+		RunID       string `json:"runId"`
 	}
 	out := []m{}
 	for rows.Next() {
 		var x m
-		rows.Scan(&x.ID, &x.ThreadID, &x.Role, &x.Content, &x.Model, &x.TokensIn, &x.TokensOut, &x.Attachments, &x.CreatedAt)
+		rows.Scan(&x.ID, &x.ThreadID, &x.Role, &x.Content, &x.Model, &x.TokensIn, &x.TokensOut, &x.Attachments, &x.CreatedAt, &x.RunID)
 		out = append(out, x)
 	}
 	writeJSON(w, out)
@@ -715,7 +721,212 @@ func (s *Server) handleRenameAIThread(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
+// ---- thread titles ----
+
+// autoTitleSlice mirrors the browser's creation title: the first message,
+// cut at 40 characters. A thread whose title still equals that slice (or has
+// none) was never renamed by a person — safe to re-title from the content.
+func autoTitleSlice(content string) string {
+	r := []rune(strings.TrimSpace(content))
+	if len(r) > 40 {
+		r = r[:40]
+	}
+	return string(r)
+}
+
+// aiShortCompletion asks the model for a small non-streamed answer, for
+// housekeeping like titles — never for content the user reads as prose.
+func (s *Server) aiShortCompletion(baseURL, model, format, apiKey, sys, user string) string {
+	client := aiHTTPClient()
+	var body map[string]any
+	var url string
+	if format == "responses" {
+		url = strings.TrimRight(baseURL, "/") + "/responses"
+		body = map[string]any{
+			"model":        model,
+			"instructions": sys,
+			"input":        user,
+			"temperature":  0.3,
+			"stream":       false,
+		}
+	} else {
+		url = strings.TrimRight(baseURL, "/") + "/chat/completions"
+		body = map[string]any{
+			"model":       model,
+			"messages":    []any{map[string]any{"role": "system", "content": sys}, map[string]any{"role": "user", "content": user}},
+			"temperature": 0.3,
+			"stream":      false,
+		}
+	}
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(b))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil || resp.StatusCode >= 300 {
+		return ""
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return ""
+	}
+	var text string
+	if format == "responses" {
+		if arr, ok := out["output"].([]any); ok {
+			for _, it := range arr {
+				m, _ := it.(map[string]any)
+				if m["type"] != "message" {
+					continue
+				}
+				if content, ok := m["content"].([]any); ok {
+					for _, c := range content {
+						cm, _ := c.(map[string]any)
+						if cm["type"] == "output_text" {
+							if t, _ := cm["text"].(string); t != "" {
+								text = t
+							}
+						}
+					}
+				}
+			}
+		}
+		if text == "" {
+			text, _ = out["output_text"].(string)
+		}
+	} else {
+		if arr, ok := out["choices"].([]any); ok && len(arr) > 0 {
+			m, _ := arr[0].(map[string]any)
+			mm, _ := m["message"].(map[string]any)
+			text, _ = mm["content"].(string)
+		}
+	}
+	// One line, no quotes, capped like a manual rename.
+	line := strings.TrimSpace(text)
+	if i := strings.Index(line, "\n"); i >= 0 {
+		line = line[:i]
+	}
+	line = strings.Trim(strings.TrimSpace(line), "\"'«»„“”")
+	r := []rune(line)
+	if len(r) > 120 {
+		r = r[:120]
+	}
+	return strings.TrimSpace(string(r))
+}
+
+// maybeAutoThreadTitle generates the thread's title from its recent messages.
+// With force it always generates; otherwise only when the title is still
+// automatic (empty or the creation slice) — never over a manual rename.
+func (s *Server) maybeAutoThreadTitle(u *user, threadID string, force bool) (string, bool) {
+	var title, owner string
+	if err := s.db.QueryRow(`SELECT title, user_id FROM ai_threads WHERE id = ?`, threadID).Scan(&title, &owner); err != nil || owner != u.ID {
+		return "", false
+	}
+	var first string
+	s.db.QueryRow(`SELECT content FROM ai_messages WHERE thread_id = ? AND role = 'user' ORDER BY created_at ASC LIMIT 1`, threadID).Scan(&first)
+	if !force && title != "" && title != autoTitleSlice(first) {
+		return title, false
+	}
+	rows, err := s.db.Query(`SELECT role, content FROM ai_messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 6`, threadID)
+	if err != nil {
+		return title, false
+	}
+	type msg struct{ role, content string }
+	msgs := []msg{}
+	for rows.Next() {
+		var m msg
+		if err := rows.Scan(&m.role, &m.content); err == nil {
+			msgs = append(msgs, m)
+		}
+	}
+	rows.Close()
+	if len(msgs) == 0 {
+		return title, false
+	}
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	baseURL, model, format, _, apiKey, _, err := s.resolveAIConfig(u)
+	if err != nil {
+		return title, false
+	}
+	var b strings.Builder
+	for _, m := range msgs {
+		t := m.content
+		if tr := []rune(t); len(tr) > 500 {
+			t = string(tr[:500]) + "…"
+		}
+		b.WriteString(m.role + ": " + t + "\n")
+	}
+	next := s.aiShortCompletion(baseURL, model, format, apiKey,
+		"You name chats. Reply with only a very short title (max 6 words, no quotes, no trailing period), in the same language as the conversation.",
+		b.String())
+	if next == "" {
+		return title, false
+	}
+	s.db.Exec(`UPDATE ai_threads SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?`, next, now(), threadID, u.ID)
+	return next, true
+}
+
+func (s *Server) handleGenerateAIThreadTitle(w http.ResponseWriter, r *http.Request) {
+	u := requestUser(r)
+	if !s.aiEnabledForUser(u) {
+		httpError(w, 403, "AI is disabled")
+		return
+	}
+	id := r.PathValue("id")
+	var body struct {
+		Force bool `json:"force"`
+	}
+	_ = decodeJSON(w, r, &body)
+	title, generated := s.maybeAutoThreadTitle(u, id, body.Force)
+	if title == "" {
+		var owner string
+		s.db.QueryRow(`SELECT user_id FROM ai_threads WHERE id = ?`, id).Scan(&owner)
+		if owner != u.ID {
+			httpError(w, 404, "not found")
+			return
+		}
+	}
+	writeJSON(w, map[string]any{"title": title, "generated": generated})
+}
+
 // Mark a thread read up to now (clears the unread dot).
+// Archive (or restore) a thread. Archived chats leave every list but stay
+// readable, restorable and searchable by their owner.
+func (s *Server) handleArchiveAIThread(w http.ResponseWriter, r *http.Request) {
+	u := requestUser(r)
+	id := r.PathValue("id")
+	var body struct {
+		Archived bool `json:"archived"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		httpError(w, 400, "invalid JSON")
+		return
+	}
+	v := 0
+	if body.Archived {
+		v = 1
+	}
+	res, err := s.db.Exec(`UPDATE ai_threads SET archived = ?, updated_at = ? WHERE id = ? AND user_id = ?`, v, now(), id, u.ID)
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		httpError(w, 404, "not found")
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
 func (s *Server) handleReadAIThread(w http.ResponseWriter, r *http.Request) {
 	u := requestUser(r)
 	id := r.PathValue("id")
@@ -880,6 +1091,7 @@ func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sys += s.aiWorkspaceRulesBlock(req.PageID, threadWS)
+	sys += s.aiMemoryBlock(u, threadWS)
 	msgs = append(msgs, map[string]any{"role": "system", "content": sys})
 	for _, m := range req.Messages {
 		msgs = append(msgs, map[string]any{"role": m.Role, "content": m.Content})
@@ -1002,6 +1214,7 @@ func (s *Server) handleAIChatResponses(w http.ResponseWriter, r *http.Request, u
 		}
 	}
 	sys += s.aiWorkspaceRulesBlock(req.PageID, threadWS)
+	sys += s.aiMemoryBlock(u, threadWS)
 	// build input messages
 	var input []map[string]any
 	for _, m := range req.Messages {
@@ -1196,6 +1409,27 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 				if argsStr == "" {
 					argsStr = "{}"
 				}
+				if name == "propose_workflow_code" {
+					// In-app only: the proposal lives in this server's memory
+					// and reaches the open editor through the event stream.
+					var spec struct {
+						PageID  string `json:"page_id"`
+						Source  string `json:"source"`
+						Summary string `json:"summary"`
+					}
+					_ = json.Unmarshal([]byte(argsStr), &spec)
+					out, perr := s.aiProposeWorkflowCode(u, spec.PageID, spec.Source, spec.Summary)
+					if perr != nil {
+						out = "error: " + perr.Error()
+					}
+					input = append(input, it)
+					input = append(input, map[string]any{
+						"type":    "function_call_output",
+						"call_id": callID,
+						"output":  out,
+					})
+					continue
+				}
 				if name == "ask_user" {
 					answer, ok := s.aiAskUser(ctx, u, runID, threadID, argsStr)
 					if !ok {
@@ -1272,8 +1506,8 @@ func (s *Server) runAIBackgroundResponses(ctx context.Context, u *user, runID, t
 	}
 	finishPlan("done")
 	s.aiAddStep(runID, threadID, u.ID, "thinking", "Done", finalContent, "done")
-	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at) VALUES (?,?,?,?,?,?)`,
-		newID(), threadID, "assistant", finalContent, model, now())
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at, run_id) VALUES (?,?,?,?,?,?,?)`,
+		newID(), threadID, "assistant", finalContent, model, now(), runID)
 	if rejected {
 		s.db.Exec(`UPDATE ai_runs SET status='cancelled', progress='rejected', finished_at=? WHERE id=?`, now(), runID)
 	} else {
@@ -1416,6 +1650,48 @@ func (s *Server) handleGetAIRunEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ---- runs owned by this process ----
+
+// aiMarkRunLive records that this process owns the run's goroutine. The mark
+// is what lets the answer route tell a live question from a leftover: a run row
+// says "waiting_user" long after the goroutine that waits for the answer is
+// gone, and an answer written into that row reaches nobody.
+func (s *Server) aiMarkRunLive(runID string) {
+	s.aiLiveMu.Lock()
+	s.aiLive[runID] = true
+	s.aiLiveMu.Unlock()
+}
+
+func (s *Server) aiMarkRunDone(runID string) {
+	s.aiLiveMu.Lock()
+	delete(s.aiLive, runID)
+	s.aiLiveMu.Unlock()
+}
+
+func (s *Server) aiRunLive(runID string) bool {
+	s.aiLiveMu.Lock()
+	defer s.aiLiveMu.Unlock()
+	return s.aiLive[runID]
+}
+
+// aiInterruptStaleRuns closes every run a previous process left unfinished.
+// Nothing can resume one: the goroutine that would read an answer, an approval
+// or the next model call lived in that process. Left alone, such a row answers
+// "waiting_user" forever, the chat re-offers the same question on every visit,
+// and every answer is written into a column no one reads.
+func (s *Server) aiInterruptStaleRuns() {
+	res, err := s.db.Exec(`UPDATE ai_runs SET status='failed',
+		error='The server restarted while this run was working. Start it again.',
+		progress='interrupted', finished_at=?, pending_tool='', pending_args='', pending_answer='', approved=0
+		WHERE status IN ('queued','running','waiting_approval','waiting_user')`, now())
+	if err != nil {
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		log.Printf("ai: closed %d run(s) interrupted by the restart", n)
+	}
+}
+
 // ---- approvals ----
 
 // Read-only tools never change anything, so they never ask.
@@ -1431,7 +1707,7 @@ var aiReadTools = map[string]bool{
 var aiDestructiveTools = map[string]bool{
 	"delete_comment": true, "delete_view": true, "set_trashed": true,
 	"set_sharing": true, "propose_workspace_rules": true,
-	"update_schema": true, "workspace": true,
+	"update_schema": true, "workspace": true, "set_workflow_code": true,
 }
 
 func toolNeedsApproval(name, mode string) bool {
@@ -1604,6 +1880,13 @@ func (s *Server) handleApproveAIRun(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 404, "not found")
 		return
 	}
+	if !s.aiRunLive(id) {
+		s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, progress='interrupted', finished_at=?,
+			pending_tool='', pending_args='', approved=0 WHERE id=?`,
+			"The server restarted while this run was working. Start it again.", now(), id)
+		httpError(w, 409, "this run was interrupted by a server restart — start it again")
+		return
+	}
 	var body struct {
 		Approved bool `json:"approved"`
 	}
@@ -1630,6 +1913,16 @@ func (s *Server) handleAnswerAIRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if status != "waiting_user" {
 		httpError(w, 409, "run is not waiting for an answer")
+		return
+	}
+	// A run left "waiting_user" by a previous process has nobody reading the
+	// answer: writing it would look like success and change nothing. Say so,
+	// and close the row so the question stops coming back.
+	if !s.aiRunLive(id) {
+		s.db.Exec(`UPDATE ai_runs SET status='failed', error=?, progress='interrupted', finished_at=?,
+			pending_tool='', pending_args='', pending_answer='' WHERE id=?`,
+			"The server restarted while this run was waiting. Start it again.", now(), id)
+		httpError(w, 409, "this run was interrupted by a server restart — start it again")
 		return
 	}
 	var body struct {
@@ -2071,6 +2364,7 @@ func (s *Server) handleCreateAIRun(w http.ResponseWriter, r *http.Request) {
 	s.db.Exec(`INSERT INTO ai_runs (id, user_id, thread_id, status, task, started_at) VALUES (?,?,?,?,?,?)`,
 		runID, u.ID, threadID, "queued", body.Task, now())
 	// launch
+	s.aiMarkRunLive(runID)
 	go s.runAIBackground(u, runID, threadID, body.Task, body.PageID, userMsgID)
 	writeJSON(w, map[string]string{"id": runID, "threadId": threadID})
 }
@@ -2084,6 +2378,7 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		runMu.Lock()
 		delete(runCancel, runID)
 		runMu.Unlock()
+		s.aiMarkRunDone(runID)
 	}()
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -2146,6 +2441,7 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 		threadWS = ""
 	}
 	sys += s.aiWorkspaceRulesBlock(effectivePageID, threadWS)
+	sys += s.aiMemoryBlock(u, threadWS)
 	if format == "responses" {
 		s.runAIBackgroundResponses(ctx, u, runID, threadID, task, effectivePageID, baseURL, model, temp, apiKey, approvalMode, sys, userMsgID, userCustomURL)
 		return
@@ -2241,6 +2537,26 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 				fn, _ := tcm["function"].(map[string]any)
 				name, _ := fn["name"].(string)
 				argsStr, _ := fn["arguments"].(string)
+				if name == "propose_workflow_code" {
+					// In-app only: the proposal lives in this server's memory
+					// and reaches the open editor through the event stream.
+					var spec struct {
+						PageID  string `json:"page_id"`
+						Source  string `json:"source"`
+						Summary string `json:"summary"`
+					}
+					_ = json.Unmarshal([]byte(argsStr), &spec)
+					proposal, perr := s.aiProposeWorkflowCode(u, spec.PageID, spec.Source, spec.Summary)
+					if perr != nil {
+						proposal = "error: " + perr.Error()
+					}
+					messages = append(messages, map[string]any{
+						"role":         "tool",
+						"tool_call_id": id,
+						"content":      proposal,
+					})
+					continue
+				}
 				if name == "ask_user" {
 					answer, ok := s.aiAskUser(ctx, u, runID, threadID, argsStr)
 					if !ok {
@@ -2302,8 +2618,8 @@ func (s *Server) runAIBackground(u *user, runID, threadID, task, pageID, userMsg
 	}
 	finishPlan("done")
 	s.aiAddStep(runID, threadID, u.ID, "thinking", "Done", finalContent, "done")
-	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at) VALUES (?,?,?,?,?,?)`,
-		newID(), threadID, "assistant", finalContent, model, now())
+	s.db.Exec(`INSERT INTO ai_messages (id, thread_id, role, content, model, created_at, run_id) VALUES (?,?,?,?,?,?,?)`,
+		newID(), threadID, "assistant", finalContent, model, now(), runID)
 	if rejected {
 		s.db.Exec(`UPDATE ai_runs SET status='cancelled', progress='rejected', finished_at=? WHERE id=?`, now(), runID)
 	} else {
@@ -2397,33 +2713,26 @@ func (s *Server) handleUploadAIAttachment(w http.ResponseWriter, r *http.Request
 	// save file
 	extRaw := filepath.Ext(filepath.Base(hdr.Filename))
 	fname := newID() + extRaw
-	if err := os.WriteFile(filepath.Join(s.dataDir, "files", fname), data, 0o644); err != nil {
+	saved := filepath.Join(s.dataDir, "files", fname)
+	if err := os.WriteFile(saved, data, 0o644); err != nil {
 		httpError(w, 500, err.Error())
 		return
 	}
 	s.db.Exec(`INSERT INTO files (file_name, display_name, ext, size, created_at) VALUES (?,?,?,?,?)`,
 		fname, filepath.Base(hdr.Filename), extRaw, len(data), now())
-	// extract text (best effort)
-	text := ""
+	// extract text (best effort) — one extractor for chat and read_page_file
+	// (filetext.go), so the two paths cannot disagree about a format again.
 	ext := strings.ToLower(extRaw)
-	switch ext {
-	case ".txt", ".md", ".csv", ".json":
-		text = string(data)
-	case ".pdf":
-		// Best-effort: use pdftotext if present on the host.
-		tmp, _ := os.CreateTemp("", "salt-ai-*.pdf")
-		if tmp != nil {
-			tmp.Write(data)
-			tmp.Close()
-			if out, err := exec.Command("pdftotext", "-layout", tmp.Name(), "-").Output(); err == nil {
-				text = string(out)
-			}
-			os.Remove(tmp.Name())
+	text := extractFileText(data, saved, ext)
+	if text == "" && ext == ".pdf" {
+		// pdftotext stays as a fallback for PDFs the Go parser cannot read.
+		if out, err := exec.Command("pdftotext", "-layout", saved, "-").Output(); err == nil {
+			text = string(out)
 		}
 	}
 	attID := newID()
 	status := "done"
-	if text == "" && ext == ".pdf" {
+	if text == "" && !isTextExt(ext) && ext != ".pdf" {
 		status = "unsupported"
 	}
 	// Cap what travels back to the browser; the full text stays in the DB.

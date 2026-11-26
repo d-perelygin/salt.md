@@ -35,11 +35,15 @@ await withFixture(async ({ page }) => {
   // The card's ⋯ menu carries the visible entry, the way the sidebar's does.
   await boardTab.click();
   await firstRow.waitFor();
-  await firstRow.click({ button: 'right' });
+  // The card's own ⋯ opens that menu; a right-click on the card does not.
+  await firstRow.locator('.card-move-btn').click();
   await page.getByRole('button', { name: 'Open in new tab', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.card-move-menu').waitFor({ state: 'detached' }).catch(() => {});
 
-  // An ordinary click still navigates the active tab instead of adding one.
+  // An ordinary click opens the row in the side peek and leaves the tabs
+  // alone: since the row preview landed, a card is no longer a navigation.
   await page.locator('.board-card', { hasText: 'Second row' }).click();
-  await eventually(async () => (await tabs.filter({ hasText: 'Second row' }).count()) === 1);
+  await page.locator('.peek-panel').waitFor();
   assert.equal(await tabs.count(), 2);
 });

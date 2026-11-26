@@ -157,7 +157,7 @@ func (s *Server) mcpGetWorkspace(u *user, wsID string) (string, string, error) {
 	// the two it is costs nothing — the caller already knows the workspace
 	// exists, it is their own account — and it tells them what to do instead.
 	if !s.credentialMayEnter(u, wsID) {
-		return "", "", fmt.Errorf("workspace %q is outside what this connection was granted — ask for it to be added, or name one it can reach", wsID)
+		return "", "", fmt.Errorf("workspace %q is outside what this connection was granted. Ask for it to be added, or name one it can reach", wsID)
 	}
 	var name, rules, proposal string
 	if err := s.db.QueryRow(`SELECT name, rules, rules_proposal FROM workspaces WHERE id = ?`, wsID).Scan(&name, &rules, &proposal); err != nil {
@@ -262,11 +262,12 @@ func (s *Server) mcpProposeWorkspaceRules(u *user, wsID, rules string) (string, 
 			return "There is no pending proposal to withdraw.", nil
 		}
 		if by != u.ID {
-			return "", fmt.Errorf("the pending proposal is not yours to withdraw — an admin can dismiss it in the browser")
+			return "", fmt.Errorf("the pending proposal is not yours to withdraw. An admin can dismiss it in the browser")
 		}
 		if _, err := s.db.Exec(`UPDATE workspaces SET rules_proposal = '', rules_proposal_by = '', rules_proposal_at = '' WHERE id = ?`, wsID); err != nil {
 			return "", err
 		}
+		s.workspaceChanged(wsID)
 		return "Withdrew your pending rules proposal.", nil
 	}
 	var replaced string
@@ -275,6 +276,7 @@ func (s *Server) mcpProposeWorkspaceRules(u *user, wsID, rules string) (string, 
 		rules, u.ID, now(), wsID); err != nil {
 		return "", err
 	}
+	s.workspaceChanged(wsID)
 	note := "Proposed — NOT active yet. A workspace admin reviews and applies it in the browser (workspace menu → Workspace rules). Tell the user it is waiting there."
 	if replaced != "" {
 		note = "Proposed, replacing the previous pending proposal — NOT active yet. A workspace admin reviews and applies it in the browser (workspace menu → Workspace rules). Tell the user it is waiting there."

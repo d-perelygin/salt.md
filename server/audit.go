@@ -1,12 +1,12 @@
 package server
 
 import (
-	"strings"
-	"fmt"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -141,7 +141,7 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	// which is not something anybody does, so the answer was effectively not
 	// available even though the data was there.
 	pageFilter := r.URL.Query().Get("page")
-	if pageFilter != "" && !s.canRead(requestUser(r).ID, pageFilter) {
+	if pageFilter != "" && !s.canReadReq(r, pageFilter) {
 		writeJSON(w, []auditEntry{})
 		return
 	}
@@ -164,7 +164,11 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	// is full: the interface recognises the end of the history by getting back
 	// fewer than `limit` entries. If the list were simply truncated, everything
 	// older than the first filtered-out entry would be out of reach.
-	uid := requestUser(r).ID
+	//
+	// canReadReq rather than canRead: an entry keeps the workspace it was
+	// WRITTEN in, while the page it names may have moved since, and its current
+	// title comes along. Asking the person alone kept a moved page's history in
+	// view of every credential for the workspace it left.
 	list := []auditEntry{}
 	for round := 0; len(list) < limit && round < 20; round++ {
 		qArgs := append([]any{}, args...)
@@ -206,7 +210,7 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 			// If the entry points at a page that NO LONGER exists, it stays: otherwise
 			// exactly the events a log is there for would disappear — permanent deletion,
 			// and, with the automatic emptying of the trash, gradually and on their own.
-			if e.PageID != "" && s.pageExists(e.PageID) && !s.canRead(uid, e.PageID) {
+			if e.PageID != "" && s.pageExists(e.PageID) && !s.canReadReq(r, e.PageID) {
 				continue
 			}
 			list = append(list, e)
@@ -291,6 +295,46 @@ func (s *Server) storeIdempotent(key, result string) {
 		return
 	}
 	s.db.Exec(`INSERT INTO idempotency (key, result, created_at) VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING`, key, result, now())
+}
+
+// reserveIdempotent atomically claims an idempotency key before performing a
+// mutation, preventing concurrent retries (e.g. two browser tabs flushing the
+// same offline outbox) from running the mutation twice. Returns (cached, false)
+// if a completed result already exists, or ("", true) if this caller claimed
+// the key and must call finishIdempotent or releaseIdempotent.
+func (s *Server) reserveIdempotent(key string) (string, bool) {
+	if key == "" {
+		return "", true
+	}
+	for i := 0; i < 40; i++ {
+		res, err := s.db.Exec(`INSERT INTO idempotency (key, result, created_at) VALUES (?, '', ?) ON CONFLICT(key) DO NOTHING`, key, now())
+		if err == nil {
+			if n, _ := res.RowsAffected(); n > 0 {
+				return "", true
+			}
+		}
+		var cached string
+		err = s.db.QueryRow(`SELECT result FROM idempotency WHERE key = ?`, key).Scan(&cached)
+		if err == nil && cached != "" {
+			return cached, false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return "", true
+}
+
+func (s *Server) finishIdempotent(key, result string) {
+	if key == "" || result == "" {
+		return
+	}
+	s.db.Exec(`UPDATE idempotency SET result = ? WHERE key = ?`, result, key)
+}
+
+func (s *Server) releaseIdempotent(key string) {
+	if key == "" {
+		return
+	}
+	s.db.Exec(`DELETE FROM idempotency WHERE key = ? AND result = ''`, key)
 }
 
 // handleAuditRevert takes back ONE recorded change, and only the part of it
@@ -381,7 +425,10 @@ func (s *Server) handleAuditRevert(w http.ResponseWriter, r *http.Request) {
 		s.pagesChanged()
 		s.rowChanged(pageID)
 		s.audit("human", u.ID, u.Name, "revert_change", pageID, s.pageWorkspace(pageID),
-			fmt.Sprintf("%s — %s", s.pageTitle(pageID), strings.Join(reverted, ", ")))
+			fmt.Sprintf("%s: %s", s.pageTitle(pageID), strings.Join(reverted, ", ")))
+		// Taking a change back is a change: the version list has to show it,
+		// or the state it produced would appear out of nowhere.
+		s.snapshotRevisionProps(pageID, u.ID, u.Name)
 	}
 	writeJSON(w, map[string]any{"reverted": reverted, "skipped": skipped})
 }

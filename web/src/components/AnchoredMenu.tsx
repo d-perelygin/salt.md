@@ -29,17 +29,30 @@ export default function AnchoredMenu({ className = 'menu', children }: { classNa
       menu.style.bottom = 'auto';
       menu.style.top = '0px';
       menu.style.left = '0px';
+      // The cap goes on BEFORE measuring: on a phone the rows are 44px, and a
+      // menu with a dozen of them (a page's ⋯ plus every workspace) would run
+      // the height of the screen, fail to fit under its row, and get flipped
+      // above it — where it touches the top edge, the corner a thumb reaches
+      // last. Capped, it fits below far more often and scrolls when it cannot.
+      const phone = window.matchMedia('(max-width: 768px)').matches;
+      const cap = phone ? Math.round(window.innerHeight * 0.6) : window.innerHeight - 16;
+      menu.style.maxHeight = `${cap}px`;
+      menu.style.overflowY = 'auto';
       // Where (0, 0) really is: on a phone the drawer is moved by a transform,
       // and a transformed ancestor becomes the origin of `fixed`.
       const origin = menu.getBoundingClientRect();
       let top = a.top + dy;
+      if (phone) {
+        // The row's own bottom edge is the natural place for a menu hanging off
+        // it; the CSS offset is a desktop convention.
+        const below = a.bottom + 4;
+        top = below + origin.height <= window.innerHeight - 8 ? below : a.top - origin.height - 4;
+      }
       if (top + origin.height > window.innerHeight - 8) top = Math.max(8, a.top - origin.height - 4);
+      top = Math.max(8, top);
       const left = Math.max(8, Math.min(a.left + dx, window.innerWidth - origin.width - 8));
       menu.style.top = `${top - origin.top}px`;
       menu.style.left = `${left - origin.left}px`;
-      // A long menu (every workspace to move to) still fits: it scrolls.
-      menu.style.maxHeight = `${window.innerHeight - 16}px`;
-      menu.style.overflowY = 'auto';
     };
     place();
     window.addEventListener('scroll', place, true);

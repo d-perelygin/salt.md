@@ -45,13 +45,24 @@ type userPrefs struct {
 	Clock string `json:"clock"`
 	// "" | "mon" | "sun" | "sat". "" lets the region decide.
 	WeekStart string `json:"weekStart"`
+	// "" | "on": whether a plain click on a collection row opens it in a NEW
+	// tab. "" is automatic, which means off: rows navigate unless the account
+	// opted in. There is no "off", because it would be a third state meaning
+	// the same as "".
+	OpenRowsNewTab string `json:"openRowsNewTab"`
+	// "" follows the instance (display_name_mode); otherwise "name" or
+	// "nickname". This only changes what THIS reader sees in a person field.
+	NameDisplay string `json:"nameDisplay"`
 }
 
 var (
-	// A language is a base tag: two or three letters. Anything the frontend
-	// does not ship a catalog for falls back to English there, so an unknown
-	// but well-formed tag is harmless.
-	rxLanguage = regexp.MustCompile(`^[a-z]{2,3}$`)
+	// A language is a base tag of two or three letters, optionally with a
+	// script: 'de', 'zh-Hans'. The script is there because a catalog may be
+	// keyed by it — Simplified and Traditional Chinese are one language and two
+	// ways of writing it. A region is not allowed here; that is what Region is
+	// for. Anything the frontend does not ship a catalog for falls back to
+	// English there, so an unknown but well-formed tag is harmless.
+	rxLanguage = regexp.MustCompile(`^[a-z]{2,3}(-[A-Z][a-z]{3})?$`)
 	// A regional tag as BCP-47 writes them: 'de', 'de-AT', 'en-GB', 'sr-Latn-RS'.
 	rxRegion = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$`)
 	// A zone name by SHAPE only, not against a list.
@@ -75,11 +86,13 @@ var (
 // it.
 func normalizePrefs(p userPrefs) userPrefs {
 	out := userPrefs{
-		Language:  strings.ToLower(strings.TrimSpace(p.Language)),
-		Region:    strings.TrimSpace(p.Region),
-		TimeZone:  strings.TrimSpace(p.TimeZone),
-		Clock:     strings.TrimSpace(p.Clock),
-		WeekStart: strings.ToLower(strings.TrimSpace(p.WeekStart)),
+		Language:       languageCase(strings.TrimSpace(p.Language)),
+		Region:         strings.TrimSpace(p.Region),
+		TimeZone:       strings.TrimSpace(p.TimeZone),
+		Clock:          strings.TrimSpace(p.Clock),
+		WeekStart:      strings.ToLower(strings.TrimSpace(p.WeekStart)),
+		OpenRowsNewTab: strings.TrimSpace(p.OpenRowsNewTab),
+		NameDisplay:    strings.TrimSpace(p.NameDisplay),
 	}
 	if !rxLanguage.MatchString(out.Language) {
 		out.Language = ""
@@ -98,23 +111,47 @@ func normalizePrefs(p userPrefs) userPrefs {
 	default:
 		out.WeekStart = ""
 	}
+	if out.OpenRowsNewTab != "on" {
+		out.OpenRowsNewTab = ""
+	}
+	switch out.NameDisplay {
+	case "name", "nickname":
+	default:
+		out.NameDisplay = ""
+	}
 	return out
+}
+
+// languageCase writes a language tag the way BCP 47 does: the language in lower
+// case, the script in title case ('zh-Hans'). Lowering the whole tag turned a
+// stored 'zh-Hans' into 'zh-hans', which the frontend's catalog lookup is
+// right not to recognise, so the reader silently got English back.
+func languageCase(tag string) string {
+	parts := strings.Split(tag, "-")
+	parts[0] = strings.ToLower(parts[0])
+	for i := 1; i < len(parts); i++ {
+		if len(parts[i]) == 4 {
+			parts[i] = strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:])
+		}
+	}
+	return strings.Join(parts, "-")
 }
 
 // loadPrefs reads an account's preferences. A missing row yields the zero
 // value, which IS automatic — so a caller never has to check.
 func (s *Server) loadPrefs(userID string) userPrefs {
 	var p userPrefs
-	s.db.QueryRow(`SELECT pref_language, pref_region, pref_timezone, pref_clock, pref_week_start
-		FROM users WHERE id = ?`, userID).
-		Scan(&p.Language, &p.Region, &p.TimeZone, &p.Clock, &p.WeekStart)
+	s.db.QueryRow(`SELECT pref_language, pref_region, pref_timezone, pref_clock, pref_week_start,
+		pref_open_rows_new_tab, pref_name_display FROM users WHERE id = ?`, userID).
+		Scan(&p.Language, &p.Region, &p.TimeZone, &p.Clock, &p.WeekStart, &p.OpenRowsNewTab, &p.NameDisplay)
 	return p
 }
 
 func (s *Server) savePrefs(userID string, p userPrefs) error {
 	_, err := s.db.Exec(`UPDATE users SET pref_language = ?, pref_region = ?,
-		pref_timezone = ?, pref_clock = ?, pref_week_start = ? WHERE id = ?`,
-		p.Language, p.Region, p.TimeZone, p.Clock, p.WeekStart, userID)
+		pref_timezone = ?, pref_clock = ?, pref_week_start = ?, pref_open_rows_new_tab = ?,
+		pref_name_display = ? WHERE id = ?`,
+		p.Language, p.Region, p.TimeZone, p.Clock, p.WeekStart, p.OpenRowsNewTab, p.NameDisplay, userID)
 	return err
 }
 
