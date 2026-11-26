@@ -138,6 +138,9 @@ const READ_SHARE_MS = 400;
 const READ_TIMEOUT_MS = 20_000;
 const readInFlight = new Map<string, { promise: Promise<unknown>; at: number }>();
 const readFailed = new Map<string, { until: number; error: unknown; attempts: number }>();
+// Bumped by every write. A read that started before the write must not put its
+// answer back into the shared window when it lands after the write cleared it.
+let readEpoch = 0;
 
 function transientFailure(e: unknown): boolean {
   if (e instanceof NetworkError) return true;
@@ -155,17 +158,22 @@ function readGate<T>(url: string, run: () => Promise<T>): Promise<T> {
   }
   const shared = readInFlight.get(url);
   if (shared && now - shared.at < READ_SHARE_MS) return shared.promise as Promise<T>;
+  const epoch = readEpoch;
   const promise = run().then(
     (value) => {
       readFailed.delete(url);
       // Keep the ANSWER, not just the promise: a loop that starts again right
       // after this resolves gets the same result instead of another request.
-      readInFlight.set(url, { promise: Promise.resolve(value), at: Date.now() });
+      // Only if no write happened while it was in flight — otherwise this is a
+      // pre-write answer and caching it would overwrite the fresh state.
+      if (epoch === readEpoch) {
+        readInFlight.set(url, { promise: Promise.resolve(value), at: Date.now() });
+      }
       return value;
     },
     (error) => {
       readInFlight.delete(url);
-      if (transientFailure(error)) {
+      if (epoch === readEpoch && transientFailure(error)) {
         const attempts = (failed?.attempts ?? 0) + 1;
         const wait = Math.min(30_000, 500 * 2 ** (attempts - 1));
         readFailed.set(url, { until: Date.now() + wait, error, attempts });
@@ -188,6 +196,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     // A write makes every read answer suspect. Drop the shared results so the
     // next read goes to the server instead of being served a pre-write copy.
     return rawReq<T>(url, init).finally(() => {
+      readEpoch += 1;
       readInFlight.clear();
       readFailed.clear();
     });
