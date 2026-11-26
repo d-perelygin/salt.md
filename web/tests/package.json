@@ -46,6 +46,7 @@
     "oauth-grants.mjs",
     "toolbar-menus.mjs",
     "inline-comments.mjs",
+    "ai-chat-lifecycle.mjs",
     "language.mjs"
   ]
 }
