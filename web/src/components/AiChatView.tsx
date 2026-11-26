@@ -243,17 +243,34 @@ export default function AiChatView(props: {
   }, [pendingQuestion, picked, freeText]);
 
   // Composer draft survives unmounts (Chat/Home switch) and thread
-  // switches: one draft per thread, restored when coming back.
-  const draftKey = (t: string | null) => 'salt-ai-draft:v:' + (t ?? 'new');
-  useEffect(() => {
+  // switches: one draft per conversation, shared with the side panel. The two
+  // surfaces used to keep a box each, so a prompt written in one was gone when
+  // the other opened. The old per-surface keys are still read once, so a draft
+  // left behind by the earlier shape is not lost.
+  const draftKey = (t: string | null) => 'salt-ai-draft:' + (t ?? 'new');
+  function readDraft(t: string | null) {
+    const legacy = (p: string) => { try { return localStorage.getItem(p); } catch { return null; } };
     try {
-      setInput(localStorage.getItem(draftKey(tid)) ?? '');
-    } catch { setInput(''); }
+      return localStorage.getItem(draftKey(t))
+        ?? legacy('salt-ai-draft:v:' + (t ?? 'new'))
+        ?? legacy('salt-ai-draft:p:' + (t ?? 'new'))
+        ?? '';
+    } catch {
+      return '';
+    }
+  }
+  useEffect(() => {
+    setInput(readDraft(tid));
     setMentionQuery(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tid]);
   function clearDraft() {
-    try { localStorage.removeItem(draftKey(tidRef.current)); } catch { /* ignore */ }
+    try {
+      const t = tidRef.current;
+      localStorage.removeItem(draftKey(t));
+      localStorage.removeItem('salt-ai-draft:v:' + (t ?? 'new'));
+      localStorage.removeItem('salt-ai-draft:p:' + (t ?? 'new'));
+    } catch { /* ignore */ }
   }
 
   // The mention query is whatever an @ started right before the caret —

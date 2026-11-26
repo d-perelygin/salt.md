@@ -151,17 +151,32 @@ export default function AiChatPanel(props: {
     };
   }, [props.pageId, props.pagesById]);
 
-  const draftKey = (t: string | null) => 'salt-ai-draft:p:' + (t ?? 'new');
-  // Composer draft survives thread switches (see AiChatView for the contract).
-  useEffect(() => {
+  const draftKey = (t: string | null) => 'salt-ai-draft:' + (t ?? 'new');
+  function readDraft(t: string | null) {
+    const legacy = (p: string) => { try { return localStorage.getItem(p); } catch { return null; } };
     try {
-      setInput(localStorage.getItem(draftKey(threadId)) ?? '');
-    } catch { setInput(''); }
+      return localStorage.getItem(draftKey(t))
+        ?? legacy('salt-ai-draft:p:' + (t ?? 'new'))
+        ?? legacy('salt-ai-draft:v:' + (t ?? 'new'))
+        ?? '';
+    } catch {
+      return '';
+    }
+  }
+  // Composer draft survives thread switches, and it is the same draft the full
+  // chat view has for this conversation (see AiChatView).
+  useEffect(() => {
+    setInput(readDraft(threadId));
     setMentionQuery(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
   function clearDraft() {
-    try { localStorage.removeItem(draftKey(threadIdRef.current)); } catch { /* ignore */ }
+    try {
+      const t = threadIdRef.current;
+      localStorage.removeItem(draftKey(t));
+      localStorage.removeItem('salt-ai-draft:p:' + (t ?? 'new'));
+      localStorage.removeItem('salt-ai-draft:v:' + (t ?? 'new'));
+    } catch { /* ignore */ }
   }
 
   // See AiChatView.mentionQueryAt for the rule: @ counts right before
