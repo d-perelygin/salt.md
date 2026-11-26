@@ -62,9 +62,13 @@ export default function PersonPage({
 
   useEffect(() => {
     if (!profile) return;
+    // The title belongs to the page underneath: put back whatever it was, not
+    // a hard-coded 'salt.md' — a document's "X · salt.md" would be lost until
+    // the next navigation.
+    const previous = document.title;
     document.title = `${profile.user.name} · salt.md`;
     return () => {
-      document.title = 'salt.md';
+      document.title = previous;
     };
   }, [profile]);
 
