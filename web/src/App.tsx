@@ -446,6 +446,30 @@ export default function App() {
     const ts = new Date().toISOString();
     setAiThreads((prev) => prev.map((th) => (th.id === id ? { ...th, lastReadAt: ts } : th)));
   }, []);
+  // Showing a chat is reading it. The sidebar row used to be the only place
+  // that said so, so a chat opened from the panel's switcher, a copied link or
+  // a reload kept its unread dot. The server clears it again when the messages
+  // are fetched, which is how a reply that lands while the thread is open is
+  // read as well.
+  useEffect(() => {
+    if (!me?.authenticated || !aiEnabled || !activeChatId) return;
+    // Only a chat that is on screen has been read: in the Chats view that is
+    // the open thread, on a document it is the side panel. A thread left in
+    // storage while the panel is shut must keep its dot.
+    if (sidebarMode !== 'chats' && !aiChatOpen) return;
+    let alive = true;
+    void api
+      .markAIThreadRead(activeChatId)
+      .then(() => {
+        if (!alive) return;
+        markChatReadLocal(activeChatId);
+        void loadAiThreads();
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [activeChatId, me?.authenticated, aiEnabled, sidebarMode, aiChatOpen, markChatReadLocal, loadAiThreads]);
   // Desktop-only: collapse the sidebar entirely (mobile uses the drawer). The
   // editor's hamburger reopens it. Persisted so it stays collapsed across loads.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -2427,11 +2451,7 @@ export default function App() {
         }}
         aiThreads={aiThreads}
         activeChatId={activeChatId}
-        onSelectChat={(id) => {
-          setActiveChatId(id);
-          void api.markAIThreadRead(id).catch(() => {});
-          markChatReadLocal(id);
-        }}
+        onSelectChat={(id) => setActiveChatId(id)}
         onMarkRead={(id) => markChatReadLocal(id)}
         onNewChat={() => setActiveChatId(null)}
         onChatDeleted={(id) => {

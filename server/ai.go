@@ -570,6 +570,11 @@ func (s *Server) handleGetAIThreadMessages(w http.ResponseWriter, r *http.Reques
 		httpError(w, 404, "not found")
 		return
 	}
+	// Fetching the messages is reading the chat, whichever surface asked: the
+	// panel's switcher, a copied link, a reload and the run that just finished
+	// all load history this way, and none of them used to clear the unread dot.
+	// The sidebar row marks read explicitly on top of this.
+	s.db.Exec(`UPDATE ai_threads SET last_read_at = ? WHERE id = ? AND user_id = ?`, now(), threadID, u.ID)
 	rows, err := s.db.Query(`SELECT id, thread_id, role, content, model, tokens_in, tokens_out, attachments, created_at, COALESCE(run_id,'') FROM ai_messages WHERE thread_id = ? ORDER BY created_at ASC`, threadID)
 	if err != nil {
 		httpError(w, 500, err.Error())

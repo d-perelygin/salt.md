@@ -301,6 +301,10 @@ export default function AiChatPanel(props: {
   const streamingRef = useRef(false);
 
   useEffect(() => {
+    // A closed panel is not reading anything: loading a thread here used to
+    // mark it read (the server says fetching messages is reading) and fetch a
+    // conversation nobody had on screen.
+    if (props.hidden) return;
     if (streamingRef.current && runThreadRef.current !== threadId) {
       streamingRef.current = false;
       try { readerRef.current?.cancel(); } catch { /* already closed */ }
@@ -348,7 +352,7 @@ export default function AiChatPanel(props: {
       setMessages(msgs);
     }).catch(() => {});
     return () => { alive = false; };
-  }, [threadId]);
+  }, [threadId, props.hidden]);
 
   function insertIntoPage(markdown: string) {
     window.dispatchEvent(new CustomEvent('salt:ai-insert', {
