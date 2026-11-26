@@ -1475,6 +1475,13 @@ body.tabs-dragging .tabs-sheet-card {
     opacity: 0.45;
   }
 
+  /* The class Sidebar sets while a finger carries a row; without a rule the
+     text under the finger was still selectable. */
+  body.tree-dragging {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
   /* No native drag anywhere in a row: Chrome Android starts its own drag on a
      long press and cancels the pointer stream the carry runs on. */
   .tree-item,
