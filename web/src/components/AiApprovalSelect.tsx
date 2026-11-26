@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Shield, ShieldCheck, ShieldHalf, ShieldOff, Check, type LucideIcon } from 'lucide-react';
+import { Shield, ShieldCheck, ShieldOff, Hand, Check, type LucideIcon } from 'lucide-react';
 import { api } from '../api';
 import { t } from '../i18n';
 import { useMenuDismiss } from '../modal';
@@ -12,15 +12,21 @@ const MODES: { id: ApprovalMode; hint: string }[] = [
   { id: 'skip', hint: 'Act without asking. Use with caution.' },
 ];
 
-// One shield per mode, and the trigger shows the one in force: a full shield
-// with a tick means every write is checked, a half shield means only the
-// unsafe ones are, a crossed-out shield means nothing is. Reading the state
-// from the composer must not require opening the menu.
+// One icon per mode, and the trigger shows the one in force: a raised hand
+// means the agent asks for everything, a ticked shield means only unsafe
+// actions are checked, a crossed-out shield (in the warning colour) means
+// nothing is. Reading the state from the composer must not require opening
+// the menu.
 const MODE_ICON: Record<ApprovalMode, LucideIcon> = {
-  always: ShieldCheck,
-  review: ShieldHalf,
+  always: Hand,
+  review: ShieldCheck,
   skip: ShieldOff,
 };
+
+/** The warning tint the skip mode wears, on the trigger and in the menu. */
+function modeTint(mode: string): string | undefined {
+  return mode === 'skip' ? 'var(--warning, #e07d10)' : undefined;
+}
 
 export function approvalLabel(m: string): string {
   if (m === 'always') return t('Always ask');
@@ -59,7 +65,7 @@ export default function AiApprovalSelect(props: {
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
         >
-          <ActiveIcon size={15} />
+          <ActiveIcon size={15} style={{ color: modeTint(props.value) }} />
         </button>
       ) : (
         <button
@@ -67,7 +73,7 @@ export default function AiApprovalSelect(props: {
           title={t('How should the agent ask for approval?')}
           onClick={() => setOpen((v) => !v)}
         >
-          <ActiveIcon size={14} /> {approvalLabel(props.value)}
+          <ActiveIcon size={14} style={{ color: modeTint(props.value) }} /> {approvalLabel(props.value)}
         </button>
       )}
       {open && (
@@ -96,7 +102,7 @@ export default function AiApprovalSelect(props: {
                   padding: '8px 4px', borderRadius: 8,
                 }}
               >
-                <span style={{ display: 'inline-flex', marginTop: 2 }}><Icon size={15} /></span>
+                <span style={{ display: 'inline-flex', marginTop: 2 }}><Icon size={15} style={{ color: modeTint(m.id) }} /></span>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>
                     {m.id === 'always' ? t('Always ask') : m.id === 'review' ? t('Review for me') : t('Skip all approvals')}
