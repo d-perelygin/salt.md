@@ -46,6 +46,9 @@ await withFixture(async ({ page, api, base, workspace }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('.cp-quote').click();
     await eventually(async () => (await page.locator('.cp-compose').count()) === 0);
+    // The panel slides in for 400 ms after it opens; a tap on the text while
+    // that animation is still running can be taken by the panel as it arrives.
+    await eventually(async () => (await page.locator('.editor-page.panel-arriving').count()) === 0);
     const highlight = page.locator('.salt-comment-highlight');
     await highlight.click();
     await page.locator('.cp-quote').waitFor();
