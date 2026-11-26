@@ -1325,3 +1325,10 @@ body.workflow-full-open:has(.confirm-dialog) .ai-panel {
   min-height: 48px;
   padding: 6px 4px;
 }
+
+/* The comments panel owns the same bottom-right corner as the floating AI
+   button; while it is open the button sits on the composer's Send and eats the
+   click. */
+body:has(.comments-panel) .ai-fab {
+  display: none !important;
+}
