@@ -2106,8 +2106,12 @@ export default function CollectionView({ collectionId, pages, tagColors, onNavig
             // than the column's lowest position. A sorted view orders by its
             // sort, so positions stay out of it.
             const col = viewSorts(view).length === 0 ? boardColumnRows(viewRows, groupBy, optId) : [];
+            // The column's own value, empty ones included: the view may filter
+            // on this property ("show only To do"), and a card made in "No
+            // Status" would otherwise arrive with the filter's value instead of
+            // the column's.
             return void addRow(
-              optId === UNSET ? {} : { [groupBy]: groupValueFor(schema, groupBy, optId) },
+              { [groupBy]: groupValueFor(schema, groupBy, optId) },
               col.length > 0 ? { prependBefore: Math.min(...col.map((r) => r.position)) } : undefined,
             );
           }}
