@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { MessageCircle, MoreHorizontal, Plus, Pin, FileText, Link2, SquareCheck, Pencil, Trash2, ArrowUpRight, RefreshCw, Archive, ArchiveRestore } from 'lucide-react';
 import { api } from '../api';
+import { toast } from '../toast';
 import { confirm, promptText } from '../dialog';
 import { formatMoment } from '../format';
 import { t } from '../i18n';
@@ -132,9 +133,15 @@ export default function AiThreadList(props: {
   async function remove(th: AiThread) {
     setMenuFor(null);
     if (!(await confirm(t('Delete this chat forever?'), { confirmText: t('Delete forever'), danger: true }))) return;
-    await api.deleteAIThread(th.id).catch(() => null);
-    props.onDelete(th.id);
-    props.onRefresh();
+    try {
+      await api.deleteAIThread(th.id);
+      props.onDelete(th.id);
+      props.onRefresh();
+    } catch {
+      // A failed delete must not remove the row: it would come back on the
+      // next refresh, looking like it deleted itself twice.
+      toast(t('Deleting failed'));
+    }
   }
 
   const pinned = list.filter((th) => pinnedIds.includes(th.id));
