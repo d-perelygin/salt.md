@@ -1,0 +1,686 @@
+{
+  "$comment": "Design \u2194 code map. Generated once by hand, then maintained as the join key for design/sync_tokens.py, design/lint_names.py and design/compare.py. Do not rename keys: scripts and the design file refer to them.",
+  "version": 1,
+  "design": "design/salt-md.figcraft",
+  "theme": "web/src/theme.css",
+  "report": "design/report",
+  "collections": {
+    "Color": {
+      "modes": [
+        "Light",
+        "Dark"
+      ],
+      "usedFor": "every colour; Light goes to :root, Dark to [data-theme='dark']"
+    },
+    "Space & Radius": {
+      "modes": [
+        "Mode 1"
+      ],
+      "usedFor": "spacing, radii and control sizes in px"
+    },
+    "Type": {
+      "modes": [
+        "Mode 1"
+      ],
+      "usedFor": "font sizes and weights in px"
+    }
+  },
+  "tokens": {
+    "Surface/Page": {
+      "collection": "Color",
+      "css": "--bg",
+      "file": "web/src/theme.css"
+    },
+    "Text/Faint": {
+      "collection": "Color",
+      "css": null,
+      "missing": "no --faint in code; --muted (#7e7d78) is the nearest and is used for faint text"
+    },
+    "Text/Inverse": {
+      "collection": "Color",
+      "css": "--bg",
+      "file": "web/src/theme.css",
+      "note": "read inverted: filled controls take color: var(--bg), e.g. .btn.primary"
+    },
+    "Accent/Base": {
+      "collection": "Color",
+      "css": "--accent",
+      "file": "web/src/theme.css"
+    },
+    "Accent/Soft": {
+      "collection": "Color",
+      "css": "--accent-soft",
+      "file": "web/src/theme.css",
+      "note": "code keeps the accent at 8.5% / 13% alpha instead of an opaque tint"
+    },
+    "Accent/Border": {
+      "collection": "Color",
+      "css": null,
+      "missing": "no accent hairline token; accent outlines use color-mix of --accent"
+    },
+    "State/Danger": {
+      "collection": "Color",
+      "css": "--danger",
+      "file": "web/src/theme.css"
+    },
+    "State/Success": {
+      "collection": "Color",
+      "css": null,
+      "missing": "var(--success) is referenced in styles.css but never defined (callers fall back to a literal)"
+    },
+    "State/Warning": {
+      "collection": "Color",
+      "css": null,
+      "missing": "var(--warning) is referenced in styles.css but never defined (callers fall back to a literal)"
+    },
+    "Ink/Fill": {
+      "collection": "Color",
+      "css": "--pill-dark",
+      "file": "web/src/theme.css",
+      "note": "the ink pill tokens: --pill-dark / --pill-dark-hover"
+    },
+    "Scrim": {
+      "collection": "Color",
+      "selector": ".modal-overlay",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Surface/Card": {
+      "collection": "Color",
+      "css": "--card",
+      "file": "web/src/theme.css"
+    },
+    "Surface/Sidebar": {
+      "collection": "Color",
+      "css": "--sidebar-bg",
+      "file": "web/src/theme.css"
+    },
+    "Surface/Hover": {
+      "collection": "Color",
+      "css": "--hover",
+      "file": "web/src/theme.css",
+      "note": "alpha wash, compared composited over the page"
+    },
+    "Surface/Active": {
+      "collection": "Color",
+      "css": "--active",
+      "file": "web/src/theme.css",
+      "note": "alpha wash, compared composited over the page"
+    },
+    "Surface/Ground": {
+      "collection": "Color",
+      "css": "--ground",
+      "file": "web/src/theme.css"
+    },
+    "Border/Default": {
+      "collection": "Color",
+      "css": "--border",
+      "file": "web/src/theme.css",
+      "note": "alpha hairline, compared composited over the page"
+    },
+    "Border/Strong": {
+      "collection": "Color",
+      "css": "--border-strong",
+      "file": "web/src/theme.css",
+      "note": "alpha hairline, compared composited over the page"
+    },
+    "Text/Primary": {
+      "collection": "Color",
+      "css": "--fg",
+      "file": "web/src/theme.css"
+    },
+    "Text/Muted": {
+      "collection": "Color",
+      "css": "--muted",
+      "file": "web/src/theme.css"
+    },
+    "Board/ToDo": {
+      "collection": "Color",
+      "css": null,
+      "missing": "board columns are tinted from the option colour (--col-c) in theme.css, not from a fixed token"
+    },
+    "Board/InProgress": {
+      "collection": "Color",
+      "css": null,
+      "missing": "board columns are tinted from the option colour (--col-c), not from a fixed token"
+    },
+    "Board/Done": {
+      "collection": "Color",
+      "css": null,
+      "missing": "board columns are tinted from the option colour (--col-c), not from a fixed token"
+    },
+    "Chip/Gray/Bg": {
+      "collection": "Color",
+      "selector": ".tag-gray",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Gray/Fg": {
+      "collection": "Color",
+      "selector": ".tag-gray",
+      "property": "color",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Brown/Bg": {
+      "collection": "Color",
+      "selector": ".tag-brown",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Brown/Fg": {
+      "collection": "Color",
+      "selector": ".tag-brown",
+      "property": "color",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Orange/Bg": {
+      "collection": "Color",
+      "selector": ".tag-orange",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Orange/Fg": {
+      "collection": "Color",
+      "selector": ".tag-orange",
+      "property": "color",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Yellow/Bg": {
+      "collection": "Color",
+      "selector": ".tag-yellow",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Yellow/Fg": {
+      "collection": "Color",
+      "selector": ".tag-yellow",
+      "property": "color",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Green/Bg": {
+      "collection": "Color",
+      "selector": ".tag-green",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Green/Fg": {
+      "collection": "Color",
+      "selector": ".tag-green",
+      "property": "color",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Blue/Bg": {
+      "collection": "Color",
+      "selector": ".tag-blue",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Blue/Fg": {
+      "collection": "Color",
+      "selector": ".tag-blue",
+      "property": "color",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Purple/Bg": {
+      "collection": "Color",
+      "selector": ".tag-purple",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Purple/Fg": {
+      "collection": "Color",
+      "selector": ".tag-purple",
+      "property": "color",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Pink/Bg": {
+      "collection": "Color",
+      "selector": ".tag-pink",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Pink/Fg": {
+      "collection": "Color",
+      "selector": ".tag-pink",
+      "property": "color",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Red/Bg": {
+      "collection": "Color",
+      "selector": ".tag-red",
+      "property": "background",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Red/Fg": {
+      "collection": "Color",
+      "selector": ".tag-red",
+      "property": "color",
+      "file": "web/src/styles.css"
+    },
+    "Chip/Teal/Bg": {
+      "collection": "Color",
+      "css": null,
+      "missing": "no teal in the code palette: web/src/tags.ts TAG_PALETTE has 9 tones, teal is design-only"
+    },
+    "Chip/Teal/Fg": {
+      "collection": "Color",
+      "css": null,
+      "missing": "no teal in the code palette: web/src/tags.ts TAG_PALETTE has 9 tones, teal is design-only"
+    },
+    "space/1": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "4px is written as a literal in styles.css; there is no spacing scale variable"
+    },
+    "space/2": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "8px is written as a literal in styles.css; there is no spacing scale variable"
+    },
+    "space/3": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "12px is written as a literal in styles.css; there is no spacing scale variable"
+    },
+    "space/4": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "16px is written as a literal in styles.css; there is no spacing scale variable"
+    },
+    "space/5": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "20px is written as a literal in styles.css; there is no spacing scale variable"
+    },
+    "space/6": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "24px is written as a literal in styles.css; there is no spacing scale variable"
+    },
+    "space/7": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "32px is written as a literal in styles.css; there is no spacing scale variable"
+    },
+    "space/8": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "48px is written as a literal in styles.css; there is no spacing scale variable"
+    },
+    "space/9": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "64px is written as a literal in styles.css; there is no spacing scale variable"
+    },
+    "radius/xs": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": ".prop-chip writes border-radius: 4px literally"
+    },
+    "radius/sm": {
+      "collection": "Space & Radius",
+      "css": "--radius-sm",
+      "file": "web/src/theme.css"
+    },
+    "radius/md": {
+      "collection": "Space & Radius",
+      "css": "--radius",
+      "file": "web/src/theme.css"
+    },
+    "radius/lg": {
+      "collection": "Space & Radius",
+      "css": "--radius-lg",
+      "file": "web/src/theme.css"
+    },
+    "radius/xl": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "no --radius-xl; 20px is written literally where needed"
+    },
+    "radius/pill": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "no pill radius token; full-round shapes write 999px literally"
+    },
+    "size/sidebar": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "literal width: 292px in .sidebar (styles.css)"
+    },
+    "size/topbar": {
+      "collection": "Space & Radius",
+      "css": "--topbar-h",
+      "file": "web/src/styles.css"
+    },
+    "size/doc": {
+      "collection": "Space & Radius",
+      "css": "--doc-width",
+      "file": "web/src/styles.css"
+    },
+    "size/doc-pad": {
+      "collection": "Space & Radius",
+      "css": "--doc-pad",
+      "file": "web/src/styles.css"
+    },
+    "size/panel": {
+      "collection": "Space & Radius",
+      "css": "--panel-w",
+      "file": "web/src/styles.css",
+      "note": "code is clamp(340px, 26vw, 460px), the design fixes 360px"
+    },
+    "size/row": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "literal min-height: 38px in .tree-item (styles.css)"
+    },
+    "size/button": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "button height is padding + 13px type, not a --button-h token"
+    },
+    "size/toolbar": {
+      "collection": "Space & Radius",
+      "css": null,
+      "missing": "literal 52px in the view toolbar (styles.css)"
+    },
+    "font/2xs": {
+      "collection": "Type",
+      "css": null,
+      "missing": "10px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/xs": {
+      "collection": "Type",
+      "css": null,
+      "missing": "11px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/sm": {
+      "collection": "Type",
+      "css": null,
+      "missing": "12px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/base": {
+      "collection": "Type",
+      "css": null,
+      "missing": "13px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/md": {
+      "collection": "Type",
+      "css": null,
+      "missing": "14px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/lg": {
+      "collection": "Type",
+      "css": null,
+      "missing": "15px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/xl": {
+      "collection": "Type",
+      "css": null,
+      "missing": "18px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/2xl": {
+      "collection": "Type",
+      "css": null,
+      "missing": "22px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/3xl": {
+      "collection": "Type",
+      "css": null,
+      "missing": "28px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/4xl": {
+      "collection": "Type",
+      "css": null,
+      "missing": "38px is written as a font-size literal; there is no type scale variable"
+    },
+    "font/db-title": {
+      "collection": "Type",
+      "css": null,
+      "missing": "30px is the database title literal; no variable"
+    },
+    "weight/regular": {
+      "collection": "Type",
+      "css": null,
+      "missing": "font-weight: 400 is written literally; no variable"
+    },
+    "weight/medium": {
+      "collection": "Type",
+      "css": null,
+      "missing": "font-weight: 500 is written literally; no variable"
+    },
+    "weight/semibold": {
+      "collection": "Type",
+      "css": null,
+      "missing": "font-weight: 600 is written literally; no variable"
+    },
+    "weight/bold": {
+      "collection": "Type",
+      "css": null,
+      "missing": "font-weight: 700 is written literally; no variable"
+    }
+  },
+  "components": {
+    "Badge": {
+      "node": 55,
+      "class": ".prop-chip",
+      "file": "web/src/styles.css",
+      "theme": "web/src/theme.css",
+      "sources": [
+        "web/src/components/CollectionView.tsx",
+        "web/src/components/ListView.tsx"
+      ],
+      "variants": {
+        "Tone=Gray": ".tag-gray",
+        "Tone=Brown": ".tag-brown",
+        "Tone=Orange": ".tag-orange",
+        "Tone=Yellow": ".tag-yellow",
+        "Tone=Green": ".tag-green",
+        "Tone=Blue": ".tag-blue",
+        "Tone=Purple": ".tag-purple",
+        "Tone=Pink": ".tag-pink",
+        "Tone=Red": ".tag-red"
+      },
+      "note": "tone palette lives in .tag-* (styles.css) and web/src/tags.ts; Teal has no code tone"
+    },
+    "Avatar": {
+      "node": 56,
+      "class": ".avatar",
+      "file": "web/src/styles.css",
+      "sources": [
+        "web/src/components/Sidebar.tsx",
+        "web/src/components/CommentsPanel.tsx"
+      ]
+    },
+    "Button": {
+      "node": 64,
+      "class": ".btn",
+      "file": "web/src/styles.css",
+      "theme": "web/src/theme.css",
+      "sources": [
+        "web/src/components/*.tsx"
+      ],
+      "variants": {
+        "Type=Primary": ".btn.primary",
+        "Type=Secondary": ".btn:not(.primary)",
+        "Type=Ghost": ".btn-sm"
+      },
+      "note": "primary is ink filled (--pill-dark), secondary is a hairline, ghost is the small variant"
+    },
+    "View Tab": {
+      "node": 83,
+      "class": ".view-tab",
+      "file": "web/src/styles.css",
+      "theme": "web/src/theme.css",
+      "sources": [
+        "web/src/components/CollectionView.tsx"
+      ],
+      "variants": {
+        "State=Selected": ".view-tab.active",
+        "State=Default": ".view-tab"
+      },
+      "note": "the open tab is marked by the short bar in the text colour, never by a one-sided colour edge"
+    },
+    "Property Pill": {
+      "node": 97,
+      "class": ".prop-chip",
+      "file": "web/src/styles.css",
+      "sources": [
+        "web/src/components/Editor.tsx"
+      ],
+      "variants": {
+        "Kind=Tag": ".prop-chip",
+        "Kind=Emoji": ".page-icon",
+        "Kind=Cover": ".page-cover",
+        "Kind=Description": ".page-description"
+      }
+    },
+    "Sidebar Item": {
+      "node": 114,
+      "class": ".tree-item",
+      "file": "web/src/styles.css",
+      "theme": "web/src/theme.css",
+      "sources": [
+        "web/src/components/Sidebar.tsx"
+      ],
+      "variants": {
+        "State=Selected": ".tree-item.active"
+      }
+    },
+    "Checkbox": {
+      "node": 118,
+      "class": ".form-checkbox",
+      "file": "web/src/styles.css",
+      "sources": [
+        "web/src/components/*.tsx"
+      ],
+      "variants": {
+        "State=On": ".form-checkbox:checked"
+      }
+    },
+    "Workspace Badge": {
+      "node": 119,
+      "class": ".ws-letter",
+      "file": "web/src/styles.css",
+      "sources": [
+        "web/src/components/Sidebar.tsx"
+      ],
+      "note": "the letter takes a .tag-* tone from tagColorClass(name)"
+    },
+    "Board Card": {
+      "node": 121,
+      "class": ".board-card",
+      "file": "web/src/styles.css",
+      "theme": "web/src/theme.css",
+      "sources": [
+        "web/src/components/CollectionView.tsx"
+      ]
+    },
+    "Topbar": {
+      "node": 137,
+      "class": ".topbar",
+      "file": "web/src/styles.css",
+      "theme": "web/src/theme.css",
+      "sources": [
+        "web/src/components/Topbar.tsx",
+        "web/src/App.tsx"
+      ]
+    },
+    "Sidebar": {
+      "node": 233,
+      "class": ".sidebar",
+      "file": "web/src/styles.css",
+      "theme": "web/src/theme.css",
+      "sources": [
+        "web/src/components/Sidebar.tsx"
+      ],
+      "variants": {
+        "Screen=Document": ".sidebar",
+        "Screen=Collection": ".sidebar"
+      }
+    }
+  },
+  "screens": {
+    "document": {
+      "node": 304,
+      "title": "Desktop / Document",
+      "source": "web/src/components/Editor.tsx",
+      "ref": "wiki/img/workspace-overview.png"
+    },
+    "table": {
+      "node": 421,
+      "title": "Desktop / Collection \u00b7 Table",
+      "source": "web/src/components/CollectionView.tsx",
+      "ref": "wiki/img/collection-table.png"
+    },
+    "board": {
+      "node": 693,
+      "title": "Desktop / Collection \u00b7 Board",
+      "source": "web/src/components/CollectionView.tsx",
+      "ref": "wiki/img/collection-board.png"
+    },
+    "calendar": {
+      "node": 1122,
+      "title": "Desktop / Collection \u00b7 Calendar",
+      "source": "web/src/components/CollectionView.tsx",
+      "ref": "wiki/img/collection-calendar.png"
+    },
+    "graph": {
+      "node": 1382,
+      "title": "Desktop / Library \u00b7 Graph",
+      "source": "web/src/components/GraphView.tsx",
+      "ref": "wiki/img/graph.png"
+    },
+    "search": {
+      "node": 2926,
+      "title": "Desktop / Search",
+      "source": "web/src/components/SearchModal.tsx",
+      "ref": "wiki/img/search.png"
+    },
+    "signin": {
+      "node": 3095,
+      "title": "Desktop / Sign in",
+      "source": "web/src/components/Login.tsx",
+      "ref": "wiki/img/sign-in.png"
+    },
+    "settings": {
+      "node": 1707,
+      "title": "Desktop / Settings",
+      "source": "web/src/components/WorkspaceSettings.tsx",
+      "ref": null,
+      "inScreensJson": false,
+      "note": "not in screens.json yet: no wiki reference shot; add one before pixel comparing"
+    },
+    "mobile-document": {
+      "node": 1828,
+      "title": "Mobile / Document",
+      "source": "web/src/App.tsx",
+      "ref": null,
+      "inScreensJson": false,
+      "note": "responsive shell + web/src/mobile.css"
+    },
+    "mobile-pages": {
+      "node": 1861,
+      "title": "Mobile / Pages",
+      "source": "web/src/App.tsx",
+      "ref": null,
+      "inScreensJson": false,
+      "note": "responsive shell + web/src/mobile.css"
+    },
+    "dark-document": {
+      "node": 5661,
+      "title": "Dark / Document",
+      "source": "web/src/components/Editor.tsx",
+      "ref": null,
+      "inScreensJson": false,
+      "note": "[data-theme='dark'] of the Document screen"
+    },
+    "dark-board": {
+      "node": 5827,
+      "title": "Dark / Board",
+      "source": "web/src/components/CollectionView.tsx",
+      "ref": null,
+      "inScreensJson": false,
+      "note": "[data-theme='dark'] of the Board screen"
+    }
+  }
+}
