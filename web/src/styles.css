@@ -3957,6 +3957,14 @@ body:has(.icon-picker) .bn-side-menu {
   overflow: hidden;
 }
 
+/* The wrapper too, or the rules on the open button and the chip resolve their
+   100% against a box that is already as wide as the longest title, and nothing
+   ever clips: a long chip ran across the border into the next column (#146). */
+.db-table td .relation-value {
+  display: block;
+  max-width: 100%;
+}
+
 /* Chips in a table cell give way before the counter does: they shrink and
    ellipsis, while "+19 more" keeps its full width. The other way round, three
    long titles pushed the counter out of the cell and the row looked as if it

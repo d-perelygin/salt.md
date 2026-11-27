@@ -17,17 +17,42 @@ await withFixture(async ({ page, api, base, workspace, path }) => {
   await api('POST', '/api/pages', { parentId: target.id, title: 'Beta', props: {} });
   await api('PUT', path, {
     schema: [{ id: 'rel', name: 'Rel', type: 'relation', relationCollection: target.id }],
-    views: [{ id: 'table', name: 'Table', type: 'table' }],
+    views: [{ id: 'table', name: 'Table', type: 'table', colWidths: { __title: 140, rel: 160 } }],
+  });
+  const long = await api('POST', '/api/pages', {
+    parentId: target.id,
+    title: 'A target whose title is longer than any narrow column will ever be',
+    props: {},
   });
   await api('POST', '/api/pages', {
     parentId: collectionId,
     title: 'Linked',
     props: { rel: [alpha.id] },
   });
+  const wide = await api('POST', '/api/pages', {
+    parentId: collectionId,
+    title: 'Linked too',
+    props: { rel: [long.id] },
+  });
 
   await page.goto(`${base}/p/${collectionId}`);
   const chip = page.locator('.relation-chip-wrap', { hasText: 'Alpha' }).first();
   await chip.waitFor();
+  // A long title is cut off inside its cell, never painted over the next
+  // column (#146). Measured on the pinned 160px column: the wrapper used to
+  // grow to the title's width while the chip resolved its 100% against it.
+  const overflow = await page
+    .locator('.db-table tbody tr', { hasText: 'Linked too' })
+    .locator('td', { has: page.locator('.relation-value') })
+    .first()
+    .evaluate((td) => {
+      const value = td.querySelector('.relation-value');
+      const chipIn = td.querySelector('.relation-chip');
+      if (!value || !chipIn) return null;
+      return Math.round(chipIn.getBoundingClientRect().right - td.getBoundingClientRect().right);
+    });
+  assert.ok(overflow !== null, 'the long relation cell did not render');
+  assert.ok(overflow <= 1, `the chip runs ${overflow}px past its cell`);
   // No button inside a button anywhere in the relation cells.
   assert.equal(await page.locator('.relation-value button button').count(), 0);
 
