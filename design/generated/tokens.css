@@ -27,22 +27,22 @@
   --scrim: #3b3a36;
   --chip-gray-bg: #e5e4e2;
   --chip-gray-fg: #494844;
-  --chip-brown-bg: #f0d8c8;
-  --chip-brown-fg: #73320e;
-  --chip-orange-bg: #f8d8a0;
+  --chip-brown-bg: #bde9ff;
+  --chip-brown-fg: #00478f;
+  --chip-orange-bg: #ffdfa2;
   --chip-orange-fg: #6f3800;
-  --chip-yellow-bg: #f8d8a0;
-  --chip-yellow-fg: #723c04;
-  --chip-green-bg: #b8f0c8;
-  --chip-green-fg: #025e21;
-  --chip-blue-bg: #b8e8f8;
-  --chip-blue-fg: #01488f;
-  --chip-purple-bg: #f8c8f8;
-  --chip-purple-fg: #710b94;
-  --chip-pink-bg: #f8c8f0;
-  --chip-pink-fg: #910057;
-  --chip-red-bg: #f8c0b8;
-  --chip-red-fg: #990707;
+  --chip-yellow-bg: #ffdfa2;
+  --chip-yellow-fg: #6f3800;
+  --chip-green-bg: #b8f6cc;
+  --chip-green-fg: #005c1f;
+  --chip-blue-bg: #bde9ff;
+  --chip-blue-fg: #00478f;
+  --chip-purple-bg: #ffceff;
+  --chip-purple-fg: #6b0390;
+  --chip-pink-bg: #bde9ff;
+  --chip-pink-fg: #00478f;
+  --chip-red-bg: #ffc7bc;
+  --chip-red-fg: #950000;
   --chip-teal-bg: #d9efec;
   --chip-teal-fg: #22776d;
   --surface-ground: #f0efea;  /* --ground */
@@ -74,6 +74,17 @@
   --size-row: 38px;
   --size-button: 32px;
   --size-toolbar: 52px;
+  --radius-6: 6px;
+  --radius-8: 8px;
+  --radius-12: 12px;
+  --radius-16: 16px;
+  --size-26: 26px;
+  --size-28: 28px;
+  --size-30: 30px;
+  --size-32: 32px;
+  --size-34: 34px;
+  --size-40: 40px;
+  --size-44: 44px;
 
   /* Type · Mode 1 */
   --font-2xs: 10px;

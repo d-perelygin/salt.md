@@ -8,28 +8,28 @@
   },
   {
     "id": "table",
-    "title": "Collection · Table",
+    "title": "Collection \u00b7 Table",
     "node": 421,
     "ref": "wiki/img/collection-table.png",
     "source": "web/src/components/CollectionView.tsx"
   },
   {
     "id": "board",
-    "title": "Collection · Board",
+    "title": "Collection \u00b7 Board",
     "node": 693,
     "ref": "wiki/img/collection-board.png",
     "source": "web/src/components/CollectionView.tsx"
   },
   {
     "id": "calendar",
-    "title": "Collection · Calendar",
+    "title": "Collection \u00b7 Calendar",
     "node": 1122,
     "ref": "wiki/img/collection-calendar.png",
     "source": "web/src/components/CollectionView.tsx"
   },
   {
     "id": "graph",
-    "title": "Library · Graph",
+    "title": "Library \u00b7 Graph",
     "node": 1382,
     "ref": "wiki/img/graph.png",
     "source": "web/src/components/GraphView.tsx"
@@ -47,6 +47,24 @@
     "node": 3095,
     "ref": "wiki/img/sign-in.png",
     "source": "web/src/components/Login.tsx",
-    "ours_crop": [480, 229, 320, 342]
+    "ours_crop": [
+      480,
+      229,
+      320,
+      342
+    ]
+  },
+  {
+    "id": "agents",
+    "title": "AI \u00b7 Agents",
+    "node": 6602,
+    "ref": "wiki/img/agents-connect.png",
+    "source": "web/src/components/AgentConnect.tsx",
+    "ours_crop": [
+      40,
+      36,
+      640,
+      728
+    ]
   }
 ]

@@ -327,6 +327,12 @@ def compare(light_css: dict, dark_css: dict):
     for col_name in by_col:
         col = next(c for c in cols.values() if c["name"] == col_name)
         for var in sorted(by_col[col_name], key=lambda v: v["name"]):
+            # A design-only step (the AI surfaces) has no CSS counterpart by
+            # intent: the app writes those radii and sizes as literals. Mark the
+            # variable's description `design-only` and it stays out of the
+            # report instead of adding a `missing` row every run.
+            if "design-only" in (var.get("description") or "").lower():
+                continue
             entry = mapping.get(var["name"])
             design = {}
             for i, m in enumerate(col["modes"]):

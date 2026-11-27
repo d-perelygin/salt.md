@@ -42,21 +42,19 @@
 | S1 | **Chats** (полный экран) | `main`, вместо документа, только `sidebarMode === 'chats'` | `AiChatView` | вкладка «Chat» в сайдбаре, `?chat=<id>`, `?chat=` | пустой новый чат; диалог; live-run; approval; вопрос; ошибка; артефакты; память; меню @ / файлов | `AiChatView.tsx`, `App.tsx:2457` |
 | S2 | **Сайдбар Chats** | левая колонка 292 px | `Sidebar` + `AiThreadList` | вкладка «Chat» | список, pinned, unread, hover-меню, пусто, архив | `Sidebar.tsx:1736`, `AiThreadList.tsx` |
 | S3 | **Архив чатов** | низ сайдбара (desktop) / шторка (phone) | `ArchivedChatsSection/Dialog` | «Archived» в футере сайдбара | свёрнут, открыт, поиск, пусто | `ArchivedChats.tsx` |
-| S4 | **Панель чата на странице** | floating 400 px справа-снизу, поверх документа | `AiChatPanel` | `.ai-fab` (44 px), `salt:ai-ask` («/» → Ask AI ⌘J, меню форматирования → Ask in chat, Code tab), dock на телефоне | zero-состояние с контекстом страницы/коллекции, quote, вложения, все состояния S1 в узком виде | `AiChatPanel.tsx`, `App.tsx:2700/2708` |
+| S4 | **Панель чата на странице** | floating 400 px справа-снизу, поверх документа | `AiChatPanel` | `.ai-fab` (44 px), `salt:ai-ask` (⎘/⌘J, панель форматирования, Code tab), dock на телефоне | zero-состояние с контекстом страницы/коллекции, quote, вложения, все состояния S1 в узком виде | `AiChatPanel.tsx`, `App.tsx:2700/2708` |
 | S5 | **Inline-ассистент по выделению** | пилюля fixed справа-снизу | `AiInlineAssistant` | выделение текста в редакторе | пилюля, busy, результат, замена | `AiInlineAssistant.tsx` |
 | S6 | **AI на панели форматирования** | dropdown у кнопки «✨ AI» | `AiFormattingDropdown` | кнопка «AI» в тулбаре выделения | меню, custom-строка, busy, результат, ошибка, «Ask in chat» | `AiFormattingDropdown.tsx`, `Editor.tsx:4490` |
 | S7 | **AI Block в документе** | блок документа | `aiBlockSpec` | `/` → «AI Block» | draft, ready, hover-toolbar, busy, error, read-only | `blocks.tsx:639–930` |
 | S8 | **AI на пустой строке** | fixed-панель над строкой | `AiEmptyLine` | пробел в пустом параграфе | idle, writing, error | `AiEmptyLine.tsx` |
-| S9 | **Presence агента** | topbar страницы, точка на карточке/строке сайдбара/таблицы | `AgentPresence`, `AgentDot` | `working_on` через MCP | fresh / stale, с заметкой / без, 1 / 2 агента, tooltip (нативный `title`) | `AgentBadge.tsx`, `agentPresence.ts` |
+| S9 | **Presence агента** | topbar страницы, точка на карточке/строке сайдбара/таблицы | `AgentPresence`, `AgentDot` | `working_on` через MCP | fresh / stale, с заметкой / без, 1 / 2 агента, tooltip | `AgentBadge.tsx`, `agentPresence.ts` |
 | S10 | **Connect an agent** | модалка 640 px | `AgentConnectModal` | меню профиля → «Agents & MCP» | Sign in / Token, токен пуст/создан, выбран клиент, предупреждение http | `AgentConnect.tsx`, `wiki/img/agents-connect.png` |
 | S11 | **AI на телефоне** | ≤768 px | `MobileDock`, `AiChatPanel` как шторка, `AiChatView` на весь экран | dock «AI», вкладка Chat в drawer | dock-слот AI, шторка 88dvh, полноэкранный Chats, zero-состояния крупнее | `MobileDock.tsx`, `mobile.css:757/842/1244` |
 | S12 | **AI в Process → Code** | тот же `AiChatPanel` с `raised` | — | кнопка «Ask AI» в Code | панель над модалкой (`z-index:110`) | `WorkflowCode.tsx:409`, `aiChat.css:436` |
 
 Нет экрана «выбор модели»: в чате модель не выбирается. `.ai-model-label` в CSS есть, в JSX не
-используется. Per-user `baseUrl/model/format/temperature` лежат в `user_ai_settings` и отдаются
-`/api/ai/settings`, но ни один экран их не редактирует — только `approval` (из композера,
-`AiApprovalSelect`); значения по умолчанию задаёт админ в `Instance settings → General → AI agent`
-(`AdminSettings.tsx:389`). Дефолт режима — `review` (`user_ai_settings.approval DEFAULT 'review'`).
+используется. Модель/Base URL — только `Admin settings → General → AI agent` (`AdminSettings.tsx:389`);
+режим одобрений — в композере (`AiApprovalSelect`), хранится в `ai_settings.approval`.
 
 ---
 
@@ -70,7 +68,7 @@
 | Обычный диалог | user-bubble справа, ответ markdown слева + иконки действий | есть сообщения, run нет | `.ai-bubble-user`, `.ai-bubble-ai`, `.ai-msg-actions` |
 | Ответ + завершённый run | над ответом «Worked for 1m 9s (20 steps)», свёрнуто/развёрнуто | `runList` с `finishedAt` и `completed/failed/cancelled` | `AiRunSummary` |
 | Live-run, шагов ещё нет | только композер: send «…», поле disabled; в теле пусто | `agentBusy && steps.length === 0` | — |
-| Live-run, шаги идут | «Working for 12s … (3)» (в панели — «Agent actions (3)»), список шагов, строка `progress` | `steps.length > 0` | trace + `AiAgentStep` |
+| Live-run, шаги идут | «Working for 12s … (3)», список шагов, строка `progress` | `steps.length > 0` | trace + `AiAgentStep` |
 | Ожидание одобрения | под трассой `Approve` / `Reject` | `status === 'waiting_approval'` | `.btn-sm.primary` / `.btn-sm` |
 | Вопрос агента | карточка с нумерованными опциями + свободный ответ | `status === 'waiting_user' && pendingTool === 'ask_user'` | `.ai-question-card` |
 | Ошибка | `AiErrorCard` + «Retry» (если есть `lastRun.task`) | `lastError` | `AiErrorCard` |
@@ -104,50 +102,13 @@
 
 | Состояние | Значения |
 | --- | --- |
-| Dock | 4 слота, `min-height:48`, label 10.5/550, icon 19; слот AI — «AI» + Sparkles, активный цвет `--accent` |
+| Dock | 5 слотов, `min-height:48`, label 10.5/550, icon 19; слот AI — «AI» + Sparkles, активный цвет `--accent` |
 | Dock в Chats | средний слот меняется с «Search» на «New chat» |
 | `.ai-fab` | скрыт (`display:none !important`) |
 | Панель | шторка: `height:min(88dvh, 100dvh-8)`, r18 сверху, `z-index:330`, ручка 34×4, футер с `env(safe-area-inset-bottom)` |
-| Zero в панели | строки 52 px (min-height 46; бейдж 34×34 + padding 9), текст 15.5, контекст 14.5 |
+| Zero в панели | строки 46 px, бейдж 34×34, текст 15.5, контекст 14.5 |
 | Полный Chats | `AiChatView` на всю ширину: padding 12 24 20 → контент 342 при 390 |
 | Вкладки в drawer | переезжают вниз, над футером (`order:1`) |
-
-### 2.4 Инлайн-поверхности (S5–S8)
-
-| Поверхность | Состояния | Что видно |
-| --- | --- | --- |
-| S5 inline bar | Idle | ✨ 14 + 4 опции (Rewrite / Summarize / Translate / Fix grammar) + input «Custom instruction…» + go 26 |
-| | Busy | опции и go `disabled` (opacity .4), под баром `…` 12 px |
-| | Result | карточка результата (13 px, max-h 160) + `Replace` (ink) / `Dismiss` |
-| | Ошибка | отдельного вида нет: в текст результата дописывается `\n[error]` |
-| S6 formatting menu | Menu | 4 пункта 13 px с иконками 16, custom-строка (input 12 + go 24), divider, «Ask in chat» |
-| | Busy | по центру RefreshCw 14 (accent, spin) + «AI is thinking…», padding 16 |
-| | Result | `ai-fmt-result-text` (13, max-h 180) + Replace / Dismiss |
-| | Error | `AiErrorCard` внутри меню (padding 0 8 8), Retry по `lastPrompt` |
-| S7 AI block | Draft | ✨ + «AI block», `Done` (secondary), `Generate` — залит `--accent` (inline-стиль поверх темы); input «Optional title…»; textarea 2 строки; ошибка — карточкой |
-| | Ready | header 8/12 `--hover`: ✨ 14 + title 600; справа кнопка `Generate` (12 px) |
-| | Hover | `Generate` исчезает (opacity 0), появляется toolbar: FileText / RotateCw / Settings по 12 |
-| | Busy | «Generating…» + спиннер, кнопки disabled |
-| | Read-only | header с названием остаётся, кнопок и toolbar нет |
-| S8 empty line | Idle | ✨ 16 + input 15 «Describe the note to write…» + go 26 |
-| | Writing | отправленный текст (ellipsis) + «Writing…» 13/.6 + стоп 26 |
-| | Error | строка 12 `--danger` под панелью, панель остаётся |
-| | Скрыта | клик вне, Escape, Backspace на пустом, `!canEdit`, AI выключен |
-
-### 2.5 Presence и connect (S9–S10)
-
-| Состояние | Детали |
-| --- | --- |
-| Presence fresh | opacity 1, лого пульсирует (`agent-pulse` 2.6 s), точка дышит (`agent-breathe`) |
-| Presence stale | opacity .55, анимации нет; в тултипе «last seen {time} ago» |
-| Заметка | только если агент один (`working.length === 1`); при двух — скрыта (в тултипе есть) |
-| Точка на карточке | 22 px, ring 2 `--card`, лого 11; fresh — breathe |
-| Нет агентов | компонент возвращает `null` (места не занимает) |
-| Connect: способ | Sign in (по умолчанию) / Token in the address — две карточки 1fr 1fr |
-| Connect: токен | пусто — 2 селекта + `Create token` + поле вставки; создан — код-блок (accent 10 %, r8, copy по клику) |
-| Connect: клиент | 9 карточек (4 колонки); активная — border accent 55 %, фон accent 7 %, тень |
-| Connect: http | предупреждение `pa-warn`, если адрес `http://` вне localhost |
-| Connect: skill | строка «Teach the agent how you work here» + `Download skill` |
 
 ---
 
@@ -167,7 +128,7 @@
 | `--border` | `rgba(28,26,21,.11)` | `rgba(255,255,255,.08)` | все hairline |
 | `--border-strong` | `rgba(28,26,21,.2)` | `rgba(255,255,255,.15)` | ручка шторки |
 | `--accent` | `#b3123f` | `#ff5c80` | send, unread, ссылки, выделение |
-| `--accent-soft` | `rgba(179,18,63,.085)` | `rgba(255,92,128,.13)` | @-упоминание, подсветка выделения |
+| `--accent-soft` | `rgba(179,18,63,.085)` | `rgba(255,92,128,.13)` | @-упоминание, poll-выделение |
 | `--danger` | `#c2410c` | `#ff7a59` | рамка/заголовок ошибки |
 | `--pill-dark` | `#1c1a15` | `#f5f5f7` | primary-кнопки (в т.ч. Retry, Approve) |
 
@@ -187,10 +148,9 @@
 | `--accent-soft` | `#f5e6e7` | `#f9ebef` |
 | danger wash `.08` | — | `#fef0f0` |
 
-В самом файле `Surface/Hover = #ECEBE6`, `Surface/Active = #E3E2DC`, `Border/Default = #E4E2DB` —
-это solid-композиты, снятые с подложек, отличных от `--bg`/`--card` (по разбору
-`design/analysis/sidebar.md`: на земле `#F0EFEA` код даёт hover `#E7E6E1`, а не `#ECEBE6`).
-Для AI-слоёв на `--bg`/`--card` брать значения из таблицы выше, а не токены файла «как есть».
+В самом файле `Surface/Hover = #ECEBE6`, `Surface/Active = #E3E2DC`, `Border/Default = #E4E2DB`
+(это композиты над землёй `#F0EFEA` по разбору `design/analysis/sidebar.md`); для AI-слоёв,
+которые лежат на `--bg`/`--card`, брать значения из таблицы выше.
 
 Тоновые бейджи zero-состояния (не токены, литералы):
 green `rgba(34,197,94,.16)` / рамка `.32` / `#22c55e`;
@@ -204,7 +164,7 @@ cursor `#7c6cf5`, openclaw `#b45309`, hermes `#0ea5e9`, gemini `#4285f4`, generi
 
 | Роль | Размер / вес / интерлиньяж | Источник |
 | --- | --- | --- |
-| База приложения | 16 px, `'Inter'` | `body` (styles.css:84), `@fontsource-variable/inter` |
+| База приложения | 16 px, Inter Variable | `body` (styles.css:84), `@fontsource-variable/inter` |
 | Текст чата | 15 px / 1.6 (ответ), 15 / 1.55 (user) | `.ai-bubble-ai`, `.ai-bubble-user` |
 | Композер | 15 px / 1.5 | `.ai-composer textarea` |
 | Заголовок zero | 20 px / 600 | `.ai-view-zero-hero h2` |
@@ -236,14 +196,14 @@ cursor `#7c6cf5`, openclaw `#b45309`, hermes `#0ea5e9`, gemini `#4285f4`, generi
 | `.ai-msg` | margin 6 0 14 |
 | `.ai-bubble-user` | max-w 85 %, padding 10 14, r16 (br 4), border 1, bg `--hover`, 15/1.55 |
 | `.ai-bubble-ai` | 100 %, 15/1.6 |
-| `.ai-msg-actions` | gap 2, margin-top 6; иконка 14, кнопка 26×22 (padding 4 6, r6) |
+| `.ai-msg-actions` | gap 2, margin-top 6; иконка 14, кнопка 26×26 (padding 4 6, r6) |
 | `.ai-composer` | r16, bg card, border 1, shadow `0 2px 8px rgba(0,0,0,.06)`, padding 10 12 8; высота ≈105 (10 + поле 53 + бар 34 + 8) |
 | поле ввода | rows 2, 15/1.5, padding 2 2 6, авто-рост до 160 (view) / 140 (panel) |
 | `.ai-composer-bar` | gap 6, padding-top 2 |
 | `.ai-attach` | 28×28 круг, «+» 18 px |
 | `.ai-send` | 32×32 круг, bg `--accent`, цвет `#fff`, «↑» 16 px; busy — «…», disabled opacity .4 |
 | стоп | `.ai-iconbtn` c «■», появляется при `agentBusy && runId` |
-| `.ai-quote` | border-left 3 `--accent`, padding 6 10, r 0 8 8 0, 13 px, max-height 80 (view) / 60 (panel); в панели текст режется до 300 симв. |
+| `.ai-quote` | border-left 3 `--accent`, padding 6 10, r 0 8 8 0, 13 px, max-height 80 (view) / 60 (panel), обрезка 300 симв. |
 | `.ai-filechip` | padding 4 8, r8, 12 px, gap 4, Paperclip 13, X 13 |
 
 **Панель (S4)**
@@ -251,7 +211,7 @@ cursor `#7c6cf5`, openclaw `#b45309`, hermes `#0ea5e9`, gemini `#4285f4`, generi
 | Селектор | Значения |
 | --- | --- |
 | `.ai-panel` | fixed right 16 bottom 16, width 400 (max `100vw-32`), max-height 82vh, r16, border 1, shadow `0 16px 48px rgba(0,0,0,.28)`, z 90 (raised 110) |
-| `.ai-panel-head` | padding 10 12, border-bottom, 600; свитчер 13 px, padding 2 6, r6, max-w 240; иконки 14, кнопки ≈26×22 |
+| `.ai-panel-head` | padding 10 12, border-bottom, 600; свитчер 13 px, padding 2 6, r6, max-w 240; plus/close 26 |
 | `.ai-panel-body` | padding 12, скролл |
 | `.ai-panel-foot` | border-top, padding 10 12 6 |
 | композер в панели | 376 px (400−24), контент 352 |
@@ -266,7 +226,7 @@ cursor `#7c6cf5`, openclaw `#b45309`, hermes `#0ea5e9`, gemini `#4285f4`, generi
 | h2 | 20/600 |
 | `.ai-zero-section` | 12/600, `--muted`, padding 8 6 2 |
 | сетка | 2 колонки, gap 4 12; при ≤600 — 1 колонка |
-| `.ai-zero-item` | gap 10, padding 6 8, r10, 14/500; hover `--hover`; высота 42 (бейдж 30 + 12) |
+| `.ai-zero-item` | gap 10, padding 6 8, r10, 14/500; hover `--hover` |
 | `.ai-zero-badge` | 30×30, r8, иконка 15 |
 | в панели | `.ai-panel-zero` gap 4, padding 2 0 6; `.ai-zero-context` padding 7 10, r10, 13 px, бейдж 11 px padding 2 6 r6; список gap 2; divider 1 px margin 6 4 |
 
@@ -370,9 +330,6 @@ cursor `#7c6cf5`, openclaw `#b45309`, hermes `#0ea5e9`, gemini `#4285f4`, generi
 
 ### 3.4 Реальные строки (английский источник, `t()`)
 
-Строки — ключи `t()`, то есть ровно то, что видно в английском интерфейсе (как и остальные кадры
-файла); в русской локали те же ключи заменяются из `web/src/locales/ru.json`.
-
 | Место | Строка |
 | --- | --- |
 | Шапка | `AI`, `/`, `New chat`, `Menu`, `Memory`, `Remember this…`, `Remember`, `This workspace only`, `Nothing memorized yet.`, `Loading…`, `Forget` |
@@ -421,8 +378,6 @@ Mobile Document/Pages, Dark Document/Board. **AI-кадров нет ни одн
 ## 5. Предложенные кадры
 
 Новая страница **`06 · AI`**, питч как у остальных: 1560 по x, ряды через 1080.
-Кадры — в Light (как `03 · Desktop`); тёмный вид проверяется переключением режима переменных
-(страница `05 · Dark` — практика файла), отдельные dark-кадры для AI не нужны.
 
 | # | Кадр | Размер | x, y | Что показывает |
 | ---: | --- | --- | --- | --- |
@@ -440,17 +395,6 @@ Mobile Document/Pages, Dark Document/Board. **AI-кадров нет ни одн
 композицией 1280×800 из двух телефонов **без масштаба нельзя** (844 > 800); тогда лучше
 отдельная страница `07 · AI · Mobile` с кадрами 390×844.
 
-A8, координаты (390×844, чат + dock):
-
-| Элемент | Бокс |
-| --- | --- |
-| main (чат) | 0…788; dock 788…844 |
-| Чат-колонка | padding 24 → контент 342 (x24…366); max-width 860 не влияет |
-| Топбар | y12…58: menu 26…56, avatar 64…90, «AI» 98, title |
-| Zero-блок | 24,304 342×339: hero 42, «Actions», 6 строк по 42 (1 колонка, gap 4) |
-| Композер | 24,663 342×105 |
-| Dock | 4 кнопки по ≈93×48, label 10.5, safe-area снизу |
-
 ### A1 — координаты (1280×800)
 
 | Элемент | Бокс |
@@ -459,20 +403,17 @@ A8, координаты (390×844, чат + dock):
 | Поиск | 12,66 268×36 |
 | Табы Home/Chat | 12,110 268×30 (пилюли 133, gap 2), border-bottom y148 |
 | New chat | 16,153 260×29 |
-| «Chats» | текст x24, y196 (padding 10 16 4 внутри `.tree` x8) |
+| «Chats» | 16,186, текст 11 px на y196 |
 | Треды r1..r3 | 16,213 / 259 / 305; 260×45 (с sub) |
 | Футер | y745, 292×55 |
-| Archived (если есть) | над футером, свёрнут: border-top + toggle 6 10, всего ≈41 |
-| Pinned (опция) | секция «Pinned» (Pin 11) перед списком, ≈70 px; строки ниже сдвигаются |
 | Чат-колонка | 356…1216 (860), контент 380…1192 |
-| Топбар | y12…58, центр ≈31: menu 382…412, avatar 420…446, «AI» 454, «/» 476, title 494 |
+| Топбар | y12…58: menu 382,26; avatar 420,26; «AI» 454; «/» 476; title 494 |
 | Zero-блок | 446,454 680×201: hero 34 на 452,454; h2 496; «Actions» y496; сетка 2×334 (x446/x792), 3 ряда по 42, gap 4 |
-| Композер | 380,675 812×105; attach 392,742 28; approval 426,745 (иконка 15); send 1148,740 32 |
+| Композер | 380,675 812×105; attach 392,742 28; approval 426,742 26; send 1148,742 32 |
 
 ### A2 — состав
 
-Топбар «Tighten the onboarding copy»; user-bubble (max-w 85 %, r16/br4, 2 строки; в примере
-772…1192 = 420 px) справа;
+Топбар «Tighten the onboarding copy»; user-bubble (85 %, r16/br4, 2 строки) справа 772…1192;
 «Worked for 1m 9s (20 steps)» 12 px; 3 шага, один раскрыт (`pre` 24 px отступ слева, r8,
 max-h 240); ответ: 2 абзаца + список; ряд иконок Copy / Regenerate / Insert into page;
 блок Artifacts (2 чипа, r999, max-w 260); над композером цитата (border-left 3 accent)
@@ -488,8 +429,6 @@ Tool write_content (⋯ accent) / Tool create_page (AlertTriangle); строка
 
 ### A4 — состав
 
-Кадр-витрина: две карточки пауз/сбоя рядом (в жизни одновременно не встречаются — вопрос и
-ошибка это два разных прогона; в кадре они для сверки компонентов).
 Карточка вопроса: title с CircleHelp, 3 опции (22×22 номер, label 13/600, desc 12),
 вторая выбрана (accent-рамка, заливка accent 12 %, галочка 13); свободное поле; `Submit answer`
 (ink) + `Cancel`. Ниже — ошибка: head «Quota exceeded» + код `insufficient_quota`, message,
@@ -497,16 +436,14 @@ hint курсивом, `Details` раскрыт (pre 11 mono), кнопки Retr
 
 ### A5 — состав (панель)
 
-Документ на фоне; панель 864…1264, y≈248…784 (≈536 с цитатой; ≈476 без неё): шапка 43
-(✨ + название + chevron + «+» + ×); контекст страницы (иконка 15, title 13/600, бейдж «Note»);
-«Actions»; 3 строки 42 px; «Attach file or CSV» (42); divider; «Link workspace page or collection» (42);
-цитата `margin: 0 12` (высота до 62); композер 376; открытое меню одобрений 300 px над триггером
+Документ на фоне; панель 864…1264, y363…784 (natural height ≈421): шапка 47 (✨ + название +
+chevron + «+» + ×); контекст страницы (иконка 15, title 13/600, бейдж «Note»); «Actions»;
+3 строки 30 px; «Attach file or CSV»; divider; «Link workspace page or collection»;
+цитата `margin: 0 12`; композер 376; открытое меню одобрений 300 px над триггером
 (3 режима, выбран «Review for me», галочка 12).
 
 ### A6 — состав (документ)
 
-Кадр-витрина поверхностей документа: в реальности dropdown, AI block и инлайн-пилюля
-одновременно не открыты; в кадре — для сверки всех трёх.
 Топбар 47 с presence-бейджем; заголовок страницы; абзац с выделением (accent 30 %);
 панель форматирования с кнопкой «✨ AI ⌄»; открытый dropdown 230–340 px: 4 пункта 13 px,
 custom-строка с input 12 px и круглой go 24, divider, «Ask in chat»; AI Block 828 px:
@@ -516,16 +453,11 @@ header 8/12 (`--hover`, r9 сверху), title 600, hover-toolbar (3 иконк
 
 ### A7 — состав
 
-Слева Connect-диалог 640, x40…680, y56…744: при окне 800 `max-height:86vh` = 688, поэтому
-диалог показывать по 688 со скроллом (в `wiki/img/agents-connect.png` он 728 — там окно выше
-800). Справа на бумаге: presence-бейдж fresh
+Слева Connect-диалог 640, y36…764, но при 800 окне `max-height:86vh` = 688 → показывать
+обрезанным по 688 со скроллом (это правда кода). Справа на бумаге: presence-бейдж fresh
 (25 px, border currentColor, лого 14, имя 600, заметка muted), stale (opacity .55),
-вариант с двумя агентами (без заметок), `.agent-dot` 22 на карточке, точка в строке сайдбара.
-
-Важно: подсказка у бейджа — **нативный `title`**, стилизованного тултипа в коде нет. Если в
-кадре нужен тултип, рисовать его как справочный образец с пометкой «не 1:1» (браузерный вид
-зависит от ОС), текст брать из `AgentBadge.tsx#title`: `Claude · via Ada Lovelace · here for
-2h 14m · last seen 47 min ago`.
+вариант с двумя агентами (без заметок), `.agent-dot` 22 на карточке, точка в строке сайдбара,
+карточка тултипа с текстом `Claude · via Ada Lovelace · …`.
 
 ---
 
@@ -536,7 +468,7 @@ header 8/12 (`--hover`, r9 сверху), title 600, hover-toolbar (3 иконк
 | Компонент | Source | Варианты / свойства | Заметки |
 | --- | --- | --- | --- |
 | `AI / Bubble User` | `AiChatView.tsx` · `.ai-bubble-user` | `With Mention=Off/On`; `Lines=1/2/4`; Text | max-w 85 %, r16/br4 |
-| `AI / Answer` | `.ai-bubble-ai`, `.ai-markdown` | `Content=Text/List/Code/Table`; `Actions=Off/Copy/Copy+Regen/Copy+Regen+Insert` | действия 26×22, иконки 14 |
+| `AI / Answer` | `.ai-bubble-ai`, `.ai-markdown` | `Content=Text/List/Code/Table`; `Actions=Off/Copy/Copy+Regen/Copy+Regen+Insert` | действия 26×26, иконки 14 |
 | `AI / Composer` | `.ai-composer` | `State=Empty/Typed/Busy`; `Attachments=Off/On`; `Quote=Off/On`; `Placeholder=View/Panel` | h105, send 32 |
 | `AI / Approval Trigger` | `AiApprovalSelect.tsx` | `Mode=Always/Review/Skip` | Hand / ShieldCheck / ShieldOff 15; skip — `#e07d10` |
 | `AI / Approval Menu` | там же (inline) | `Mode=Always/Review/Skip`; `State=Open` | 300×~170, r12 |
@@ -547,22 +479,22 @@ header 8/12 (`--hover`, r9 сверху), title 600, hover-toolbar (3 иконк
 | `AI / Artifacts` | `.ai-artifacts-inline*` | `Chips=1/2/4` | только полный Chats |
 | `AI / Question Card` | `.ai-question-card` | `Option=Off/On/Multiple`; `Desc=Off/On`; `Filled=Off/On` | accent-рамка, номера 22 |
 | `AI / Error` | `AiErrorCard.tsx` · `.ai-error-card` | `Category=Auth/Quota/Rate/Model/Context/Timeout/Disabled/Server/Unknown`; `Details=Off/On`; `Retry=Off/On` | 9 категорий, 4 кнопки |
-| `AI / Memory Popover` | `AiChatView.tsx` (inline) | `State=Loading/Empty/List`; `Workspace=Off/On` | 320 ширина, max-h 320, r10 |
+| `AI / Memory Popover` | `AiChatView.tsx` (inline) | `State=Loading/Empty/List`; `Workspace=Off/On` | 320×320, r10 |
 | `AI / Mention Menu` | inline, оба файла | `Surface=View/Panel`; `Items=1/3/8` | 260 / 376 шириной |
 | `AI / Attach Menu` | `.menu` + inline | — | 2 пункта, над композером |
 | `Sidebar / Chat Row` | `AiThreadList.tsx` · `.ai-chat-row` | `State=Default/Hover/Active`; `Unread=Off/On`; `Pinned=Off/On`; `Sub=Off/On` | 260×29/45, r8 |
 | `Sidebar / Chat Section` | `.ai-section-label`, `.ai-section-title` | `Kind=Chats/Pinned/Recent` | 11/600 caps |
 | `Sidebar / Archived` | `ArchivedChats.tsx` | `State=Closed/Open`; `Empty=On/Off` | 33 % высоты |
-| `AI Panel / Header` | `.ai-panel-head` | `Menu=Closed/Open`; `Thread=Off/On` | 43 px (10 + 22 + 10 + 1) |
-| `AI Panel / Context` | `.ai-zero-context` | `Kind=Note/Collection` | 32 px, r10 |
-| `AI Panel / Action Row` | `.ai-zero-item` | `Tone=Default/Green/Blue/Purple/Plain`; `Size=Desktop/Phone` | 42 px (бейдж 30) / 52 px (бейдж 34) |
+| `AI Panel / Header` | `.ai-panel-head` | `Menu=Closed/Open`; `Thread=Off/On` | 47 px |
+| `AI Panel / Context` | `.ai-zero-context` | `Kind=Note/Collection` | 33 px, r10 |
+| `AI Panel / Action Row` | `.ai-zero-item` | `Tone=Default/Green/Blue/Purple/Plain`; `Size=Desktop/Phone` | 30 / 46 px |
 | `AI View / Zero` | `.ai-view-zero*` | `Page=Off/On` | 680 px, 2 колонки |
 | `AI Inline / Bar` | `.ai-inline-bar` | `State=Idle/Busy` | 40 px, r999 |
 | `AI Inline / Result` | `.ai-inline-result` | `State=Result` | 13 px, max-h 160 |
 | `AI / Empty Line` | `AiEmptyLine.tsx` · `.ai-empty` | `State=Idle/Writing/Error` | 15 px, h≈50 |
 | `AI / Formatting Menu` | `AiFormattingDropdown.tsx` | `State=Menu/Busy/Result/Error` | 230–340, r10 |
 | `AI / Block` | `blocks.tsx` · `.bn-ai-block` | `State=Draft/Ready/Hover/Busy/Error/Read-only` | r10, shadow .06 |
-| `Agent / Presence Badge` | `AgentBadge.tsx` · `.agent-work` | `Fresh=On/Off`; `Note=Off/On`; `Count=1/2` | border currentColor; tooltip — нативный `title`, не компонент |
+| `Agent / Presence Badge` | `AgentBadge.tsx` · `.agent-work` | `Fresh=On/Off`; `Note=Off/On`; `Count=1/2` | border currentColor |
 | `Agent / Dot` | `.agent-dot` | `Fresh=On/Off` | 22 px, ring 2 |
 | `Agent / Connect Dialog` | `AgentConnect.tsx` | `How=Sign in/Token`; `Token=Empty/Created`; `Client=9`; `Warn=Off/On` | 640×688 (скролл) |
 | `Mobile / Dock` | `MobileDock.tsx` · `.mobile-dock` | `Middle=Search/New chat`; `AI=On/Off` | 48 px, label 10.5 |
@@ -582,9 +514,8 @@ presence-строки, `Button` (64) + Size=S вместо нового «btn-sm
    В FigCraft либо рисовать как есть (мелкая инлайн-строка), либо сначала добавить CSS
    (gap 6, flex, статус справа) — иначе макет «улучшит» продукт.
 2. **Неопределённые токены:** `--accent-fg`, `--danger-soft`, `--success`, `--warning`,
-   `--card-foreground`. В файле есть близкие `Accent/Soft`, `State/Danger`, `State/Success`,
-   `State/Warning`, но не эти имена; в коде — литералы (`#fff`, `rgba(239,68,68,.08)`,
-   `#10b981`, `#e07d10`). Для 1:1 брать литералы.
+   `--card-foreground`. В файле соответствующие переменные есть; в коде — литералы
+   (`#fff`, `rgba(239,68,68,.08)`, `#10b981`, `#e07d10`). Для 1:1 брать литералы.
 3. **Мёртвый CSS:** `.ai-trace`, `.ai-artifacts` (боковая панель), `.ai-artifacts-wrap`,
    `.ai-model-label`, `.ai-approval-pill`, `.ai-section-toggle` — в JSX не встречаются.
    Компоненты по ним не строить.
@@ -593,16 +524,9 @@ presence-строки, `Button` (64) + Size=S вместо нового «btn-sm
 6. **Выбора модели в UI нет** — не рисовать; только режим одобрений.
 7. **Пустой чат при загрузке истории:** `messages=[]` → на кадре с тредом возможен миг
    zero-состояния; скелетона нет.
-8. **Диалог 640 при окне 800** режется `max-height:86vh` (688) — это код, не ошибка макета.
-9. **Композиты hover/active**: токены файла сняты с другой подложки, чем `--bg`/`--card`;
-   для AI брать значения из §3.1, иначе hover в чате будет на 3–5 единиц темнее.
-10. **Панель не показывает «Working for …»**: её заголовок трассы всегда `Agent actions (n)`
-    (`AiChatPanel.tsx:686–707`); живой таймер есть только в полном Chats (`AiChatView.tsx:722–747`).
-11. **Памяти в панели нет**: кнопка Brain и поповер — только `AiChatView`. В панели есть только
-    режим одобрений, вложения и цитата.
-12. **Отдельной approval-карточки нет**: одобрение — две кнопки (`Approve` / `Reject`) строкой
-    под трассой, без рамки и заголовка (`AiChatView.tsx:740–745`). Не рисовать карточку;
-    поповер `AiApprovalSelect` — это выбор режима, другой компонент.
+8. **Панель 640 диалога при 800 окне** режется `max-height:86vh` (688) — это код, не ошибка макета.
+9. **Композиты hover/active**: в файле лежат значения над землёй `#F0EFEA`; AI-слои лежат на
+   `--bg`/`--card` — брать из §3.1, иначе hover в чате будет на 3–5 единиц темнее.
 
 ## 8. Как проверять после переноса
 

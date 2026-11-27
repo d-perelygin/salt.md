@@ -17,26 +17,26 @@ Colour values are compared per channel, alpha composited over `--bg` where the c
 | `Board/ToDo` | — | #faecea / — | #221412 / — | missing | board columns are tinted from the option colour (--col-c) in theme.css, not from a fixed token |
 | `Border/Default` | `--border` | #e4e2db / rgba(28, 26, 21, 0.11) | #1c1c21 / rgba(255, 255, 255, 0.08) | diff (Δ3) | alpha hairline, compared composited over the page |
 | `Border/Strong` | `--border-strong` | #cfccc3 / rgba(28, 26, 21, 0.2) | #303036 / rgba(255, 255, 255, 0.15) | diff (Δ7) | alpha hairline, compared composited over the page |
-| `Chip/Blue/Bg` | `.tag-blue background` | #b8e8f8 / hsl(210 80% 92%) | #003068 / hsl(212 38% 27%) | diff (Δ43) |  |
-| `Chip/Blue/Fg` | `.tag-blue color` | #01488f / hsl(212 60% 40%) | #b6e1ff / hsl(210 70% 80%) | diff (Δ40) |  |
-| `Chip/Brown/Bg` | `.tag-brown background` | #f0d8c8 / hsl(28 30% 87%) | #3a2418 / hsl(25 25% 25%) | diff (Δ25) |  |
-| `Chip/Brown/Fg` | `.tag-brown color` | #73320e / hsl(25 40% 34%) | #e0b79e / hsl(28 45% 76%) | diff (Δ38) |  |
+| `Chip/Blue/Bg` | `.tag-blue background` | #bde9ff / hsl(210 80% 92%) | #003068 / hsl(212 38% 27%) | diff (Δ43) |  |
+| `Chip/Blue/Fg` | `.tag-blue color` | #00478f / hsl(212 60% 40%) | #b6e1ff / hsl(210 70% 80%) | diff (Δ41) |  |
+| `Chip/Brown/Bg` | `.tag-brown background` | #bde9ff / hsl(28 30% 87%) | #3a2418 / hsl(25 25% 25%) | diff (Δ43) |  |
+| `Chip/Brown/Fg` | `.tag-brown color` | #00478f / hsl(25 40% 34%) | #e0b79e / hsl(28 45% 76%) | diff (Δ121) |  |
 | `Chip/Gray/Bg` | `.tag-gray background` | #e5e4e2 / hsl(220 14% 90%) | #2a2a2e / hsl(220 10% 27%) | diff (Δ30) |  |
 | `Chip/Gray/Fg` | `.tag-gray color` | #494844 / hsl(220 10% 34%) | #c9c9cc / hsl(220 18% 80%) | diff (Δ27) |  |
-| `Chip/Green/Bg` | `.tag-green background` | #b8f0c8 / hsl(140 45% 89%) | #004010 / hsl(146 30% 23%) | diff (Δ41) |  |
-| `Chip/Green/Fg` | `.tag-green color` | #025e21 / hsl(146 45% 30%) | #aae7bd / hsl(140 55% 76%) | diff (Δ40) |  |
-| `Chip/Orange/Bg` | `.tag-orange background` | #f8d8a0 / hsl(32 85% 90%) | #502800 / hsl(30 40% 25%) | diff (Δ48) |  |
+| `Chip/Green/Bg` | `.tag-green background` | #b8f6cc / hsl(140 45% 89%) | #004010 / hsl(146 30% 23%) | diff (Δ41) |  |
+| `Chip/Green/Fg` | `.tag-green color` | #005c1f / hsl(146 45% 30%) | #aae7bd / hsl(140 55% 76%) | diff (Δ42) |  |
+| `Chip/Orange/Bg` | `.tag-orange background` | #ffdfa2 / hsl(32 85% 90%) | #502800 / hsl(30 40% 25%) | diff (Δ46) |  |
 | `Chip/Orange/Fg` | `.tag-orange color` | #6f3800 / hsl(28 70% 36%) | #fad599 / hsl(32 80% 78%) | diff (Δ45) |  |
-| `Chip/Pink/Bg` | `.tag-pink background` | #f8c8f0 / hsl(330 70% 93%) | #580030 / hsl(330 32% 30%) | diff (Δ52) |  |
-| `Chip/Pink/Fg` | `.tag-pink color` | #910057 / hsl(330 55% 44%) | #f4b8de / hsl(330 65% 84%) | diff (Δ50) |  |
-| `Chip/Purple/Bg` | `.tag-purple background` | #f8c8f8 / hsl(270 55% 92%) | #500068 / hsl(270 30% 30%) | diff (Δ54) |  |
-| `Chip/Purple/Fg` | `.tag-purple color` | #710b94 / hsl(270 45% 46%) | #f2bffc / hsl(270 65% 84%) | diff (Δ54) |  |
-| `Chip/Red/Bg` | `.tag-red background` | #f8c0b8 / hsl(0 75% 93%) | #700000 / hsl(0 35% 26%) | diff (Δ43) |  |
-| `Chip/Red/Fg` | `.tag-red color` | #990707 / hsl(0 60% 40%) | #f9b0a6 / hsl(0 70% 82%) | diff (Δ34) |  |
+| `Chip/Pink/Bg` | `.tag-pink background` | #bde9ff / hsl(330 70% 93%) | #580030 / hsl(330 32% 30%) | diff (Δ61) |  |
+| `Chip/Pink/Fg` | `.tag-pink color` | #00478f / hsl(330 55% 44%) | #f4b8de / hsl(330 65% 84%) | diff (Δ174) |  |
+| `Chip/Purple/Bg` | `.tag-purple background` | #ffceff / hsl(270 55% 92%) | #500068 / hsl(270 30% 30%) | diff (Δ54) |  |
+| `Chip/Purple/Fg` | `.tag-purple color` | #6b0390 / hsl(270 45% 46%) | #f2bffc / hsl(270 65% 84%) | diff (Δ62) |  |
+| `Chip/Red/Bg` | `.tag-red background` | #ffc7bc / hsl(0 75% 93%) | #700000 / hsl(0 35% 26%) | diff (Δ43) |  |
+| `Chip/Red/Fg` | `.tag-red color` | #950000 / hsl(0 60% 40%) | #f9b0a6 / hsl(0 70% 82%) | diff (Δ41) |  |
 | `Chip/Teal/Bg` | — | #d9efec / — | #13302c / — | missing | no teal in the code palette: web/src/tags.ts TAG_PALETTE has 9 tones, teal is design-only |
 | `Chip/Teal/Fg` | — | #22776d / — | #85d4c9 / — | missing | no teal in the code palette: web/src/tags.ts TAG_PALETTE has 9 tones, teal is design-only |
-| `Chip/Yellow/Bg` | `.tag-yellow background` | #f8d8a0 / hsl(48 90% 86%) | #502800 / hsl(45 35% 26%) | diff (Δ43) |  |
-| `Chip/Yellow/Fg` | `.tag-yellow color` | #723c04 / hsl(40 70% 32%) | #f7d296 / hsl(48 75% 76%) | diff (Δ41) |  |
+| `Chip/Yellow/Bg` | `.tag-yellow background` | #ffdfa2 / hsl(48 90% 86%) | #502800 / hsl(45 35% 26%) | diff (Δ43) |  |
+| `Chip/Yellow/Fg` | `.tag-yellow color` | #6f3800 / hsl(40 70% 32%) | #f7d296 / hsl(48 75% 76%) | diff (Δ45) |  |
 | `Ink/Fill` | `--pill-dark` | #1c1a15 / #1c1a15 | #f5f5f7 / #f5f5f7 | match | the ink pill tokens: --pill-dark / --pill-dark-hover |
 | `Scrim` | `.modal-overlay background` | #3b3a36 / rgba(0, 0, 0, 0.35) | #000000 / — | diff (Δ107) | Dark: no value in code |
 | `State/Danger` | `--danger` | #c2410c / #c2410c | #ff7a59 / #ff7a59 | match |  |
