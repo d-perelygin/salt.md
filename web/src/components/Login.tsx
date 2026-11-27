@@ -67,8 +67,8 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
     }
   }, []);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doLogin = async () => {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -98,6 +98,21 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
       setBusy(false);
     }
   };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void doLogin();
+  };
+
+  // Six digits are the whole code: the sixth one signs in without a press on
+  // the button. `busy` stays out of the dependencies on purpose — a rejected
+  // code would otherwise be retried in a loop; only a change is a new attempt.
+  useEffect(() => {
+    if (mode !== 'login' || !needCode || busy) return;
+    if (code.length !== 6 || !email || !password) return;
+    void doLogin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, needCode, mode]);
 
   return (
     <div className="login-wrap">
@@ -142,11 +157,15 @@ export default function Login({ onSuccess }: { onSuccess: (user: User) => void }
         {needCode && mode === 'login' && (
           <input
             inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
             autoFocus
             value={code}
             placeholder={t('2FA code (6 digits)')}
             onChange={(e) => {
-              setCode(e.target.value);
+              // Digits only: the field is a six-digit code, and a paste with
+              // spaces ("123 456") should still arrive whole.
+              setCode(e.target.value.replace(/\D/g, '').slice(0, 6));
               setError(null);
             }}
           />
