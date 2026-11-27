@@ -5,12 +5,12 @@ Threshold: max channel Δ > 16; zones ≥ 120px at 2x. Coordinates are 1280×800
 | Screen | Similar ≤16 | ≤32 | Zones | Source |
 | --- | ---: | ---: | ---: | --- |
 | Document | 94.59% | 95.8% | 272 | `web/src/components/Editor.tsx` |
-| Collection · Table | 95.54% | 97.01% | 305 | `web/src/components/CollectionView.tsx` |
-| Collection · Board | 88.44% | 93.79% | 442 | `web/src/components/CollectionView.tsx` |
-| Collection · Calendar | 96.71% | 98.34% | 224 | `web/src/components/CollectionView.tsx` |
-| Library · Graph | 96.65% | 97.94% | 195 | `web/src/components/GraphView.tsx` |
+| Collection · Table | 95.86% | 97.08% | 308 | `web/src/components/CollectionView.tsx` |
+| Collection · Board | 94.77% | 95.98% | 348 | `web/src/components/CollectionView.tsx` |
+| Collection · Calendar | 97.04% | 98.41% | 221 | `web/src/components/CollectionView.tsx` |
+| Library · Graph | 96.83% | 98.1% | 180 | `web/src/components/GraphView.tsx` |
 | Search | 95.94% | 97.28% | 189 | `web/src/components/SearchModal.tsx` |
-| Sign in | 90.64% | 91.68% | 38 | `web/src/components/Login.tsx` |
+| Sign in | 93.45% | 94.46% | 32 | `web/src/components/Login.tsx` |
 
 ## Document
 
@@ -48,21 +48,21 @@ Images: `design/report/document-side.png`, `document-diff.png`.
 | 3 | content | 578, 520 | 88×22 | 68.0 | `#eacb96` | `#eed09d` |
 | 4 | content | 690, 520 | 126×22 | 56.6 | `#c6d3cf` | `#ccd8d2` |
 | 5 | content | 934, 321 | 74×11 | 97.7 | `#cac9c5` | `#bebdb9` |
-| 6 | content | 518, 152 | 70×20 | 54.8 | `#e2e1dd` | `#d9d8d3` |
-| 7 | content | 690, 396 | 91×22 | 52.4 | `#edc9c3` | `#f1cfc8` |
-| 8 | content | 702, 320 | 57×12 | 84.9 | `#89bce0` | `#91c3e5` |
-| 9 | content | 702, 442 | 57×12 | 84.9 | `#89bce0` | `#91c3e5` |
-| 10 | content | 702, 524 | 57×12 | 84.9 | `#89bce0` | `#91c3e5` |
-| 11 | sidebar | 84, 397 | 38×18 | 89.6 | `#cac9c4` | `#cac9c4` |
-| 12 | content | 962, 485 | 46×11 | 98.0 | `#c3c2be` | `#bdbcb9` |
-| 13 | content | 1230, 750 | 22×22 | 125.4 | `#c64f70` | `#c65071` |
-| 14 | content | 424, 150 | 56×22 | 56.9 | `#e4e3e0` | `#dad9d4` |
-| 15 | content | 959, 362 | 46×11 | 96.6 | `#c2c1bd` | `#bcbbb7` |
-| 16 | content | 966, 444 | 38×11 | 101.2 | `#c5c3c0` | `#c1c0bc` |
-| 17 | content | 970, 403 | 38×11 | 98.8 | `#c4c3bf` | `#c0bfbb` |
-| 18 | content | 970, 526 | 38×11 | 96.3 | `#c4c3bf` | `#c0bfbb` |
-| 19 | topbar | 1194, 20 | 22×20 | 93.8 | `#bfbdba` | `#cccbc8` |
-| 20 | content | 690, 314 | 76×22 | 48.5 | `#add5f0` | `#b4dbf1` |
+| 6 | content | 690, 396 | 91×22 | 52.4 | `#edc9c3` | `#f1cfc8` |
+| 7 | content | 702, 320 | 57×12 | 84.9 | `#89bce0` | `#91c3e5` |
+| 8 | content | 702, 442 | 57×12 | 84.9 | `#89bce0` | `#91c3e5` |
+| 9 | content | 702, 524 | 57×12 | 84.9 | `#89bce0` | `#91c3e5` |
+| 10 | sidebar | 84, 397 | 38×18 | 89.6 | `#cac9c4` | `#cac9c4` |
+| 11 | content | 962, 485 | 46×11 | 98.0 | `#c3c2be` | `#bdbcb9` |
+| 12 | content | 1230, 750 | 22×22 | 125.4 | `#c64f70` | `#c65071` |
+| 13 | content | 959, 362 | 46×11 | 96.6 | `#c2c1bd` | `#bcbbb7` |
+| 14 | content | 966, 444 | 38×11 | 101.2 | `#c5c3c0` | `#c1c0bc` |
+| 15 | content | 970, 403 | 38×11 | 98.8 | `#c4c3bf` | `#c0bfbb` |
+| 16 | content | 970, 526 | 38×11 | 96.3 | `#c4c3bf` | `#c0bfbb` |
+| 17 | topbar | 1194, 20 | 22×20 | 93.8 | `#bfbdba` | `#cccbc8` |
+| 18 | content | 690, 314 | 76×22 | 48.5 | `#add5f0` | `#b4dbf1` |
+| 19 | content | 690, 438 | 76×22 | 48.5 | `#add5f0` | `#b4dbf1` |
+| 20 | content | 850, 231 | 44×15 | 92.8 | `#e1e0dd` | `#d9dbdc` |
 
 Images: `design/report/table-side.png`, `table-diff.png`.
 
@@ -70,26 +70,26 @@ Images: `design/report/table-side.png`, `table-diff.png`.
 
 | # | region | x, y | w×h | mean Δ | ref | ours |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | content | 698, 401 | 210×48 | 197.0 | `#f9f5f4` | `#a8bcd2` |
-| 2 | content | 700, 358 | 194×42 | 91.5 | `#d4e9f8` | `#dae0de` |
-| 3 | content | 366, 506 | 199×29 | 84.9 | `#c1dff5` | `#d7ecf8` |
-| 4 | content | 700, 506 | 124×29 | 83.1 | `#d3ddda` | `#d8e1dd` |
-| 5 | content | 1074, 368 | 113×32 | 89.9 | `#c9e3f7` | `#e2f1fa` |
-| 6 | content | 366, 368 | 89×32 | 86.9 | `#f2d9d5` | `#f6ddd8` |
-| 7 | content | 684, 294 | 87×29 | 79.9 | `#edd5ac` | `#efd6ab` |
-| 8 | content | 504, 539 | 82×22 | 103.8 | `#f2f2f2` | `#d6d6d5` |
-| 9 | content | 1018, 294 | 52×29 | 65.0 | `#bce6ca` | `#bde9cb` |
-| 10 | content | 350, 294 | 54×29 | 63.6 | `#f6c7c1` | `#f6c8c1` |
-| 11 | content | 724, 539 | 49×21 | 115.7 | `#f4ddd4` | `#f6e3db` |
-| 12 | content | 1034, 368 | 39×32 | 70.4 | `#f2d3f7` | `#f6d7f8` |
-| 13 | content | 1152, 224 | 72×31 | 157.3 | `#575651` | `#35332e` |
-| 14 | content | 390, 676 | 50×19 | 117.3 | `#f2d9ce` | `#f5e0d7` |
-| 15 | content | 396, 539 | 41×21 | 117.1 | `#f3dcd2` | `#f4dfd6` |
-| 16 | content | 366, 616 | 39×22 | 123.2 | `#d2d2d1` | `#d2d2d1` |
-| 17 | content | 404, 401 | 60×22 | 109.3 | `#f4ddd3` | `#f3e7e2` |
-| 18 | content | 506, 616 | 31×24 | 122.7 | `#d8d7d7` | `#d8d7d7` |
-| 19 | content | 467, 617 | 36×24 | 121.8 | `#dadad9` | `#dad9d9` |
-| 20 | content | 366, 644 | 39×27 | 63.7 | `#f0cbf6` | `#f4cff7` |
+| 1 | content | 364, 504 | 200×23 | 78.9 | `#b2d7f3` | `#cde7f6` |
+| 2 | content | 1032, 368 | 154×22 | 78.7 | `#c1d2f4` | `#dde2f7` |
+| 3 | content | 698, 368 | 195×22 | 68.8 | `#afd6f2` | `#b6dcf2` |
+| 4 | content | 682, 290 | 88×23 | 65.4 | `#ebcf9e` | `#edd09c` |
+| 5 | content | 390, 401 | 78×14 | 105.1 | `#efcdc0` | `#eedbd3` |
+| 6 | content | 724, 401 | 78×14 | 104.3 | `#efcec0` | `#eedcd4` |
+| 7 | content | 543, 534 | 44×19 | 144.0 | `#f0f0f0` | `#b6b6b4` |
+| 8 | content | 1152, 224 | 72×31 | 157.3 | `#575651` | `#35332e` |
+| 9 | content | 698, 504 | 125×23 | 60.5 | `#c8d5d1` | `#cedad5` |
+| 10 | content | 1016, 290 | 53×23 | 60.6 | `#b2e4c2` | `#b3e7c3` |
+| 11 | content | 348, 290 | 55×23 | 58.9 | `#f6bfb7` | `#f5c0b8` |
+| 12 | content | 390, 676 | 50×14 | 114.0 | `#edc9ba` | `#f1d4c8` |
+| 13 | content | 724, 538 | 49×14 | 104.6 | `#eecabc` | `#f1d3c7` |
+| 14 | content | 390, 539 | 46×13 | 107.9 | `#edc8b8` | `#f0d2c5` |
+| 15 | content | 1058, 401 | 47×14 | 102.3 | `#efcdbf` | `#f2d6cb` |
+| 16 | content | 364, 368 | 90×22 | 54.7 | `#edc9c3` | `#f2cec8` |
+| 17 | content | 376, 509 | 56×14 | 78.9 | `#8ec0e3` | `#95c6e7` |
+| 18 | content | 710, 509 | 56×14 | 78.9 | `#8ec0e3` | `#95c6e7` |
+| 19 | content | 840, 224 | 93×31 | 48.8 | `#efd8dc` | `#f2dbe0` |
+| 20 | content | 710, 372 | 56×13 | 79.7 | `#8abde1` | `#92c4e5` |
 
 Images: `design/report/board-side.png`, `board-diff.png`.
 
@@ -97,26 +97,26 @@ Images: `design/report/board-side.png`, `board-diff.png`.
 
 | # | region | x, y | w×h | mean Δ | ref | ours |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | content | 342, 280 | 83×14 | 131.9 | `#b5b4b0` | `#b5b3b0` |
+| 1 | content | 390, 280 | 79×14 | 106.5 | `#b2b1ad` | `#c7c6c3` |
 | 2 | content | 1152, 224 | 72×31 | 157.3 | `#575651` | `#35332e` |
-| 3 | content | 426, 280 | 42×14 | 133.3 | `#afadaa` | `#aeada9` |
-| 4 | content | 535, 232 | 58×14 | 95.3 | `#b5b4b0` | `#b6b4af` |
-| 5 | content | 1192, 280 | 44×12 | 111.0 | `#d2d0cd` | `#c5c4c1` |
-| 6 | sidebar | 84, 397 | 38×18 | 89.6 | `#cac9c4` | `#cac9c4` |
-| 7 | content | 1230, 750 | 22×22 | 125.4 | `#c64f70` | `#c65071` |
-| 8 | topbar | 1194, 20 | 22×20 | 93.8 | `#bfbdba` | `#cccbc8` |
+| 3 | content | 342, 280 | 50×14 | 111.4 | `#b5b4b0` | `#c3c2bf` |
+| 4 | content | 1192, 280 | 44×12 | 111.0 | `#d2d0cd` | `#c5c4c1` |
+| 5 | sidebar | 84, 397 | 38×18 | 89.6 | `#cac9c4` | `#cac9c4` |
+| 6 | content | 1230, 750 | 22×22 | 125.4 | `#c64f70` | `#c65071` |
+| 7 | topbar | 1194, 20 | 22×20 | 93.8 | `#bfbdba` | `#cccbc8` |
+| 8 | content | 540, 234 | 54×12 | 73.1 | `#a9a8a4` | `#a9a8a4` |
 | 9 | topbar | 1092, 20 | 26×18 | 90.0 | `#d3d2ce` | `#e2e1dd` |
 | 10 | content | 850, 231 | 44×15 | 88.3 | `#e1e0dd` | `#dcdad7` |
 | 11 | topbar | 324, 26 | 34×12 | 98.0 | `#c9c7c4` | `#cdccc9` |
 | 12 | content | 784, 234 | 38×10 | 90.5 | `#cac8c5` | `#c4c3c0` |
 | 13 | content | 1108, 234 | 30×11 | 101.4 | `#cccac7` | `#c5c3c0` |
-| 14 | content | 1186, 234 | 26×11 | 111.5 | `#5a5954` | `#605e5a` |
-| 15 | content | 523, 282 | 37×13 | 97.0 | `#f6f5f2` | `#c6c5c1` |
-| 16 | content | 514, 230 | 17×18 | 100.6 | `#edceb6` | `#c0bfba` |
+| 14 | content | 518, 159 | 55×14 | 54.0 | `#dbdad6` | `#d5d4d0` |
+| 15 | content | 519, 282 | 37×13 | 97.8 | `#f6f5f2` | `#c6c5c1` |
+| 16 | content | 1186, 234 | 26×11 | 111.5 | `#5a5954` | `#605e5a` |
 | 17 | content | 1084, 278 | 22×17 | 84.4 | `#d8d7d3` | `#d2d1cd` |
-| 18 | content | 547, 159 | 42×19 | 52.1 | `#e2e1de` | `#d9d8d3` |
-| 19 | topbar | 1128, 20 | 24×19 | 86.8 | `#dad9d5` | `#e1e0dc` |
-| 20 | content | 440, 159 | 38×16 | 52.7 | `#e1e0dd` | `#d8d7d2` |
+| 18 | topbar | 1128, 20 | 24×19 | 86.8 | `#dad9d5` | `#e1e0dc` |
+| 19 | content | 514, 232 | 17×15 | 97.2 | `#edc9ae` | `#edccb3` |
+| 20 | content | 310, 310 | 944×2 | 11.0 | `#e1e0dc` | `#ecebe7` |
 
 Images: `design/report/calendar-side.png`, `calendar-diff.png`.
 
@@ -124,26 +124,26 @@ Images: `design/report/calendar-side.png`, `calendar-diff.png`.
 
 | # | region | x, y | w×h | mean Δ | ref | ours |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | content | 800, 522 | 336×202 | 67.1 | `#f8f5f2` | `#f8f8f4` |
-| 2 | content | 608, 552 | 200×110 | 89.6 | `#f2eeeb` | `#f8f8f4` |
-| 3 | content | 364, 62 | 69×26 | 133.3 | `#b9b8b4` | `#b9b7b4` |
-| 4 | content | 456, 732 | 23×19 | 177.9 | `#e6b2c0` | `#73716d` |
+| 1 | content | 696, 524 | 150×108 | 78.0 | `#f1ebe9` | `#f3f4f0` |
+| 2 | content | 364, 62 | 69×26 | 133.3 | `#b9b8b4` | `#b9b7b4` |
+| 3 | content | 480, 736 | 116×14 | 83.5 | `#e8e7e6` | `#d0cfcc` |
+| 4 | content | 456, 734 | 23×14 | 159.7 | `#dd96aa` | `#dfa2b1` |
 | 5 | content | 1230, 750 | 22×22 | 125.4 | `#c64f70` | `#c65071` |
-| 6 | content | 757, 458 | 14×40 | 136.7 | `#c4d6c7` | `#fbfaf7` |
-| 7 | content | 426, 314 | 19×19 | 152.9 | `#fbfaf7` | `#a9bfd5` |
-| 8 | content | 1146, 414 | 19×19 | 152.3 | `#fbfaf7` | `#d9a8a6` |
-| 9 | content | 413, 342 | 48×12 | 86.4 | `#faf9f6` | `#cccbc7` |
+| 6 | content | 659, 572 | 28×18 | 115.5 | `#c0d9c7` | `#d5e8da` |
+| 7 | content | 757, 458 | 14×40 | 136.7 | `#c4d6c7` | `#f8f7f4` |
+| 8 | content | 854, 577 | 25×18 | 119.2 | `#b9d6c2` | `#d1e6d7` |
+| 9 | content | 766, 660 | 18×20 | 126.7 | `#a9d1b8` | `#c5e0ce` |
 | 10 | content | 464, 128 | 73×14 | 50.7 | `#e1e0dd` | `#dad9d4` |
-| 11 | content | 766, 660 | 14×16 | 161.7 | `#81c09a` | `#fbfaf7` |
-| 12 | content | 316, 62 | 18×18 | 114.7 | `#bfbeba` | `#cac9c6` |
-| 13 | content | 485, 736 | 34×11 | 91.1 | `#e3e2e1` | `#c7c5c2` |
-| 14 | content | 1210, 69 | 25×14 | 98.3 | `#d5d4d1` | `#d0cecb` |
-| 15 | content | 562, 738 | 36×11 | 78.9 | `#dedddc` | `#bebcb9` |
-| 16 | content | 807, 303 | 20×20 | 113.2 | `#c1d3ed` | `#fbfaf7` |
-| 17 | content | 329, 128 | 54×15 | 50.6 | `#dbdad7` | `#d6d5d0` |
-| 18 | content | 1005, 130 | 28×13 | 90.7 | `#cbcbca` | `#d2d1cc` |
-| 19 | content | 1034, 130 | 31×14 | 88.3 | `#dadad9` | `#d8d7d2` |
-| 20 | content | 343, 62 | 20×21 | 114.9 | `#a2a19d` | `#a3a19e` |
+| 11 | content | 316, 62 | 18×18 | 114.7 | `#bfbeba` | `#cac9c6` |
+| 12 | content | 1210, 69 | 25×14 | 98.3 | `#d5d4d1` | `#d0cecb` |
+| 13 | content | 792, 334 | 44×12 | 82.5 | `#f7efee` | `#cccbc8` |
+| 14 | content | 329, 128 | 54×15 | 50.6 | `#dbdad7` | `#d6d5d0` |
+| 15 | content | 1005, 130 | 28×13 | 90.7 | `#cbcbca` | `#d2d1cc` |
+| 16 | content | 618, 736 | 27×11 | 92.9 | `#dfdfdd` | `#c1c0bc` |
+| 17 | content | 1034, 130 | 31×14 | 88.3 | `#dadad9` | `#d8d7d2` |
+| 18 | content | 592, 452 | 15×15 | 149.4 | `#cbe4e4` | `#c1e6e6` |
+| 19 | content | 343, 62 | 20×21 | 114.9 | `#a2a19d` | `#a3a19e` |
+| 20 | content | 360, 172 | 44×12 | 62.8 | `#dddddd` | `#dcdbd8` |
 
 Images: `design/report/graph-side.png`, `graph-diff.png`.
 
@@ -178,25 +178,25 @@ Images: `design/report/search-side.png`, `search-diff.png`.
 
 | # | region | x, y | w×h | mean Δ | ref | ours |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | sidebar | 30, 286 | 259×22 | 194.7 | `#2e2c27` | `#686763` |
-| 2 | sidebar | 30, 262 | 259×22 | 194.8 | `#676663` | `#2c2a25` |
-| 3 | sidebar | 132, 34 | 57×56 | 134.9 | `#dfdfde` | `#cbcac9` |
+| 1 | sidebar | 132, 34 | 57×56 | 134.9 | `#dfdfde` | `#cbcac9` |
+| 2 | sidebar | 30, 268 | 259×18 | 146.6 | `#2c2a25` | `#45433f` |
+| 3 | sidebar | 30, 292 | 259×18 | 146.6 | `#464440` | `#2e2c28` |
 | 4 | sidebar | 0, 0 | 320×342 | 47.0 | `#e7e5e5` | `#e6e5e4` |
-| 5 | sidebar | 30, 166 | 259×14 | 60.4 | `#f9f1f2` | `#f8f1f0` |
-| 6 | sidebar | 30, 200 | 259×13 | 60.2 | `#f7efef` | `#f8ecee` |
-| 7 | sidebar | 138, 276 | 28×20 | 113.9 | `#3d3c37` | `#4c4a46` |
-| 8 | sidebar | 179, 106 | 25×19 | 86.1 | `#adacaa` | `#aaa9a7` |
-| 9 | sidebar | 53, 182 | 19×17 | 83.4 | `#e2e1df` | `#d1d0cd` |
-| 10 | sidebar | 144, 68 | 10×24 | 123.6 | `#b9b8b6` | `#c1c0bf` |
-| 11 | sidebar | 170, 276 | 18×18 | 108.5 | `#3f3d38` | `#3a3833` |
-| 12 | sidebar | 76, 231 | 20×16 | 60.6 | `#e2e1de` | `#e3e2df` |
-| 13 | sidebar | 116, 110 | 12×15 | 91.7 | `#a5a4a2` | `#9f9f9c` |
-| 14 | sidebar | 44, 180 | 8×20 | 83.7 | `#dfdedc` | `#cecdc9` |
-| 15 | sidebar | 96, 228 | 13×18 | 60.4 | `#e2e1df` | `#e4e3df` |
-| 16 | sidebar | 131, 282 | 10×12 | 99.7 | `#5c5b56` | `#272520` |
-| 17 | sidebar | 151, 60 | 18×5 | 90.6 | `#a1a09e` | `#969593` |
-| 18 | sidebar | 128, 110 | 12×10 | 88.3 | `#a09f9d` | `#8f8e8b` |
-| 19 | sidebar | 44, 228 | 8×18 | 64.4 | `#e0dfdc` | `#e2e1dd` |
-| 20 | sidebar | 53, 231 | 8×16 | 61.1 | `#dddcda` | `#dfdeda` |
+| 5 | sidebar | 32, 206 | 257×8 | 70.9 | `#f5e7e8` | `#f5e9e9` |
+| 6 | sidebar | 179, 106 | 25×19 | 86.1 | `#adacaa` | `#aaa9a7` |
+| 7 | sidebar | 131, 282 | 24×16 | 108.6 | `#504e4a` | `#53514d` |
+| 8 | sidebar | 144, 68 | 10×24 | 123.6 | `#b9b8b6` | `#c1c0bf` |
+| 9 | sidebar | 172, 282 | 16×14 | 105.5 | `#504e4a` | `#53514d` |
+| 10 | sidebar | 116, 110 | 12×15 | 91.7 | `#a5a4a2` | `#9f9f9c` |
+| 11 | sidebar | 151, 60 | 18×5 | 90.6 | `#a1a09e` | `#969593` |
+| 12 | sidebar | 128, 110 | 12×10 | 88.3 | `#a09f9d` | `#8f8e8b` |
+| 13 | sidebar | 53, 190 | 19×10 | 46.1 | `#cfcecc` | `#b1b0ac` |
+| 14 | sidebar | 76, 142 | 8×12 | 63.1 | `#dad9d8` | `#d9d9d7` |
+| 15 | sidebar | 234, 145 | 7×10 | 67.6 | `#d0d0ce` | `#d0cfcd` |
+| 16 | sidebar | 129, 120 | 12×6 | 91.5 | `#91908e` | `#a1a09e` |
+| 17 | sidebar | 68, 238 | 7×10 | 61.9 | `#d4d3d1` | `#d6d5d2` |
+| 18 | sidebar | 61, 238 | 7×10 | 60.5 | `#d4d3d1` | `#d6d5d2` |
+| 19 | sidebar | 53, 238 | 8×10 | 62.7 | `#cfcfcd` | `#d1d0cd` |
+| 20 | sidebar | 218, 145 | 8×10 | 66.1 | `#d4d3d2` | `#d4d3d2` |
 
 Images: `design/report/signin-side.png`, `signin-diff.png`.
