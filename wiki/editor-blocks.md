@@ -66,6 +66,7 @@ other text, the new block is inserted **after** it.
 | **Callout** | Basic blocks | none |
 | **Embed a collection** | Basic blocks | none |
 | **Table of contents** | Basic blocks | none |
+| **Page** | Basic blocks | none |
 | **Sub-pages** | Basic blocks | none |
 | **Table** | Advanced | none |
 | **Diagram** | Advanced | none |
@@ -88,6 +89,7 @@ The seven salt.md blocks carry a one-line description in the menu:
 - **Bookmark / Embed**: *A link card, or a YouTube/Vimeo player*
 - **Embed a collection**: *Show an existing collection inside the document*
 - **Table of contents**: *Auto-generated list of every heading*
+- **Page**: *Create a subpage*
 - **Sub-pages**: *List of pages below this one*
 
 **Columns** is a block that holds nothing itself. Inserting it gives you two

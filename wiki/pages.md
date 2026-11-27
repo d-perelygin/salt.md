@@ -184,6 +184,12 @@ not:
 - **The number beside a section heading counts the whole section**, folded rows
   included, not the rows currently on screen.
 
+**A sub-page from the text.** Type `/page` in a document and choose **Page**:
+the child is created under that page, in the same workspace and with the same
+permissions as one made from the sidebar, and opens with its title ready to
+type. A collection row works the same way, so a task can grow its own notes
+without leaving the row.
+
 **Unfolding a database.** A collection in the tree has a chevron. Opening it
 lists its rows, so you can walk collection → row → sub-page without opening the
 table first. Two things about that list: it loads the **first 50
