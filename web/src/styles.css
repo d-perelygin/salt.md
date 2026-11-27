@@ -15758,9 +15758,18 @@ body:has(.live-down) .update-banner {
   padding: 4px;
   cursor: grab;
   color: var(--muted);
+  /* The grip owns the pointer: without this a finger drag scrolls the dialog
+     instead of reordering, and no pointermove arrives. */
+  touch-action: none;
 }
 
 .schema-drag-handle:active { cursor: grabbing; }
+/* A chip is a button and a drag source: no scrolling or callout from it, and a
+   long press must reach the hold timer rather than the system text menu. */
+.draggable-option {
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
 .schema-dragging { opacity: 0.5; }
 .schema-drop-before { box-shadow: 0 -2px 0 var(--accent); }
 .schema-drop-after { box-shadow: 0 2px 0 var(--accent); }
