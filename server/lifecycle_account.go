@@ -312,6 +312,10 @@ func (s *Server) handleSetUserDisabled(w http.ResponseWriter, r *http.Request) {
 		// every date in those workspaces indefinitely, with no sign-in.
 		s.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, id)
 		s.db.Exec(`DELETE FROM api_tokens WHERE user_id = ?`, id)
+		// And the connections an agent holds by signing in. auth refuses them
+		// while the account is off, but they came back to life the day it was
+		// switched on again.
+		s.endSignIns(id)
 		s.db.Exec(`DELETE FROM ics_feeds WHERE user_id = ?`, id)
 		// And the open editor: the collab socket is only checked when it
 		// connects. Without this, an account deactivated a moment ago carried on
