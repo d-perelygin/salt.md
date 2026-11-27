@@ -80,7 +80,7 @@ import { collectTags, suggestTags } from '../tagSuggest';
 import { modalOpen, useMenuDismiss } from '../modal';
 import { Menu, Star, Lock, LockOpen, Globe, MessageSquare, History, MoreHorizontal, Printer, FileCode, FileText, Upload, AlignLeft, Check, Image as ImageIcon, Smile, PanelRight, Link2, Trash2, FilePlus2, Columns2, Workflow, ClipboardList, ChevronsRight, Maximize2, SquareArrowOutUpRight, Pin, Undo2, Redo2, Copy, Sparkles, Lightbulb, Bookmark, Table2, List, Files, TriangleAlert, RefreshCw } from 'lucide-react';
 import { blockTypeFor, carriesExternalFiles } from '../dropFiles';
-import { InlineCommentButton, useInlineComments } from './InlineComments';
+import { InlineCommentButton, inlineCommentsExtension, useInlineComments, type InlineCommentsLive } from './InlineComments';
 
 // The dictionaries BlockNote ships for the languages the interface has.
 const blockNoteDictionaries: Record<string, typeof coreEn> = {
@@ -3035,8 +3035,13 @@ function BlockContent({
 }) {
   const aiEnabled = useAiEnabled();
   const blockNote = blockNoteDictionaries[getLocale()] ?? coreEn;
+  // Read by the comment highlighting, which has to be in the editor from the
+  // start: added later, it switched off undo (#145).
+  const [commentsLive] = useState<InlineCommentsLive>(() => ({ provider, comments, onOpen: onCommentOpen }));
+  const [commentsExtension] = useState(() => inlineCommentsExtension(commentsLive));
   const editor = useCreateBlockNote({
     schema: saltSchema,
+    extensions: [commentsExtension],
     collaboration: {
       provider,
       fragment: provider.doc.getXmlFragment('blocknote'),
@@ -3182,7 +3187,7 @@ function BlockContent({
       return defaultPasteHandler();
     },
   });
-  useInlineComments(editor, provider, comments, onCommentOpen, onAnchorStatuses);
+  useInlineComments(editor, commentsLive, provider, comments, onCommentOpen, onAnchorStatuses);
 
   // Doc undo for the ⋯ menu: BlockNote's own history, announced so the
   // topbar (outside this tree) can offer the buttons beside the collection
@@ -3190,12 +3195,15 @@ function BlockContent({
   // The states self-correct: a no-op call (empty stack) switches its own
   // side back off, and a fresh edit burns the redo tail, like everywhere.
   const [docUndo, setDocUndo] = useState({ canUndo: false, canRedo: false });
-  // Document history had two failures, both downstream of ProseMirror
-  // re-registering plugins once the view exists. It destroys the view of a
-  // plugin it replaced, and y-prosemirror's undo plugin answers destroy() with
-  // undoManager.destroy(): yjs unhooks the manager from the Y.Doc (undo found
-  // an empty stack) and drops it from its own tracked origins (an undo's own
-  // transaction stopped counting, so redo was never recorded).
+  // Document history had two failures. The first was downstream of
+  // ProseMirror re-registering plugins once the view exists: it destroys the
+  // view of a plugin it replaced, and y-prosemirror's undo plugin answers
+  // destroy() with undoManager.destroy(), which unhooks the manager from the
+  // Y.Doc (undo found an empty stack) and drops it from its own tracked
+  // origins (an undo's own transaction stopped counting, so redo was never
+  // recorded). The comment highlighting is part of the editor from its first
+  // render now, so nothing re-registers; this manager covers a plugin view
+  // destroyed for any other reason, and what comes next.
   //
   // The rest is BlockNote's block ids. y-prosemirror protects a paragraph from
   // an undo only while it has content: undoing the first edit on a page empties
