@@ -211,8 +211,9 @@ export default function App() {
       /* best-effort persistence */
     }
   }, [openTabs]);
-  // Pinned document tabs (browser-style): pinned ids lead the strip, survive
-  // "close others" and "close to the right", and are never navigated in place —
+  // Pinned document tabs: a pin is a mark, not a place in the strip. It keeps
+  // its tab across "close others" and "close to the right", and is never
+  // navigated in place —
   // following a link from a pinned tab opens after it instead. The order
   // invariant is that pins form the strip's prefix; pin/unpin/move keep it so.
   const [pinnedTabs, setPinnedTabs] = useState<string[]>(() => {
