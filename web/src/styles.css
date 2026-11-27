@@ -7148,15 +7148,15 @@ body.is-unsched-carry .tl-end-space {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  /* The rail reads as one shape: strips close together, not a list. */
+  gap: 1px;
   padding: 8px 4px 8px 12px;
 }
 .outline-bar {
   display: block;
-  /* The button itself is just a tall hit target; the visible strip is
-     painted by ::before so its corner radius is exact, not derived from
-     the padding box. */
-  height: 13px;
+  /* The button itself is just a hit target; the visible strip is painted by
+     ::before so its corner radius is exact, not derived from the padding box. */
+  height: 8px;
   padding: 0 2px 0 0;
   border: none;
   background: none;
@@ -7166,7 +7166,7 @@ body.is-unsched-carry .tl-end-space {
   content: '';
   display: block;
   height: 2px;
-  margin-top: 6px;
+  margin-top: 3px;
   border-radius: 1px;
   background-color: color-mix(in srgb, var(--fg) 60%, transparent);
   transition: background-color 0.12s ease, box-shadow 0.12s ease;
@@ -9284,6 +9284,38 @@ body.filter-dragging {
   overflow: hidden;
 }
 .page-description textarea::placeholder { color: var(--muted); opacity: 0.7; }
+
+/* While a row's schema is on its way the panel keeps its shape: placeholder
+   label and value lines, so the body does not jump when the properties land. */
+.row-props.is-loading {
+  pointer-events: none;
+}
+.skeleton-line {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  height: 10px;
+  margin-top: 7px;
+  border-radius: 5px;
+  background: var(--hover);
+}
+.row-prop-label .skeleton-line {
+  margin-top: 6px;
+}
+.skeleton-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 8%, transparent), transparent);
+  animation: skeleton-sweep 1.1s ease-in-out infinite;
+}
+@keyframes skeleton-sweep {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line::after { animation: none; }
+}
 
 /* Database-row property panel (Notion-style label · value under the title). */
 .row-props {
