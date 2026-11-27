@@ -170,6 +170,68 @@ export default function SchemaEditor({
   const [optionName, setOptionName] = useState('');
   const [optionAnchor, setOptionAnchor] = useState<HTMLElement | null>(null);
   const [colorPick, setColorPick] = useState<string | null>(null);
+  // Reordering by finger. Native drag events never fire on touch, so the grip
+  // and the option chips answer pointer events as well. A grip drags at once —
+  // it is a handle. A chip waits for a short hold, because a tap opens its
+  // editor and a swipe scrolls the dialog.
+  const pointerReorder = useRef<{
+    kind: 'prop' | 'option';
+    propId: string;
+    id: string;
+    targetId: string | null;
+    after: boolean;
+    armed: boolean;
+    startX: number;
+    startY: number;
+    hold: number;
+    scroller: HTMLElement | null;
+  } | null>(null);
+  // A drag ends on pointerup, and the click that follows must not open the
+  // option editor behind it.
+  const suppressOptionClick = useRef(false);
+
+  const scrollerFor = (el: Element | null): HTMLElement | null => {
+    for (let node = el instanceof HTMLElement ? el : null; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) return node;
+    }
+    return null;
+  };
+
+  const beginPointerReorder = (
+    e: React.PointerEvent,
+    kind: 'prop' | 'option',
+    propId: string,
+    id: string,
+  ) => {
+    if (e.pointerType === 'mouse') return; // a mouse keeps the native drag
+    setColorPick(null);
+    const state = {
+      kind,
+      propId,
+      id,
+      targetId: null,
+      after: false,
+      armed: kind === 'prop',
+      startX: e.clientX,
+      startY: e.clientY,
+      hold: 0,
+      scroller: scrollerFor(e.currentTarget as Element),
+    };
+    pointerReorder.current = state;
+    if (kind === 'prop') {
+      e.preventDefault();
+      setDragProperty(id);
+      setDropProperty(null);
+    } else {
+      state.hold = window.setTimeout(() => {
+        if (pointerReorder.current !== state) return;
+        state.armed = true;
+        setDragOption({ prop: propId, id });
+        setDropOption(null);
+      }, 320);
+    }
+  };
 
   const setOptionColor = (propId: string, optId: string, hex: string) =>
     setSchema((prev) =>
@@ -275,6 +337,94 @@ export default function SchemaEditor({
   };
 
   const removeProp = (id: string) => setSchema((prev) => prev.filter((p) => p.id !== id));
+
+  // Window listeners rather than pointer capture: a finger that leaves the
+  // dialog or a synthetic pointer in a test both keep reporting, and the drag
+  // still ends on pointerup.
+  useEffect(() => {
+    const clearHold = (state: { hold: number }) => {
+      if (state.hold) window.clearTimeout(state.hold);
+      state.hold = 0;
+    };
+    const onMove = (e: PointerEvent) => {
+      const drag = pointerReorder.current;
+      if (!drag) return;
+      if (!drag.armed) {
+        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 10) {
+          clearHold(drag);
+          pointerReorder.current = null; // it was a swipe, not a hold
+        }
+        return;
+      }
+      e.preventDefault();
+      if (drag.kind === 'prop') {
+        const row = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)
+          ?.closest<HTMLElement>('.schema-item[data-prop-id]');
+        const id = row?.dataset.propId ?? null;
+        if (!id || id === drag.id) {
+          drag.targetId = null;
+          setDropProperty(null);
+        } else {
+          const bounds = row!.getBoundingClientRect();
+          drag.targetId = id;
+          drag.after = e.clientY > bounds.top + bounds.height / 2;
+          setDropProperty({ id, after: drag.after });
+        }
+      } else {
+        const chip = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)
+          ?.closest<HTMLElement>('.opt-chip[data-opt-id]');
+        const propOf = chip?.closest<HTMLElement>('.schema-options')?.dataset.optProp;
+        const id = chip?.dataset.optId ?? null;
+        if (!id || propOf !== drag.propId || id === drag.id) {
+          drag.targetId = null;
+          setDropOption(null);
+        } else {
+          const bounds = chip!.getBoundingClientRect();
+          drag.targetId = id;
+          drag.after = e.clientX > bounds.left + bounds.width / 2;
+          setDropOption({ key: `${drag.propId}:${id}`, after: drag.after });
+        }
+      }
+      // A list taller than the dialog keeps moving while the finger rests at
+      // its edge.
+      const sc = drag.scroller;
+      if (sc) {
+        const bounds = sc.getBoundingClientRect();
+        if (e.clientY < bounds.top + 48) sc.scrollTop -= 12;
+        else if (e.clientY > bounds.bottom - 48) sc.scrollTop += 12;
+      }
+    };
+    const finish = (commit: boolean) => {
+      const drag = pointerReorder.current;
+      if (!drag) return;
+      pointerReorder.current = null;
+      clearHold(drag);
+      if (drag.armed && commit && drag.targetId && drag.targetId !== drag.id) {
+        if (drag.kind === 'prop') {
+          moveProperty(drag.id, drag.targetId, drag.after);
+        } else {
+          const targetId = drag.targetId;
+          setSchema((prev) => prev.map((property) => property.id === drag.propId
+            ? { ...property, options: reorderSelectOption(property.options ?? [], drag.id, targetId, drag.after) }
+            : property));
+          suppressOptionClick.current = true;
+        }
+      }
+      endPropertyDrag();
+      setDragOption(null);
+      setDropOption(null);
+    };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+    };
+  });
 
   const save = async () => {
     // The Code tab holds a draft that no longer compiles: the stored model
@@ -717,6 +867,7 @@ export default function SchemaEditor({
           {schema.map((p) => (
             <div
               key={p.id}
+              data-prop-id={p.id}
               className={'schema-item' +
                 (dragProperty === p.id ? ' schema-dragging' : '') +
                 (dropProperty?.id === p.id ? (dropProperty.after ? ' schema-drop-after' : ' schema-drop-before') : '')}
@@ -747,6 +898,7 @@ export default function SchemaEditor({
                   className="schema-drag-handle"
                   draggable
                   title={t('Drag to reorder property')}
+                  onPointerDown={(e) => beginPointerReorder(e, 'prop', '', p.id)}
                   onDragStart={(e) => {
                     e.stopPropagation();
                     e.dataTransfer.effectAllowed = 'move';
@@ -777,7 +929,7 @@ export default function SchemaEditor({
                 </button>
               </div>
               {(p.type === 'select' || p.type === 'multiselect') && (
-                <div className="schema-options">
+                <div className="schema-options" data-opt-prop={p.id}>
                     {(p.options ?? []).map((o) => {
                       const hex = o.color || autoOptionColor(o.name);
                       const key = `${p.id}:${o.id}`;
@@ -790,6 +942,8 @@ export default function SchemaEditor({
                               (dragOption?.prop === p.id && dragOption.id === o.id ? ' option-dragging' : '') +
                               (dropOption?.key === key ? (dropOption.after ? ' option-drop-after' : ' option-drop-before') : '')}
                             draggable
+                            data-opt-id={o.id}
+                            onPointerDown={(e) => beginPointerReorder(e, 'option', p.id, o.id)}
                             onDragStart={(e) => {
                               e.stopPropagation();
                               e.dataTransfer.effectAllowed = 'move';
@@ -824,7 +978,13 @@ export default function SchemaEditor({
                             }}
                             style={{ background: hex + '2e', color: hex }}
                             title={t('Click to edit; drag to reorder. Keyboard: Alt + Left/Right.')}
-                            onClick={(e) => { setOptionAnchor(e.currentTarget); setOptionName(o.name); setColorPick(colorPick === key ? null : key); }}
+                            onClick={(e) => {
+                              if (suppressOptionClick.current) {
+                                suppressOptionClick.current = false;
+                                return;
+                              }
+                              setOptionAnchor(e.currentTarget); setOptionName(o.name); setColorPick(colorPick === key ? null : key);
+                            }}
                           >
                             {o.name}
                           </button>

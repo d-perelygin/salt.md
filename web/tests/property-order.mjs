@@ -67,7 +67,53 @@ await withFixture(async ({ page, open, read, assertRows }) => {
   const before = await names();
   await drag(0, 1, true);
   assert.deepEqual(await names(), [before[1], before[0], ...before.slice(2)]);
+
+  // A finger reorders the same list. Native drag events never fire on touch,
+  // so the grip answers pointer events: down on the handle, move over the
+  // target's bottom half, up.
+  const touchDragProperty = async (source, target, after) => {
+    const from = await items.nth(source).locator('.schema-drag-handle').boundingBox();
+    const dest = await items.nth(target).boundingBox();
+    const at = { x: dest.x + 20, y: after ? dest.y + dest.height - 2 : dest.y + 2 };
+    await items.nth(source).locator('.schema-drag-handle').dispatchEvent('pointerdown', {
+      pointerType: 'touch', pointerId: 11, isPrimary: true, button: 0, buttons: 1,
+      clientX: from.x + from.width / 2, clientY: from.y + from.height / 2,
+      bubbles: true, cancelable: true,
+    });
+    await page.evaluate(({ x, y }) => window.dispatchEvent(new PointerEvent('pointermove', {
+      pointerType: 'touch', pointerId: 11, clientX: x, clientY: y, bubbles: true, cancelable: true,
+    })), at);
+    await page.evaluate(({ x, y }) => window.dispatchEvent(new PointerEvent('pointerup', {
+      pointerType: 'touch', pointerId: 11, clientX: x, clientY: y, bubbles: true,
+    })), at);
+  };
+  const beforeTouch = await names();
+  await touchDragProperty(0, 1, true);
+  assert.deepEqual(await names(), [beforeTouch[1], beforeTouch[0], ...beforeTouch.slice(2)]);
+
+  // Option chips reorder by finger as well, after a short hold: a tap still
+  // opens the option editor.
   await page.getByRole('tab', { name: 'Edit', exact: true }).click();
+  const chips = page.locator('.schema-options[data-opt-prop="labels"] .opt-chip');
+  const chipNames = () => chips.allInnerTexts();
+  const beforeOptions = await chipNames();
+  const first = await chips.first().boundingBox();
+  const second = await chips.nth(1).boundingBox();
+  await chips.first().dispatchEvent('pointerdown', {
+    pointerType: 'touch', pointerId: 12, isPrimary: true, button: 0, buttons: 1,
+    clientX: first.x + first.width / 2, clientY: first.y + first.height / 2,
+    bubbles: true, cancelable: true,
+  });
+  await page.waitForTimeout(400);
+  const overSecond = { x: second.x + second.width - 2, y: second.y + second.height / 2 };
+  await page.evaluate(({ x, y }) => window.dispatchEvent(new PointerEvent('pointermove', {
+    pointerType: 'touch', pointerId: 12, clientX: x, clientY: y, bubbles: true, cancelable: true,
+  })), overSecond);
+  await page.evaluate(({ x, y }) => window.dispatchEvent(new PointerEvent('pointerup', {
+    pointerType: 'touch', pointerId: 12, clientX: x, clientY: y, bubbles: true,
+  })), overSecond);
+  assert.deepEqual(await chipNames(), [beforeOptions[1], beforeOptions[0], ...beforeOptions.slice(2)]);
+
   assert.equal(await page.getByPlaceholder('New property name').isVisible(), true);
 });
 console.log('Property order: drag, save/cancel, reload, unchanged data and narrow layout passed.');
