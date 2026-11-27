@@ -113,3 +113,17 @@ bbox = `x, y, w×h`.
    сплошные; чтобы не пересчитывать каждый слой вручную, можно завести в
    FigCraft переменные с alpha (или отдельные композитные значения под
    поверхность).
+
+## 6. Corrections checked against web/src (28.11.2026)
+
+Two lines above read the screenshot, not the code. Read against `web/src`, they are wrong:
+
+1. **Toolbar labels are not mono.** §1/§2/§3 "подписи — моно 13px, шаг 7,8" contradicts
+   `styles.css:3426` `.btn-sm { font-size: 12.5px; }` — no `font-family`, so the label is the
+   UI face (Inter) at 12.5 px. The measured widths remain valid as targets, but the fix is the
+   button's box and padding, not a mono face. Open question 1 is answered by the code: there is
+   no mono class on `.btn-sm`.
+2. **The 9 px table tail has no cell.** §1 "правый край таблицы … остаток 9 px — пустая полоса"
+   is browser rounding of `width: 100%` with min/max column widths; `CollectionView.tsx` renders
+   only the schema columns (no filler `<td>`/`<th>`). The design should mirror the clipped table
+   edge, not add an empty column; if the edge needs the extra 7–9 px, widen the last column.
