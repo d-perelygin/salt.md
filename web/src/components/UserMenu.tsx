@@ -288,8 +288,11 @@ export default function UserMenu({ user, onLogout, onUserChanged, onOpenAgents, 
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    // pointerdown, like useMenuDismiss: a board card cancels the pointerdown
+    // so the browser starts no text selection, and a cancelled pointerdown
+    // sends no mousedown at all, so a click on a card left this menu open.
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
   }, [open]);
 
   return (

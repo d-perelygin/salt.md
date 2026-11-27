@@ -112,8 +112,10 @@ export default function AiEmptyLine(props: { editor: any; pageId: string; canEdi
       if (busy || wrapRef.current?.contains(e.target as Node)) return;
       close();
     };
-    document.addEventListener('mousedown', onDown, true);
-    return () => document.removeEventListener('mousedown', onDown, true);
+    // pointerdown, because a board card cancels its pointerdown to keep the
+    // browser from selecting text, and no mousedown follows.
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchor?.blockId, busy]);
 

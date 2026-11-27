@@ -269,6 +269,11 @@ export function useBoardDrag(
       const card = (e.currentTarget as HTMLElement).getBoundingClientRect();
       draggedRef.current = false;
       const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+      // The browser can start selecting the text around the card before the
+      // drag threshold is met, so a drag painted a blue selection over the
+      // page behind it (#142). Kept for a finger: there the press is also how
+      // a long list is scrolled before the hold wins.
+      if (!touch) e.preventDefault();
       live.current = {
         rowId,
         fromCol,

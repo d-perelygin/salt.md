@@ -34,6 +34,30 @@ await withFixture(async ({ page, api, base, path }) => {
   await eventually(async () => (await approved()) === true);
   assert.equal(page.url(), board, 'ticking must not open the card');
 
+  // Dragging a card must not select the text around it (#142). The drag
+  // threshold is crossed before anything moves, and by then the browser has
+  // already begun a selection, so the card keeps the pointerdown from the
+  // browser for a mouse.
+  const title = await card.locator('.board-card-title').boundingBox();
+  const boardBox = await page.locator('.board').boundingBox();
+  assert(title && boardBox);
+  await page.mouse.move(title.x + 12, title.y + title.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(title.x + 40, boardBox.y - 70, { steps: 16 });
+  await page.locator('.board-drag-ghost').waitFor();
+  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '', 'a card drag selected the text around it');
+  await page.mouse.up();
+  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '');
+  assert.equal(page.url(), board);
+  // The rest of the page still selects: the guard is on the card, not the app.
+  const heading = await page.locator('textarea.page-title').boundingBox();
+  assert(heading);
+  await page.mouse.move(heading.x + 3, heading.y + heading.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(heading.x + 100, heading.y + heading.height / 2, { steps: 10 });
+  await page.mouse.up();
+  assert(await page.locator('textarea.page-title').evaluate((input) => input.selectionEnd > input.selectionStart));
+
   // The card opens in the side peek, so the board (and its URL) stays put.
   await card.getByText('First row', { exact: true }).click();
   await eventually(async () => (await page.locator('.peek-panel').count()) === 1);

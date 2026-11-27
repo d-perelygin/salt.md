@@ -180,10 +180,12 @@ export default function IconPicker({ currentIcon, onPick, onRemove, onClose, pag
       if (ref.current && !ref.current.contains(t)) onClose();
     };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    document.addEventListener('mousedown', onDown);
+    // pointerdown, like useMenuDismiss: a board card cancels the pointerdown
+    // so the browser starts no text selection, which means no mousedown.
+    document.addEventListener('pointerdown', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('pointerdown', onDown);
       document.removeEventListener('keydown', onKey);
     };
   }, [onClose]);

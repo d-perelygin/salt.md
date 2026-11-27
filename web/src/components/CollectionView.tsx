@@ -2693,8 +2693,8 @@ function PersonFilterValue({ filter, onChange }: { filter: Filter; onChange: (pa
         setOpen(false);
       }
     };
-    window.addEventListener('mousedown', onDown);
-    return () => window.removeEventListener('mousedown', onDown);
+    window.addEventListener('pointerdown', onDown);
+    return () => window.removeEventListener('pointerdown', onDown);
   }, [open]);
 
   const picked = filterValues(filter);
