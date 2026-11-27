@@ -789,6 +789,7 @@
   "Override the sender address (optional, alias)": "Переопределить адрес отправителя (необязательно, псевдоним)",
   "Owner": "Ответственный",
   "Page": "Страница",
+  "Create a subpage": "Создать подстраницу",
   "Page access": "Доступ к странице",
   "Page access…": "Доступ к странице…",
   "Page access… (inherited)": "Доступ к странице… (унаследован)",

@@ -3648,6 +3648,14 @@ function BlockContent({
         onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'toc' } as never),
       },
       {
+        title: t('Page'),
+        subtext: t('Create a subpage'),
+        aliases: ['page', 'subpage', 'child', 'seite', 'unterseite', 'подстраница', 'дочерняя'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
+        group: editor.dictionary.slash_menu.paragraph.group,
+        icon: <FilePlus2 size={18} />,
+        onItemClick: () => onCreatePage(pageId),
+      },
+      {
         title: t('Sub-pages'),
         subtext: t('List of pages below this one'),
         aliases: ['subpages', 'unterseiten', 'children', 'sub-pages', 'подстраницы', 'дочерние', 'страницы', 'вложенные'], // i18n-ok: search aliases, deliberately trilingual so a German user can type it
