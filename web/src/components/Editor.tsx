@@ -2972,6 +2972,24 @@ function inlineContentToText(content: unknown): string {
     .join('');
 }
 
+/** Tab indents a block and Shift+Tab lifts it. Where neither is possible (the
+ *  first block has nothing to go under, a top-level block nothing to leave)
+ *  BlockNote lets the key through, although its own comment says it means to
+ *  keep it, and the browser moved the focus out of the text: on the first line
+ *  Tab landed in whatever came next on the page (#144). This runs after the
+ *  editor has had its turn, so a handled Tab arrives here already prevented.
+ *  With text selected the key is left alone, because then it leads into the
+ *  formatting toolbar; in a field inside a block (a diagram's source) it keeps
+ *  its ordinary meaning. */
+function keepTabInText(e: React.KeyboardEvent) {
+  if (e.key !== 'Tab' || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+  const target = e.target as HTMLElement;
+  if (!target.isContentEditable || target.closest('input, textarea, select')) return;
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  e.preventDefault();
+}
+
 function BlockContent({
   provider,
   pageId,
@@ -4350,6 +4368,7 @@ function BlockContent({
       <div
         className="editor-inner"
         onClickCapture={onFileClick}
+        onKeyDown={keepTabInText}
         onKeyDownCapture={(e) => {
           if (e.key === 'Backspace' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
             const surface = scrollRef.current?.querySelector('[contenteditable="true"]');

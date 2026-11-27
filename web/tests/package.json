@@ -48,6 +48,7 @@
     "inline-comments.mjs",
     "ai-chat-lifecycle.mjs",
     "login-2fa.mjs",
-    "language.mjs"
+    "language.mjs",
+    "editor-tab.mjs"
   ]
 }
