@@ -104,6 +104,11 @@ await withFixture(async ({ page, api, workspace, path, read }) => {
   await page.getByRole('checkbox', { name: 'Several people' }).check();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await eventually(async () => (await read()).schema.find((p) => p.id === 'team')?.personMultiple === true);
+  // The dialog closes once the save has answered, and this app deliberately
+  // reopens a dialog that was open when the page unloaded. Waiting on the
+  // server's copy alone was a race: the reload could land while the dialog
+  // was still up, and the reopened dialog then covered the table.
+  await page.locator('.modal-overlay').waitFor({ state: 'detached' });
 
   // A face in the stack opens that person's account page — on a board card
   // the face is the only way to ask "who is this" without opening the card.
