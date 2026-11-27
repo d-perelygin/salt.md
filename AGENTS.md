@@ -19,12 +19,14 @@
   painfully slow and is explicitly not wanted.
 - **While editing**: `go test ./...` when the change is Go (cached unless `web/dist`
   changed), `cd web && npx tsc --noEmit`, and only the browser tests the change touches:
-  `cd web/tests && node run.mjs mobile-shell board-edge-scroll`.
+  `cd web/tests && node run.mjs mobile-shell board-edge-scroll`. When the change is
+  broad, `cd web/tests && npm run test:fast` runs six critical files in about a minute.
 - **Before a push**: `cd web && npm run check` (~25s), `go test ./...`, then the whole
-  browser suite: `cd web/tests && npm test` — parallel, four workers, about three and a
-  half minutes instead of ~12 serially. Ten tests are currently red against merged
-  upstream UI and are listed at the end of a run; run the files around your change by
-  name until they are repaired. Security or concurrency changes also get
+  browser suite: `cd web/tests && npm test` — parallel, two workers by default
+  (`--jobs 4` when in a hurry), about two minutes instead of ~12 serially. A test that
+  fails under load and passes on its own is contention, not a regression: re-run that
+  file by name before chasing it. A Chrome launch that dies with a code-sign clone error
+  is macOS, not the test: re-run the file. Security or concurrency changes also get
   `go test -race -run TestSecurity_ ./server/...`.
 - Screenshots: `npm run check` names the stale ones; retake exactly those ids with
   `node scripts/shoot-wiki.mjs <id> …`.
@@ -35,6 +37,14 @@
   build when both are due in one cycle.
 - `node run.mjs --serial` restores the one-at-a-time order when a failure needs a clean,
   uncluttered log.
+
+### When a browser test is worth writing
+
+- A regression that already happened, a silent loss of data or access, or behaviour only
+  a real browser shows (touch, reload, routing). Visual work is covered by the screenshot
+  gate, copy and locales by `check-i18n`.
+- Prefer a step in an existing file: every file builds its own server and browser. A new
+  file is the exception, not the habit — and a test nobody would ever see fail is noise.
 
 ## UI conventions
 - Never draw a coloured emphasis outline on one side of a tab, card, field or

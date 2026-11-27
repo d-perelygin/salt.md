@@ -107,9 +107,16 @@ await withFixture(async ({ page, context, api, base, workspace, dataDir }) => {
   await switcher.click();
   await page.locator('.ai-panel .menu button', { hasText: 'Beta' }).click();
   await eventually(async () => (await unread()) === false);
+  // Let the selection's own history request land before resetting the marker:
+  // the server marks a chat read when its messages are fetched, and a request
+  // still in flight would set it again after this reset.
+  await page.waitForTimeout(400);
   markUnread();
   await page.locator('.ai-panel button[title="Close"]').click();
   await eventually(async () => (await page.locator('.ai-panel').isVisible()) === false);
+  // The state persists in an effect after the paint that hides the panel; a
+  // reload in that gap brings it back open, and an open panel is reading.
+  await eventually(async () => (await page.evaluate(() => localStorage.getItem('salt-ai-panel-open'))) === '0');
   await page.reload();
   await page.waitForTimeout(1200);
   assert.equal(await unread(), true, 'a chat nobody opened came back read');

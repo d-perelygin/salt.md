@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node run.mjs",
-    "test:serial": "node run.mjs --serial"
+    "test:serial": "node run.mjs --serial",
+    "test:fast": "node run.mjs ai-chat-lifecycle share doc-undo login-2fa property-order tabs"
   },
   "devDependencies": {
     "playwright": "1.63.0"
@@ -18,7 +19,6 @@
     "embeds.mjs",
     "people.mjs",
     "tabs.mjs",
-    "tab-strip.mjs",
     "sidebar-drop.mjs",
     "peek-sidebar.mjs",
     "board-top.mjs",
@@ -38,13 +38,11 @@
     "mobile-shell.mjs",
     "board-edge-scroll.mjs",
     "collection-defaults.mjs",
-    "share-menu.mjs",
-    "public-share.mjs",
+    "share.mjs",
     "slash-menu.mjs",
     "scroll-memory.mjs",
     "board-tick.mjs",
-    "oauth-consent.mjs",
-    "oauth-grants.mjs",
+    "oauth.mjs",
     "toolbar-menus.mjs",
     "menu-refresh.mjs",
     "inline-comments.mjs",
