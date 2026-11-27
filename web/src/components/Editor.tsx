@@ -890,7 +890,26 @@ function RowProperties({
     };
   }, [parentId]);
 
-  if (!config || config.schema.length === 0) return null;
+  // The schema is a second request after the page itself. Until it lands the
+  // panel used to be blank and the body jumped when the properties appeared;
+  // placeholders keep the shape and say something is coming.
+  if (!config) {
+    return (
+      <div className="row-props is-loading" aria-busy="true" aria-label={t('Loading…')}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="row-prop">
+            <div className="row-prop-label">
+              <span className="skeleton-line" style={{ width: `${62 - i * 8}%` }} />
+            </div>
+            <div className="row-prop-value">
+              <span className="skeleton-line" style={{ width: `${30 + i * 11}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (config.schema.length === 0) return null;
 
   const setProp = async (propId: string, value: unknown) => {
     const wf = config?.workflow;

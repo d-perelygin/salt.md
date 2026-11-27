@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -25,11 +26,18 @@ export async function withFixture(test) {
   let server;
   let browser;
   try {
-    const binary = join(temp, process.platform === 'win32' ? 'salt.exe' : 'salt');
-    const build = spawnSync(process.env.GO_BINARY || 'go', ['build', '-o', binary, '.'], {
-      cwd: root, encoding: 'utf8',
-    });
-    assert.equal(build.status, 0, build.stderr || String(build.error || 'Build failed'));
+    // A runner may build the binary once for the whole suite (run.mjs does);
+    // a test run on its own builds its own. GO_BINARY is the compiler in both.
+    const prebuilt = process.env.SALT_TEST_BINARY || '';
+    const binary = prebuilt || join(temp, process.platform === 'win32' ? 'salt.exe' : 'salt');
+    if (prebuilt) {
+      assert(existsSync(prebuilt), `SALT_TEST_BINARY does not exist: ${prebuilt}`);
+    } else {
+      const build = spawnSync(process.env.GO_BINARY || 'go', ['build', '-o', binary, '.'], {
+        cwd: root, encoding: 'utf8',
+      });
+      assert.equal(build.status, 0, build.stderr || String(build.error || 'Build failed'));
+    }
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SALT_')));
     // Two workers can pick the same free port in the gap between closing the
     // probe listener and the server binding it, and a run.mjs worker pool makes
