@@ -91,6 +91,11 @@
   The shoot script reads `SALT_SHOOT_EMAIL` / `SALT_SHOOT_PASSWORD` (and
   `SALT_SHOOT_FRESH_URL`, a second empty instance, for `setup-welcome`); with
   them unset it waits for the sidebar after an empty sign-in and times out.
+- `shoot-wiki.mjs` also rewrites `.github/hero.png` at the end of a run. Its
+  source did not change with the shot that made you run it, so check `git
+  status` and revert the hero if the pictures you retook were not about it.
+  A seeded throwaway for this: `tmp/shots-data*/salt.db`, account
+  `ada@example.com` (see `web/scripts/seed-wiki-instance.mjs`).
 - `vite build` and `go build` must run from the repo root for the binary to
   embed the fresh `web/dist` (running them under `web/` builds nothing Go).
 
