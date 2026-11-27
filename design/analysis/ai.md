@@ -371,7 +371,47 @@ cursor `#7c6cf5`, openclaw `#b45309`, hermes `#0ea5e9`, gemini `#4285f4`, generi
 | Токены: `Color` (Light/Dark), `Space & Radius`, `Type` | — | не хватает: radius 6/8/12/16, size 26/28/30/32/34/40/44, shadow-токенов, line-height, `--accent-fg`/`--danger-soft`/`--success`/`--warning` |
 
 Кадры, которые уже есть: Document, Search, Table, Board, Calendar, Graph, Settings, Sign in,
-Mobile Document/Pages, Dark Document/Board. **AI-кадров нет ни одного** — ни чата, ни панели.
+Mobile Document/Pages, Dark Document/Board, и вся страница `06 · AI` (A1–A8).
+
+### 4.1 Что уже переведено на инстансы (06 · AI, node 6595)
+
+Библиотека AI — на `02 · Components`, x ≥ 2000: шесть наборов (`AI / Bubble` 4 варианта,
+`AI / Run Summary` 3, `AI / Step Row` 4, `AI / Approval Card` 3, `AI / Thread Row` 4
+(normal/unread/archived/active), `AI / Composer` 2), набор `AI / Empty State`
+(Device=Desktop 680×204, Device=Phone 342×339) и шесть одиночек (`AI / Artifact Row`,
+`AI / Agent Badge`, `AI / Thinking`, `AI / Panel Header`, `AI / Memory Row`,
+`AI / Attachment Row`).
+
+Варианты несут свой контент: текст снят с кадра (cut → paste в компонент), поэтому стиль
+и позиции совпадают до пикселя. Копия на кадре задаётся текстовыми свойствами
+`Label` (и `Sub` у `AI / Thread Row`), размер — `node.set width/height` на инстансе,
+`Send` в композере держится правым constraint'ом.
+
+| Кадр | Инстансов | Что именно |
+| --- | ---: | --- |
+| A1 | 5 | 3 × Thread Row (unread/normal/normal), Empty State · Desktop, Composer · idle |
+| A2 | 13 | Bubble · Human, Run Summary · done, 3 × Step Row, 2 × Artifact Row, 2 × Attachment Row, Composer · idle, 3 × Thread Row (active/normal/normal) |
+| A3 | 10 | Bubble · Human, Run Summary · running, 4 × Step Row, Composer · busy, 3 × Thread Row |
+| A4 | 3 | 3 × Thread Row |
+| A5 | 2 | Panel Header, Composer · idle (376) |
+| A6 | 1 | Agent Badge (fresh) |
+| A7 | 2 | Agent Badge (fresh, stale с opacity .55) |
+| A8 | 2 | Empty State · Phone, Composer · idle (342) |
+
+Остались нарисованными (компонента нет, по одному экземпляру на кадр): сайдбар A1–A4
+(поиск, табы, «New chat», футер; в A1 — инстанс `Sidebar` + нарисованные поверх табы),
+карточка вопроса и карточка ошибки в A4, контекст/строки действий/цитата в A5,
+меню форматирования, AI Block и инлайн-пилюля в A6, Connect-диалог в A7, dock в A8,
+текст ответа в A2. `AI / Approval Card`, `AI / Thinking`, `AI / Memory Row` собраны,
+но ни один кадр их не показывает: меню режимов одобрений, поповер памяти и отдельная
+строка «Thinking…» в макетах не нарисованы — это кандидаты в волны 07–11.
+
+Расхождения с прежней отрисовкой, оставленные сознательно: у композера `Send` стоит
+в 12 px от правого края (как в `aiChat.css`), в нарисованных 812-кадрах было 20;
+старый бейдж `Cursor` гаснет целиком (`opacity .55` у `.agent-work`), а не только рамкой;
+композер в A8 получил триггер одобрений (он есть в общем компоненте, в кадре его не рисовали);
+A3 показывает текст шагов (в предыдущей версии файла он был потерян при замене на пустые
+инстансы), шаг — та же однострочная inline-строка, что и в A2.
 
 ---
 
